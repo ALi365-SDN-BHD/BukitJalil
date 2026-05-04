@@ -294,6 +294,10 @@ BukitJalil does not directly render HTML. Instead, it:
 - 🔗 Handoff: passes schema to Bukit
 - 🏗️ Build: lets Bukit create static output
 
+Bukit library:
+
+- [Bukit](https://github.com/ALi365-SDN-BHD/Bukit.git)
+
 ## 💼 Use Cases
 
 - 🏢 Corporate websites
