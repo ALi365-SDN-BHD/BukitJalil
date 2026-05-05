@@ -1,7 +1,10 @@
 @page "/workspace"
 @inject IProviderRegistry ProviderRegistry
 @inject ISettingsStore SettingsStore
+@inject IWorkspaceConversationStore ConversationStore
+@inject ISystemClock Clock
 @inject IJSRuntime JS
+@using BukitJalil.Infrastructure
 
 <PageTitle>Workspace</PageTitle>
 
@@ -10,8 +13,8 @@
         <p class="workspace-page__eyebrow">Workspace</p>
         <h1>AI building workspace shell</h1>
         <p class="workspace-page__lede">
-            This shell now supports local provider selection, a live transcript, a deterministic fake
-            response path, and a first OpenAI-compatible provider path.
+            This shell now restores saved chats, keeps provider choice per conversation, and persists
+            the active workspace flow across app restarts.
         </p>
     </header>
 
@@ -19,15 +22,37 @@
         <section class="workspace-panel">
             <div class="workspace-panel__header">
                 <div>
-                    <p class="workspace-panel__eyebrow">Conversation</p>
-                    <h2>Chat panel</h2>
+                    <p class="workspace-panel__eyebrow">Conversations</p>
+                    <h2>Saved chats</h2>
                 </div>
+                <button class="btn btn-primary" @onclick="CreateConversation" disabled="@_session.IsSending">New conversation</button>
+            </div>
+
+            <div class="form-stack">
+                @foreach (var conversation in _shell.Conversations)
+                {
+                    <button class="btn @(conversation.Id == _shell.CurrentConversation.Id ? "btn-primary" : string.Empty)"
+                            @onclick="() => SwitchConversation(conversation.Id)"
+                            disabled="@_session.IsSending">
+                        @conversation.Title
+                    </button>
+                }
+            </div>
+        </section>
+
+        <section class="workspace-panel">
+            <div class="workspace-panel__header">
+                <div>
+                    <p class="workspace-panel__eyebrow">Conversation</p>
+                    <h2>@_shell.CurrentConversation.Title</h2>
+                </div>
+                <button class="btn" @onclick="DeleteCurrentConversation" disabled="@_session.IsSending">Delete conversation</button>
             </div>
 
             <div id="workspace-transcript" class="chat-transcript">
                 @if (_session.Messages.Count == 0)
                 {
-                    <p class="empty-state">No messages yet. Send a prompt to exercise the fake provider flow.</p>
+                    <p class="empty-state">No messages yet. Start a new conversation.</p>
                 }
                 else
                 {
@@ -52,7 +77,11 @@
 
             <div class="form-stack">
                 <label class="field-label" for="provider">Provider</label>
-                <InputSelect id="provider" class="field-input" @bind-Value="_session.SelectedProviderId" disabled="@_session.IsSending">
+                <InputSelect id="provider"
+                             class="field-input"
+                             @bind-Value="_session.SelectedProviderId"
+                             @bind-Value:after="PersistConversation"
+                             disabled="@_session.IsSending">
                     @foreach (var provider in _providers)
                     {
                         <option value="@provider.Id">@provider.DisplayName</option>
@@ -82,6 +111,7 @@
 </section>
 
 @code {
+    private WorkspaceShellState _shell = default!;
     private WorkspaceSession _session = default!;
     private IReadOnlyList<ProviderDescriptor> _providers = [];
     private string _input = string.Empty;
@@ -95,7 +125,11 @@
         var defaultProviderId = WorkspaceDefaultProviderSelector.Resolve(
             _providers,
             settings.DefaultProvider);
-        _session = new WorkspaceSession(ProviderRegistry, defaultProviderId);
+        _shell = new WorkspaceShellState(ConversationStore, () => Clock.UtcNow, defaultProviderId);
+        _shell.Initialize();
+
+        _session = new WorkspaceSession(ProviderRegistry);
+        _session.Bind(_shell.CurrentConversation);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -120,6 +154,20 @@
 
         if (hadInput && !_session.IsSending)
         {
+            if (_shell.CurrentConversation.Title == WorkspaceConversation.DefaultTitle)
+            {
+                var firstUserMessage = _shell.CurrentConversation.Messages
+                    .FirstOrDefault(item => item.Role == LlmRole.User)?
+                    .Content;
+
+                if (!string.IsNullOrWhiteSpace(firstUserMessage))
+                {
+                    _shell.CurrentConversation.Title = firstUserMessage[..Math.Min(firstUserMessage.Length, 40)];
+                }
+            }
+
+            _shell.CurrentConversation.UpdatedAtUtc = Clock.UtcNow;
+            _shell.SaveCurrent();
             _input = string.Empty;
             _shouldFocusPrompt = true;
         }
@@ -141,6 +189,34 @@
     private void ClearConversation()
     {
         _session.Clear();
+        _shell.CurrentConversation.UpdatedAtUtc = Clock.UtcNow;
+        _shell.SaveCurrent();
         _shouldFocusPrompt = true;
+    }
+
+    private void CreateConversation()
+    {
+        _shell.CreateConversation(_session.SelectedProviderId);
+        _session.Bind(_shell.CurrentConversation);
+        _shouldFocusPrompt = true;
+    }
+
+    private void SwitchConversation(string conversationId)
+    {
+        _shell.SwitchConversation(conversationId);
+        _session.Bind(_shell.CurrentConversation);
+    }
+
+    private void DeleteCurrentConversation()
+    {
+        _shell.DeleteConversation(_shell.CurrentConversation.Id);
+        _session.Bind(_shell.CurrentConversation);
+        _shouldFocusPrompt = true;
+    }
+
+    private void PersistConversation()
+    {
+        _shell.CurrentConversation.UpdatedAtUtc = Clock.UtcNow;
+        _shell.SaveCurrent();
     }
 }
