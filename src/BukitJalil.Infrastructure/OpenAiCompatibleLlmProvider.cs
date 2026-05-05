@@ -25,7 +25,8 @@ public sealed class OpenAiCompatibleLlmProvider(ISettingsStore settingsStore, Ht
             return Failure("OpenAI-compatible provider Base URL is invalid. Update it in Settings.");
         }
 
-        var endpoint = new Uri(baseUri, "chat/completions");
+        var normalizedBaseUri = new Uri($"{baseUri.ToString().TrimEnd('/')}/");
+        var endpoint = new Uri(normalizedBaseUri, "chat/completions");
         var payload = new
         {
             model = settings.ProviderModel,
@@ -42,22 +43,22 @@ public sealed class OpenAiCompatibleLlmProvider(ISettingsStore settingsStore, Ht
         };
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ProviderApiKey);
 
-        HttpResponseMessage response;
+        string json;
         try
         {
-            response = await httpClient.SendAsync(message, cancellationToken);
+            using var response = await httpClient.SendAsync(message, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return Failure($"OpenAI-compatible request failed with status {(int)response.StatusCode}.");
+            }
+
+            json = await response.Content.ReadAsStringAsync(cancellationToken);
         }
         catch (Exception)
         {
             return Failure("OpenAI-compatible request failed. Please check network or provider settings.");
         }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            return Failure($"OpenAI-compatible request failed with status {(int)response.StatusCode}.");
-        }
-
-        var json = await response.Content.ReadAsStringAsync(cancellationToken);
 
         try
         {

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using BukitJalil.Core;
 using BukitJalil.Infrastructure;
 
@@ -51,6 +52,86 @@ public sealed class OpenAiCompatibleLlmProviderTests
 
         Assert.Equal(LlmRole.Assistant, response.Message.Role);
         Assert.Equal("Generated reply", response.Message.Content);
+    }
+
+    [Fact]
+    public async Task ChatAsync_builds_request_using_configured_base_url_headers_and_messages()
+    {
+        var settings = new AppSettings
+        {
+            ProviderBaseUrl = "https://api.openai.com/v1",
+            ProviderApiKey = "key",
+            ProviderModel = "gpt-4.1-mini"
+        };
+
+        Uri? requestUri = null;
+        string? authorization = null;
+        string? body = null;
+
+        var store = new FakeSettingsStore(settings);
+        using var client = new HttpClient(new StubHandler(request =>
+        {
+            requestUri = request.RequestUri;
+            authorization = request.Headers.Authorization?.ToString();
+            body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"choices\":[{\"message\":{\"content\":\"Generated reply\"}}]}",
+                    Encoding.UTF8,
+                    "application/json")
+            };
+        }));
+        var provider = new OpenAiCompatibleLlmProvider(store, client);
+
+        await provider.ChatAsync(new LlmChatRequest(
+        [
+            new LlmMessage(LlmRole.System, "You are a site builder."),
+            new LlmMessage(LlmRole.User, "Build a homepage")
+        ]));
+
+        Assert.Equal("https://api.openai.com/v1/chat/completions", requestUri?.ToString());
+        Assert.Equal("Bearer key", authorization);
+
+        using var payload = JsonDocument.Parse(body!);
+        Assert.Equal("gpt-4.1-mini", payload.RootElement.GetProperty("model").GetString());
+
+        var messages = payload.RootElement.GetProperty("messages");
+        Assert.Equal(2, messages.GetArrayLength());
+        Assert.Equal("system", messages[0].GetProperty("role").GetString());
+        Assert.Equal("You are a site builder.", messages[0].GetProperty("content").GetString());
+        Assert.Equal("user", messages[1].GetProperty("role").GetString());
+        Assert.Equal("Build a homepage", messages[1].GetProperty("content").GetString());
+    }
+
+    [Fact]
+    public async Task ChatAsync_disposes_http_response_after_reading()
+    {
+        var settings = new AppSettings
+        {
+            ProviderBaseUrl = "https://api.openai.com/v1",
+            ProviderApiKey = "key",
+            ProviderModel = "gpt-4.1-mini"
+        };
+        var disposed = false;
+
+        var store = new FakeSettingsStore(settings);
+        using var client = new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new TrackingContent(
+                    "{\"choices\":[{\"message\":{\"content\":\"Generated reply\"}}]}",
+                    () => disposed = true)
+            }));
+        var provider = new OpenAiCompatibleLlmProvider(store, client);
+
+        _ = await provider.ChatAsync(new LlmChatRequest(
+        [
+            new LlmMessage(LlmRole.User, "Hello")
+        ]));
+
+        Assert.True(disposed);
     }
 
     [Fact]
@@ -164,6 +245,19 @@ public sealed class OpenAiCompatibleLlmProviderTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             return Task.FromResult(responseFactory(request));
+        }
+    }
+
+    private sealed class TrackingContent(string content, Action onDispose) : StringContent(content, Encoding.UTF8, "application/json")
+    {
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                onDispose();
+            }
+
+            base.Dispose(disposing);
         }
     }
 }

@@ -20,4 +20,36 @@ public sealed class WorkspaceDefaultProviderSelectorTests
 
         Assert.Equal("openai-compatible", selectedProviderId);
     }
+
+    [Fact]
+    public void Resolve_falls_back_to_first_provider_when_configured_default_is_blank()
+    {
+        var providers = new[]
+        {
+            new ProviderDescriptor("fake", "Fake Provider", true),
+            new ProviderDescriptor("openai-compatible", "OpenAI-Compatible", false)
+        };
+
+        var selectedProviderId = WorkspaceDefaultProviderSelector.Resolve(
+            providers,
+            string.Empty);
+
+        Assert.Equal("fake", selectedProviderId);
+    }
+
+    [Fact]
+    public void Resolve_falls_back_to_first_provider_when_configured_default_is_missing()
+    {
+        var providers = new[]
+        {
+            new ProviderDescriptor("fake", "Fake Provider", true),
+            new ProviderDescriptor("openai-compatible", "OpenAI-Compatible", false)
+        };
+
+        var selectedProviderId = WorkspaceDefaultProviderSelector.Resolve(
+            providers,
+            "anthropic");
+
+        Assert.Equal("fake", selectedProviderId);
+    }
 }
