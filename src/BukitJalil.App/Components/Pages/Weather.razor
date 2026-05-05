@@ -1,0 +1,25 @@
+@page "/platforms"
+
+<PageTitle>Platforms</PageTitle>
+
+<section class="workspace-page">
+    <header class="workspace-page__header">
+        <p class="workspace-page__eyebrow">Platforms</p>
+        <h1>Deployment target management</h1>
+        <p class="workspace-page__lede">
+            Deployment targets will store GitHub Pages, Vercel, Netlify, and Cloudflare Pages settings.
+            The scaffold reserves a dedicated surface before the deployment workflow is implemented.
+        </p>
+    </header>
+
+    <div class="workspace-page__grid">
+        <SectionCard
+            Eyebrow="P0"
+            Title="GitHub Pages first"
+            Description="V1 will prioritize GitHub Pages so deployment can be verified end-to-end as early as possible." />
+        <SectionCard
+            Eyebrow="P2"
+            Title="Additional platforms"
+            Description="Vercel, Netlify, and Cloudflare Pages stay on the roadmap without blocking the first release." />
+    </div>
+</section>

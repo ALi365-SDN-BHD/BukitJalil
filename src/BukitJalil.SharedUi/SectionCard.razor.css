@@ -1,0 +1,28 @@
+.section-card {
+    padding: 1.25rem;
+    border: 1px solid #dbe3f0;
+    border-radius: 0.9rem;
+    background: #ffffff;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.section-card__eyebrow {
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #49648a;
+}
+
+.section-card h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1.05rem;
+    color: #10233f;
+}
+
+.section-card p {
+    margin: 0;
+    color: #4f627d;
+    line-height: 1.5;
+}

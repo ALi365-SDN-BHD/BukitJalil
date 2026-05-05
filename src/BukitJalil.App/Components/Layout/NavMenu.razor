@@ -1,0 +1,24 @@
+@inject IAppShellCatalog AppShellCatalog
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">BukitJalil</a>
+        <div class="navbar-caption">V1 Scaffold</div>
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        @foreach (var item in AppShellCatalog.Items)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="@item.Route" Match="@(item.Route == "/projects" ? NavLinkMatch.Prefix : NavLinkMatch.All)">
+                    <span class="nav-title">@item.Title</span>
+                    <span class="nav-description">@item.Description</span>
+                </NavLink>
+            </div>
+        }
+    </nav>
+</div>

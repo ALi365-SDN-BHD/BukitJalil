@@ -1,1 +1,13 @@
 AIBuilding/
+src/BukitJalil.App/bin/
+src/BukitJalil.App/obj/
+src/BukitJalil.Core/obj/
+src/BukitJalil.Core/bin/
+src/BukitJalil.Infrastructure/obj/
+src/BukitJalil.Infrastructure/bin/
+tests/BukitJalil.Infrastructure.Tests/obj/
+tests/BukitJalil.Infrastructure.Tests/bin/
+tests/BukitJalil.Core.Tests/obj/
+tests/BukitJalil.Core.Tests/bin/
+src/BukitJalil.SharedUi/obj/
+src/BukitJalil.SharedUi/bin/

@@ -1,0 +1,25 @@
+@page "/workspace"
+
+<PageTitle>Workspace</PageTitle>
+
+<section class="workspace-page">
+    <header class="workspace-page__header">
+        <p class="workspace-page__eyebrow">Workspace</p>
+        <h1>AI building workspace shell</h1>
+        <p class="workspace-page__lede">
+            The main workspace will host chat, preview, code, files, build, and logs. V1 starts with
+            layout boundaries and dependency injection already in place.
+        </p>
+    </header>
+
+    <div class="workspace-page__grid">
+        <SectionCard
+            Eyebrow="Chat"
+            Title="Conversational workflow"
+            Description="Prompt input, provider selection, and message history live in the right-side assistant area." />
+        <SectionCard
+            Eyebrow="Preview"
+            Title="Preview and code"
+            Description="The central workspace will evolve into preview, code, file tree, build, and log panels." />
+    </div>
+</section>

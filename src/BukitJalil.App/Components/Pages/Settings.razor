@@ -1,0 +1,24 @@
+@page "/settings"
+
+<PageTitle>Settings</PageTitle>
+
+<section class="workspace-page">
+    <header class="workspace-page__header">
+        <p class="workspace-page__eyebrow">Settings</p>
+        <h1>Environment and provider configuration</h1>
+        <p class="workspace-page__lede">
+            Settings will hold Bukit paths, document sources, default providers, and future model-specific options.
+        </p>
+    </header>
+
+    <div class="workspace-page__grid">
+        <SectionCard
+            Eyebrow="Bukit"
+            Title="Workspace dependencies"
+            Description="Configure Bukit CLI paths, preview behavior, and local project storage roots." />
+        <SectionCard
+            Eyebrow="AI"
+            Title="Provider setup"
+            Description="Choose the default provider and prepare the shell for future API keys and model options." />
+    </div>
+</section>
