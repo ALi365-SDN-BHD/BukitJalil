@@ -65,14 +65,18 @@ public sealed class OpenAiCompatibleLlmProviderTests
         };
 
         Uri? requestUri = null;
+        HttpMethod? requestMethod = null;
         string? authorization = null;
+        string? contentType = null;
         string? body = null;
 
         var store = new FakeSettingsStore(settings);
         using var client = new HttpClient(new StubHandler(request =>
         {
             requestUri = request.RequestUri;
+            requestMethod = request.Method;
             authorization = request.Headers.Authorization?.ToString();
+            contentType = request.Content?.Headers.ContentType?.MediaType;
             body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
 
             return new HttpResponseMessage(HttpStatusCode.OK)
@@ -92,7 +96,9 @@ public sealed class OpenAiCompatibleLlmProviderTests
         ]));
 
         Assert.Equal("https://api.openai.com/v1/chat/completions", requestUri?.ToString());
+        Assert.Equal(HttpMethod.Post, requestMethod);
         Assert.Equal("Bearer key", authorization);
+        Assert.Equal("application/json", contentType);
 
         using var payload = JsonDocument.Parse(body!);
         Assert.Equal("gpt-4.1-mini", payload.RootElement.GetProperty("model").GetString());

@@ -52,4 +52,14 @@ public sealed class WorkspaceDefaultProviderSelectorTests
 
         Assert.Equal("fake", selectedProviderId);
     }
+
+    [Fact]
+    public void Resolve_falls_back_to_fake_when_no_providers_are_available()
+    {
+        var selectedProviderId = WorkspaceDefaultProviderSelector.Resolve(
+            [],
+            "openai-compatible");
+
+        Assert.Equal("fake", selectedProviderId);
+    }
 }
