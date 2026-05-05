@@ -54,7 +54,7 @@ public sealed class WorkspaceDefaultProviderSelectorTests
     }
 
     [Fact]
-    public void Resolve_falls_back_to_fake_when_no_providers_are_available()
+    public void Resolve_returns_fake_when_providers_list_is_empty()
     {
         var selectedProviderId = WorkspaceDefaultProviderSelector.Resolve(
             [],
