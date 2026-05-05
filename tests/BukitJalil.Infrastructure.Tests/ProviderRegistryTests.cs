@@ -20,6 +20,20 @@ public sealed class ProviderRegistryTests
     }
 
     [Fact]
+    public void ProviderRegistry_lists_openai_compatible_provider()
+    {
+        var services = new ServiceCollection();
+        services.AddBukitJalilInfrastructure(options =>
+            options.AppDataDirectory = Path.Combine(Path.GetTempPath(), "bj-registry-tests", Guid.NewGuid().ToString("N")));
+
+        using var provider = services.BuildServiceProvider();
+        var registry = provider.GetRequiredService<IProviderRegistry>();
+
+        Assert.Contains(registry.List(), item => item.Id == "openai-compatible");
+        Assert.NotNull(registry.Get("openai-compatible"));
+    }
+
+    [Fact]
     public async Task FakeProvider_returns_deterministic_response()
     {
         var fake = new FakeLlmProvider();

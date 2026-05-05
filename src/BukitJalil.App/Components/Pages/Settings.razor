@@ -32,6 +32,15 @@
                     <label class="field-label" for="default-provider">Default provider</label>
                     <InputText id="default-provider" class="field-input" @bind-Value="_settings.DefaultProvider" />
 
+                    <label class="field-label" for="provider-base-url">Provider base URL</label>
+                    <InputText id="provider-base-url" class="field-input" @bind-Value="_settings.ProviderBaseUrl" />
+
+                    <label class="field-label" for="provider-api-key">Provider API key</label>
+                    <InputText id="provider-api-key" class="field-input" @bind-Value="_settings.ProviderApiKey" />
+
+                    <label class="field-label" for="provider-model">Provider model</label>
+                    <InputText id="provider-model" class="field-input" @bind-Value="_settings.ProviderModel" />
+
                     <button class="btn btn-primary" type="submit">Save settings</button>
                 </div>
             </EditForm>
@@ -46,7 +55,7 @@
             <SectionCard
                 Eyebrow="Next"
                 Title="Platform and provider expansion"
-                Description="This page now persists Bukit path, docs path, and default provider. More advanced provider options can layer on top of the same store." />
+                Description="This page now persists Bukit path, docs path, default provider, and the first OpenAI-compatible provider settings." />
         </section>
     </div>
 </section>

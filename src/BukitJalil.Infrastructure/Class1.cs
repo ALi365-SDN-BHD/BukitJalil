@@ -28,7 +28,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISettingsStore, LiteDbSettingsStore>();
         services.AddSingleton<IProjectStore, LiteDbProjectStore>();
         services.AddSingleton<IPlatformStore, LiteDbPlatformStore>();
+        services.AddHttpClient<OpenAiCompatibleLlmProvider>();
         services.AddSingleton<ILlmProvider, FakeLlmProvider>();
+        services.AddSingleton<ILlmProvider>(serviceProvider => serviceProvider.GetRequiredService<OpenAiCompatibleLlmProvider>());
         services.AddSingleton<IProviderRegistry, ProviderRegistry>();
         return services;
     }

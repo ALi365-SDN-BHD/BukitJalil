@@ -14,7 +14,6 @@ internal sealed class AppDatabase : IDisposable
         _database = new LiteDatabase(options.DatabasePath);
 
         Projects.EnsureIndex(project => project.Id, unique: true);
-        Settings.EnsureIndex(settings => settings.Id, unique: true);
         Platforms.EnsureIndex(target => target.Id, unique: true);
     }
 
@@ -39,6 +38,12 @@ internal sealed class AppSettingsDocument
     public string DocumentsPath { get; set; } = string.Empty;
 
     public string DefaultProvider { get; set; } = string.Empty;
+
+    public string ProviderBaseUrl { get; set; } = string.Empty;
+
+    public string ProviderApiKey { get; set; } = string.Empty;
+
+    public string ProviderModel { get; set; } = string.Empty;
 }
 
 internal sealed class ProjectDocument

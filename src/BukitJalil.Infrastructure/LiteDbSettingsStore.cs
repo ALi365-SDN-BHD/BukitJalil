@@ -14,7 +14,10 @@ internal sealed class LiteDbSettingsStore(AppDatabase database) : ISettingsStore
             {
                 BukitPath = document.BukitPath,
                 DocumentsPath = document.DocumentsPath,
-                DefaultProvider = document.DefaultProvider
+                DefaultProvider = document.DefaultProvider,
+                ProviderBaseUrl = document.ProviderBaseUrl,
+                ProviderApiKey = document.ProviderApiKey,
+                ProviderModel = document.ProviderModel
             };
     }
 
@@ -25,7 +28,10 @@ internal sealed class LiteDbSettingsStore(AppDatabase database) : ISettingsStore
             Id = 1,
             BukitPath = settings.BukitPath,
             DocumentsPath = settings.DocumentsPath,
-            DefaultProvider = settings.DefaultProvider
+            DefaultProvider = settings.DefaultProvider,
+            ProviderBaseUrl = settings.ProviderBaseUrl,
+            ProviderApiKey = settings.ProviderApiKey,
+            ProviderModel = settings.ProviderModel
         };
 
         database.Settings.Upsert(document);

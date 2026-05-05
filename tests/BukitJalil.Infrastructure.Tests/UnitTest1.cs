@@ -46,7 +46,10 @@ public sealed class ServiceCollectionExtensionsTests : IDisposable
         {
             BukitPath = "/usr/local/bin/bukit",
             DocumentsPath = "/tmp/docs",
-            DefaultProvider = "openai"
+            DefaultProvider = "openai-compatible",
+            ProviderBaseUrl = "https://api.openai.com/v1",
+            ProviderApiKey = "test-key",
+            ProviderModel = "gpt-4.1-mini"
         };
 
         store.Save(settings);
@@ -55,6 +58,9 @@ public sealed class ServiceCollectionExtensionsTests : IDisposable
         Assert.Equal(settings.BukitPath, reloaded.BukitPath);
         Assert.Equal(settings.DocumentsPath, reloaded.DocumentsPath);
         Assert.Equal(settings.DefaultProvider, reloaded.DefaultProvider);
+        Assert.Equal(settings.ProviderBaseUrl, reloaded.ProviderBaseUrl);
+        Assert.Equal(settings.ProviderApiKey, reloaded.ProviderApiKey);
+        Assert.Equal(settings.ProviderModel, reloaded.ProviderModel);
     }
 
     [Fact]
