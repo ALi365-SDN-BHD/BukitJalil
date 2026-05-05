@@ -93,6 +93,33 @@ public sealed class WorkspaceSessionTests
         Assert.Equal("Ready.", session.StatusMessage);
     }
 
+    [Fact]
+    public async Task SendAsync_appends_messages_to_bound_conversation()
+    {
+        var conversation = WorkspaceConversation.Create("fake", DateTimeOffset.Parse("2026-05-05T12:00:00Z"));
+        var session = new WorkspaceSession(new StaticProviderRegistry(new FakeLlmProvider()));
+        session.Bind(conversation);
+
+        await session.SendAsync("Build a bilingual company site");
+
+        Assert.Equal(2, conversation.Messages.Count);
+        Assert.Equal("Build a bilingual company site", conversation.Messages[0].Content);
+    }
+
+    [Fact]
+    public void Clear_removes_messages_from_bound_conversation_without_resetting_provider()
+    {
+        var conversation = WorkspaceConversation.Create("openai-compatible", DateTimeOffset.Parse("2026-05-05T12:00:00Z"));
+        conversation.Messages.Add(new WorkspaceConversationMessage(LlmRole.User, "Hello"));
+        var session = new WorkspaceSession(new StaticProviderRegistry(new FakeLlmProvider()));
+        session.Bind(conversation);
+
+        session.Clear();
+
+        Assert.Empty(conversation.Messages);
+        Assert.Equal("openai-compatible", conversation.SelectedProviderId);
+    }
+
     private sealed class StaticProviderRegistry(ILlmProvider provider) : IProviderRegistry
     {
         public ILlmProvider? Get(string providerId) => providerId == provider.Descriptor.Id ? provider : null;
