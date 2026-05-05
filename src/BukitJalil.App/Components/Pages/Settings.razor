@@ -1,4 +1,5 @@
 @page "/settings"
+@inject ISettingsStore SettingsStore
 
 <PageTitle>Settings</PageTitle>
 
@@ -12,13 +13,56 @@
     </header>
 
     <div class="workspace-page__grid">
-        <SectionCard
-            Eyebrow="Bukit"
-            Title="Workspace dependencies"
-            Description="Configure Bukit CLI paths, preview behavior, and local project storage roots." />
-        <SectionCard
-            Eyebrow="AI"
-            Title="Provider setup"
-            Description="Choose the default provider and prepare the shell for future API keys and model options." />
+        <section class="workspace-panel">
+            <div class="workspace-panel__header">
+                <div>
+                    <p class="workspace-panel__eyebrow">BJ-V1-015</p>
+                    <h2>Workspace dependencies</h2>
+                </div>
+            </div>
+
+            <EditForm Model="_settings" OnSubmit="SaveSettings">
+                <div class="form-stack">
+                    <label class="field-label" for="bukit-path">Bukit path</label>
+                    <InputText id="bukit-path" class="field-input" @bind-Value="_settings.BukitPath" />
+
+                    <label class="field-label" for="documents-path">Documents path</label>
+                    <InputText id="documents-path" class="field-input" @bind-Value="_settings.DocumentsPath" />
+
+                    <label class="field-label" for="default-provider">Default provider</label>
+                    <InputText id="default-provider" class="field-input" @bind-Value="_settings.DefaultProvider" />
+
+                    <button class="btn btn-primary" type="submit">Save settings</button>
+                </div>
+            </EditForm>
+
+            @if (!string.IsNullOrWhiteSpace(_statusMessage))
+            {
+                <p class="save-status">@_statusMessage</p>
+            }
+        </section>
+
+        <section class="workspace-panel">
+            <SectionCard
+                Eyebrow="Next"
+                Title="Platform and provider expansion"
+                Description="This page now persists Bukit path, docs path, and default provider. More advanced provider options can layer on top of the same store." />
+        </section>
     </div>
 </section>
+
+@code {
+    private AppSettings _settings = new();
+    private string? _statusMessage;
+
+    protected override void OnInitialized()
+    {
+        _settings = SettingsStore.Get();
+    }
+
+    private void SaveSettings()
+    {
+        SettingsStore.Save(_settings);
+        _statusMessage = $"Saved at {DateTime.Now:HH:mm:ss}";
+    }
+}

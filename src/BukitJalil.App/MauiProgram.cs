@@ -18,7 +18,10 @@ public static class MauiProgram
 
 		builder.Services.AddMauiBlazorWebView();
 		builder.Services.AddBukitJalilCore();
-		builder.Services.AddBukitJalilInfrastructure();
+		builder.Services.AddBukitJalilInfrastructure(options =>
+		{
+			options.AppDataDirectory = FileSystem.Current.AppDataDirectory;
+		});
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

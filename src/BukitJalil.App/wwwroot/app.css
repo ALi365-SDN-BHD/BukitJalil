@@ -58,6 +58,103 @@ a, .btn-link {
     gap: 1rem;
 }
 
+.workspace-panel {
+    padding: 1.25rem;
+    border: 1px solid #dbe3f0;
+    border-radius: 1rem;
+    background: #ffffff;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.workspace-panel__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.workspace-panel__eyebrow {
+    margin: 0 0 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #49648a;
+}
+
+.workspace-panel__header h2 {
+    margin: 0;
+    font-size: 1.2rem;
+    color: #10233f;
+}
+
+.workspace-badge {
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    background: #e7eef8;
+    color: #34506f;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.form-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.field-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #34506f;
+}
+
+.field-input {
+    width: 100%;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid #c8d5e6;
+    border-radius: 0.75rem;
+    background: #f9fbfe;
+}
+
+.record-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.record-card {
+    padding: 0.9rem 1rem;
+    border: 1px solid #dbe3f0;
+    border-radius: 0.9rem;
+    background: #f9fbfe;
+}
+
+.record-card__title {
+    font-weight: 700;
+    color: #10233f;
+}
+
+.record-card__meta {
+    margin-top: 0.2rem;
+    color: #5a6d88;
+    font-size: 0.88rem;
+    word-break: break-word;
+}
+
+.empty-state {
+    margin: 0;
+    color: #5a6d88;
+    line-height: 1.6;
+}
+
+.save-status {
+    margin: 1rem 0 0;
+    color: #2f6b45;
+    font-weight: 600;
+}
+
 @media (min-width: 900px) {
     .workspace-page__grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));

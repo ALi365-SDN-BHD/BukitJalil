@@ -1,3 +1,4 @@
+using BukitJalil.Core;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BukitJalil.Infrastructure;
@@ -14,9 +15,19 @@ internal sealed class SystemClock : ISystemClock
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddBukitJalilInfrastructure(this IServiceCollection services)
+    public static IServiceCollection AddBukitJalilInfrastructure(
+        this IServiceCollection services,
+        Action<BukitJalilStorageOptions>? configure = null)
     {
+        var options = new BukitJalilStorageOptions();
+        configure?.Invoke(options);
+
+        services.AddSingleton(options);
+        services.AddSingleton<AppDatabase>();
         services.AddSingleton<ISystemClock, SystemClock>();
+        services.AddSingleton<ISettingsStore, LiteDbSettingsStore>();
+        services.AddSingleton<IProjectStore, LiteDbProjectStore>();
+        services.AddSingleton<IPlatformStore, LiteDbPlatformStore>();
         return services;
     }
 }

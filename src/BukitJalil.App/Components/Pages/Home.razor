@@ -1,5 +1,6 @@
 @page "/"
 @page "/projects"
+@inject IProjectStore ProjectStore
 
 <PageTitle>Projects</PageTitle>
 
@@ -14,13 +15,74 @@
     </header>
 
     <div class="workspace-page__grid">
-        <SectionCard
-            Eyebrow="BJ-V1-013"
-            Title="Project list"
-            Description="List local website projects, recent activity, and the next task to open." />
-        <SectionCard
-            Eyebrow="BJ-V1-014"
-            Title="Project creation"
-            Description="Create a new BukitJalil project with local storage and future Bukit workspace metadata." />
+        <section class="workspace-panel">
+            <div class="workspace-panel__header">
+                <div>
+                    <p class="workspace-panel__eyebrow">BJ-V1-014</p>
+                    <h2>Create project</h2>
+                </div>
+            </div>
+
+            <div class="form-stack">
+                <label class="field-label" for="project-name">Project name</label>
+                <InputText id="project-name" class="field-input" @bind-Value="_projectName" />
+                <button class="btn btn-primary" type="button" @onclick="CreateProject">Create local project</button>
+            </div>
+        </section>
+
+        <section class="workspace-panel">
+            <div class="workspace-panel__header">
+                <div>
+                    <p class="workspace-panel__eyebrow">BJ-V1-013</p>
+                    <h2>Local projects</h2>
+                </div>
+                <span class="workspace-badge">@_projects.Count item(s)</span>
+            </div>
+
+            @if (_projects.Count == 0)
+            {
+                <p class="empty-state">No projects yet. Create the first BukitJalil workspace to initialize local storage.</p>
+            }
+            else
+            {
+                <div class="record-list">
+                    @foreach (var project in _projects)
+                    {
+                        <article class="record-card">
+                            <div class="record-card__title">@project.Name</div>
+                            <div class="record-card__meta">@project.WorkspacePath</div>
+                            <div class="record-card__meta">Created @project.CreatedUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                        </article>
+                    }
+                </div>
+            }
+        </section>
     </div>
 </section>
+
+@code {
+    private string _projectName = string.Empty;
+    private IReadOnlyList<WebsiteProject> _projects = [];
+
+    protected override void OnInitialized()
+    {
+        LoadProjects();
+    }
+
+    private void CreateProject()
+    {
+        if (string.IsNullOrWhiteSpace(_projectName))
+        {
+            return;
+        }
+
+        ProjectStore.Create(_projectName);
+        _projectName = string.Empty;
+        LoadProjects();
+    }
+
+    private void LoadProjects()
+    {
+        _projects = ProjectStore.List();
+    }
+}

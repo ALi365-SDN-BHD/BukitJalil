@@ -1,4 +1,5 @@
 @page "/platforms"
+@inject IPlatformStore PlatformStore
 
 <PageTitle>Platforms</PageTitle>
 
@@ -13,13 +14,100 @@
     </header>
 
     <div class="workspace-page__grid">
-        <SectionCard
-            Eyebrow="P0"
-            Title="GitHub Pages first"
-            Description="V1 will prioritize GitHub Pages so deployment can be verified end-to-end as early as possible." />
-        <SectionCard
-            Eyebrow="P2"
-            Title="Additional platforms"
-            Description="Vercel, Netlify, and Cloudflare Pages stay on the roadmap without blocking the first release." />
+        <section class="workspace-panel">
+            <div class="workspace-panel__header">
+                <div>
+                    <p class="workspace-panel__eyebrow">BJ-V1-016</p>
+                    <h2>Create deployment target</h2>
+                </div>
+            </div>
+
+            <EditForm Model="_target" OnSubmit="SaveTarget">
+                <div class="form-stack">
+                    <label class="field-label" for="platform-name">Target name</label>
+                    <InputText id="platform-name" class="field-input" @bind-Value="_target.Name" />
+
+                    <label class="field-label" for="platform-type">Platform type</label>
+                    <InputSelect id="platform-type" class="field-input" @bind-Value="_target.PlatformType">
+                        <option value="github-pages">GitHub Pages</option>
+                        <option value="vercel">Vercel</option>
+                        <option value="netlify">Netlify</option>
+                        <option value="cloudflare-pages">Cloudflare Pages</option>
+                    </InputSelect>
+
+                    <label class="field-label" for="platform-endpoint">Repository or project</label>
+                    <InputText id="platform-endpoint" class="field-input" @bind-Value="_target.EndpointOrProject" />
+
+                    <label class="field-label" for="platform-token-label">Access token label</label>
+                    <InputText id="platform-token-label" class="field-input" @bind-Value="_target.AccessTokenLabel" />
+
+                    <button class="btn btn-primary" type="submit">Save target</button>
+                </div>
+            </EditForm>
+        </section>
+
+        <section class="workspace-panel">
+            <div class="workspace-panel__header">
+                <div>
+                    <p class="workspace-panel__eyebrow">Stored targets</p>
+                    <h2>Deployment platforms</h2>
+                </div>
+                <span class="workspace-badge">@_targets.Count item(s)</span>
+            </div>
+
+            @if (_targets.Count == 0)
+            {
+                <p class="empty-state">No deployment targets yet. Save a platform so V1 build and deploy workflows have a destination.</p>
+            }
+            else
+            {
+                <div class="record-list">
+                    @foreach (var target in _targets)
+                    {
+                        <article class="record-card">
+                            <div class="record-card__title">@target.Name</div>
+                            <div class="record-card__meta">@target.PlatformType</div>
+                            <div class="record-card__meta">@target.EndpointOrProject</div>
+                            <div class="record-card__meta">Token label: @target.AccessTokenLabel</div>
+                        </article>
+                    }
+                </div>
+            }
+        </section>
     </div>
 </section>
+
+@code {
+    private DeploymentTarget _target = NewTarget();
+    private IReadOnlyList<DeploymentTarget> _targets = [];
+
+    protected override void OnInitialized()
+    {
+        LoadTargets();
+    }
+
+    private void SaveTarget()
+    {
+        if (string.IsNullOrWhiteSpace(_target.Name) || string.IsNullOrWhiteSpace(_target.EndpointOrProject))
+        {
+            return;
+        }
+
+        PlatformStore.Save(_target);
+        _target = NewTarget();
+        LoadTargets();
+    }
+
+    private void LoadTargets()
+    {
+        _targets = PlatformStore.List();
+    }
+
+    private static DeploymentTarget NewTarget()
+    {
+        return new DeploymentTarget
+        {
+            PlatformType = "github-pages"
+        };
+    }
+}
