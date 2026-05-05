@@ -14,6 +14,7 @@ internal sealed class AppDatabase : IDisposable
         _database = new LiteDatabase(options.DatabasePath);
 
         Projects.EnsureIndex(project => project.Id, unique: true);
+        WorkspaceConversations.EnsureIndex(conversation => conversation.Id, unique: true);
     }
 
     public ILiteCollection<AppSettingsDocument> Settings => _database.GetCollection<AppSettingsDocument>("settings");
@@ -21,6 +22,12 @@ internal sealed class AppDatabase : IDisposable
     public ILiteCollection<ProjectDocument> Projects => _database.GetCollection<ProjectDocument>("projects");
 
     public ILiteCollection<PlatformDocument> Platforms => _database.GetCollection<PlatformDocument>("platforms");
+
+    public ILiteCollection<WorkspaceConversationDocument> WorkspaceConversations =>
+        _database.GetCollection<WorkspaceConversationDocument>("workspace_conversations");
+
+    public ILiteCollection<WorkspaceStateDocument> WorkspaceState =>
+        _database.GetCollection<WorkspaceStateDocument>("workspace_state");
 
     public void Dispose()
     {
@@ -69,4 +76,33 @@ internal sealed class PlatformDocument
     public string EndpointOrProject { get; set; } = string.Empty;
 
     public string AccessTokenLabel { get; set; } = string.Empty;
+}
+
+internal sealed class WorkspaceConversationDocument
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Title { get; set; } = string.Empty;
+
+    public string SelectedProviderId { get; set; } = string.Empty;
+
+    public List<WorkspaceConversationMessageDocument> Messages { get; set; } = [];
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+}
+
+internal sealed class WorkspaceConversationMessageDocument
+{
+    public string Role { get; set; } = string.Empty;
+
+    public string Content { get; set; } = string.Empty;
+}
+
+internal sealed class WorkspaceStateDocument
+{
+    public int Id { get; set; } = 1;
+
+    public string CurrentConversationId { get; set; } = string.Empty;
 }
