@@ -47,9 +47,9 @@ public sealed class OpenAiCompatibleLlmProvider(ISettingsStore settingsStore, Ht
         {
             response = await httpClient.SendAsync(message, cancellationToken);
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            return Failure($"OpenAI-compatible request failed: {exception.Message}");
+            return Failure("OpenAI-compatible request failed. Please check network or provider settings.");
         }
 
         if (!response.IsSuccessStatusCode)

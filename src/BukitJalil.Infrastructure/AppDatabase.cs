@@ -14,7 +14,6 @@ internal sealed class AppDatabase : IDisposable
         _database = new LiteDatabase(options.DatabasePath);
 
         Projects.EnsureIndex(project => project.Id, unique: true);
-        Platforms.EnsureIndex(target => target.Id, unique: true);
     }
 
     public ILiteCollection<AppSettingsDocument> Settings => _database.GetCollection<AppSettingsDocument>("settings");

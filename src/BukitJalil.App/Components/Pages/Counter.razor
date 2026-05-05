@@ -1,5 +1,6 @@
 @page "/workspace"
 @inject IProviderRegistry ProviderRegistry
+@inject ISettingsStore SettingsStore
 
 <PageTitle>Workspace</PageTitle>
 
@@ -75,7 +76,10 @@
     protected override void OnInitialized()
     {
         _providers = ProviderRegistry.List();
-        var defaultProviderId = _providers.FirstOrDefault()?.Id ?? "fake";
+        var settings = SettingsStore.Get();
+        var defaultProviderId = WorkspaceDefaultProviderSelector.Resolve(
+            _providers,
+            settings.DefaultProvider);
         _session = new WorkspaceSession(ProviderRegistry, defaultProviderId);
     }
 
