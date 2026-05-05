@@ -1,0 +1,1070 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BukitJalil UI Mockup</title>
+  <style>
+    :root {
+      --bg: #f5f7f8;
+      --surface: #ffffff;
+      --surface-soft: #f0f4f5;
+      --surface-tint: #eef7f4;
+      --border: #d9e1e3;
+      --border-strong: #b9c7ca;
+      --text: #172326;
+      --muted: #5d6b70;
+      --faint: #7e8c91;
+      --accent: #147d6f;
+      --accent-strong: #0d5f55;
+      --accent-soft: #d9f1eb;
+      --blue: #2d6cdf;
+      --amber: #aa6a00;
+      --amber-soft: #fff2cf;
+      --red: #b83d3d;
+      --red-soft: #ffe1de;
+      --green: #147d50;
+      --green-soft: #dbf3e7;
+      --shadow: 0 18px 48px rgba(32, 48, 54, 0.12);
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    .board {
+      min-height: 100vh;
+      padding: 28px;
+    }
+
+    .board-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      max-width: 1480px;
+      margin: 0 auto 22px;
+    }
+
+    .board-title {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+      font-weight: 720;
+    }
+
+    .board-subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .board-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      background: var(--surface);
+      cursor: default;
+      font-size: 13px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+
+    .icon {
+      width: 16px;
+      height: 16px;
+      display: inline-block;
+      flex: 0 0 auto;
+    }
+
+    .mockup-grid {
+      max-width: 1480px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .frame {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .desktop-frame {
+      min-height: 760px;
+      display: grid;
+      grid-template-columns: 236px minmax(540px, 1fr) 318px;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: #fbfcfc;
+      display: flex;
+      flex-direction: column;
+      min-height: 760px;
+    }
+
+    .brand {
+      height: 62px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      background: #173c40;
+      font-weight: 800;
+    }
+
+    .brand-name {
+      font-weight: 760;
+      font-size: 15px;
+    }
+
+    .nav {
+      padding: 14px 10px;
+    }
+
+    .nav-label {
+      padding: 10px 10px 6px;
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 760;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      height: 36px;
+      padding: 0 10px;
+      border-radius: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 620;
+    }
+
+    .nav-item.active {
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+    }
+
+    .recent-projects {
+      padding: 8px 12px 16px;
+      margin-top: auto;
+    }
+
+    .project-chip {
+      display: grid;
+      gap: 3px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #ffffff;
+      margin-top: 8px;
+    }
+
+    .project-chip strong {
+      font-size: 13px;
+    }
+
+    .project-chip span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+    }
+
+    .topbar {
+      height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .project-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .project-title h2 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 760;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 680;
+      white-space: nowrap;
+    }
+
+    .status.valid {
+      color: var(--green);
+      background: var(--green-soft);
+    }
+
+    .status.pending {
+      color: var(--amber);
+      background: var(--amber-soft);
+    }
+
+    .status.failed {
+      color: var(--red);
+      background: var(--red-soft);
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 9px 20px 0;
+      border-bottom: 1px solid var(--border);
+      overflow: auto;
+    }
+
+    .tab {
+      border: 0;
+      background: transparent;
+      height: 38px;
+      padding: 0 12px;
+      border-radius: 7px 7px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 680;
+      white-space: nowrap;
+    }
+
+    .tab.active {
+      color: var(--accent-strong);
+      background: var(--surface-tint);
+      box-shadow: inset 0 -2px 0 var(--accent);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 310px minmax(0, 1fr);
+      gap: 18px;
+      padding: 18px 20px 20px;
+      min-height: 640px;
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--border);
+      background: #fbfcfc;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.2;
+      font-weight: 760;
+    }
+
+    .conversation {
+      display: flex;
+      flex-direction: column;
+      min-height: 604px;
+    }
+
+    .messages {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .message {
+      display: grid;
+      gap: 6px;
+      padding: 10px;
+      border-radius: 7px;
+      background: var(--surface-soft);
+    }
+
+    .message.user {
+      background: var(--accent-soft);
+    }
+
+    .message-meta {
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .message p {
+      margin: 0;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .prompt-box {
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+      padding: 12px;
+      background: #fbfcfc;
+    }
+
+    .mode-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .select,
+    .input,
+    .textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #ffffff;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .select,
+    .input {
+      height: 36px;
+      padding: 0 10px;
+    }
+
+    .textarea {
+      min-height: 82px;
+      resize: none;
+      padding: 10px;
+      line-height: 1.45;
+    }
+
+    .editor {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .editor-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .segmented {
+      display: inline-grid;
+      grid-auto-flow: column;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 3px;
+    }
+
+    .segment {
+      height: 30px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .segment.active {
+      background: #ffffff;
+      color: var(--accent-strong);
+      box-shadow: 0 1px 2px rgba(32, 48, 54, 0.08);
+    }
+
+    .schema-area {
+      display: grid;
+      grid-template-columns: 190px minmax(0, 1fr);
+      gap: 14px;
+      min-height: 552px;
+    }
+
+    .page-tree {
+      padding: 10px;
+    }
+
+    .tree-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      height: 34px;
+      padding: 0 9px;
+      border-radius: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 640;
+    }
+
+    .tree-item.active {
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+    }
+
+    .section-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .section-row {
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 66px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 10px;
+    }
+
+    .section-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: var(--accent-strong);
+      background: var(--accent-soft);
+    }
+
+    .section-row h3 {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.25;
+      font-weight: 760;
+    }
+
+    .section-row p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .code-preview {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #10191b;
+    }
+
+    .code-preview pre {
+      margin: 0;
+      padding: 14px;
+      color: #d9f1eb;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.55;
+      overflow: auto;
+    }
+
+    .inspector {
+      border-left: 1px solid var(--border);
+      background: #fbfcfc;
+      min-height: 760px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .inspector-header {
+      height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .inspector-header h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 760;
+    }
+
+    .inspector-body {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 12px;
+    }
+
+    .metric-label {
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 760;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin-top: 5px;
+      font-size: 18px;
+      font-weight: 780;
+    }
+
+    .check-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .check-row {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      margin-top: 4px;
+      background: var(--green);
+    }
+
+    .dot.warn {
+      background: var(--amber);
+    }
+
+    .dot.fail {
+      background: var(--red);
+    }
+
+    .log {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .log-line {
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr);
+      gap: 10px;
+      padding: 8px 10px;
+      border-top: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .log-line:first-child {
+      border-top: 0;
+    }
+
+    .log-time {
+      color: var(--faint);
+    }
+
+    .mobile-frame {
+      padding: 14px;
+    }
+
+    .phone {
+      width: 100%;
+      max-width: 330px;
+      margin: 0 auto;
+      border: 1px solid var(--border-strong);
+      border-radius: 28px;
+      background: #ffffff;
+      overflow: hidden;
+      box-shadow: 0 16px 40px rgba(32, 48, 54, 0.14);
+    }
+
+    .phone-top {
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .phone-title {
+      display: grid;
+      gap: 2px;
+    }
+
+    .phone-title strong {
+      font-size: 13px;
+    }
+
+    .phone-title span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .phone-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      padding: 8px;
+      background: #fbfcfc;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .phone-tab {
+      height: 30px;
+      border: 0;
+      border-radius: 7px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .phone-tab.active {
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+    }
+
+    .phone-body {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      min-height: 520px;
+    }
+
+    .phone-block {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: #ffffff;
+    }
+
+    .phone-block h3 {
+      margin: 0 0 6px;
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    .phone-block p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .phone-action {
+      margin-top: auto;
+      display: grid;
+      gap: 8px;
+    }
+
+    .w-full {
+      width: 100%;
+    }
+
+    @media (max-width: 1500px) {
+      .mockup-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .mobile-frame {
+        max-width: 420px;
+      }
+    }
+
+    @media (max-width: 920px) {
+      .board {
+        padding: 16px;
+      }
+
+      .board-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .desktop-frame {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar,
+      .inspector {
+        display: none;
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .schema-area {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <header class="board-header">
+      <div>
+        <h1 class="board-title">BukitJalil UI Mockup</h1>
+        <p class="board-subtitle">MAUI Blazor Hybrid workspace for AI site generation, validation, Bukit build, and export.</p>
+      </div>
+      <div class="board-actions" aria-label="Design board actions">
+        <button class="button">Desktop</button>
+        <button class="button">Mobile</button>
+        <button class="button primary">Open Workspace</button>
+      </div>
+    </header>
+
+    <section class="mockup-grid" aria-label="BukitJalil mockup frames">
+      <div class="frame desktop-frame" aria-label="Desktop workspace mockup">
+        <aside class="sidebar" aria-label="Sidebar navigation">
+          <div class="brand">
+            <div class="brand-mark">B</div>
+            <div>
+              <div class="brand-name">BukitJalil</div>
+              <div class="message-meta">Local workspace</div>
+            </div>
+          </div>
+          <nav class="nav">
+            <div class="nav-label">Main</div>
+            <div class="nav-item active">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2"/></svg>
+              Projects
+            </div>
+            <div class="nav-item">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><path d="m6 9 6-6 6 6"/><path d="M5 21h14"/></svg>
+              Deployments
+            </div>
+            <div class="nav-item">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8"/><path d="M8 13h5"/><path d="M8 17h8"/></svg>
+              History
+            </div>
+            <div class="nav-label">System</div>
+            <div class="nav-item">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"/><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.04.04a2.1 2.1 0 0 1-2.97 2.97l-.04-.04a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.1 1.66V21a2.1 2.1 0 0 1-4.2 0v-.06a1.8 1.8 0 0 0-1.1-1.66 1.8 1.8 0 0 0-1.98.36l-.04.04a2.1 2.1 0 0 1-2.97-2.97l.04-.04A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.66-1.1H3a2.1 2.1 0 0 1 0-4.2h.06A1.8 1.8 0 0 0 4.72 8a1.8 1.8 0 0 0-.36-1.98l-.04-.04a2.1 2.1 0 1 1 2.97-2.97l.04.04A1.8 1.8 0 0 0 9 3.4 1.8 1.8 0 0 0 10.7 2H11a2.1 2.1 0 0 1 4.2 0v.06A1.8 1.8 0 0 0 16.9 3.4a1.8 1.8 0 0 0 1.98-.36l.04-.04a2.1 2.1 0 1 1 2.97 2.97l-.04.04A1.8 1.8 0 0 0 19.4 8c.27.67.9 1.1 1.66 1.1H21a2.1 2.1 0 0 1 0 4.2h-.06A1.8 1.8 0 0 0 19.4 15z"/></svg>
+              Settings
+            </div>
+          </nav>
+          <div class="recent-projects">
+            <div class="nav-label">Recent</div>
+            <div class="project-chip">
+              <strong>Corporate Services</strong>
+              <span>Validated, 2 languages</span>
+            </div>
+            <div class="project-chip">
+              <strong>SEO Articles Hub</strong>
+              <span>Draft content</span>
+            </div>
+          </div>
+        </aside>
+
+        <section class="main" aria-label="Main workspace">
+          <header class="topbar">
+            <div class="project-title">
+              <h2>Corporate Services Website</h2>
+              <span class="status valid">Validated</span>
+            </div>
+            <div class="topbar-actions">
+              <button class="button">EN</button>
+              <button class="button">Preview</button>
+              <button class="button primary">Build</button>
+            </div>
+          </header>
+
+          <div class="tabs" role="tablist" aria-label="Workspace tabs">
+            <button class="tab">Overview</button>
+            <button class="tab active">Structure</button>
+            <button class="tab">Content</button>
+            <button class="tab">Build</button>
+            <button class="tab">Deploy</button>
+            <button class="tab">History</button>
+          </div>
+
+          <div class="workspace">
+            <section class="panel conversation" aria-label="Conversation panel">
+              <div class="panel-header">
+                <h2 class="panel-title">Conversation</h2>
+                <span class="status pending">AI ready</span>
+              </div>
+              <div class="messages">
+                <article class="message user">
+                  <div class="message-meta">User</div>
+                  <p>Create a clean professional services website in English and Chinese.</p>
+                </article>
+                <article class="message">
+                  <div class="message-meta">BukitJalil</div>
+                  <p>Generated 5 pages and 14 sections. Site schema passed validation.</p>
+                </article>
+                <article class="message">
+                  <div class="message-meta">Validation</div>
+                  <p>site-definition v1.0.0 passed. Bukit handoff is ready.</p>
+                </article>
+              </div>
+              <div class="prompt-box">
+                <div class="mode-row">
+                  <select class="select" aria-label="Generation mode">
+                    <option>Site structure</option>
+                    <option>Page content</option>
+                    <option>Article</option>
+                  </select>
+                  <button class="button">Prompt</button>
+                </div>
+                <textarea class="textarea" aria-label="Prompt input">Add a pricing section and make the tone more premium.</textarea>
+                <button class="button primary w-full" style="margin-top: 8px;">Generate Update</button>
+              </div>
+            </section>
+
+            <section class="editor" aria-label="Structure editor">
+              <div class="editor-toolbar">
+                <div class="segmented" aria-label="Editor view">
+                  <button class="segment active">Visual</button>
+                  <button class="segment">JSON</button>
+                  <button class="segment">Handoff</button>
+                </div>
+                <div class="topbar-actions">
+                  <button class="button">Regenerate</button>
+                  <button class="button primary">Approve</button>
+                </div>
+              </div>
+
+              <div class="schema-area">
+                <aside class="panel page-tree" aria-label="Page tree">
+                  <div class="tree-item active">Home <span>5</span></div>
+                  <div class="tree-item">About <span>3</span></div>
+                  <div class="tree-item">Services <span>4</span></div>
+                  <div class="tree-item">Articles <span>1</span></div>
+                  <div class="tree-item">Contact <span>2</span></div>
+                </aside>
+
+                <div>
+                  <div class="section-stack">
+                    <article class="section-row">
+                      <div class="section-icon">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5"/><path d="M4 7h14l-2 5 2 5H4"/></svg>
+                      </div>
+                      <div>
+                        <h3>Hero</h3>
+                        <p>Headline, subheadline, primary CTA, secondary CTA.</p>
+                      </div>
+                      <span class="status valid">Valid</span>
+                    </article>
+                    <article class="section-row">
+                      <div class="section-icon">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg>
+                      </div>
+                      <div>
+                        <h3>Features</h3>
+                        <p>Three service pillars with editable copy.</p>
+                      </div>
+                      <span class="status valid">Valid</span>
+                    </article>
+                    <article class="section-row">
+                      <div class="section-icon">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                      </div>
+                      <div>
+                        <h3>CTA</h3>
+                        <p>Consultation offer and lead form route.</p>
+                      </div>
+                      <span class="status pending">Review</span>
+                    </article>
+                  </div>
+
+                  <div class="code-preview" aria-label="JSON preview">
+                    <pre>{
+  "schemaVersion": "1.0.0",
+  "language": "en",
+  "pages": [
+    { "slug": "/", "sections": ["hero", "features", "cta"] }
+  ]
+}</pre>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <aside class="inspector" aria-label="Inspector">
+          <header class="inspector-header">
+            <h2>Inspector</h2>
+            <span class="status valid">Ready</span>
+          </header>
+          <div class="inspector-body">
+            <section class="metric">
+              <div class="metric-label">Pages</div>
+              <div class="metric-value">5</div>
+            </section>
+            <section class="metric">
+              <div class="metric-label">Sections</div>
+              <div class="metric-value">14</div>
+            </section>
+            <section class="metric">
+              <div class="metric-label">Validation</div>
+              <div class="check-list" style="margin-top: 10px;">
+                <div class="check-row"><span class="dot"></span><span>site-definition v1.0.0 passed</span></div>
+                <div class="check-row"><span class="dot"></span><span>content-draft v1.0.0 passed</span></div>
+                <div class="check-row"><span class="dot warn"></span><span>CTA section waiting for approval</span></div>
+              </div>
+            </section>
+            <section class="metric">
+              <div class="metric-label">Bukit</div>
+              <div class="check-list" style="margin-top: 10px;">
+                <div class="check-row"><span class="dot"></span><span>Path configured</span></div>
+                <div class="check-row"><span class="dot"></span><span>Handoff JSON ready</span></div>
+                <div class="check-row"><span class="dot fail"></span><span>No deployment folder selected</span></div>
+              </div>
+            </section>
+            <section class="log">
+              <div class="log-line">
+                <span class="log-time">14:28</span>
+                <span>Prompt rendered</span>
+              </div>
+              <div class="log-line">
+                <span class="log-time">14:29</span>
+                <span>Schema validated</span>
+              </div>
+              <div class="log-line">
+                <span class="log-time">14:31</span>
+                <span>Draft saved to LiteDB</span>
+              </div>
+            </section>
+          </div>
+        </aside>
+      </div>
+
+      <aside class="frame mobile-frame" aria-label="Mobile companion mockup">
+        <div class="phone">
+          <header class="phone-top">
+            <div class="phone-title">
+              <strong>Corporate Services</strong>
+              <span>Mobile companion</span>
+            </div>
+            <span class="status valid">Valid</span>
+          </header>
+          <div class="phone-tabs">
+            <button class="phone-tab active">Chat</button>
+            <button class="phone-tab">Schema</button>
+            <button class="phone-tab">Content</button>
+            <button class="phone-tab">Build</button>
+          </div>
+          <div class="phone-body">
+            <section class="phone-block">
+              <h3>Latest Prompt</h3>
+              <p>Create a professional services website with English and Chinese content.</p>
+            </section>
+            <section class="phone-block">
+              <h3>Generation</h3>
+              <p>5 pages, 14 sections, 2 languages. Schema validation passed.</p>
+            </section>
+            <section class="phone-block">
+              <h3>Mobile Build</h3>
+              <p>Local Bukit build is desktop-only. Configure remote build to continue here.</p>
+            </section>
+            <div class="phone-action">
+              <button class="button primary w-full">Regenerate Content</button>
+              <button class="button w-full">Review Schema</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>
