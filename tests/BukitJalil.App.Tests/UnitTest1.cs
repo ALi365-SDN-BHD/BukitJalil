@@ -29,10 +29,86 @@ public sealed class WorkspaceSessionTests
             });
     }
 
+    [Fact]
+    public async Task SendAsync_sets_status_message_for_blank_input()
+    {
+        var session = new WorkspaceSession(
+            new StaticProviderRegistry(new FakeLlmProvider()),
+            "fake");
+
+        await session.SendAsync("   ");
+
+        Assert.Empty(session.Messages);
+        Assert.False(session.IsSending);
+        Assert.Contains("enter a prompt", session.StatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SendAsync_toggles_send_state_and_sets_success_status()
+    {
+        var provider = new DelayedProvider();
+        var session = new WorkspaceSession(
+            new StaticProviderRegistry(provider),
+            "fake");
+
+        var sendTask = session.SendAsync("Build a pricing page");
+
+        Assert.True(session.IsSending);
+        Assert.Contains("sending", session.StatusMessage, StringComparison.OrdinalIgnoreCase);
+
+        provider.Release();
+        await sendTask;
+
+        Assert.False(session.IsSending);
+        Assert.Contains("response received", session.StatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SendAsync_sets_failure_status_when_provider_throws()
+    {
+        var session = new WorkspaceSession(
+            new StaticProviderRegistry(new ThrowingProvider()),
+            "fake");
+
+        await session.SendAsync("Build a pricing page");
+
+        Assert.False(session.IsSending);
+        Assert.Contains("failed", session.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(session.Messages, item => item.Role == LlmRole.Assistant);
+    }
+
     private sealed class StaticProviderRegistry(ILlmProvider provider) : IProviderRegistry
     {
         public ILlmProvider? Get(string providerId) => providerId == provider.Descriptor.Id ? provider : null;
 
         public IReadOnlyList<ProviderDescriptor> List() => [provider.Descriptor];
+    }
+
+    private sealed class DelayedProvider : ILlmProvider
+    {
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ProviderDescriptor Descriptor { get; } = new("fake", "Fake Provider", true);
+
+        public void Release() => _completion.SetResult();
+
+        public async Task<LlmChatResponse> ChatAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+        {
+            await _completion.Task.WaitAsync(cancellationToken);
+
+            return new LlmChatResponse(
+                Descriptor.Id,
+                new LlmMessage(LlmRole.Assistant, "Done"));
+        }
+    }
+
+    private sealed class ThrowingProvider : ILlmProvider
+    {
+        public ProviderDescriptor Descriptor { get; } = new("fake", "Fake Provider", true);
+
+        public Task<LlmChatResponse> ChatAsync(LlmChatRequest request, CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("boom");
+        }
     }
 }

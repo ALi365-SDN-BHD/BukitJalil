@@ -51,7 +51,7 @@
 
             <div class="form-stack">
                 <label class="field-label" for="provider">Provider</label>
-                <InputSelect id="provider" class="field-input" @bind-Value="_session.SelectedProviderId">
+                <InputSelect id="provider" class="field-input" @bind-Value="_session.SelectedProviderId" disabled="@_session.IsSending">
                     @foreach (var provider in _providers)
                     {
                         <option value="@provider.Id">@provider.DisplayName</option>
@@ -59,9 +59,13 @@
                 </InputSelect>
 
                 <label class="field-label" for="prompt">Prompt</label>
-                <InputTextArea id="prompt" class="field-input field-input--textarea" @bind-Value="_input" />
+                <InputTextArea id="prompt" class="field-input field-input--textarea" @bind-Value="_input" disabled="@_session.IsSending" />
 
-                <button class="btn btn-primary" @onclick="SendAsync" disabled="@_isSending">Send</button>
+                <button class="btn btn-primary" @onclick="SendAsync" disabled="@_session.IsSending">
+                    @(_session.IsSending ? "Sending..." : "Send")
+                </button>
+
+                <p class="save-status">@_session.StatusMessage</p>
             </div>
         </section>
     </div>
@@ -71,7 +75,6 @@
     private WorkspaceSession _session = default!;
     private IReadOnlyList<ProviderDescriptor> _providers = [];
     private string _input = string.Empty;
-    private bool _isSending;
 
     protected override void OnInitialized()
     {
@@ -85,15 +88,12 @@
 
     private async Task SendAsync()
     {
-        _isSending = true;
-        try
+        var hadInput = !string.IsNullOrWhiteSpace(_input);
+        await _session.SendAsync(_input);
+
+        if (hadInput && !_session.IsSending)
         {
-            await _session.SendAsync(_input);
             _input = string.Empty;
-        }
-        finally
-        {
-            _isSending = false;
         }
     }
 }
