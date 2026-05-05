@@ -155,9 +155,60 @@ a, .btn-link {
     font-weight: 600;
 }
 
+.workspace-chat-layout {
+    display: grid;
+    gap: 1rem;
+}
+
+.chat-transcript {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.chat-message {
+    padding: 0.9rem 1rem;
+    border-radius: 0.9rem;
+    border: 1px solid #dbe3f0;
+}
+
+.chat-message--user {
+    background: #eef5ff;
+}
+
+.chat-message--assistant {
+    background: #f9fbfe;
+}
+
+.chat-message__role {
+    margin-bottom: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #49648a;
+}
+
+.chat-message__content {
+    white-space: pre-wrap;
+    line-height: 1.6;
+    color: #10233f;
+}
+
+.field-input--textarea {
+    min-height: 8rem;
+    resize: vertical;
+}
+
 @media (min-width: 900px) {
     .workspace-page__grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1100px) {
+    .workspace-chat-layout {
+        grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
     }
 }
 

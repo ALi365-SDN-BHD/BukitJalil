@@ -15,4 +15,8 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\BukitJalil.Core\BukitJalil.Core.csproj" />
+  </ItemGroup>
+
 </Project>

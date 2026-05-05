@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -16,6 +16,12 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BukitJalil.Core\BukitJalil.Core.csproj" />
+    <ProjectReference Include="..\..\src\BukitJalil.Infrastructure\BukitJalil.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\BukitJalil.SharedUi\BukitJalil.SharedUi.csproj" />
   </ItemGroup>
 
 </Project>

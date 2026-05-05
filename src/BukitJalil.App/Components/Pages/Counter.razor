@@ -1,4 +1,5 @@
 @page "/workspace"
+@inject IProviderRegistry ProviderRegistry
 
 <PageTitle>Workspace</PageTitle>
 
@@ -7,19 +8,88 @@
         <p class="workspace-page__eyebrow">Workspace</p>
         <h1>AI building workspace shell</h1>
         <p class="workspace-page__lede">
-            The main workspace will host chat, preview, code, files, build, and logs. V1 starts with
-            layout boundaries and dependency injection already in place.
+            This shell now supports local provider selection, a live transcript, and a deterministic fake
+            response path for the next AI workflow slice.
         </p>
     </header>
 
-    <div class="workspace-page__grid">
-        <SectionCard
-            Eyebrow="Chat"
-            Title="Conversational workflow"
-            Description="Prompt input, provider selection, and message history live in the right-side assistant area." />
-        <SectionCard
-            Eyebrow="Preview"
-            Title="Preview and code"
-            Description="The central workspace will evolve into preview, code, file tree, build, and log panels." />
+    <div class="workspace-chat-layout">
+        <section class="workspace-panel">
+            <div class="workspace-panel__header">
+                <div>
+                    <p class="workspace-panel__eyebrow">Conversation</p>
+                    <h2>Chat panel</h2>
+                </div>
+            </div>
+
+            <div class="chat-transcript">
+                @if (_session.Messages.Count == 0)
+                {
+                    <p class="empty-state">No messages yet. Send a prompt to exercise the fake provider flow.</p>
+                }
+                else
+                {
+                    @foreach (var message in _session.Messages)
+                    {
+                        <article class="chat-message @(message.Role == LlmRole.User ? "chat-message--user" : "chat-message--assistant")">
+                            <div class="chat-message__role">@message.Role</div>
+                            <div class="chat-message__content">@message.Content</div>
+                        </article>
+                    }
+                }
+            </div>
+        </section>
+
+        <section class="workspace-panel">
+            <div class="workspace-panel__header">
+                <div>
+                    <p class="workspace-panel__eyebrow">Controls</p>
+                    <h2>Provider and prompt</h2>
+                </div>
+            </div>
+
+            <div class="form-stack">
+                <label class="field-label" for="provider">Provider</label>
+                <InputSelect id="provider" class="field-input" @bind-Value="_session.SelectedProviderId">
+                    @foreach (var provider in _providers)
+                    {
+                        <option value="@provider.Id">@provider.DisplayName</option>
+                    }
+                </InputSelect>
+
+                <label class="field-label" for="prompt">Prompt</label>
+                <InputTextArea id="prompt" class="field-input field-input--textarea" @bind-Value="_input" />
+
+                <button class="btn btn-primary" @onclick="SendAsync" disabled="@_isSending">Send</button>
+            </div>
+        </section>
     </div>
 </section>
+
+@code {
+    private WorkspaceSession _session = default!;
+    private IReadOnlyList<ProviderDescriptor> _providers = [];
+    private string _input = string.Empty;
+    private bool _isSending;
+
+    protected override void OnInitialized()
+    {
+        _providers = ProviderRegistry.List();
+        var defaultProviderId = _providers.FirstOrDefault()?.Id ?? "fake";
+        _session = new WorkspaceSession(ProviderRegistry, defaultProviderId);
+    }
+
+    private async Task SendAsync()
+    {
+        _isSending = true;
+        try
+        {
+            await _session.SendAsync(_input);
+            _input = string.Empty;
+        }
+        finally
+        {
+            _isSending = false;
+        }
+    }
+}

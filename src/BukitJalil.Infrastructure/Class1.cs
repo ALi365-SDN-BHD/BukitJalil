@@ -28,6 +28,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISettingsStore, LiteDbSettingsStore>();
         services.AddSingleton<IProjectStore, LiteDbProjectStore>();
         services.AddSingleton<IPlatformStore, LiteDbPlatformStore>();
+        services.AddSingleton<ILlmProvider, FakeLlmProvider>();
+        services.AddSingleton<IProviderRegistry, ProviderRegistry>();
         return services;
     }
 }
