@@ -1,6 +1,7 @@
 @page "/workspace"
 @inject IProviderRegistry ProviderRegistry
 @inject ISettingsStore SettingsStore
+@inject IJSRuntime JS
 
 <PageTitle>Workspace</PageTitle>
 
@@ -23,7 +24,7 @@
                 </div>
             </div>
 
-            <div class="chat-transcript">
+            <div id="workspace-transcript" class="chat-transcript">
                 @if (_session.Messages.Count == 0)
                 {
                     <p class="empty-state">No messages yet. Send a prompt to exercise the fake provider flow.</p>
@@ -59,10 +60,19 @@
                 </InputSelect>
 
                 <label class="field-label" for="prompt">Prompt</label>
-                <InputTextArea id="prompt" class="field-input field-input--textarea" @bind-Value="_input" disabled="@_session.IsSending" />
+                <InputTextArea id="workspace-prompt"
+                               class="field-input field-input--textarea"
+                               @bind-Value="_input"
+                               @bind-Value:event="oninput"
+                               @onkeyup="HandlePromptKeyUp"
+                               disabled="@_session.IsSending" />
 
                 <button class="btn btn-primary" @onclick="SendAsync" disabled="@_session.IsSending">
                     @(_session.IsSending ? "Sending..." : "Send")
+                </button>
+
+                <button class="btn" @onclick="ClearConversation" disabled="@_session.IsSending">
+                    Clear conversation
                 </button>
 
                 <p class="save-status">@_session.StatusMessage</p>
@@ -75,6 +85,8 @@
     private WorkspaceSession _session = default!;
     private IReadOnlyList<ProviderDescriptor> _providers = [];
     private string _input = string.Empty;
+    private int _messageCount;
+    private bool _shouldFocusPrompt;
 
     protected override void OnInitialized()
     {
@@ -86,6 +98,21 @@
         _session = new WorkspaceSession(ProviderRegistry, defaultProviderId);
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_session.Messages.Count != _messageCount)
+        {
+            _messageCount = _session.Messages.Count;
+            await JS.InvokeVoidAsync("bukitWorkspace.scrollTranscriptToBottom", "workspace-transcript");
+        }
+
+        if (_shouldFocusPrompt)
+        {
+            _shouldFocusPrompt = false;
+            await JS.InvokeVoidAsync("bukitWorkspace.focusPrompt", "workspace-prompt");
+        }
+    }
+
     private async Task SendAsync()
     {
         var hadInput = !string.IsNullOrWhiteSpace(_input);
@@ -94,6 +121,26 @@
         if (hadInput && !_session.IsSending)
         {
             _input = string.Empty;
+            _shouldFocusPrompt = true;
         }
+    }
+
+    private async Task HandlePromptKeyUp(KeyboardEventArgs args)
+    {
+        if (_session.IsSending)
+        {
+            return;
+        }
+
+        if (args.Key == "Enter" && !args.ShiftKey)
+        {
+            await SendAsync();
+        }
+    }
+
+    private void ClearConversation()
+    {
+        _session.Clear();
+        _shouldFocusPrompt = true;
     }
 }

@@ -20,6 +20,13 @@ public sealed class WorkspaceSession
 
     public List<LlmMessage> Messages { get; } = [];
 
+    public void Clear()
+    {
+        Messages.Clear();
+        IsSending = false;
+        StatusMessage = "Ready.";
+    }
+
     public async Task SendAsync(string input, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(input))

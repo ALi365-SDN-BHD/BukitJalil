@@ -77,6 +77,22 @@ public sealed class WorkspaceSessionTests
         Assert.Contains(session.Messages, item => item.Role == LlmRole.Assistant);
     }
 
+    [Fact]
+    public async Task Clear_removes_messages_and_resets_status_without_changing_provider()
+    {
+        var session = new WorkspaceSession(
+            new StaticProviderRegistry(new FakeLlmProvider()),
+            "fake");
+
+        await session.SendAsync("Build a bilingual company site");
+        session.Clear();
+
+        Assert.Empty(session.Messages);
+        Assert.Equal("fake", session.SelectedProviderId);
+        Assert.False(session.IsSending);
+        Assert.Equal("Ready.", session.StatusMessage);
+    }
+
     private sealed class StaticProviderRegistry(ILlmProvider provider) : IProviderRegistry
     {
         public ILlmProvider? Get(string providerId) => providerId == provider.Descriptor.Id ? provider : null;
