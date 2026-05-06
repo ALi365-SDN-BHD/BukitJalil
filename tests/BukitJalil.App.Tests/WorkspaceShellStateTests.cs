@@ -101,6 +101,27 @@ public sealed class WorkspaceShellStateTests
         Assert.Equal(second.Id, store.GetCurrentConversationId());
     }
 
+    [Fact]
+    public void Existing_multi_conversation_recovery_rule_still_survives_shell_rebuild()
+    {
+        var store = new InMemoryWorkspaceConversationStore();
+        var first = WorkspaceConversation.Create("fake", DateTimeOffset.Parse("2026-05-05T12:00:00Z"));
+        var second = WorkspaceConversation.Create("openai-compatible", DateTimeOffset.Parse("2026-05-05T13:00:00Z"));
+
+        store.Save(first, makeCurrent: true);
+        store.Save(second, makeCurrent: false);
+        store.Delete(first.Id);
+
+        var shell = new WorkspaceShellState(
+            store,
+            () => DateTimeOffset.Parse("2026-05-05T14:00:00Z"),
+            "fake");
+
+        shell.Initialize();
+
+        Assert.Equal(second.Id, shell.CurrentConversation.Id);
+    }
+
     private sealed class InMemoryWorkspaceConversationStore : IWorkspaceConversationStore
     {
         private readonly List<WorkspaceConversation> _items = [];

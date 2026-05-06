@@ -17,7 +17,7 @@
         <OverviewPanel />
         break;
     case ProjectWorkspaceTab.Conversation:
-        <ConversationPanel />
+        <ConversationPanel Session="@(Session ?? throw new InvalidOperationException("Conversation session is required."))" />
         break;
     case ProjectWorkspaceTab.Structure:
         <StructureEditorPanel />
@@ -42,6 +42,9 @@
 @code {
     [Parameter, EditorRequired]
     public ProjectWorkspaceState State { get; set; } = default!;
+
+    [Parameter]
+    public WorkspaceSession? Session { get; set; }
 
     private static string GetTitle(ProjectWorkspaceTab tab) =>
         tab switch

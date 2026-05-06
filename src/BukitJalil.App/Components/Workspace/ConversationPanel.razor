@@ -1,3 +1,6 @@
+@using BukitJalil.App.Workspace
+@using BukitJalil.Core
+
 <section class="workflow-panel">
     <div class="workflow-panel__header">
         <div>
@@ -7,13 +10,24 @@
     </div>
 
     <div class="workflow-list">
-        <article class="workflow-item">
-            <h3>需求摘要</h3>
-            <p>把自然语言需求沉淀成页面、语言、风格和构建目标。</p>
-        </article>
-        <article class="workflow-item">
-            <h3>会话入口</h3>
-            <p>右侧 AI 协同栏持续可见，会话恢复规则继续沿用已有实现。</p>
-        </article>
+        @if (Session.Messages.Count == 0)
+        {
+            <p class="empty-state">还没有消息。先用中文描述网站目标、语言与页面需求。</p>
+        }
+        else
+        {
+            @foreach (var message in Session.Messages)
+            {
+                <article class="chat-message @(message.Role == LlmRole.User ? "chat-message--user" : "chat-message--assistant")">
+                    <div class="chat-message__role">@message.Role</div>
+                    <div class="chat-message__content">@message.Content</div>
+                </article>
+            }
+        }
     </div>
 </section>
+
+@code {
+    [Parameter, EditorRequired]
+    public WorkspaceSession Session { get; set; } = default!;
+}

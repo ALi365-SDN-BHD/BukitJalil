@@ -1,4 +1,9 @@
 @page "/workspace"
+@inject IProviderRegistry ProviderRegistry
+@inject ISettingsStore SettingsStore
+@inject IWorkspaceConversationStore ConversationStore
+@inject ISystemClock Clock
+@using BukitJalil.Infrastructure
 
 <PageTitle>工作台</PageTitle>
 
@@ -19,7 +24,7 @@
 
     <div class="workspace-shell">
         <main class="workspace-shell__main">
-            <WorkspaceTabHost State="_workspace" />
+            <WorkspaceTabHost State="_workspace" Session="_session" />
         </main>
 
         <WorkspaceRightRail State="_workspace" />
@@ -30,9 +35,23 @@
 
 @code {
     private readonly ProjectWorkspaceState _workspace = new();
+    private WorkspaceShellState _conversationShell = default!;
+    private WorkspaceSession _session = default!;
 
     protected override void OnInitialized()
     {
         _workspace.Initialize("企业服务官网");
+
+        var providers = ProviderRegistry.List();
+        var settings = SettingsStore.Get();
+        var defaultProviderId = WorkspaceDefaultProviderSelector.Resolve(
+            providers,
+            settings.DefaultProvider);
+
+        _conversationShell = new WorkspaceShellState(ConversationStore, () => Clock.UtcNow, defaultProviderId);
+        _conversationShell.Initialize();
+
+        _session = new WorkspaceSession(ProviderRegistry);
+        _session.Bind(_conversationShell.CurrentConversation);
     }
 }
