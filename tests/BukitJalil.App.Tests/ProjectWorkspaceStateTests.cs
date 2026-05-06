@@ -28,4 +28,17 @@ public sealed class ProjectWorkspaceStateTests
         Assert.Equal(ProjectWorkspaceTab.Structure, state.ActiveTab);
         Assert.Contains("结构", state.StageSummary, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Workspace_tab_titles_cover_the_first_three_workflow_stages()
+    {
+        var state = new ProjectWorkspaceState();
+        state.Initialize("企业服务官网");
+
+        state.SwitchTab(ProjectWorkspaceTab.Conversation);
+        Assert.Equal("需求对话", state.ActiveTabTitle);
+
+        state.SwitchTab(ProjectWorkspaceTab.Structure);
+        Assert.Equal("站点结构", state.ActiveTabTitle);
+    }
 }

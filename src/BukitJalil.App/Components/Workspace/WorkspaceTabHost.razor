@@ -1,0 +1,46 @@
+@using BukitJalil.App.Workspace
+@using BukitJalil.Core
+
+<div class="workspace-tab-strip" role="tablist">
+    @foreach (var tab in Enum.GetValues<ProjectWorkspaceTab>())
+    {
+        <button class="workspace-tab @(State.ActiveTab == tab ? "workspace-tab--active" : string.Empty)"
+                @onclick="() => State.SwitchTab(tab)">
+            @GetTitle(tab)
+        </button>
+    }
+</div>
+
+@switch (State.ActiveTab)
+{
+    case ProjectWorkspaceTab.Overview:
+        <OverviewPanel />
+        break;
+    case ProjectWorkspaceTab.Conversation:
+        <ConversationPanel />
+        break;
+    case ProjectWorkspaceTab.Structure:
+        <StructureEditorPanel />
+        break;
+    default:
+        <OverviewPanel />
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ProjectWorkspaceState State { get; set; } = default!;
+
+    private static string GetTitle(ProjectWorkspaceTab tab) =>
+        tab switch
+        {
+            ProjectWorkspaceTab.Overview => "总览",
+            ProjectWorkspaceTab.Conversation => "需求对话",
+            ProjectWorkspaceTab.Structure => "站点结构",
+            ProjectWorkspaceTab.Content => "内容草稿",
+            ProjectWorkspaceTab.PreviewValidation => "预览校验",
+            ProjectWorkspaceTab.BuildDeploy => "构建发布",
+            ProjectWorkspaceTab.History => "变更历史",
+            _ => "总览"
+        };
+}

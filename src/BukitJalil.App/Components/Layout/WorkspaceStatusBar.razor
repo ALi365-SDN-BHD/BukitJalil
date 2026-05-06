@@ -1,0 +1,13 @@
+@using BukitJalil.App.Workspace
+
+<footer class="workspace-status-bar">
+    <span>当前阶段：@State.ActiveTabTitle</span>
+    <span>校验：待确认</span>
+    <span>Bukit：已连接</span>
+    <span>最近状态：@State.StageSummary</span>
+</footer>
+
+@code {
+    [Parameter, EditorRequired]
+    public ProjectWorkspaceState State { get; set; } = default!;
+}
