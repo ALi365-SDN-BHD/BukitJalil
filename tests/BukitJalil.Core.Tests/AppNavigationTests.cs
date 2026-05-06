@@ -3,21 +3,19 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BukitJalil.Core.Tests;
 
-public class ServiceCollectionExtensionsTests
+public sealed class AppNavigationTests
 {
     [Fact]
-    public void AddBukitJalilCore_registers_shell_navigation_catalog()
+    public void App_shell_catalog_exposes_chinese_product_sections_in_order()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection()
+            .AddBukitJalilCore()
+            .BuildServiceProvider();
 
-        services.AddBukitJalilCore();
+        var catalog = services.GetRequiredService<IAppShellCatalog>();
 
-        using var provider = services.BuildServiceProvider();
-        var catalog = provider.GetService<IAppShellCatalog>();
-
-        Assert.NotNull(catalog);
         Assert.Collection(
-            catalog!.Items,
+            catalog.Items,
             item =>
             {
                 Assert.Equal("项目", item.Title);
