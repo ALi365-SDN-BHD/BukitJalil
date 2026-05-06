@@ -260,6 +260,147 @@ a, .btn-link {
     resize: vertical;
 }
 
+.workspace-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 20px;
+}
+
+.workspace-shell__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.workspace-shell__main,
+.workspace-right-rail,
+.workflow-panel {
+    min-width: 0;
+}
+
+.workspace-right-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.workspace-right-rail__card,
+.workflow-panel,
+.preview-surface,
+.log-surface {
+    background: #ffffff;
+    border: 1px solid #dce4ef;
+    border-radius: 20px;
+    padding: 20px;
+}
+
+.workspace-right-rail__label,
+.workflow-panel__eyebrow {
+    margin: 0 0 6px;
+    font-size: 0.75rem;
+    color: #6f8098;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.workspace-status-bar {
+    display: flex;
+    gap: 20px;
+    padding: 14px 18px;
+    border-radius: 16px;
+    background: #ffffff;
+    border: 1px solid #dce4ef;
+    color: #52627a;
+    font-size: 0.88rem;
+}
+
+.workspace-tab-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.workspace-tab {
+    border: 1px solid #d1dae7;
+    background: #ffffff;
+    color: #40506a;
+    border-radius: 999px;
+    padding: 10px 16px;
+}
+
+.workspace-tab--active {
+    background: #162444;
+    color: #ffffff;
+    border-color: #162444;
+}
+
+.workflow-panel__header,
+.workspace-actions,
+.workflow-columns,
+.workflow-list {
+    display: flex;
+    gap: 16px;
+}
+
+.workflow-panel__header {
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 18px;
+}
+
+.workspace-actions {
+    flex-wrap: wrap;
+}
+
+.workflow-columns {
+    align-items: stretch;
+}
+
+.workflow-sidebar {
+    width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.workflow-list {
+    flex: 1;
+    flex-direction: column;
+}
+
+.workflow-item,
+.tree-item {
+    background: #f7f9fc;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 16px;
+}
+
+.tree-item--active {
+    border-color: #4a8f68;
+    background: #edf7ef;
+}
+
+.preview-surface {
+    min-height: 340px;
+    display: grid;
+    place-items: center;
+    color: #70819a;
+}
+
+.log-surface {
+    min-width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-family: monospace;
+    font-size: 0.85rem;
+    background: #0f172a;
+    color: #dbe7ff;
+}
+
 @media (min-width: 900px) {
     .workspace-page__grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -269,6 +410,19 @@ a, .btn-link {
 @media (min-width: 1100px) {
     .workspace-chat-layout {
         grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
+    }
+}
+
+@media (max-width: 1100px) {
+    .product-grid--split,
+    .workspace-shell,
+    .workflow-columns {
+        grid-template-columns: 1fr;
+        display: grid;
+    }
+
+    .workflow-sidebar {
+        width: auto;
     }
 }
 

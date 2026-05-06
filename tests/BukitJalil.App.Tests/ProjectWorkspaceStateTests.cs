@@ -41,4 +41,23 @@ public sealed class ProjectWorkspaceStateTests
         state.SwitchTab(ProjectWorkspaceTab.Structure);
         Assert.Equal("站点结构", state.ActiveTabTitle);
     }
+
+    [Fact]
+    public void Workspace_tab_titles_cover_all_workflow_stages()
+    {
+        var state = new ProjectWorkspaceState();
+        state.Initialize("企业服务官网");
+
+        state.SwitchTab(ProjectWorkspaceTab.Content);
+        Assert.Equal("内容草稿", state.ActiveTabTitle);
+
+        state.SwitchTab(ProjectWorkspaceTab.PreviewValidation);
+        Assert.Equal("预览校验", state.ActiveTabTitle);
+
+        state.SwitchTab(ProjectWorkspaceTab.BuildDeploy);
+        Assert.Equal("构建发布", state.ActiveTabTitle);
+
+        state.SwitchTab(ProjectWorkspaceTab.History);
+        Assert.Equal("变更历史", state.ActiveTabTitle);
+    }
 }

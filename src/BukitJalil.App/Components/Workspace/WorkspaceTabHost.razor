@@ -22,6 +22,18 @@
     case ProjectWorkspaceTab.Structure:
         <StructureEditorPanel />
         break;
+    case ProjectWorkspaceTab.Content:
+        <ContentDraftPanel />
+        break;
+    case ProjectWorkspaceTab.PreviewValidation:
+        <PreviewValidationPanel />
+        break;
+    case ProjectWorkspaceTab.BuildDeploy:
+        <BuildDeployPanel />
+        break;
+    case ProjectWorkspaceTab.History:
+        <HistoryTimelinePanel />
+        break;
     default:
         <OverviewPanel />
         break;
