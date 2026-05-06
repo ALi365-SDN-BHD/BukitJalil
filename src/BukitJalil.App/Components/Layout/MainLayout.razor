@@ -1,19 +1,12 @@
 @inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<div class="app-shell">
+    <AppSidebar />
 
-    <main>
-        <div class="top-row px-4">
-            <div>
-                <div class="top-row__title">BukitJalil</div>
-                <div class="top-row__subtitle">AI-native website builder workspace</div>
-            </div>
-        </div>
+    <main class="app-shell__main">
+        <AppTopbar />
 
-        <article class="content px-4">
+        <article class="app-shell__content">
             @Body
         </article>
     </main>

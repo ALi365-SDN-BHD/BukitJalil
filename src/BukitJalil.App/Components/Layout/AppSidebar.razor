@@ -1,0 +1,21 @@
+@inject IAppShellCatalog AppShellCatalog
+
+<aside class="app-sidebar">
+    <div class="app-sidebar__brand">
+        <div class="app-sidebar__logo">B</div>
+        <div>
+            <div class="app-sidebar__title">BukitJalil</div>
+            <div class="app-sidebar__caption">中文工作台</div>
+        </div>
+    </div>
+
+    <nav class="app-sidebar__nav">
+        @foreach (var item in AppShellCatalog.Items)
+        {
+            <NavLink class="app-nav-link" href="@item.Route" Match="@(item.Route == "/projects" ? NavLinkMatch.Prefix : NavLinkMatch.All)">
+                <span class="app-nav-link__title">@item.Title</span>
+                <span class="app-nav-link__description">@item.Description</span>
+            </NavLink>
+        }
+    </nav>
+</aside>
