@@ -2,46 +2,45 @@
 @page "/projects"
 @inject IProjectStore ProjectStore
 
-<PageTitle>Projects</PageTitle>
+<PageTitle>项目</PageTitle>
 
-<section class="workspace-page">
-    <header class="workspace-page__header">
-        <p class="workspace-page__eyebrow">Projects</p>
-        <h1>Project control panel scaffold</h1>
-        <p class="workspace-page__lede">
-            This first milestone wires the BukitJalil shell so project management, workspace tooling,
-            deployment targets, and settings can evolve independently.
+<section class="product-page">
+    <header class="product-page__header">
+        <p class="product-page__eyebrow">项目</p>
+        <h1>项目与最近工作区</h1>
+        <p class="product-page__lede">
+            创建新的 Bukit 项目，或继续最近一次的 AI 建站工作流。
         </p>
     </header>
 
-    <div class="workspace-page__grid">
-        <section class="workspace-panel">
-            <div class="workspace-panel__header">
+    <div class="product-grid product-grid--split">
+        <section class="product-card">
+            <div class="product-card__header">
                 <div>
-                    <p class="workspace-panel__eyebrow">BJ-V1-014</p>
-                    <h2>Create project</h2>
+                    <p class="product-card__eyebrow">新项目</p>
+                    <h2>创建本地项目</h2>
                 </div>
             </div>
 
             <div class="form-stack">
-                <label class="field-label" for="project-name">Project name</label>
+                <label class="field-label" for="project-name">项目名称</label>
                 <InputText id="project-name" class="field-input" @bind-Value="_projectName" />
-                <button class="btn btn-primary" type="button" @onclick="CreateProject">Create local project</button>
+                <button class="btn btn-primary" type="button" @onclick="CreateProject">创建项目</button>
             </div>
         </section>
 
-        <section class="workspace-panel">
-            <div class="workspace-panel__header">
+        <section class="product-card">
+            <div class="product-card__header">
                 <div>
-                    <p class="workspace-panel__eyebrow">BJ-V1-013</p>
-                    <h2>Local projects</h2>
+                    <p class="product-card__eyebrow">最近项目</p>
+                    <h2>本地工作区</h2>
                 </div>
-                <span class="workspace-badge">@_projects.Count item(s)</span>
+                <span class="workspace-badge">@_projects.Count 个项目</span>
             </div>
 
             @if (_projects.Count == 0)
             {
-                <p class="empty-state">No projects yet. Create the first BukitJalil workspace to initialize local storage.</p>
+                <p class="empty-state">还没有项目。先创建一个项目，进入新的中文工作台。</p>
             }
             else
             {
@@ -51,7 +50,7 @@
                         <article class="record-card">
                             <div class="record-card__title">@project.Name</div>
                             <div class="record-card__meta">@project.WorkspacePath</div>
-                            <div class="record-card__meta">Created @project.CreatedUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm")</div>
+                            <div class="record-card__meta">创建于 @project.CreatedUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm")</div>
                         </article>
                     }
                 </div>
