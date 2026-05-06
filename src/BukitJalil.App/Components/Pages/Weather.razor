@@ -1,113 +1,21 @@
 @page "/platforms"
-@inject IPlatformStore PlatformStore
 
-<PageTitle>Platforms</PageTitle>
+<PageTitle>部署目标</PageTitle>
 
-<section class="workspace-page">
-    <header class="workspace-page__header">
-        <p class="workspace-page__eyebrow">Platforms</p>
-        <h1>Deployment target management</h1>
-        <p class="workspace-page__lede">
-            Deployment targets will store GitHub Pages, Vercel, Netlify, and Cloudflare Pages settings.
-            The scaffold reserves a dedicated surface before the deployment workflow is implemented.
-        </p>
+<section class="product-page">
+    <header class="product-page__header">
+        <p class="product-page__eyebrow">部署目标</p>
+        <h1>兼容页：旧入口将逐步并入发布中心</h1>
+        <p class="product-page__lede">保留现有路由以避免断链，同时提示用户迁移到新的发布中心。</p>
     </header>
 
-    <div class="workspace-page__grid">
-        <section class="workspace-panel">
-            <div class="workspace-panel__header">
-                <div>
-                    <p class="workspace-panel__eyebrow">BJ-V1-016</p>
-                    <h2>Create deployment target</h2>
-                </div>
+    <section class="product-card">
+        <div class="product-card__header">
+            <div>
+                <p class="product-card__eyebrow">兼容入口</p>
+                <h2>发布中心迁移中</h2>
             </div>
-
-            <EditForm Model="_target" OnSubmit="SaveTarget">
-                <div class="form-stack">
-                    <label class="field-label" for="platform-name">Target name</label>
-                    <InputText id="platform-name" class="field-input" @bind-Value="_target.Name" />
-
-                    <label class="field-label" for="platform-type">Platform type</label>
-                    <InputSelect id="platform-type" class="field-input" @bind-Value="_target.PlatformType">
-                        <option value="github-pages">GitHub Pages</option>
-                        <option value="vercel">Vercel</option>
-                        <option value="netlify">Netlify</option>
-                        <option value="cloudflare-pages">Cloudflare Pages</option>
-                    </InputSelect>
-
-                    <label class="field-label" for="platform-endpoint">Repository or project</label>
-                    <InputText id="platform-endpoint" class="field-input" @bind-Value="_target.EndpointOrProject" />
-
-                    <label class="field-label" for="platform-token-label">Access token label</label>
-                    <InputText id="platform-token-label" class="field-input" @bind-Value="_target.AccessTokenLabel" />
-
-                    <button class="btn btn-primary" type="submit">Save target</button>
-                </div>
-            </EditForm>
-        </section>
-
-        <section class="workspace-panel">
-            <div class="workspace-panel__header">
-                <div>
-                    <p class="workspace-panel__eyebrow">Stored targets</p>
-                    <h2>Deployment platforms</h2>
-                </div>
-                <span class="workspace-badge">@_targets.Count item(s)</span>
-            </div>
-
-            @if (_targets.Count == 0)
-            {
-                <p class="empty-state">No deployment targets yet. Save a platform so V1 build and deploy workflows have a destination.</p>
-            }
-            else
-            {
-                <div class="record-list">
-                    @foreach (var target in _targets)
-                    {
-                        <article class="record-card">
-                            <div class="record-card__title">@target.Name</div>
-                            <div class="record-card__meta">@target.PlatformType</div>
-                            <div class="record-card__meta">@target.EndpointOrProject</div>
-                            <div class="record-card__meta">Token label: @target.AccessTokenLabel</div>
-                        </article>
-                    }
-                </div>
-            }
-        </section>
-    </div>
+        </div>
+        <p class="empty-state">此页面后续只保留兼容能力，主发布体验迁移到“发布中心”。</p>
+    </section>
 </section>
-
-@code {
-    private DeploymentTarget _target = NewTarget();
-    private IReadOnlyList<DeploymentTarget> _targets = [];
-
-    protected override void OnInitialized()
-    {
-        LoadTargets();
-    }
-
-    private void SaveTarget()
-    {
-        if (string.IsNullOrWhiteSpace(_target.Name) || string.IsNullOrWhiteSpace(_target.EndpointOrProject))
-        {
-            return;
-        }
-
-        PlatformStore.Save(_target);
-        _target = NewTarget();
-        LoadTargets();
-    }
-
-    private void LoadTargets()
-    {
-        _targets = PlatformStore.List();
-    }
-
-    private static DeploymentTarget NewTarget()
-    {
-        return new DeploymentTarget
-        {
-            PlatformType = "github-pages"
-        };
-    }
-}

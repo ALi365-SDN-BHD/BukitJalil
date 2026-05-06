@@ -3,45 +3,47 @@
 
 <PageTitle>Settings</PageTitle>
 
-<section class="workspace-page">
-    <header class="workspace-page__header">
-        <p class="workspace-page__eyebrow">Settings</p>
-        <h1>Environment and provider configuration</h1>
-        <p class="workspace-page__lede">
-            Settings will hold Bukit paths, document sources, default providers, and future model-specific options.
+<PageTitle>设置与诊断</PageTitle>
+
+<section class="product-page">
+    <header class="product-page__header">
+        <p class="product-page__eyebrow">设置与诊断</p>
+        <h1>配置 Bukit、模型与运行环境</h1>
+        <p class="product-page__lede">
+            统一管理 Bukit 路径、文档目录、默认模型以及 OpenAI-compatible 连接信息。
         </p>
     </header>
 
-    <div class="workspace-page__grid">
-        <section class="workspace-panel">
-            <div class="workspace-panel__header">
+    <div class="product-grid product-grid--split">
+        <section class="product-card">
+            <div class="product-card__header">
                 <div>
-                    <p class="workspace-panel__eyebrow">BJ-V1-015</p>
-                    <h2>Workspace dependencies</h2>
+                    <p class="product-card__eyebrow">环境配置</p>
+                    <h2>工作台依赖项</h2>
                 </div>
             </div>
 
             <EditForm Model="_settings" OnSubmit="SaveSettings">
                 <div class="form-stack">
-                    <label class="field-label" for="bukit-path">Bukit path</label>
+                    <label class="field-label" for="bukit-path">Bukit 可执行路径</label>
                     <InputText id="bukit-path" class="field-input" @bind-Value="_settings.BukitPath" />
 
-                    <label class="field-label" for="documents-path">Documents path</label>
+                    <label class="field-label" for="documents-path">文档目录</label>
                     <InputText id="documents-path" class="field-input" @bind-Value="_settings.DocumentsPath" />
 
-                    <label class="field-label" for="default-provider">Default provider</label>
+                    <label class="field-label" for="default-provider">默认 Provider</label>
                     <InputText id="default-provider" class="field-input" @bind-Value="_settings.DefaultProvider" />
 
-                    <label class="field-label" for="provider-base-url">Provider base URL</label>
+                    <label class="field-label" for="provider-base-url">Provider Base URL</label>
                     <InputText id="provider-base-url" class="field-input" @bind-Value="_settings.ProviderBaseUrl" />
 
-                    <label class="field-label" for="provider-api-key">Provider API key</label>
+                    <label class="field-label" for="provider-api-key">Provider API Key</label>
                     <InputText id="provider-api-key" class="field-input" @bind-Value="_settings.ProviderApiKey" />
 
-                    <label class="field-label" for="provider-model">Provider model</label>
+                    <label class="field-label" for="provider-model">Provider Model</label>
                     <InputText id="provider-model" class="field-input" @bind-Value="_settings.ProviderModel" />
 
-                    <button class="btn btn-primary" type="submit">Save settings</button>
+                    <button class="btn btn-primary" type="submit">保存设置</button>
                 </div>
             </EditForm>
 
@@ -51,11 +53,14 @@
             }
         </section>
 
-        <section class="workspace-panel">
-            <SectionCard
-                Eyebrow="Next"
-                Title="Platform and provider expansion"
-                Description="This page now persists Bukit path, docs path, default provider, and the first OpenAI-compatible provider settings." />
+        <section class="product-card">
+            <div class="product-card__header">
+                <div>
+                    <p class="product-card__eyebrow">诊断</p>
+                    <h2>下一步扩展</h2>
+                </div>
+            </div>
+            <p class="empty-state">这个页面现在承接 Bukit 路径、文档目录、默认 Provider 和首个 OpenAI-compatible Provider 配置。</p>
         </section>
     </div>
 </section>
@@ -72,6 +77,6 @@
     private void SaveSettings()
     {
         SettingsStore.Save(_settings);
-        _statusMessage = $"Saved at {DateTime.Now:HH:mm:ss}";
+        _statusMessage = $"已保存：{DateTime.Now:HH:mm:ss}";
     }
 }
