@@ -1,0 +1,123 @@
+import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { ProjectStore } from "../src/main/project";
+
+test("project home: explicit entry, missing paths, rename, remove, create, reopen and preview cleanup", async ({}, info) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bukitjalil-project-home-gui-")));
+  const data = path.join(root, "app"), codex = path.join(root, "codex"), engine = path.join(root, "bukit");
+  await fs.mkdir(data);
+  for (const [fixture, target] of [["fake-codex.cjs", codex], ["fake-bukit.cjs", engine]]) {
+    await fs.copyFile(new URL("./fixtures/" + fixture, import.meta.url), target); await fs.chmod(target, 0o700);
+  }
+  const kept = await ProjectStore.create(path.join(root, "kept-site"), "山间工作室");
+  const missing = path.join(root, "moved-site");
+  const id = crypto.randomUUID();
+  await fs.writeFile(path.join(data, "session.json"), JSON.stringify({
+    recent: [{ id, path: kept.root, name: kept.data.name }, { id: crypto.randomUUID(), path: missing, name: "已移动项目" }],
+    lastProjectId: id, binary: process.env.BUKIT_BIN || engine,
+  }));
+  const original = await fs.readFile(path.join(kept.root, "bukitjalil.json"), "utf8");
+  const env: Record<string, string> = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    BUKITJALIL_DATA_DIR: data, BUKITJALIL_CODEX_BIN: codex, BUKIT_BIN: process.env.BUKIT_BIN || engine };
+  delete env.ELECTRON_RUN_AS_NODE;
+  let app: ElectronApplication | undefined;
+  let page!: Page;
+  const launch = async () => {
+    app = await electron.launch({ args: ["."], cwd: process.cwd(), env });
+    page = await app.firstWindow(); await page.waitForURL("bukitjalil://app/index.html");
+    await expect(page.getByRole("main", { name: "项目首页" })).toBeVisible();
+    expect((await page.evaluate(() => window.desktop.state())).project).toBeNull();
+  };
+  const state = () => page.evaluate(() => window.desktop.state());
+  const card = (name: string) => page.locator(".project-card").filter({ has: page.getByRole("button", { name: "打开项目 " + name, exact: true }) });
+  const columns = () => page.locator(".project-cards").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
+  try {
+    await launch();
+    expect(await fs.readFile(path.join(kept.root, "bukitjalil.json"), "utf8")).toBe(original);
+    expect(await fs.readdir(kept.root)).toEqual(["bukitjalil.json"]);
+    await expect(card("山间工作室")).toContainText(kept.root);
+    await expect(card("山间工作室")).toContainText("尚未记录");
+    await expect(card("已移动项目")).toContainText("找不到项目目录或项目文件");
+    expect(await columns()).toBe(3);
+    const missingMenu = card("已移动项目").locator("summary");
+    await missingMenu.focus();
+    await missingMenu.press("Enter");
+    await expect(card("已移动项目").locator("details")).toHaveAttribute("open", "");
+    await expect(card("已移动项目").getByRole("button", { name: "重命名" })).toBeDisabled();
+    expect((await state()).project).toBeNull();
+    await page.screenshot({ path: info.outputPath("cards-menu.png") });
+    await missingMenu.press("Enter");
+    await expect(card("已移动项目").locator("details")).not.toHaveAttribute("open", "");
+    await page.screenshot({ path: info.outputPath("home-projects-and-missing.png") });
+    await page.getByRole("button", { name: "打开项目 已移动项目", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("找不到项目");
+    expect((await state()).project).toBeNull();
+    await card("已移动项目").locator("summary").click();
+    await card("已移动项目").getByRole("button", { name: "移除入口" }).click();
+    expect((await state()).project).toBeNull();
+    await expect(card("已移动项目")).toHaveCount(0);
+    await expect(fs.stat(missing)).rejects.toThrow();
+    await card("山间工作室").locator("summary").click();
+    expect((await state()).project).toBeNull();
+    await card("山间工作室").getByRole("button", { name: "重命名" }).click();
+    await page.getByLabel("项目显示名称", { exact: true }).fill("山间设计工作室");
+    await page.getByRole("button", { name: "保存名称", exact: true }).click();
+    await expect(card("山间设计工作室")).toBeVisible();
+    await expect(card("山间设计工作室")).toContainText("尚未记录");
+    expect(JSON.parse(await fs.readFile(path.join(kept.root, "bukitjalil.json"), "utf8"))).toEqual({ ...JSON.parse(original), name: "山间设计工作室" });
+    await page.getByRole("button", { name: "打开项目 山间设计工作室", exact: true }).click();
+    await expect(page.getByRole("button", { name: "返回项目首页" })).toBeVisible();
+    expect((await state()).project!.path).toBe(kept.root);
+    const openedAt = (await state()).recent[0].lastOpenedAt;
+    expect(Number.isFinite(Date.parse(openedAt!))).toBe(true);
+    await page.getByLabel("首页标题", { exact: false }).fill("尚未保存的标题");
+    await expect(page.getByRole("button", { name: "返回项目首页" })).toBeDisabled();
+    await page.getByRole("button", { name: "放弃未保存的修改" }).click();
+    await page.getByRole("button", { name: "应用样例主题" }).click();
+    await page.getByRole("button", { name: "构建预览", exact: false }).click();
+    await expect.poll(async () => (await state()).project?.lastBuild?.status).toBe("success");
+    await page.getByRole("button", { name: "展开预览" }).click();
+    await expect(page.frameLocator("iframe").locator("h1")).toHaveText("让你的想法，在这里生长。");
+    const preview = (await state()).preview!.url;
+    await page.getByRole("button", { name: "返回项目首页" }).click();
+    await expect(page.getByRole("main", { name: "项目首页" })).toBeVisible();
+    expect((await state()).preview).toBeNull();
+    await expect(fetch(preview)).rejects.toThrow();
+    await app!.close(); app = undefined;
+    await launch();
+    expect((await state()).recent[0].lastOpenedAt).toBe(openedAt);
+    await expect(card("山间设计工作室")).toBeVisible();
+    await page.screenshot({ path: info.outputPath("project-home.png") });
+    const saved = await fs.readFile(path.join(kept.root, "bukitjalil.json"), "utf8");
+    const files = await fs.readdir(kept.root);
+    await card("山间设计工作室").locator("summary").click();
+    await card("山间设计工作室").getByRole("button", { name: "移除入口" }).click();
+    await expect(page.getByText("还没有项目", { exact: true })).toBeVisible();
+    expect(await fs.readFile(path.join(kept.root, "bukitjalil.json"), "utf8")).toBe(saved);
+    expect(await fs.readdir(kept.root)).toEqual(files);
+    await page.screenshot({ path: info.outputPath("home-empty.png") });
+    const created = path.join(root, "created-site");
+    await app!.evaluate(({ dialog }, target) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: target }); }, created);
+    await page.getByRole("button", { name: "创建项目", exact: true }).click();
+    await page.getByLabel("项目名称", { exact: true }).fill("新的本地项目");
+    await page.getByRole("button", { name: "选择位置并创建" }).click();
+    await expect(page.getByRole("button", { name: "返回项目首页" })).toBeVisible();
+    expect((await state()).project!.path).toBe(created);
+    await page.getByRole("button", { name: "返回项目首页" }).click();
+    await app!.evaluate(({ dialog }, target) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] }); }, kept.root);
+    await page.getByRole("button", { name: "打开项目", exact: true }).click();
+    await page.getByRole("button", { name: "展开预览" }).click();
+    await expect(page.frameLocator("iframe").locator("h1")).toHaveText("让你的想法，在这里生长。");
+    expect((await state()).project!.name).toBe("山间设计工作室");
+    await page.screenshot({ path: info.outputPath("workbench-from-home.png") });
+    await page.getByRole("button", { name: "返回项目首页" }).click();
+    await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1080, 720));
+    expect(await columns()).toBe(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath("home-minimum-window.png") });
+    const requests = await fs.readFile(path.join(root, "requests.jsonl"), "utf8").catch(() => "");
+    expect(requests).not.toContain('"turn/start"');
+  } finally { await app?.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
