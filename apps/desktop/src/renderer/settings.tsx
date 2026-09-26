@@ -53,7 +53,10 @@ export function SettingsPage({ state, chat, onBack }: {
           <h2 id="bukit-settings-heading">Bukit 构建引擎</h2>
           <p>负责在本机构建和预览网站。</p>
           <dl className="settings-facts"><div><dt>检测版本</dt><dd>{state?.binaryVersion ?? "尚未检测到可用版本"}</dd></div></dl>
-          <form onSubmit={(event) => { event.preventDefault(); void perform(() => window.desktop.saveBukitPath(bukitPath.trim()), "Bukit 路径已保存并生效。"); }}>
+          <form onSubmit={(event) => { event.preventDefault(); void perform(async () => {
+            await window.desktop.saveBukitPath(bukitPath.trim());
+            setBukitPath((await window.desktop.state()).binary ?? "");
+          }, "Bukit 路径已保存并生效。"); }}>
             <label htmlFor="bukit-executable">可执行文件路径</label>
             <div className="settings-path-row"><input id="bukit-executable" value={bukitPath} onChange={(event) => { setBukitPath(event.target.value); setFeedback(""); }} placeholder="/…/bukit" spellCheck={false} /><button type="button" className="secondary" disabled={locked} onClick={() => void browse("Bukit")}>浏览…</button></div>
             <button className="primary" disabled={locked || !bukitPath.trim() || bukitPath.trim() === state?.binary}>保存 Bukit 路径</button>
@@ -65,7 +68,10 @@ export function SettingsPage({ state, chat, onBack }: {
           <p>用于网站讨论和受控生成；不会自动发起模型对话。</p>
           <dl className="settings-facts"><div><dt>检测版本</dt><dd>{chat?.version ?? "尚未检测到可用版本"}</dd></div><div><dt>登录状态</dt><dd>{chat?.account ? `${chat.account.type === "chatgpt" ? "ChatGPT" : "API Key"} 已登录${chat.account.plan ? ` · ${chat.account.plan}` : ""}` : "未登录"}</dd></div></dl>
           {chat?.error && <p className="settings-inline-error" role="alert">{chat.error}</p>}
-          <form onSubmit={(event) => { event.preventDefault(); void perform(() => window.desktop.saveCodexPath(codexPath.trim()), "Codex 路径已保存、连接并生效。"); }}>
+          <form onSubmit={(event) => { event.preventDefault(); void perform(async () => {
+            await window.desktop.saveCodexPath(codexPath.trim());
+            setCodexPath((await window.desktop.chatState()).binary ?? "");
+          }, "Codex 路径已保存、连接并生效。"); }}>
             <label htmlFor="codex-executable">可执行文件路径</label>
             <div className="settings-path-row"><input id="codex-executable" value={codexPath} onChange={(event) => { setCodexPath(event.target.value); setFeedback(""); }} placeholder="/…/codex" spellCheck={false} /><button type="button" className="secondary" disabled={locked} onClick={() => void browse("Codex")}>浏览…</button></div>
             <div className="settings-actions"><button className="primary" disabled={locked || !codexPath.trim() || codexPath.trim() === chat?.binary}>保存 Codex 路径</button><button type="button" className="secondary" disabled={locked || chat?.connection === "ready"} onClick={() => void perform(() => window.desktop.connectChat(), "Codex 已连接；未发送任何消息。")}>检测连接</button></div>

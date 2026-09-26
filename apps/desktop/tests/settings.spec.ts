@@ -6,10 +6,12 @@ import os from "node:os";
 test("global settings save locally, reject invalid paths, show live models, and reopen without model turns", async ({}, info) => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bukitjalil-settings-gui-")));
   const data = path.join(root, "app"), codex = path.join(root, "codex"), bukit = path.join(root, "bukit");
+  const codexAlias = path.join(root, "codex-alias"), bukitAlias = path.join(root, "bukit-alias");
   await fs.mkdir(data);
   for (const [fixture, target] of [["fake-codex.cjs", codex], ["fake-bukit.cjs", bukit]]) {
     await fs.copyFile(new URL("./fixtures/" + fixture, import.meta.url), target); await fs.chmod(target, 0o700);
   }
+  await fs.symlink(codex, codexAlias); await fs.symlink(bukit, bukitAlias);
   const env: Record<string, string> = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), BUKITJALIL_DATA_DIR: data, BUKITJALIL_CODEX_BIN: codex, BUKIT_BIN: bukit };
   delete env.ELECTRON_RUN_AS_NODE;
   let app: ElectronApplication | undefined;
@@ -28,12 +30,18 @@ test("global settings save locally, reject invalid paths, show live models, and 
     await page.getByRole("button", { name: "保存 Bukit 路径" }).click();
     await expect(page.getByRole("alert")).toBeVisible();
     expect((await page.evaluate(() => window.desktop.state())).binary).toBe(bukit);
-    await page.getByLabel("可执行文件路径").first().fill(bukit);
+    await page.getByLabel("可执行文件路径").first().fill(bukitAlias);
+    await page.getByRole("button", { name: "保存 Bukit 路径" }).click();
+    await expect(page.getByLabel("可执行文件路径").first()).toHaveValue(bukit);
+    await expect(page.getByRole("button", { name: "保存 Bukit 路径" })).toBeDisabled();
     await page.getByLabel("可执行文件路径").nth(1).fill(path.join(root, "missing-codex"));
     await page.getByRole("button", { name: "保存 Codex 路径" }).click();
     await expect(page.getByRole("alert")).toBeVisible();
     expect((await page.evaluate(() => window.desktop.chatState())).binary).toBe(codex);
-    await page.getByLabel("可执行文件路径").nth(1).fill(codex);
+    await page.getByLabel("可执行文件路径").nth(1).fill(codexAlias);
+    await page.getByRole("button", { name: "保存 Codex 路径" }).click();
+    await expect(page.getByLabel("可执行文件路径").nth(1)).toHaveValue(codex);
+    await expect(page.getByRole("button", { name: "保存 Codex 路径" })).toBeDisabled();
     await page.getByRole("button", { name: "检测连接" }).click();
     await expect(page.getByText("ChatGPT 已登录 · plus")).toBeVisible();
     await expect(page.getByRole("option", { name: "Synthetic Sol" })).toHaveCount(1);
