@@ -7,7 +7,9 @@ const args = process.argv.slice(2);
 const option = (name) => args[args.indexOf(name) + 1];
 const modePath = path.join(__dirname, "engine-mode");
 const mode = fs.existsSync(modePath) ? fs.readFileSync(modePath, "utf8") : "";
-if (args[0] === "build") {
+if (args[0] === "version") {
+  console.log("bukit 2.0.0-test");
+} else if (args[0] === "build") {
   if (mode === "fail") {
     console.error("synthetic build failure");
     process.exit(7);

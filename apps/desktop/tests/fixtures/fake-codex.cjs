@@ -79,6 +79,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (!initialized) return emit({ id, error: { code: -32001 } });
   if (mode().malformed) { process.stdout.write("not-json\n"); return; }
   if (method === "config/read") return result(id, { config });
+  if (method === "model/list") return result(id, { data: mode().models ?? [
+    { model: "synthetic-sol", displayName: "Synthetic Sol", hidden: false, isDefault: true, defaultReasoningEffort: "low",
+      supportedReasoningEfforts: [{ reasoningEffort: "low", description: "Fast" }, { reasoningEffort: "high", description: "Deep" }] },
+    { model: "synthetic-hidden", displayName: "Hidden", hidden: true, isDefault: false, defaultReasoningEffort: "low", supportedReasoningEfforts: [] },
+  ], nextCursor: null });
   if (method === "account/read") return result(id, {
     account: loggedIn ? { type: "chatgpt", planType: "plus" } : null, requiresOpenaiAuth: true,
   });

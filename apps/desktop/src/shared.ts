@@ -32,6 +32,7 @@ export interface RecentProject {
   id: string;
   path: string;
   name: string;
+  lastOpenedAt?: string;
 }
 export interface FileChange {
   path: string;
@@ -57,8 +58,9 @@ export interface State {
         pages: { path: string; title: string }[];
       })
     | null;
-  recent: RecentProject[];
+  recent: (RecentProject & { unavailable: string | null })[];
   binary: string | null;
+  binaryVersion: string | null;
   busy: boolean;
   generation: GenerationState | null;
   preview: { url: string; revisionId: string } | null;
@@ -82,11 +84,17 @@ export interface ChatState {
   account: { type: "chatgpt" | "apiKey"; plan: string | null } | null;
   loginPending: boolean;
   error: string | null;
+  binary: string | null;
+  models: { id: string; name: string; defaultEffort: string; isDefault: boolean; efforts: { id: string; description: string }[] }[];
+  model: string | null;
+  effort: string | null;
   conversations: Record<string, Conversation>;
 }
 export interface DesktopAPI {
   chatState(): Promise<ChatState>;
   connectChat(): Promise<void>;
+  saveCodexPath(path: string): Promise<void>;
+  saveModel(value: { model: string | null; effort: string | null }): Promise<void>;
   loginChat(): Promise<void>;
   cancelLoginChat(): Promise<void>;
   sendChat(value: { projectPath: string; text: string }): Promise<void>;
@@ -99,7 +107,12 @@ export interface DesktopAPI {
   create(name: string): Promise<void>;
   open(): Promise<void>;
   openRecent(id: string): Promise<void>;
+  home(): Promise<void>;
+  renameProject(value: { id: string; name: string }): Promise<void>;
+  removeProject(id: string): Promise<void>;
   chooseEngine(): Promise<void>;
+  saveBukitPath(path: string): Promise<void>;
+  pickExecutable(engine: "Bukit" | "Codex"): Promise<string | null>;
   applyTheme(): Promise<void>;
   editHeadline(headline: string): Promise<void>;
   restore(id: string): Promise<void>;

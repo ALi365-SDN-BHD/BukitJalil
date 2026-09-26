@@ -4,6 +4,8 @@ import type { DesktopAPI, State, ChatState } from "../shared";
 const api: DesktopAPI = {
   chatState: () => ipcRenderer.invoke("chat:state"),
   connectChat: () => ipcRenderer.invoke("chat:connect"),
+  saveCodexPath: (path) => ipcRenderer.invoke("chat:binary", path),
+  saveModel: (value) => ipcRenderer.invoke("chat:model", value),
   loginChat: () => ipcRenderer.invoke("chat:login"),
   cancelLoginChat: () => ipcRenderer.invoke("chat:cancel-login"),
   sendChat: (value) => ipcRenderer.invoke("chat:send", value),
@@ -20,7 +22,12 @@ const api: DesktopAPI = {
   create: (name) => ipcRenderer.invoke("workspace:create", name),
   open: () => ipcRenderer.invoke("workspace:open"),
   openRecent: (id) => ipcRenderer.invoke("workspace:recent", id),
+  home: () => ipcRenderer.invoke("workspace:home"),
+  renameProject: (value) => ipcRenderer.invoke("workspace:rename", value),
+  removeProject: (id) => ipcRenderer.invoke("workspace:remove", id),
   chooseEngine: () => ipcRenderer.invoke("workspace:engine"),
+  saveBukitPath: (path) => ipcRenderer.invoke("workspace:engine-path", path),
+  pickExecutable: (engine) => ipcRenderer.invoke("settings:pick-executable", engine),
   applyTheme: () => ipcRenderer.invoke("workspace:theme"),
   editHeadline: (headline) =>
     ipcRenderer.invoke("workspace:headline", headline),

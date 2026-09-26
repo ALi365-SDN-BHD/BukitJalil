@@ -178,7 +178,7 @@ try {
   console.log(JSON.stringify({ milestone: "starting", root, reportPath, maxModelTurns: 1 }));
   await launch();
   await app!.evaluate(({ dialog }, target) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: target }); }, site);
-  await page.getByRole("button", { name: "创建第一个项目" }).click();
+  await page.getByRole("button", { name: "创建项目", exact: true }).click();
   await page.getByLabel("项目名称", { exact: true }).fill("真实 Codex 临时验收");
   await page.getByRole("button", { name: "选择位置并创建" }).click();
   await page.getByRole("button", { name: "应用样例主题" }).click();
@@ -206,6 +206,8 @@ try {
     await page.screenshot({ path: path.join(out, "applied-new-page.png") });
     report.newPagePreview = true; await persist(); await close();
     await launch();
+    await expect(page.getByRole("main", { name: "项目首页" })).toBeVisible();
+    await page.getByRole("button", { name: /^打开项目 / }).click();
     await expect.poll(async () => (await state()).preview?.revisionId).toBe(applied.revision);
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText(title);
     expect((await snapshot()).sources).toBe(applied.sources); report.reopenedAppliedVersion = true;

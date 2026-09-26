@@ -180,13 +180,36 @@ async function start() {
       return action(value);
     });
   handle("chat:state", () => codex!.state());
-  handle("chat:connect", () => codex!.connect());
-  handle("chat:login", () => codex!.login());
+  handle("chat:connect", () => {
+    if (settingsBusy) throw new Error("请等待引擎设置完成后再连接。");
+    return codex!.connect();
+  });
+  let settingsBusy = false;
+  const settingsUnlocked = () => {
+    if (settingsBusy || workspace!.state().busy || workspace!.state().generation?.status === "review" || codex!.settingsLocked())
+      throw new Error("请先等待构建、回复或生成完成，并处理待审核的副本后再切换引擎设置。");
+  };
+  const changeSettings = async (action: () => Promise<void>) => {
+    settingsUnlocked(); settingsBusy = true;
+    try { await action(); } finally { settingsBusy = false; }
+  };
+  handle("chat:binary", (value) => changeSettings(() => codex!.saveBinary(value)));
+  handle("chat:model", (value) => changeSettings(() => codex!.saveModel(value)));
+  handle("chat:login", () => {
+    if (settingsBusy) throw new Error("请等待引擎设置完成后再登录。");
+    return codex!.login();
+  });
   handle("chat:cancel-login", () => codex!.cancelLogin());
-  handle("chat:send", (value) => codex!.send(value));
+  handle("chat:send", (value) => {
+    if (settingsBusy) throw new Error("请等待引擎设置完成后再发送消息。");
+    return codex!.send(value);
+  });
   handle("chat:cancel", (value) => codex!.cancel(value));
   handle("workspace:state", () => workspace!.state());
-  handle("workspace:generate", (value) => workspace!.generate(value, codex!));
+  handle("workspace:generate", (value) => {
+    if (settingsBusy) throw new Error("请等待引擎设置完成后再生成。");
+    return workspace!.generate(value, codex!);
+  });
   handle("workspace:approve-generation", (value) => workspace!.approveGeneration(value));
   handle("workspace:reject-generation", (value) => workspace!.rejectGeneration(value));
   handle("workspace:create", async (value) => {
@@ -210,16 +233,33 @@ async function start() {
     });
     if (!result.canceled) await workspace!.open(result.filePaths[0]);
   });
-  handle("workspace:engine", async () => {
+  handle("workspace:engine", () => changeSettings(async () => {
     const result = await dialog.showOpenDialog(window!, {
       title: "选择本机 Bukit 可执行文件",
       properties: ["openFile"],
     });
     if (!result.canceled) await workspace!.chooseEngine(result.filePaths[0]);
+  }));
+  handle("workspace:engine-path", (value) => changeSettings(() => workspace!.chooseEngine(value as string)));
+  handle("settings:pick-executable", async (value) => {
+    if (value !== "Bukit" && value !== "Codex") throw new Error("程序类型无效。");
+    const result = await dialog.showOpenDialog(window!, {
+      title: `选择本机 ${value} 可执行文件`, properties: ["openFile"],
+    });
+    return result.canceled ? null : result.filePaths[0];
   });
   handle("workspace:recent", (value) =>
     workspace!.openRecent(textField(value, 36)),
   );
+  handle("workspace:home", () => workspace!.home());
+  handle("workspace:rename", (value) => workspace!.renameProject(value));
+  handle("workspace:remove", (value) => {
+    const id = textField(value, 36);
+    const recent = workspace!.state().recent.find((entry) => entry.id === id);
+    if (recent && ["starting", "running", "cancelling"].includes(codex!.state().conversations[recent.path]?.status ?? ""))
+      throw new Error("此项目仍在回复，请等待完成或中断回复后再移除入口。");
+    return workspace!.removeProject(id);
+  });
   handle("workspace:theme", () => workspace!.applyTheme());
   handle("workspace:headline", (value) =>
     workspace!.editHeadline(textField(value, 120)),
@@ -227,7 +267,10 @@ async function start() {
   handle("workspace:restore", (value) =>
     workspace!.restore(textField(value, 36)),
   );
-  handle("workspace:build", () => workspace!.build());
+  handle("workspace:build", () => {
+    if (settingsBusy) throw new Error("请等待引擎设置完成后再构建。");
+    return workspace!.build();
+  });
   handle("workspace:cancel", () => workspace!.cancel());
 
   await workspace.initialize(process.env.BUKIT_BIN);

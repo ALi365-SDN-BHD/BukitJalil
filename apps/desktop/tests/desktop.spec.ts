@@ -43,6 +43,10 @@ test("macOS desktop: build, isolated preview, edit, failure, restore and reopen"
     await expect(
       page.getByRole("button", { name: "Bukit 已连接" }),
     ).toBeVisible();
+    await expect(page.getByRole("main", { name: "项目首页" })).toBeVisible();
+    const initial = await page.evaluate(() => window.desktop.state());
+    expect(initial.project).toBeNull();
+    if (initial.recent.length) await page.getByRole("button", { name: "打开项目 " + initial.recent[0].name, exact: true }).click();
   }
   const state = () => page.evaluate(() => window.desktop.state());
   const build = async () => {
@@ -65,7 +69,7 @@ test("macOS desktop: build, isolated preview, edit, failure, restore and reopen"
         filePath: target,
       });
     }, projectDir);
-    await page.getByRole("button", { name: "创建第一个项目" }).click();
+    await page.getByRole("button", { name: "创建项目", exact: true }).click();
     await page.getByLabel("项目名称", { exact: true }).fill("山间工作室");
     await page.getByRole("button", { name: "选择位置并创建" }).click();
     await expect(
@@ -224,7 +228,8 @@ test("macOS desktop: build, isolated preview, edit, failure, restore and reopen"
         filePaths: [target],
       });
     }, projectDir);
-    await page.getByRole("button", { name: "打开本地项目" }).click();
+    await page.getByRole("button", { name: "返回项目首页" }).click();
+    await page.getByRole("button", { name: "打开项目", exact: true }).click();
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
       "让你的想法，在这里生长。",
     );
@@ -264,6 +269,8 @@ test("read-only Codex chat: stream, background project, cancel, reconcile and re
     app = await electron.launch({ args: ["."], cwd: process.cwd(), env });
     page = await app.firstWindow();
     await page.waitForURL("bukitjalil://app/index.html");
+    await expect(page.getByRole("main", { name: "项目首页" })).toBeVisible();
+    await page.getByRole("button", { name: "打开项目 站点 A", exact: true }).click();
   }
   const state = () => page.evaluate(() => window.desktop.chatState());
   const send = async (text: string) => {
@@ -282,14 +289,24 @@ test("read-only Codex chat: stream, background project, cancel, reconcile and re
     await send("慢消息 A");
     await expect(page.getByRole("log", { name: "当前项目对话" })).toContainText("站点建议：");
     await page.getByLabel("讨论你的网站", { exact: true }).fill("A 的未发送草稿");
-    await page.getByRole("button", { name: "站点 B", exact: false }).click();
+    await page.getByRole("button", { name: "返回项目首页" }).click();
+    await expect(page.getByLabel("站点 A 对话进行中", { exact: true })).toBeVisible();
+    const activeCard = page.locator(".project-card").filter({ has: page.getByRole("button", { name: "打开项目 站点 A", exact: true }) });
+    await activeCard.locator("summary").click();
+    await expect(activeCard.getByRole("button", { name: "移除入口" })).toBeDisabled();
+    await activeCard.locator("summary").click();
+    expect(await page.evaluate(async (id) => {
+      try { await window.desktop.removeProject(id); return "allowed"; } catch { return "denied"; }
+    }, aId)).toBe("denied");
+    await page.screenshot({ path: info.outputPath("chat-background-project.png") });
+    await page.getByRole("button", { name: "打开项目 站点 B", exact: true }).click();
     await expect(page.getByLabel("讨论你的网站", { exact: true })).toHaveValue("");
     await send("B 的首页");
     await expect.poll(async () => (await state()).conversations[b.root]?.status).toBe("completed");
-    await expect(page.getByLabel("站点 A 对话进行中", { exact: true })).toBeVisible();
     await expect(page.getByRole("log", { name: "当前项目对话" })).not.toContainText("慢消息 A");
-    await page.screenshot({ path: info.outputPath("chat-background-project.png") });
-    await page.getByRole("button", { name: "站点 A", exact: false }).click();
+    await page.getByRole("button", { name: "返回项目首页" }).click();
+    await expect(page.getByLabel("站点 A 对话进行中", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "打开项目 站点 A", exact: true }).click();
     await expect(page.getByLabel("讨论你的网站", { exact: true })).toHaveValue("A 的未发送草稿");
     await page.getByRole("button", { name: "中断回复", exact: true }).click();
     await expect.poll(async () => (await state()).conversations[a.root]?.status).toBe("interrupted");

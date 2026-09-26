@@ -2,8 +2,10 @@ import * as fs from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { State, RecentProject, BuildRecord } from "../shared";
-import { ProjectStore, newRevision, isId } from "./project";
+import { ProjectStore, newRevision, isId, textField, manifestFile } from "./project";
 import { atomicWrite, readText, scopedPath, checkOutputTree } from "./files";
 import { sampleTheme, siteConfig, themePaths } from "./theme";
 import { sourceFiles, sourceHeadline } from "./source";
@@ -31,8 +33,10 @@ export class Workspace {
   private preview: State["preview"] = null;
   private notice: string | null = null;
   private sessionReadable = true;
+  private unavailable = new Map<string, string>();
   private copy: GenerationCopy | null = null;
   private generation: State["generation"] = null;
+  private binaryVersion: string | null = null;
 
   constructor(
     private readonly dataDir: string,
@@ -59,8 +63,11 @@ export class Workspace {
                 })],
             }
           : null,
-      recent: structuredClone(this.session.recent),
+      recent: this.session.recent.map((recent) => ({
+        ...recent, unavailable: this.unavailable.get(recent.id) ?? null,
+      })),
       binary: this.session.binary,
+      binaryVersion: this.binaryVersion,
       busy: this.busy,
       generation: this.generation ? structuredClone(this.generation) : null,
       preview: this.preview ? { ...this.preview } : null,
@@ -100,7 +107,9 @@ export class Workspace {
             !isId(r.id) ||
             typeof r.path !== "string" ||
             !path.isAbsolute(r.path) ||
-            typeof r.name !== "string",
+            typeof r.name !== "string" ||
+            (r.lastOpenedAt !== undefined &&
+              (typeof r.lastOpenedAt !== "string" || !Number.isFinite(Date.parse(r.lastOpenedAt)))),
         ) ||
         !(
           saved.binary === null ||
@@ -118,31 +127,29 @@ export class Workspace {
     }
     if (binary) {
       try {
-        this.session.binary = await this.validateBinary(binary);
+        const checked = await this.inspectEngine(binary);
+        this.session.binary = checked.path;
+        this.binaryVersion = checked.version;
       } catch (error) {
         this.notice = message(error);
       }
     }
-    const recent = this.session.recent.find(
-      (r) => r.id === this.session.lastProjectId,
-    );
-    if (recent) {
-      try {
-        await this.open(recent.path);
-      } catch (error) {
-        this.notice = `无法恢复最近项目：${message(error)}`;
-      }
+    if (this.session.binary && !this.binaryVersion) {
+      try { this.binaryVersion = (await this.inspectEngine(this.session.binary)).version; }
+      catch (error) { this.notice = `Bukit 检测失败，原路径已保留：${message(error)}`; }
     }
+    await this.refreshRecent();
     this.emit();
   }
 
-  private async saveSession(): Promise<void> {
+  private async saveSession(next = this.session): Promise<void> {
     if (this.sessionReadable)
       await atomicWrite(
         this.dataDir,
         "session.json",
-        JSON.stringify(this.session, null, 2) + "\n",
+        JSON.stringify(next, null, 2) + "\n",
       );
+    this.session = next;
   }
   private async validateBinary(binary: string): Promise<string> {
     if (typeof binary !== "string" || !path.isAbsolute(binary))
@@ -153,10 +160,18 @@ export class Workspace {
     await fs.access(resolved, constants.X_OK);
     return resolved;
   }
+  private async inspectEngine(binary: string) {
+    const resolved = await this.validateBinary(binary);
+    const { stdout } = await promisify(execFile)(resolved, ["version"], { timeout: 5000, maxBuffer: 4096 });
+    const version = stdout.trim().split(/\r?\n/)[0];
+    if (!/^bukit \S+/.test(version)) throw new Error("所选文件未返回可识别的 Bukit 版本。");
+    return { path: resolved, version };
+  }
   chooseEngine(binary: string) {
     return this.exclusive(async () => {
-      this.session.binary = await this.validateBinary(binary);
-      await this.saveSession();
+      const checked = await this.inspectEngine(binary);
+      await this.saveSession({ ...this.session, binary: checked.path });
+      this.binaryVersion = checked.version;
       if (this.store?.data.lastSuccessfulBuild) await this.resumePreview();
     });
   }
@@ -193,13 +208,84 @@ export class Workspace {
       this.activate(await ProjectStore.open(directory)),
     );
   }
-  openRecent(id: string) {
+  private recentProject(id: unknown) {
     const recent = this.session.recent.find((r) => r.id === id);
-    if (!recent)
-      return Promise.reject(
-        new Error("最近项目不存在，请通过“打开项目”选择目录。"),
-      );
-    return this.open(recent.path);
+    if (!recent) throw new Error("项目不在列表中，请通过“打开项目”选择目录。");
+    return recent;
+  }
+
+  private async refreshRecent() {
+    this.unavailable.clear();
+    await Promise.all(this.session.recent.map(async (recent) => {
+      try {
+        if (!(await fs.lstat(recent.path)).isDirectory())
+          throw new Error("请选择项目目录本身，不能使用符号链接。");
+        const file = await fs.lstat(path.join(recent.path, manifestFile));
+        if (!file.isFile() || file.nlink !== 1)
+          throw new Error("项目文件不能使用链接或特殊文件。");
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        this.unavailable.set(recent.id, code === "ENOENT" || code === "ENOTDIR"
+          ? "找不到项目目录或项目文件。可重新打开或移除入口。"
+          : `暂时无法打开：${message(error)}`);
+      }
+    }));
+  }
+
+  openRecent(id: string) {
+    return this.exclusive(async () => {
+      const recent = this.recentProject(id);
+      try {
+        await this.activate(await ProjectStore.open(recent.path));
+      } catch (error) {
+        await this.refreshRecent();
+        throw new Error(this.unavailable.get(id) ?? message(error));
+      }
+    });
+  }
+
+  home() {
+    return this.exclusive(async () => {
+      await this.stopPreview();
+      this.store = null;
+      this.generation = null;
+      await this.refreshRecent();
+    });
+  }
+
+  private writableIndex() {
+    if (!this.sessionReadable)
+      throw new Error("项目列表无法读取，原索引已保留，暂时不能重命名或移除入口。");
+  }
+
+  renameProject(value: unknown) {
+    return this.exclusive(async () => {
+      this.writableIndex();
+      const input = value as { id?: unknown; name?: unknown } | null;
+      const recent = this.recentProject(input?.id), name = textField(input?.name, 60);
+      const store = this.store?.root === recent.path ? this.store : await ProjectStore.open(recent.path);
+      await store.save({ ...store.data, name });
+      const next = { ...this.session, recent: this.session.recent.map((entry) =>
+        entry.id === recent.id ? { ...entry, name } : entry) };
+      try { await this.saveSession(next); }
+      catch (error) {
+        this.session = next;
+        throw new Error(`项目名称已保存，但列表更新失败：${message(error)}`);
+      }
+      this.unavailable.delete(recent.id);
+    });
+  }
+
+  removeProject(id: string) {
+    return this.exclusive(async () => {
+      this.writableIndex();
+      const recent = this.recentProject(id);
+      if (this.store?.root === recent.path) throw new Error("请先返回项目首页再移除入口。");
+      const next = { ...this.session, recent: this.session.recent.filter((entry) => entry.id !== id) };
+      if (next.lastProjectId === id) delete next.lastProjectId;
+      await this.saveSession(next);
+      this.unavailable.delete(id);
+    });
   }
 
   private async activate(store: ProjectStore): Promise<void> {
@@ -215,16 +301,19 @@ export class Workspace {
     }
     await this.stopPreview();
     this.store = store;
+    this.generation = null;
     const prior = this.session.recent.find((r) => r.path === store.root);
     const recent = {
       id: prior?.id ?? randomUUID(),
       path: store.root,
       name: store.data.name,
+      lastOpenedAt: new Date().toISOString(),
     };
     this.session.recent = [
       recent,
       ...this.session.recent.filter((r) => r.path !== store.root),
     ].slice(0, 20);
+    this.unavailable.delete(recent.id);
     this.session.lastProjectId = recent.id;
     await this.saveSession();
     await this.resumePreview();

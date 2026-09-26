@@ -50,6 +50,8 @@ test(
     await assert.rejects(fetch(lastURL));
     workspace = new Workspace(path.join(root, "app"));
     await workspace.initialize();
+    assert.equal(workspace.state().project, null);
+    await workspace.openRecent(workspace.state().recent[0].id);
     assert.equal(workspace.state().project!.currentRevisionId, original);
     assert.match(
       await (await fetch(workspace.state().preview!.url)).text(),

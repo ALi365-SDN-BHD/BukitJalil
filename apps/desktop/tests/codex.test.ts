@@ -134,6 +134,78 @@ test("account state and official login come from protocol; hostile login URLs ar
   } finally { await hostile.close(); }
 });
 
+test("global model choice persists and applies to new turns without resending history", async () => {
+  const f = await fixture();
+  try {
+    await f.service.connect();
+    assert.deepEqual(f.service.state().models.map((item) => item.id), ["synthetic-sol"]);
+    await assert.rejects(f.service.saveModel({ model: "synthetic-sol", effort: "ultra" }), /不在当前/);
+    await f.service.saveModel({ model: "synthetic-sol", effort: "high" });
+    await f.service.send({ projectPath: f.current.path, text: "第一轮" });
+    await until(() => f.service.state().conversations[f.current.path].status === "completed");
+    await f.reopen();
+    assert.equal(f.service.state().model, "synthetic-sol");
+    assert.equal(f.service.state().effort, "high");
+    assert.equal(f.service.state().conversations[f.current.path].messages.filter((item) => item.role === "user").length, 1);
+    await f.service.send({ projectPath: f.current.path, text: "第二轮" });
+    await until(() => f.service.state().conversations[f.current.path].status === "completed");
+    const starts = (await f.requests()).filter((item) => item.method === "turn/start");
+    assert.equal(starts.length, 2);
+    assert.ok(starts.every((item) => item.params.model === "synthetic-sol" && item.params.effort === "high"));
+    await f.service.saveModel({ model: null, effort: null });
+    assert.equal(f.service.state().model, null);
+    await f.service.send({ projectPath: f.current.path, text: "恢复默认" });
+    await until(() => f.service.state().conversations[f.current.path].status === "completed");
+    const latest = (await f.requests()).filter((item) => item.method === "turn/start").at(-1);
+    assert.equal(latest.params.model, "synthetic-sol");
+    assert.equal(latest.params.effort, "low", "resetting a previous high turn must explicitly restore the server default");
+  } finally { await f.close(); }
+});
+
+test("invalid Codex path preserves the live connection and active turn blocks settings", async () => {
+  const f = await fixture();
+  try {
+    await f.service.connect();
+    await assert.rejects(f.service.saveBinary("relative/codex"), /绝对路径/);
+    await assert.rejects(f.service.saveBinary(path.join(f.root, "missing")));
+    assert.equal(f.service.state().connection, "ready");
+    assert.equal(f.service.state().binary, f.binary);
+    await f.service.send({ projectPath: f.current.path, text: "慢消息" });
+    await assert.rejects(f.service.saveModel({ model: "synthetic-sol", effort: "high" }), /等待回复/);
+    await assert.rejects(f.service.saveBinary(f.binary), /等待回复/);
+    await f.service.cancel(f.current.path);
+    await until(() => f.service.state().conversations[f.current.path].status === "interrupted");
+    await f.service.saveBinary(f.binary);
+    assert.equal(JSON.parse(await fs.readFile(path.join(f.data, "codex-settings.json"), "utf8")).binary, f.binary);
+  } finally { await f.close(); }
+});
+
+test("a compatible Codex executable with an unsafe connection rolls back to the previous engine", async () => {
+  const f = await fixture();
+  try {
+    await f.service.connect();
+    const candidateDir = path.join(f.root, "candidate");
+    await fs.mkdir(candidateDir);
+    const candidate = path.join(candidateDir, "codex");
+    await fs.copyFile(new URL("./fixtures/fake-codex.cjs", import.meta.url), candidate);
+    await fs.chmod(candidate, 0o700);
+    await fs.writeFile(path.join(candidateDir, "mode.json"), JSON.stringify({ unsafe: true }));
+    await assert.rejects(f.service.saveBinary(candidate), /只读工具策略/);
+    assert.equal(f.service.state().connection, "ready");
+    assert.equal(f.service.state().binary, f.binary);
+    assert.equal(JSON.parse(await fs.readFile(path.join(f.data, "codex-settings.json"), "utf8")).binary, null);
+    await f.service.saveModel({ model: "synthetic-sol", effort: "high" });
+    await fs.writeFile(path.join(candidateDir, "mode.json"), JSON.stringify({ models: [
+      { model: "other-model", displayName: "Other", hidden: false, isDefault: true,
+        defaultReasoningEffort: "low", supportedReasoningEfforts: [{ reasoningEffort: "low", description: "Fast" }] },
+    ] }));
+    await assert.rejects(f.service.saveBinary(candidate), /不支持已保存的模型/);
+    assert.equal(f.service.state().connection, "ready");
+    assert.equal(f.service.state().binary, f.binary);
+    assert.equal(f.service.state().model, "synthetic-sol");
+  } finally { await f.close(); }
+});
+
 test("missing/incompatible Codex and corrupt session indexes fail without overwriting user data", async () => {
   const f = await fixture({ version: "codex-cli 0.1.0" });
   try { assert.equal(f.service.state().connection, "unavailable"); }

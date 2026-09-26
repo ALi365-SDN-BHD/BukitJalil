@@ -36,6 +36,7 @@ async function until(check: () => Promise<boolean>) {
 
 test("synthetic Codex edits a real copy; diff includes add/modify/delete; reject then apply, build, edit and restore", async (t) => {
   const f = await setup(t), original = await f.manifest();
+  await f.codex.saveModel({ model: "synthetic-sol", effort: "high" });
   await f.generate();
   assert.equal(f.workspace.state().generation!.status, "review");
   assert.equal(await f.manifest(), original);
@@ -47,6 +48,9 @@ test("synthetic Codex edits a real copy; diff includes add/modify/delete; reject
   assert.equal(sourceHash(await readCopy(f.copy())), f.approval().hash);
   await assert.rejects(f.workspace.editHeadline("manual"), /审核/);
   await assert.rejects(f.workspace.open(f.site), /审核/);
+  await assert.rejects(f.workspace.home(), /当前操作|审核/);
+  await assert.rejects(f.workspace.renameProject({ id: f.workspace.state().recent[0].id, name: "blocked" }), /当前操作|审核/);
+  await assert.rejects(f.workspace.removeProject(f.workspace.state().recent[0].id), /当前操作|审核/);
   await assert.rejects(f.workspace.approveGeneration({ ...f.approval(), projectPath: "wrong-project" }), /当前项目/);
   const discarded = f.copy();
   await f.workspace.rejectGeneration(f.approval());
@@ -76,6 +80,7 @@ test("synthetic Codex edits a real copy; diff includes add/modify/delete; reject
     r.params.dynamicTools[0].tools.length === 1 && r.params.dynamicTools[0].tools[0].name === "edit_website_copy"));
   assert.notEqual(starts[0].params.cwd, starts[1].params.cwd);
   assert.equal(requests.filter((r) => r.method === "turn/start").length, 2);
+  assert.ok(requests.filter((r) => r.method === "turn/start").every((r) => r.params.model === "synthetic-sol" && r.params.effort === "high"));
   assert.ok(requests.filter((r) => r.method === "turn/start").every((r) => r.params.sandboxPolicy.type === "readOnly" && !r.params.sandboxPolicy.networkAccess));
 });
 
@@ -100,6 +105,9 @@ test("cancel, failure, disconnect, denied elevation and cross-task requests neve
   const pending = f.generate("慢生成");
   await until(async () => !!await fs.stat(path.join(f.root, "copy-written")).catch(() => null));
   await assert.rejects(f.workspace.editHeadline("concurrent"), /当前操作/);
+  await assert.rejects(f.workspace.home(), /当前操作|审核/);
+  await assert.rejects(f.workspace.renameProject({ id: f.workspace.state().recent[0].id, name: "blocked" }), /当前操作|审核/);
+  await assert.rejects(f.workspace.removeProject(f.workspace.state().recent[0].id), /当前操作|审核/);
   await f.workspace.cancel(); await pending;
   assert.equal(f.workspace.state().generation!.status, "cancelled");
   for (const text of ["生成失败", "生成断线", "请求提权", "跨任务", "跨命名空间", "越界"]) {

@@ -19,7 +19,7 @@ test("generation UI: real copy diff, reject, confirm, build and reopen with synt
   try {
     let page = await launch();
     await app!.evaluate(({ dialog }, target) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: target }); }, site);
-    await page.getByRole("button", { name: "创建第一个项目" }).click();
+    await page.getByRole("button", { name: "创建项目", exact: true }).click();
     await page.getByLabel("项目名称", { exact: true }).fill("AI 副本工作室");
     await page.getByRole("button", { name: "选择位置并创建" }).click();
     await page.getByRole("button", { name: "应用样例主题" }).click();
@@ -31,6 +31,11 @@ test("generation UI: real copy diff, reject, confirm, build and reopen with synt
     const generate = async () => {
       await page.getByLabel("讨论你的网站", { exact: true }).fill("生成一个新首页和故事页，删除关于页");
       await page.getByRole("button", { name: "生成修改 · 先审核副本" }).click();
+      await expect(page.getByRole("button", { name: "审核 4 个文件差异" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "返回项目首页" })).toBeDisabled();
+      expect(await page.evaluate(async () => {
+        try { await window.desktop.home(); return "allowed"; } catch { return "denied"; }
+      })).toBe("denied");
       await page.getByRole("button", { name: "审核 4 个文件差异" }).click();
       await expect(page.getByRole("dialog", { name: "审核生成修改" })).toBeVisible();
       await expect(page.getByText("新增 · content/story.md", { exact: true })).toBeVisible();
@@ -58,6 +63,8 @@ test("generation UI: real copy diff, reject, confirm, build and reopen with synt
     const current = (await page.evaluate(() => window.desktop.state())).project!.currentRevisionId;
     await app!.close(); app = undefined;
     page = await launch();
+    await expect(page.getByRole("main", { name: "项目首页" })).toBeVisible();
+    await page.getByRole("button", { name: "打开项目 AI 副本工作室", exact: true }).click();
     await expect.poll(async () => (await page.evaluate(() => window.desktop.state())).preview?.revisionId).toBe(current);
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText("来自 AI 的新首页");
     expect((await page.evaluate(() => window.desktop.state())).generation).toBeNull();

@@ -75,11 +75,23 @@ test("project → theme copy → build → edit → failure keeps preview → re
   const reopened = new Workspace(path.join(root, "app"));
   t.after(() => reopened.dispose());
   await reopened.initialize();
+  assert.equal(reopened.state().project, null);
+  assert.equal(reopened.state().preview, null);
+  await reopened.openRecent(reopened.state().recent[0].id);
   assert.equal(reopened.state().project!.currentRevisionId, original);
   assert.match(
     await (await fetch(reopened.state().preview!.url)).text(),
     /让你的想法/,
   );
+});
+
+test("Bukit path reports a version and rejects invalid replacements without losing the saved engine", async (t) => {
+  const { workspace, root, binary } = await fixture(t);
+  assert.equal(workspace.state().binaryVersion, "bukit 2.0.0-test");
+  await assert.rejects(workspace.chooseEngine("relative/bukit"), /绝对路径/);
+  await assert.rejects(workspace.chooseEngine(path.join(root, "missing")));
+  assert.equal(workspace.state().binary, binary);
+  assert.equal(JSON.parse(await fs.readFile(path.join(root, "app/session.json"), "utf8")).binary, binary);
 });
 
 test("cancel terminates a stubborn build, keeps preview and rejects concurrent writes", async (t) => {
@@ -89,6 +101,9 @@ test("cancel terminates a stubborn build, keeps preview and rejects concurrent w
   await fs.writeFile(path.join(root, "engine-mode"), "slow");
   const pending = workspace.build();
   await assert.rejects(workspace.editHeadline("concurrent"), /当前操作/);
+  await assert.rejects(workspace.home(), /当前操作/);
+  await assert.rejects(workspace.renameProject({ id: workspace.state().recent[0].id, name: "blocked" }), /当前操作/);
+  await assert.rejects(workspace.removeProject(workspace.state().recent[0].id), /当前操作/);
   const pidFile = path.join(root, "build.pid");
   for (let i = 0; i < 200; i++) {
     if (await fs.stat(pidFile).catch(() => null)) break;
@@ -214,6 +229,99 @@ test("interrupted build records recover without deleting successful output", asy
   const reopened = new Workspace(path.join(root, "app"));
   t.after(() => reopened.dispose());
   await reopened.initialize();
+  assert.equal(reopened.state().project, null);
+  assert.equal(reopened.state().preview, null);
+  await reopened.openRecent(reopened.state().recent[0].id);
   assert.equal(reopened.state().project!.lastBuild!.status, "interrupted");
   assert.equal((await fetch(reopened.state().preview!.url)).status, 200);
+});
+
+
+test("project home persists names and open times; returning stops preview; removing only drops the index", async (t) => {
+  const { workspace, root } = await fixture(t);
+  await workspace.build();
+  const recent = workspace.state().recent[0], filename = path.join(recent.path, manifestFile);
+  assert.ok(Number.isFinite(Date.parse(recent.lastOpenedAt!)));
+  const before = JSON.parse(await fs.readFile(filename, "utf8"));
+  const url = workspace.state().preview!.url;
+  await workspace.home();
+  assert.equal(workspace.state().project, null);
+  assert.equal(workspace.chatContext(), null);
+  assert.equal(workspace.state().preview, null);
+  await assert.rejects(fetch(url));
+  assert.deepEqual(JSON.parse(await fs.readFile(filename, "utf8")), before);
+  await workspace.renameProject({ id: recent.id, name: "新的项目名称" });
+  assert.deepEqual(JSON.parse(await fs.readFile(filename, "utf8")), { ...before, name: "新的项目名称" });
+  assert.equal(workspace.state().recent[0].lastOpenedAt, recent.lastOpenedAt);
+  assert.equal(workspace.state().recent[0].path, recent.path);
+  await workspace.dispose();
+  const reopened = new Workspace(path.join(root, "app")); t.after(() => reopened.dispose());
+  await reopened.initialize();
+  assert.equal(reopened.state().project, null);
+  assert.equal(reopened.state().preview, null);
+  assert.equal(reopened.state().recent[0].name, "新的项目名称");
+  assert.equal(reopened.state().recent[0].lastOpenedAt, recent.lastOpenedAt);
+  const openingAt = Date.now();
+  await reopened.openRecent(recent.id);
+  assert.ok(Date.parse(reopened.state().recent[0].lastOpenedAt!) >= openingAt);
+  assert.equal(reopened.state().project!.currentRevisionId, before.currentRevisionId);
+  await assert.rejects(reopened.removeProject(recent.id), /返回项目首页/);
+  await reopened.home();
+  const saved = await fs.readFile(filename, "utf8"), files = await fs.readdir(recent.path);
+  await reopened.removeProject(recent.id);
+  assert.deepEqual(reopened.state().recent, []);
+  assert.equal(await fs.readFile(filename, "utf8"), saved);
+  assert.deepEqual(await fs.readdir(recent.path), files);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(root, "app/session.json"), "utf8")).recent, []);
+  await reopened.open(recent.path);
+  assert.equal(reopened.state().project!.name, "新的项目名称");
+  assert.equal(reopened.state().recent[0].path, recent.path);
+});
+
+test("legacy timestamps remain unknown and unavailable projects can be removed without opening or deleting them", async (t) => {
+  const { workspace, root } = await fixture(t);
+  await workspace.dispose();
+  const index = path.join(root, "app/session.json");
+  const saved = JSON.parse(await fs.readFile(index, "utf8"));
+  const existing = saved.recent[0]; delete existing.lastOpenedAt;
+  const missing = { id: crypto.randomUUID(), name: "已移动项目", path: path.join(root, "missing") };
+  saved.recent.push(missing);
+  const originalIndex = JSON.stringify(saved); await fs.writeFile(index, originalIndex);
+  const originalProject = await fs.readFile(path.join(existing.path, manifestFile), "utf8");
+  const reopened = new Workspace(path.join(root, "app")); t.after(() => reopened.dispose());
+  await reopened.initialize();
+  assert.equal(reopened.state().project, null);
+  assert.equal(reopened.state().recent[0].lastOpenedAt, undefined);
+  assert.equal(reopened.state().recent[0].unavailable, null);
+  assert.match(reopened.state().recent[1].unavailable!, /找不到项目/);
+  assert.equal(await fs.readFile(index, "utf8"), originalIndex);
+  assert.equal(await fs.readFile(path.join(existing.path, manifestFile), "utf8"), originalProject);
+  await assert.rejects(reopened.openRecent(missing.id), /找不到项目/);
+  assert.equal(reopened.state().project, null);
+  await reopened.removeProject(missing.id);
+  await assert.rejects(fs.stat(missing.path), { code: "ENOENT" });
+  assert.equal(await fs.readFile(path.join(existing.path, manifestFile), "utf8"), originalProject);
+  await reopened.openRecent(existing.id);
+  assert.ok(reopened.state().recent[0].lastOpenedAt);
+});
+
+test("invalid names and index write failures preserve files and report partial rename truthfully", async (t) => {
+  const { workspace, root } = await fixture(t);
+  await workspace.home();
+  const recent = workspace.state().recent[0], filename = path.join(recent.path, manifestFile);
+  const original = await fs.readFile(filename, "utf8");
+  await assert.rejects(workspace.renameProject({ id: recent.id, name: "bad\nname" }), /单行文字/);
+  await assert.rejects(workspace.renameProject({ id: "../../outside", name: "bad" }), /不在列表/);
+  await assert.rejects(workspace.removeProject("../../outside"), /不在列表/);
+  assert.equal(await fs.readFile(filename, "utf8"), original);
+  const index = path.join(root, "app/session.json");
+  await fs.rename(index, index + ".saved"); await fs.mkdir(index);
+  await assert.rejects(workspace.removeProject(recent.id));
+  assert.deepEqual(workspace.state().recent, [recent]);
+  assert.equal(await fs.readFile(filename, "utf8"), original);
+  await assert.rejects(workspace.renameProject({ id: recent.id, name: "已保存的名称" }), /项目名称已保存，但列表更新失败/);
+  assert.deepEqual(JSON.parse(await fs.readFile(filename, "utf8")), { ...JSON.parse(original), name: "已保存的名称" });
+  assert.equal(workspace.state().recent[0].name, "已保存的名称");
+  assert.ok((await fs.stat(index)).isDirectory());
+  assert.deepEqual((await fs.readdir(path.join(root, "app"))).filter((entry) => entry.endsWith(".tmp")), []);
 });

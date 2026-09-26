@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import type { State, ChatState } from "../shared";
 import "./style.css";
 import { ChatPanel } from "./chat";
+import { ProjectHome } from "./project-home";
+import { SettingsPage } from "./settings";
 
 const labels = {
   running: "正在构建",
@@ -27,6 +29,7 @@ function App() {
   const [logs, setLogs] = useState(false);
   const [compact, setCompact] = useState(false);
   const [projectName, setProjectName] = useState("我的第一个网站");
+  const [homeScreen, setHomeScreen] = useState<"projects" | "settings">("projects");
   const createDialog = useRef<HTMLDialogElement>(null);
   const project = state?.project;
   const current = project?.revisions.find(
@@ -78,8 +81,13 @@ function App() {
     }
   }
 
+  const notice = (error || state?.notice) && <div className="notice" role="alert">
+    <span>{error || state?.notice}</span>
+    {error && <button aria-label="关闭错误提示" onClick={() => setError("")}>×</button>}
+  </div>;
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${project ? "" : "project-home-shell"}`}>
       <header className="app-bar">
         <div className="wordmark">
           <span className="logo" aria-hidden="true">
@@ -95,7 +103,7 @@ function App() {
               {project.name}
             </>
           ) : (
-            "给下一个想法，一个开始。"
+            homeScreen === "settings" ? "全局设置" : "项目首页"
           )}
         </div>
         <button
@@ -110,52 +118,19 @@ function App() {
         </button>
       </header>
 
-      <aside className="sidebar">
-        <div className="rail-heading">
-          <span>工作区</span>
-          <span className="small-caps">WORKSPACE</span>
-        </div>
-        <button
-          className="new-project"
-          disabled={locked || draft}
-          onClick={() => createDialog.current?.showModal()}
-        >
-          <span>＋</span> 创建项目
+      {!project && homeScreen === "projects" && <ProjectHome state={state} chat={chat} notice={notice} run={run}
+        onCreate={() => createDialog.current?.showModal()} onSettings={() => setHomeScreen("settings")} />}
+      {!project && homeScreen === "settings" && <SettingsPage state={state} chat={chat}
+        onBack={() => setHomeScreen("projects")} />}
+
+      <aside className="sidebar" hidden={!project}>
+        <button className="return-home secondary" aria-label="返回项目首页"
+          disabled={locked || draft} onClick={() => run(() => window.desktop.home())}>
+          ← 项目首页
         </button>
-        <button
-          className="open-project"
-          disabled={locked || draft}
-          onClick={() => run(() => window.desktop.open())}
-        >
-          打开本地项目 <span>↗</span>
-        </button>
-        <div className="rail-section">
-          <h2>
-            最近项目 <span>{state?.recent.length ?? 0}</span>
-          </h2>
-          <div className="recent-list">
-            {state?.recent.map((recent) => (
-              <button
-                key={recent.id}
-                className={
-                  project?.path === recent.path ? "recent active" : "recent"
-                }
-                disabled={locked || draft}
-                title={recent.path}
-                onClick={() => run(() => window.desktop.openRecent(recent.id))}
-              >
-                <span className="project-glyph">▧</span>
-                <span>{recent.name}</span>
-                {["starting", "running", "cancelling"].includes(chat?.conversations[recent.path]?.status ?? "") ?
-                  <span className="chat-background" aria-label={recent.name + " 对话进行中"}>AI</span> :
-                  <span className="active-dot" />}
-              </button>
-            ))}
-            {!state?.recent.length && (
-              <p className="rail-empty">创建的项目会保存在这里。</p>
-            )}
-          </div>
-        </div>
+        {(locked || draft) && <p className="rail-empty">{draft
+          ? "保存或放弃未保存的修改后，可返回项目首页。"
+          : "结束当前操作或处理待审核修改后，可返回项目首页。"}</p>}
         {project && (
           <>
             <div className="rail-section">
@@ -194,18 +169,9 @@ function App() {
         </div>
       </aside>
 
-      <main className="workspace">
-        {(error || state?.notice) && (
-          <div className="notice" role="alert">
-            <span>{error || state?.notice}</span>
-            {error && (
-              <button aria-label="关闭错误提示" onClick={() => setError("")}>
-                ×
-              </button>
-            )}
-          </div>
-        )}
-        {project ? (
+      <main className="workspace" hidden={!project}>
+        {notice}
+        {project && (
           <>
             <div className="workspace-heading">
               <div>
@@ -333,39 +299,10 @@ function App() {
               </section>
             )}
           </>
-        ) : (
-          <div className="welcome">
-            <span className="eyebrow">BUKITJALIL / LOCAL STUDIO</span>
-            <h1>
-              从一个想法，
-              <br />
-              到一个属于你的网站。
-            </h1>
-            <p>
-              选择一份主题，修改一点文字。
-              <br />
-              真实构建，随时回到上一个版本。
-            </p>
-            <button
-              className="primary"
-              disabled={!state || locked}
-              onClick={() => createDialog.current?.showModal()}
-            >
-              创建第一个项目 <span>＋</span>
-            </button>
-            <button
-              className="text-button"
-              disabled={!state || locked}
-              onClick={() => run(() => window.desktop.open())}
-            >
-              或打开已有项目 ↗
-            </button>
-            <div className="welcome-note">文件留在本机，决定权留在你手里。</div>
-          </div>
         )}
       </main>
 
-      <aside className="inspector">
+      <aside className="inspector" hidden={!project}>
         <div className="inspector-tabs" role="tablist" aria-label="工作面板">
           <button
             role="tab"
