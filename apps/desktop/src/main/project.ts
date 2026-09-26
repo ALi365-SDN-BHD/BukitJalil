@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Project, Revision, ThemeCopy, BuildRecord } from "../shared";
 import { atomicWrite, readText } from "./files";
 import { themePaths } from "./theme";
+import { validateSource, sourceHeadline } from "./source";
 
 export const manifestFile = "bukitjalil.json";
 export const isId = (value: unknown): value is string =>
@@ -59,7 +60,7 @@ function validateTheme(value: unknown): ThemeCopy | null {
 export function validateProject(value: unknown): Project {
   const data = record(value);
   if (
-    data.format !== 1 ||
+    (data.format !== 1 && data.format !== 2) ||
     !Array.isArray(data.revisions) ||
     data.revisions.length < 1 ||
     data.revisions.length > 500
@@ -74,8 +75,14 @@ export function validateProject(value: unknown): Project {
       headline: textField(revision.headline, 120),
       summary: textField(revision.summary, 300),
       theme: validateTheme(revision.theme),
+      ...(revision.sourceFiles === undefined ? {} : { sourceFiles: validateSource(revision.sourceFiles) }),
     };
   });
+  for (const revision of revisions) {
+    if (data.format === 1 && revision.sourceFiles) throw new Error("扩展源文件快照需要项目格式 2。");
+    if (revision.sourceFiles && (!revision.theme || sourceHeadline(revision.sourceFiles) !== revision.headline))
+      throw new Error("源文件快照与版本标题或主题不一致。");
+  }
   const ids = new Set(revisions.map((r) => r.id));
   if (
     ids.size !== revisions.length ||
@@ -84,7 +91,7 @@ export function validateProject(value: unknown): Project {
   )
     throw new Error("当前版本不存在。");
   const project: Project = {
-    format: 1,
+    format: data.format,
     name: textField(data.name, 60),
     currentRevisionId: data.currentRevisionId,
     revisions,
@@ -186,19 +193,19 @@ export class ProjectStore {
     )!;
   }
 
+  async unchanged(): Promise<string> {
+    const text = await readText(this.root, manifestFile);
+    if (text !== this.original) throw new Error("项目已被其他程序修改。请重新打开后再操作，现有文件已保留。");
+    return text;
+  }
+
   async save(data: Project, creating = false): Promise<void> {
-    if (
-      !creating &&
-      (await readText(this.root, manifestFile)) !== this.original
-    )
-      throw new Error(
-        "项目已被其他程序修改。请重新打开后再操作，现有文件已保留。",
-      );
+    if (!creating) await this.unchanged();
     data = validateProject(data);
     const content = JSON.stringify(data, null, 2) + "\n";
     if (Buffer.byteLength(content) > 8 * 1024 * 1024)
       throw new Error("项目历史已达到 8 MB，请创建新项目后继续。");
-    await atomicWrite(this.root, manifestFile, content);
+    await atomicWrite(this.root, manifestFile, content, creating ? undefined : () => this.unchanged().then(() => {}));
     this.original = content;
     this.data = data;
   }
@@ -207,6 +214,7 @@ export class ProjectStore {
     // ponytail: embedded snapshots cap history at 500 revisions / 8 MB; use separate snapshot files when needed.
     await this.save({
       ...this.data,
+      format: revision.sourceFiles ? 2 : this.data.format,
       currentRevisionId: revision.id,
       revisions: [...this.data.revisions, revision],
     });

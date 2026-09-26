@@ -13,6 +13,9 @@ const api: DesktopAPI = {
     ipcRenderer.on("chat:changed", receive);
     return () => ipcRenderer.removeListener("chat:changed", receive);
   },
+  generate: (value) => ipcRenderer.invoke("workspace:generate", value),
+  approveGeneration: (value) => ipcRenderer.invoke("workspace:approve-generation", value),
+  rejectGeneration: (value) => ipcRenderer.invoke("workspace:reject-generation", value),
   state: () => ipcRenderer.invoke("workspace:state"),
   create: (name) => ipcRenderer.invoke("workspace:create", name),
   open: () => ipcRenderer.invoke("workspace:open"),

@@ -13,7 +13,7 @@ if (process.argv.includes("--version")) {
 const historyFile = path.join(root, "threads.json");
 let threads = {};
 try { threads = JSON.parse(fs.readFileSync(historyFile, "utf8")); } catch {}
-const save = () => fs.writeFileSync(historyFile, JSON.stringify(threads));
+const save = () => fs.writeFileSync(historyFile, JSON.stringify(Object.fromEntries(Object.entries(threads).filter(([, t]) => !t.ephemeral))));
 const record = (message) => fs.appendFileSync(path.join(root, "requests.jsonl"), JSON.stringify(message) + "\n");
 let sequence = Promise.resolve();
 const emit = (message) => {
@@ -43,6 +43,10 @@ for (let i = 0; i < process.argv.length; i++) {
         config[key][match[1]][name] = v === "true";
       }
     }
+  } else if (key === "features.code_mode" && value.startsWith("{")) {
+    // Only the production direct-tool override uses this TOML table in the synthetic peer.
+    config.features.code_mode = { enabled: /enabled=true/.test(value),
+      direct_only_tool_namespaces: JSON.parse(value.match(/direct_only_tool_namespaces=(\[[^\]]*\])/)[1]) };
   } else {
     const keys = key.split(".");
     let dest = config;
@@ -51,8 +55,11 @@ for (let i = 0; i < process.argv.length; i++) {
   }
 }
 if (mode().unsafe) config.mcp_servers.inherited.enabled = true;
+if (typeof config.features.code_mode === "object" && mode().copyMode !== undefined)
+  config.features.code_mode = mode().copyMode;
 let initialized = false, loggedIn = !mode().loggedOut, loginId;
 const timers = new Map();
+const pendingTools = new Map();
 const threadReply = (thread) => ({
   thread, sandbox: { type: "readOnly", networkAccess: false },
   approvalPolicy: "never", approvalsReviewer: "user",
@@ -66,7 +73,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
   record(message);
   const { id, method, params: p = {} } = message;
-  if (!method) return;
+  if (!method) { pendingTools.get(id)?.(message); pendingTools.delete(id); return; }
   if (method === "initialize") return result(id, { userAgent: "fake-codex", codexHome: root, platformFamily: "unix", platformOs: "macos" });
   if (method === "initialized") { initialized = true; return; }
   if (!initialized) return emit({ id, error: { code: -32001 } });
@@ -89,8 +96,8 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     data: [{ name: "inherited", tools: config.mcp_servers.inherited.enabled ? { write: {} } : {}, resources: [], resourceTemplates: [] }], nextCursor: null,
   });
   if (method === "thread/start") {
-    const thread = { id: crypto.randomUUID(), cwd: p.cwd, status: { type: "idle" }, turns: [] };
-    if (!p.ephemeral) { threads[thread.id] = thread; save(); }
+    const thread = { id: crypto.randomUUID(), cwd: p.cwd, status: { type: "idle" }, turns: [], ephemeral: !!p.ephemeral, dynamicTools: p.dynamicTools };
+    threads[thread.id] = thread; save();
     return result(id, threadReply(thread));
   }
   const thread = threads[p.threadId];
@@ -105,13 +112,36 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       { type: "userMessage", id: crypto.randomUUID(), content: p.input },
     ] };
     thread.turns.push(turn); thread.status = { type: "active" }; save();
-    if (question.includes("断线")) {
+    if (question.includes("断线") && !thread.ephemeral) {
       turn.items.push({ type: "agentMessage", id: crypto.randomUUID(), text: "已保存的站点建议" });
       turn.status = "completed"; thread.status = { type: "idle" }; save();
       return process.exit(0); // Accepted and completed; response lost. Must never resend.
     }
     result(id, { turn });
     notify("turn/started", { threadId: thread.id, turn });
+    if (thread.ephemeral) {
+      const files = JSON.parse(input.slice(input.indexOf("\n") + 1)).files;
+      const edits = [
+        { path: "site.yaml", content: files["site.yaml"].replace(/^  title: .+$/m, '  title: "来自 AI 的新首页"') },
+        { path: "content/about.md", content: null },
+        { path: "content/story.md", content: "---\ntitle: 新故事\nslug: story\ntype: page\ncollection: page\npublishAt: 2026-01-01T00:00:00Z\n---\n生成副本中的新页面。\n" },
+        { path: "themes/canopy/layouts/pages/index.html", content: files["themes/canopy/layouts/pages/index.html"] + "\n<!-- 来自生成副本 -->\n" },
+      ];
+      if (question.includes("越界")) edits.push({ path: "../outside", content: "bad" });
+      if (question.includes("构建错误")) edits[3].content = "{{ if }}";
+      const callId = crypto.randomUUID();
+      pendingTools.set(callId, (reply) => {
+        if (!reply.result?.success) return finish(thread, turn, "failed");
+        fs.writeFileSync(path.join(root, "copy-written"), thread.cwd);
+        if (question.includes("断线")) return process.exit(0);
+        notify("item/agentMessage/delta", { threadId: thread.id, turnId: turn.id, itemId: callId + "-text", delta: "已在副本中修改首页，删除关于页并新增故事页。" });
+        timers.set(thread.id, setTimeout(() => finish(thread, turn, question.includes("失败") ? "failed" : "completed"), question.includes("慢") ? 10_000 : 30));
+      });
+      emit({ id: callId, method: question.includes("提权") ? "item/commandExecution/requestApproval" : "item/tool/call",
+        params: { threadId: question.includes("跨任务") ? "wrong-thread" : thread.id, turnId: turn.id, callId,
+          namespace: question.includes("跨命名空间") ? "outside" : thread.dynamicTools?.[0]?.name, tool: "edit_website_copy", arguments: { files: edits } } });
+      return;
+    }
     const item = { type: "agentMessage", id: crypto.randomUUID(), text: "站点建议：" + question };
     thread.turns.at(-1).items.push(item); save();
     notify("item/agentMessage/delta", { threadId: thread.id, turnId: turn.id, itemId: item.id, delta: "站点建议：" });

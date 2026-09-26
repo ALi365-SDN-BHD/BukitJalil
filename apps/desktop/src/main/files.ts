@@ -1,4 +1,4 @@
-import * as fs from "node:fs/promises";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -52,6 +52,7 @@ export async function atomicWrite(
   root: string,
   relative: string,
   content: string,
+  beforeRename?: () => Promise<void>,
 ): Promise<void> {
   const filename = await scopedPath(root, relative);
   await fs.mkdir(path.dirname(filename), { recursive: true });
@@ -66,6 +67,7 @@ export async function atomicWrite(
       await handle.close();
     }
     await scopedPath(root, relative);
+    await beforeRename?.();
     await fs.rename(temp, filename);
   } finally {
     await fs.rm(temp, { force: true });

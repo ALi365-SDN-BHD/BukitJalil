@@ -946,3 +946,18 @@ button.primary.full-width {
 .chat-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
 .chat-actions small, .chat-turn-status { font-size: 9px; color: var(--muted); }
 .chat-background { font-size: 9px; color: var(--green); margin-left: auto; }
+
+.generation-status { padding: 10px 20px; font-size: 11px; border-top: 1px solid var(--line); }
+.generation-status p { max-height: 80px; overflow: auto; }
+.generation-status button, .chat-compose > button { margin-top: 8px; }
+.generation-review { width: min(980px, 90vw); max-height: 85vh; border: 1px solid var(--line); border-radius: 12px; padding: 24px; color: var(--ink); }
+.generation-review::backdrop { background: #223c4680; }
+.generation-review > p { font-size: 13px; }
+.generation-review pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.file-change { margin: 12px 0; border: 1px solid var(--line); border-radius: 6px; }
+.file-change summary { padding: 12px; cursor: pointer; font-size: 13px; }
+.file-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
+.file-diff > div { min-width: 0; max-height: 45vh; overflow: auto; padding: 8px; background: #fdf1ef; }
+.file-diff > div + div { background: #edf8f0; }
+.file-diff h3 { font-size: 12px; }
+.generation-review .dialog-actions { position: sticky; bottom: -24px; background: white; padding: 16px 0; }

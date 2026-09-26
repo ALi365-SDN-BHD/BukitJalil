@@ -186,6 +186,9 @@ async function start() {
   handle("chat:send", (value) => codex!.send(value));
   handle("chat:cancel", (value) => codex!.cancel(value));
   handle("workspace:state", () => workspace!.state());
+  handle("workspace:generate", (value) => workspace!.generate(value, codex!));
+  handle("workspace:approve-generation", (value) => workspace!.approveGeneration(value));
+  handle("workspace:reject-generation", (value) => workspace!.rejectGeneration(value));
   handle("workspace:create", async (value) => {
     const name = textField(value, 60);
     const result = await dialog.showSaveDialog(window!, {

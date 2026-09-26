@@ -10,6 +10,7 @@ export interface Revision {
   headline: string;
   summary: string;
   theme: ThemeCopy | null;
+  sourceFiles?: ThemeFiles;
 }
 export interface BuildRecord {
   id: string;
@@ -20,7 +21,7 @@ export interface BuildRecord {
   error?: string;
 }
 export interface Project {
-  format: 1;
+  format: 1 | 2;
   name: string;
   currentRevisionId: string;
   revisions: Revision[];
@@ -32,17 +33,34 @@ export interface RecentProject {
   path: string;
   name: string;
 }
+export interface FileChange {
+  path: string;
+  kind: "added" | "modified" | "deleted";
+  before: string | null;
+  after: string | null;
+}
+export interface GenerationState {
+  id: string;
+  projectPath: string;
+  status: "running" | "review" | "applied" | "rejected" | "cancelled" | "failed";
+  text: string;
+  error: string | null;
+  hash: string | null;
+  changes: FileChange[];
+}
 export interface State {
   project:
     | (Omit<Project, "revisions"> & {
         path: string;
-        revisions: Omit<Revision, "theme">[];
+        revisions: Omit<Revision, "theme" | "sourceFiles">[];
         themeApplied: boolean;
+        pages: { path: string; title: string }[];
       })
     | null;
   recent: RecentProject[];
   binary: string | null;
   busy: boolean;
+  generation: GenerationState | null;
   preview: { url: string; revisionId: string } | null;
   notice: string | null;
 }
@@ -74,6 +92,9 @@ export interface DesktopAPI {
   sendChat(value: { projectPath: string; text: string }): Promise<void>;
   cancelChat(projectPath: string): Promise<void>;
   subscribeChat(listener: (state: ChatState) => void): () => void;
+  generate(value: { projectPath: string; text: string }): Promise<void>;
+  approveGeneration(value: { projectPath: string; id: string; hash: string }): Promise<void>;
+  rejectGeneration(value: { projectPath: string; id: string }): Promise<void>;
   state(): Promise<State>;
   create(name: string): Promise<void>;
   open(): Promise<void>;

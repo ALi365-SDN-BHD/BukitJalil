@@ -33,7 +33,7 @@ function App() {
     (r) => r.id === project.currentRevisionId,
   );
   const draft = !!current && headline !== current.headline;
-  const locked = !!state?.busy;
+  const locked = !!state?.busy || state?.generation?.status === "review";
   const build = project?.lastBuild;
   const previewRevision = project?.revisions.find(
     (r) => r.id === state?.preview?.revisionId,
@@ -60,6 +60,9 @@ function App() {
   useEffect(() => {
     setPage("/");
   }, [project?.path]);
+  useEffect(() => {
+    if (project && !project.pages.some((entry) => entry.path === page)) setPage("/");
+  }, [project?.currentRevisionId, page]);
 
   async function run(action: () => Promise<void>) {
     setError("");
@@ -156,21 +159,12 @@ function App() {
         {project && (
           <>
             <div className="rail-section">
-              <h2>
-                页面 <span>2</span>
-              </h2>
-              <button
-                className={`page-link ${page === "/" ? "selected" : ""}`}
-                onClick={() => setPage("/")}
-              >
-                <span>⌂</span> 首页 <small>/</small>
-              </button>
-              <button
-                className={`page-link ${page === "/about/" ? "selected" : ""}`}
-                onClick={() => setPage("/about/")}
-              >
-                <span>▤</span> 关于 <small>/about</small>
-              </button>
+              <h2>页面 <span>{project.pages.length}</span></h2>
+              {project.pages.map((entry) => <button key={entry.path}
+                className={`page-link ${page === entry.path ? "selected" : ""}`}
+                onClick={() => setPage(entry.path)}>
+                <span>{entry.path === "/" ? "⌂" : "▤"}</span> {entry.title} <small>{entry.path === "/" ? "/" : entry.path.slice(0, -1)}</small>
+              </button>)}
             </div>
             <div className="rail-section theme-section">
               <h2>主题</h2>
@@ -216,7 +210,7 @@ function App() {
             <div className="workspace-heading">
               <div>
                 <span className="eyebrow">你的网站</span>
-                <h1>{page === "/" ? "首页" : "关于"}</h1>
+                <h1>{project.pages.find((entry) => entry.path === page)?.title ?? "页面"}</h1>
               </div>
               <div className="build-actions">
                 {locked && build?.status === "running" ? (
@@ -392,7 +386,7 @@ function App() {
           </button>
         </div>
         <div className="chat-tab" hidden={tab !== "chat"}>
-          <ChatPanel state={chat} projectPath={project?.path ?? null} run={run} />
+          <ChatPanel state={chat} projectPath={project?.path ?? null} generation={state?.generation ?? null} canGenerate={!!project?.themeApplied && !locked && !draft} run={run} />
         </div>
         {tab === "chat" ? null : tab === "edit" ? (
           <div className="inspector-content">

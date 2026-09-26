@@ -27,6 +27,8 @@ BUKIT_BIN=/absolute/path/to/bukit npm start
 
 ## 文件与版本
 
+正式受管理源文件保存在 `bukitjalil.json` 版本快照内，构建目录只是派生产物。旧格式 1 项目仍可打开；第一次确认 AI 修改时升级为格式 2，新增完整 `sourceFiles` 快照。旧版应用会拒绝格式 2，避免忽略新字段而丢失修改。
+
 - `项目/bukitjalil.json`：项目名称、当前版本、不可变版本快照、主题副本、最后构建记录。临时文件写入并同步后原子替换；检测到外部修改时拒绝覆盖。
 - `项目/.bukitjalil/builds/<构建 UUID>/input/`：由快照生成的完整 `site.yaml`、Markdown、主题文件，以及 Bukit 缓存。
 - `项目/.bukitjalil/builds/<构建 UUID>/input/dist/`：此次真实构建产物。只有成功构建可成为预览目标，失败产物不会替代旧预览。
@@ -64,7 +66,7 @@ BUKIT_BIN=/absolute/path/to/bukit npm run test:electron
 
 真实引擎测试只使用自动创建的临时站点，不触碰已有网站或 Bukit 仓库。Electron 测试启动实际应用、通过界面完成闭环，并检查预览无法访问 Node / preload / 父页面；仅系统文件选择的返回值由测试提供。截图在 `test-results/`。未提供 `BUKIT_BIN` 时真实引擎测试会显示跳过；Electron 测试改用明确标注的模拟构建器，不代表真实 Bukit 验收。
 
-尚未接入 AI 生成文件 / 差异审阅 / 应用修改、通用可视化编辑、任意主题导入、发布部署、签名安装包或自动更新。
+尚未实现通用可视化编辑、任意主题导入、发布部署、签名安装包或自动更新。
 
 ## Codex 对话（阶段一）
 
@@ -93,3 +95,53 @@ BUKIT_BIN=/absolute/path/to/bukit npm run test:electron
 - npm run test:codex：显式的本机无模型探测，只验证版本、握手、有效配置和账户类型。原生 Codex 可能更新自身运行数据库，但本应用不写认证配置，也不会启动 turn/start。
 
 2026-09-26 的本机权限探测另以原生 ephemeral thread 确认 readOnly / networkAccess:false / approval never，4 个已禁用 MCP 记录均为零工具、零资源；在自有临时目录的 command/exec 写入探针被沙箱拒绝。此权限探测本身只证明本机协议与沙箱行为。同日在独立临时样例项目中，经真实 Electron 界面完成一次真实 Codex 模型轮次：观察到流式文本与 completed，重开后从原生记录恢复同一回复；样例网站文件摘要前后不变，自有 app-server 在两次关闭后均退出。本机验收报告与截图保存在 Git 忽略的 test-results/ 中。真实网页登录、生产站点和签名安装包仍未验收。
+
+## 副本生成与审核（阶段二）
+
+1. 应用样例主题、连接 Codex，在“对话”输入具体修改要求。**发送**仍然只读讨论；**生成修改 · 先审核副本**才启动一个使用账户额度的独立生成轮次。
+2. 应用记录正式项目文件的基线，将当前受管理源文件写入应用数据目录 `generation-copies/<UUID>/`。Codex 只得到这份源文件快照。
+3. 生成结束并关闭专属 app-server 后，应用重新枚举副本中的真实新增、修改和删除文件，展示每个文件修改前后的完整文本。模型说明另列，不能作为文件差异的依据。
+4. 点击“拒绝修改”仅移除本轮自有副本。点击“确认应用并构建”重新校验项目、任务 ID、正式基线和审核副本 SHA-256；任何变化都会使审批失效，必须重新生成审核。
+5. 应用先保存 `.bukitjalil/recovery/<生成 UUID>.json`，再将审核时冻结的源快照写入新版本。正式源统一保存在一个 manifest 中，通过临时文件、同步、再次基线检查和原子替换提交，不逐个覆盖正式源文件。因此部分临时写入或最终替换失败时，正式基线仍在，恢复点也保留。
+6. 应用后自动调用既有 Bukit 构建。失败时新源版本与历史保留，上一成功预览继续运行；界面标注当前源版本尚未构建成功。历史恢复仍可使用。页面列表随受管理 Markdown 页面增删更新。
+
+### 生成权限与范围
+
+沿用 [App Server 官方协议](https://learn.chatgpt.com/docs/app-server)，并以本机 `0.155.0-alpha.16.4` 生成的实验 schema 为准：`dynamicTools` 使用 `type: function`，客户端处理 `item/tool/call` 并返回 `contentItems/inputText`。官方新版的 `readableRoots` 在此本机协议中不存在，不能假设它有效。
+
+原生生成会话仍使用 **readOnly / networkAccess:false / approval never**。shell、原生执行、浏览器、MCP、插件、apps、技能发现、memory、通知 hook 和提权保持禁用；逐项覆盖继承配置并复核，检查会话实际沙箱及外部工具列表。唯一提供的 `bukitjalil.edit_website_copy` 动态工具由主进程执行，只接受当前命名空间及 thread/turn 的文件列表；没有通用命令、宿主文件读取或任意路径接口。原生只读沙箱禁止其直接写正式项目，副本编辑能力来自主进程严格限定的文件工具。不会把正式项目作为 Codex 工作目录，也不修改全局认证/配置。
+
+副本只支持当前 Canopy 网站的 UTF-8 文本：`site.yaml`（只允许标题变化）、`content/*.md`、`themes/canopy/layouts/{pages,layouts,partials}/*.html`、`themes/canopy/assets/*.css`。文件名采用小写字母、数字、连字符；固定主题清单及必需模板保留。限制为 64 个文件、单文件 256 KB、合计 1 MB。路径穿越、符号链接、硬链接、特殊文件、非法 UTF-8、未知类型和超限内容都会拒绝。图片、可执行脚本、插件、外部数据源及主题市场不在范围内。侧栏页面按简单 Markdown front matter 的 `title` / `slug` 显示；实际模板语法、页面语义由 Bukit 构建验证。
+
+生成和审核期间，主进程串行约束项目切换、手动保存、恢复、另一轮生成和构建；只读讨论仍可继续。取消、失败、断线和超时均停止自有生成进程，禁止自动重发或自动应用。最长生成时间为 5 分钟。
+
+副本是临时任务：拒绝、取消、失败、应用或正常退出后清理本轮创建的 UUID 目录；不扫描删除用户网站或其他任务内容。审核不跨应用重启恢复。强制杀死或系统崩溃留下的副本保留在应用数据目录，重开时不会自动读取、续跑或应用，也不会自动删除无法确认归属的旧目录。恢复点与构建历史继续保留。原生宿主读取范围、可信 Bukit 程序及其他本机程序恶意并发替换文件的边界，仍与上文一致；这不是完整宿主进程的 OS 隔离。
+
+### 阶段二验证
+
+```sh
+npm test
+npm run build
+BUKIT_BIN=/absolute/path/to/bukit npm test
+BUKIT_BIN=/absolute/path/to/bukit npm run test:electron
+npm run test:codex-generation   # 显式原生探测：不调用 turn/start
+```
+
+模拟 Codex 会发出真实 `item/tool/call`，应用实际写入临时副本；覆盖增改删差异、拒绝不改正式项目、确认保存/构建/恢复、基线或审核内容变化（含 BOM）、取消/失败/断线、跨任务/提权拒绝、链接/非法类型/大小/编码，以及临时写入后原子替换失败。真实 Bukit 用例验证新增页面、删除页面、标题、成功预览与历史恢复。Electron 用例覆盖真实界面的差异审核、拒绝、确认、页面列表与重开恢复。
+
+原生零模型探测创建 ephemeral thread，验证动态工具 schema 被接受、有效配置和外部工具为空，并用自有 canary 确认副本内外原生写入被拒绝、只读命令正常；不会读取秘密、改变登录或发起模型轮次。
+
+2026-09-26 当前模型直接工具兼容性修复、真实应用闭环及真实拒绝闭环均已通过。第一次真实 gpt-6-astra 轮次 completed，但没有工具调用和文件差异，正式项目未变；该次调查保留在 `test-results/stage2-real-acceptance.json`。随后修复只调整专用工具的暴露方式，没有切换模型或更改全局配置。
+
+本机 `0.155.0-alpha.16.4` 对应官方源码 `3853cf0c49daadcacaacceb2cbb732f512eaacdb`。[配置定义](https://github.com/openai/codex/blob/3853cf0c49daadcacaacceb2cbb732f512eaacdb/codex-rs/features/src/feature_configs.rs#L22) 与 [原生配置解析](https://github.com/openai/codex/blob/3853cf0c49daadcacaacceb2cbb732f512eaacdb/codex-rs/core/src/config/mod.rs#L2676) 确认受支持的入口是 `features.code_mode={enabled=false,direct_only_tool_namespaces=["bukitjalil"]}`；顶层 `code_mode.direct_only_tool_namespaces` 会被忽略。[对应工具规划器测试](https://github.com/openai/codex/blob/3853cf0c49daadcacaacceb2cbb732f512eaacdb/codex-rs/core/src/tools/spec_plan_tests.rs#L2605) 覆盖了 CodeModeOnly 下直接暴露指定动态命名空间。应用仅在生成专属进程中设置该例外；要求有效配置仍为 enabled=false 且名单恰好只有 bukitjalil，否则拒绝发起轮次。普通讨论仍要求布尔 false。工具请求的命名空间、工具名、thread、turn 必须全部匹配。
+
+零模型探测确认有效配置的专有名单、无效类型拒绝、原生 code_mode / code_mode_host / code_mode_only 均关闭、外部工具为空、只读沙箱保持不变。仅有 schema 接受不算模型验证；修复后的 **1 次真实 gpt-6-astra 调用**已进一步确认专用动态工具实际请求和成功响应，实际新增 `content/verification.md` 并仅修改 `site.yaml` 标题。审核前正式 manifest / 源摘要完全未变。审核真实差异后，在临时网站确认应用，真实 Bukit 构建、新标题与新页面预览、关闭重开保留新版本、历史恢复和旧新增路由返回 404 全部通过。实际回复、工具参数/响应、差异和截图保存于 `test-results/live-stage2-1790416197168/`，汇总证据及源哈希在 `test-results/stage2-direct-tool-acceptance.json`。
+
+本次修复回归为 23/23（含真实 Bukit）及 3/3 Electron GUI，通过构建、脚本独立类型检查和原生零模型权限探测。随后追加授权的 1 次真实拒绝验收，同样通过专用工具生成非空实际差异；审核后拒绝，正式 manifest / 源摘要 / 当前版本及原预览地址与版本全部未变，原预览仍返回 200，生成副本已移除。该证据与截图位于 `test-results/live-stage2-1790416595997/`。排查 1 次、应用闭环 1 次、拒绝闭环 1 次，阶段二真实调用合计 **3 次**，没有额外重试。两次修复后验收的临时网站、应用数据和自有进程均已清理。原生实验协议的跨版本稳定性、其他模型/任务质量、真实网页登录、生产网站和签名安装包未验收。
+
+`scripts/accept-generation.mts` 是单轮临时网站验收脚本，记录实际回复与工具往返，在决策前停下等待差异审核；one-turn-apply 验证应用闭环，one-turn-reject 验证拒绝闭环。仅在明确授权消耗一次模型额度时运行；它不改变模型或登录，也不自动重试：
+
+```sh
+npm run build
+BUKITJALIL_REAL_ACCEPT=one-turn-apply BUKITJALIL_CODEX_BIN=/absolute/path/to/codex BUKIT_BIN=/absolute/path/to/bukit npx tsx scripts/accept-generation.mts
+```

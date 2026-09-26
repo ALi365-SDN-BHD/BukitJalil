@@ -7,6 +7,7 @@ export class CodexRpc {
   private nextId = 0;
   private buffer = "";
   private closed = false;
+  private requests: Promise<void> = Promise.resolve();
   private pending = new Map<number, {
     resolve: (value: RpcObject) => void;
     reject: (error: Error) => void;
@@ -18,6 +19,7 @@ export class CodexRpc {
     private readonly event: (method: string, params: RpcObject) => void,
     private readonly lost: (error: Error) => void,
     private readonly timeout = 20_000,
+    private readonly toolRequest?: (method: string, params: RpcObject) => Promise<RpcObject>,
   ) {
     this.process = new ManagedProcess(binary, ["app-server", ...args], cwd,
       (chunk) => this.receive(chunk), { stdin: true, stderr: () => {}, env });
@@ -60,9 +62,17 @@ export class CodexRpc {
           throw new Error();
         if (typeof value.method === "string") {
           if (value.id !== undefined) {
-            // Phase one has no dynamic tools, approvals or credential-refresh bridge.
-            this.write({ id: value.id, error: { code: -32601, message: "Read-only website chat does not allow tool or approval requests." } });
-            this.event("blockedRequest", value.params ?? {});
+            this.requests = this.requests.then(async () => {
+              if (this.closed) return;
+              try {
+                if (!this.toolRequest) throw new Error("Tools are disabled");
+                const result = await this.toolRequest(value.method, value.params ?? {});
+                this.write({ id: value.id, result });
+              } catch {
+                this.write({ id: value.id, error: { code: -32601, message: "This operation is not allowed by the website tool policy." } });
+                this.event("blockedRequest", value.params ?? {});
+              }
+            });
           } else {
             this.event(value.method, value.params ?? {});
           }
@@ -97,5 +107,6 @@ export class CodexRpc {
   async close() {
     this.fail(new Error("Codex 连接已关闭。"));
     await this.process.stop();
+    await this.requests;
   }
 }

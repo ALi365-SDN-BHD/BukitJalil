@@ -5,7 +5,10 @@ import { randomUUID } from "node:crypto";
 import type { State, RecentProject, BuildRecord } from "../shared";
 import { ProjectStore, newRevision, isId } from "./project";
 import { atomicWrite, readText, scopedPath, checkOutputTree } from "./files";
-import { aboutPage, sampleTheme, siteConfig } from "./theme";
+import { sampleTheme, siteConfig, themePaths } from "./theme";
+import { sourceFiles, sourceHeadline } from "./source";
+import { GenerationCopy } from "./generation";
+import type { CodexChat } from "./codex";
 import { ManagedProcess } from "./process";
 
 interface Session {
@@ -28,6 +31,8 @@ export class Workspace {
   private preview: State["preview"] = null;
   private notice: string | null = null;
   private sessionReadable = true;
+  private copy: GenerationCopy | null = null;
+  private generation: State["generation"] = null;
 
   constructor(
     private readonly dataDir: string,
@@ -43,14 +48,21 @@ export class Workspace {
               ...data,
               path: this.store.root,
               revisions: data.revisions.map(
-                ({ theme: _theme, ...revision }) => revision,
+                ({ theme: _theme, sourceFiles: _files, ...revision }) => revision,
               ),
               themeApplied: !!this.store.current().theme,
+              pages: [{ path: "/", title: "首页" }, ...Object.entries(sourceFiles(this.store.current()))
+                .filter(([name]) => name.startsWith("content/"))
+                .flatMap(([name, text]) => {
+                  const slug = /^slug: ([a-z0-9][a-z0-9-]*)$/m.exec(text)?.[1];
+                  return slug ? [{ path: "/" + slug + "/", title: slug === "about" ? "关于" : (/^title: (.+)$/m.exec(text)?.[1] ?? name) }] : [];
+                })],
             }
           : null,
       recent: structuredClone(this.session.recent),
       binary: this.session.binary,
       busy: this.busy,
+      generation: this.generation ? structuredClone(this.generation) : null,
       preview: this.preview ? { ...this.preview } : null,
       notice: this.notice,
     };
@@ -66,11 +78,7 @@ export class Workspace {
         revisionId: revision.id,
         headline: revision.headline,
         theme: revision.theme ? { name: revision.theme.name, version: revision.theme.version } : null,
-        files: {
-          "site.yaml": siteConfig(revision.headline),
-          "content/about.md": aboutPage,
-          ...(revision.theme?.files ?? {}),
-        },
+        files: sourceFiles(revision),
       },
     };
   }
@@ -153,9 +161,9 @@ export class Workspace {
     });
   }
 
-  private exclusive(action: () => Promise<void>): Promise<void> {
-    if (this.busy || this.closing)
-      return Promise.reject(new Error("请先等待当前操作完成，或取消构建。"));
+  private exclusive(action: () => Promise<void>, resolvingCopy = false): Promise<void> {
+    if (this.busy || this.closing || (this.copy && !resolvingCopy))
+      return Promise.reject(new Error("请先等待当前操作完成、取消生成或构建，或审核待确认的副本。"));
     this.busy = true;
     this.notice = null;
     this.emit();
@@ -244,6 +252,7 @@ export class Workspace {
       const store = this.project(),
         current = store.current();
       const revision = newRevision(headline, current.theme, "修改首页标题");
+      if (current.sourceFiles) revision.sourceFiles = { ...sourceFiles(current), "site.yaml": siteConfig(revision.headline) };
       if (revision.headline !== current.headline) await store.revise(revision);
     });
   }
@@ -257,103 +266,184 @@ export class Workspace {
   }
 
   build() {
-    return this.exclusive(async () => {
-      const store = this.project(),
-        revision = structuredClone(store.current());
-      if (!revision.theme) throw new Error("请先应用样例主题。");
-      if (!this.session.binary)
-        throw new Error("请先选择本机 Bukit 可执行文件。");
-      const abort = new AbortController();
-      this.abort = abort;
-      let timedOut = false;
-      const timeout = setTimeout(() => {
-        timedOut = true;
-        void this.cancel();
-      }, 120_000);
-      const build: BuildRecord = {
-        id: randomUUID(),
-        revisionId: revision.id,
-        status: "running",
-        startedAt: new Date().toISOString(),
-        log: "",
-      };
-      const base = `.bukitjalil/builds/${build.id}`;
-      try {
-        const binary = await this.validateBinary(this.session.binary);
-        await store.save({ ...store.data, lastBuild: build });
-        this.emit();
-        const input = await scopedPath(store.root, `${base}/input`);
-        await scopedPath(store.root, `${base}/input/dist`);
-        const files = {
-          "site.yaml": siteConfig(revision.headline),
-          "content/about.md": aboutPage,
-          ...revision.theme.files,
-        };
-        for (const [filename, content] of Object.entries(files)) {
-          abort.signal.throwIfAborted();
-          await atomicWrite(store.root, `${base}/input/${filename}`, content);
-        }
+    return this.exclusive(() => this.buildProject());
+  }
+
+  private async buildProject() {
+    const store = this.project(),
+      revision = structuredClone(store.current());
+    if (!revision.theme) throw new Error("请先应用样例主题。");
+    if (!this.session.binary)
+      throw new Error("请先选择本机 Bukit 可执行文件。");
+    const abort = new AbortController();
+    this.abort = abort;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      void this.cancel();
+    }, 120_000);
+    const build: BuildRecord = {
+      id: randomUUID(),
+      revisionId: revision.id,
+      status: "running",
+      startedAt: new Date().toISOString(),
+      log: "",
+    };
+    const base = `.bukitjalil/builds/${build.id}`;
+    try {
+      const binary = await this.validateBinary(this.session.binary);
+      await store.save({ ...store.data, lastBuild: build });
+      this.emit();
+      const input = await scopedPath(store.root, `${base}/input`);
+      await scopedPath(store.root, `${base}/input/dist`);
+      const files = sourceFiles(revision);
+      for (const [filename, content] of Object.entries(files)) {
         abort.signal.throwIfAborted();
-        this.buildProcess = new ManagedProcess(
-          binary,
-          [
-            "build",
-            "--config",
-            path.join(input, "site.yaml"),
-            "--output",
-            "dist",
-            "--cache-dir",
-            ".cache",
-            "--no-incremental",
-            "--clean",
-          ],
-          input,
-          (text) => {
-            build.log = (build.log + text).slice(-64_000);
-            store.data.lastBuild = { ...build };
-            this.emit();
-          },
+        await atomicWrite(store.root, `${base}/input/${filename}`, content);
+      }
+      abort.signal.throwIfAborted();
+      this.buildProcess = new ManagedProcess(
+        binary,
+        [
+          "build",
+          "--config",
+          path.join(input, "site.yaml"),
+          "--output",
+          "dist",
+          "--cache-dir",
+          ".cache",
+          "--no-incremental",
+          "--clean",
+        ],
+        input,
+        (text) => {
+          build.log = (build.log + text).slice(-64_000);
+          store.data.lastBuild = { ...build };
+          this.emit();
+        },
+      );
+      const result = await this.buildProcess.done;
+      abort.signal.throwIfAborted();
+      if (result.error || result.code !== 0)
+        throw new Error(
+          result.error ??
+            `Bukit 构建失败（退出码 ${result.code}）。请查看构建日志。`,
         );
-        const result = await this.buildProcess.done;
-        abort.signal.throwIfAborted();
-        if (result.error || result.code !== 0)
-          throw new Error(
-            result.error ??
-              `Bukit 构建失败（退出码 ${result.code}）。请查看构建日志。`,
-          );
-        await readText(store.root, `${base}/input/dist/index.html`);
-        await checkOutputTree(store.root, `${base}/input/dist`);
-        build.status = "success";
-        await store.save({
-          ...store.data,
-          lastBuild: build,
-          lastSuccessfulBuild: { id: build.id, revisionId: revision.id },
-        });
-        try {
-          await this.startPreview(build.id, revision.id, abort.signal);
-        } catch (error) {
-          this.notice = `构建已成功，预览未启动：${message(error)}`;
-        }
+      await readText(store.root, `${base}/input/dist/index.html`);
+      await checkOutputTree(store.root, `${base}/input/dist`);
+      build.status = "success";
+      await store.save({
+        ...store.data,
+        lastBuild: build,
+        lastSuccessfulBuild: { id: build.id, revisionId: revision.id },
+      });
+      try {
+        await this.startPreview(build.id, revision.id, abort.signal);
       } catch (error) {
-        build.status = abort.signal.aborted
-          ? timedOut
-            ? "failed"
-            : "cancelled"
-          : "failed";
-        build.error = timedOut
-          ? "构建超过 120 秒，已停止进程。"
-          : abort.signal.aborted
-            ? "构建已取消，上次成功预览未受影响。"
-            : message(error);
-        await store.save({ ...store.data, lastBuild: build });
-        if (build.status === "failed") this.notice = build.error;
+        this.notice = `构建已成功，预览未启动：${message(error)}`;
+      }
+    } catch (error) {
+      build.status = abort.signal.aborted
+        ? timedOut
+          ? "failed"
+          : "cancelled"
+        : "failed";
+      build.error = timedOut
+        ? "构建超过 120 秒，已停止进程。"
+        : abort.signal.aborted
+          ? "构建已取消，上次成功预览未受影响。"
+          : message(error);
+      await store.save({ ...store.data, lastBuild: build });
+      if (build.status === "failed") this.notice = build.error;
+    } finally {
+      clearTimeout(timeout);
+      await this.buildProcess?.stop();
+      this.buildProcess = null;
+      this.abort = null;
+    }
+  }
+
+  generate(value: unknown, codex: CodexChat) {
+    return this.exclusive(async () => {
+      const store = this.project();
+      const input = value as { projectPath?: unknown; text?: unknown } | null;
+      if (!input || input.projectPath !== store.root || typeof input.text !== "string" ||
+          !input.text.trim() || input.text.length > 8000 || input.text.includes("\0"))
+        throw new Error("请在当前项目输入 1–8000 字的生成要求。");
+      if (!store.current().theme) throw new Error("请先应用样例主题。");
+      const appRoot = await fs.realpath(this.dataDir);
+      if (store.root === appRoot || store.root.startsWith(appRoot + path.sep) || appRoot.startsWith(store.root + path.sep))
+        throw new Error("网站与应用数据目录必须互相独立。");
+      const copy = new GenerationCopy(await store.unchanged(), sourceFiles(store.current()));
+      this.copy = copy;
+      const view: NonNullable<State["generation"]> = { id: copy.id, projectPath: store.root, status: "running",
+        text: "", error: null, hash: null, changes: [] };
+      this.generation = view;
+      const abort = new AbortController(); this.abort = abort;
+      // ponytail: one generation/review locks workspace mutations; per-project queues only if parallel editing is needed.
+      const timeout = setTimeout(() => abort.abort(new Error("生成超过 5 分钟，已停止；未应用修改。")), 300_000);
+      this.emit();
+      try {
+        await copy.create(appRoot);
+        abort.signal.throwIfAborted();
+        await codex.generate(copy, input.text.trim(), abort.signal, (text) => {
+          view.text = text; this.emit();
+        });
+        abort.signal.throwIfAborted();
+        const review = await copy.review();
+        view.hash = review.hash; view.changes = review.changes; view.status = "review";
+      } catch (error) {
+        view.status = abort.signal.aborted ? "cancelled" : "failed";
+        view.error = message(error); this.copy = null;
+        await copy.remove().catch(() => { view.error += " 副本未能清理，已保留在应用数据目录。"; });
+        if (!abort.signal.aborted) throw error;
       } finally {
-        clearTimeout(timeout);
-        await this.buildProcess?.stop();
-        this.buildProcess = null;
-        this.abort = null;
+        clearTimeout(timeout); this.abort = null; this.emit();
       }
     });
+  }
+
+  private reviewCopy(value: unknown, approving: boolean) {
+    const input = value as { projectPath?: unknown; id?: unknown; hash?: unknown } | null;
+    const view = this.generation, copy = this.copy;
+    if (!copy || !view || view.status !== "review" || !input || input.id !== copy.id ||
+        input.projectPath !== this.project().root || input.projectPath !== view.projectPath ||
+        (approving && (typeof input.hash !== "string" || input.hash !== view.hash)))
+      throw new Error("生成审核已失效或不属于当前项目。");
+    return { copy, view };
+  }
+
+  rejectGeneration(value: unknown) {
+    return this.exclusive(async () => {
+      const { copy, view } = this.reviewCopy(value, false);
+      this.copy = null; view.status = "rejected"; view.changes = []; view.hash = null;
+      await copy.remove();
+    }, true);
+  }
+
+  approveGeneration(value: unknown) {
+    return this.exclusive(async () => {
+      const { copy, view } = this.reviewCopy(value, true), store = this.project();
+      try {
+        const files = await copy.approved(view.hash!, await store.unchanged());
+        if (!view.changes.length) throw new Error("副本没有源文件差异，无需应用。");
+        // Recovery is durable before the single atomic manifest replacement. Source files live in that manifest.
+        await atomicWrite(store.root, `.bukitjalil/recovery/${copy.id}.json`, copy.baseline);
+        await copy.approved(view.hash!, await store.unchanged());
+        const theme = { ...store.current().theme!, files: Object.fromEntries(themePaths.map((name) => [name, files[name]])) };
+        const revision = newRevision(sourceHeadline(files), theme, "应用已审核的 AI 网站修改");
+        revision.sourceFiles = files;
+        await store.revise(revision);
+        view.status = "applied";
+      } catch (error) {
+        view.status = "failed"; view.error = message(error); throw error;
+      } finally {
+        this.copy = null; view.hash = null;
+        await copy.remove().catch(() => { this.notice = "生成副本清理失败，已保留在应用数据目录。"; });
+        this.emit();
+      }
+      await this.buildProject();
+    }, true);
   }
 
   async cancel(): Promise<void> {
@@ -473,5 +563,7 @@ export class Workspace {
     await this.cancel();
     await this.operation?.catch(() => {});
     await this.stopPreview();
+    const copy = this.copy; this.copy = null;
+    await copy?.remove().catch(() => {});
   }
 }
