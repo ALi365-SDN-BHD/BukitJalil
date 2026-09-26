@@ -1,9 +1,0 @@
-{
-  "lastQuery": "<realtime_delegation>\n  <source>transcript_tail_flush</source>\n  <input>The user just ended their realtime session. Here is the remaining handoff/transcript tail. You probably do not have to do anything; acknowledge the handoff unless the transcript itself asks for something.</input>\n  <transcript_delta>assistant: 我再\nuser: 嗯\nassistant: 我再对一下未跟踪文件,稍等。</transcript_delta>\n</realtime_delegation>",
-  "perAgentQuery": {},
-  "graftReads": 0,
-  "sourceReads": 0,
-  "savedTokens": 0,
-  "injectedPointers": [],
-  "nudges": 0
-}
