@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { Workspace } from "../src/main/workspace";
+import { withSiteInfo } from "../src/main/site-config";
 
 test(
   "real Bukit: sample theme, edit, restore, restart and preview cleanup",
@@ -31,6 +32,15 @@ test(
     assert.match(await (await fetch(url)).text(), /让你的想法/);
     assert.match(await (await fetch(`${url}about/`)).text(), /给好想法一个家/);
     assert.equal((await fetch(`${url}assets/style.css`)).status, 200);
+    const configPath = path.join(root, "site", "site.yaml");
+    const advanced = withSiteInfo(await fs.readFile(configPath, "utf8"), "编辑器中的标题", "编辑器中的简介") +
+      "logging:\n  level: warn\n";
+    await fs.writeFile(configPath, advanced);
+    await workspace.build();
+    assert.equal(workspace.state().project!.lastBuild!.status, "success");
+    assert.equal(await fs.readFile(configPath, "utf8"), advanced);
+    assert.equal(workspace.state().project!.revisions.at(-1)!.summary, "导入外部 site.yaml 修改");
+    assert.match(await (await fetch(workspace.state().preview!.url)).text(), /编辑器中的标题/);
     await workspace.editHeadline('A "quoted" <标题> & 新开始');
     await workspace.build();
     assert.equal(

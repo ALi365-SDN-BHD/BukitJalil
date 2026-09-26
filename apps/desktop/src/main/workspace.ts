@@ -4,12 +4,13 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { State, RecentProject, BuildRecord } from "../shared";
+import type { State, RecentProject, BuildRecord, FileChange } from "../shared";
 import { ProjectStore, newRevision, isId, textField, manifestFile } from "./project";
 import { atomicWrite, readText, scopedPath, checkOutputTree } from "./files";
-import { sampleTheme, siteConfig, themePaths } from "./theme";
+import { sampleTheme, themePaths } from "./theme";
 import { sourceFiles, sourceHeadline } from "./source";
-import { GenerationCopy } from "./generation";
+import { siteInfo, withSiteInfo } from "./site-config";
+import { GenerationCopy, fileChanges } from "./generation";
 import type { CodexChat } from "./codex";
 import { ManagedProcess } from "./process";
 
@@ -31,6 +32,8 @@ export class Workspace {
   private buildProcess: ManagedProcess | null = null;
   private previewProcess: ManagedProcess | null = null;
   private preview: State["preview"] = null;
+  private draftPreviewProcess: ManagedProcess | null = null;
+  private draftPreview: State["draftPreview"] = null;
   private notice: string | null = null;
   private sessionReadable = true;
   private unavailable = new Map<string, string>();
@@ -55,6 +58,7 @@ export class Workspace {
                 ({ theme: _theme, sourceFiles: _files, ...revision }) => revision,
               ),
               themeApplied: !!this.store.current().theme,
+              siteDescription: siteInfo(sourceFiles(this.store.current())["site.yaml"]).description,
               pages: [{ path: "/", title: "首页" }, ...Object.entries(sourceFiles(this.store.current()))
                 .filter(([name]) => name.startsWith("content/"))
                 .flatMap(([name, text]) => {
@@ -71,6 +75,7 @@ export class Workspace {
       busy: this.busy,
       generation: this.generation ? structuredClone(this.generation) : null,
       preview: this.preview ? { ...this.preview } : null,
+      draftPreview: this.draftPreview ? { ...this.draftPreview } : null,
       notice: this.notice,
     };
   }
@@ -246,6 +251,7 @@ export class Workspace {
 
   home() {
     return this.exclusive(async () => {
+      await this.stopDraftPreview();
       await this.stopPreview();
       this.store = null;
       this.generation = null;
@@ -299,9 +305,12 @@ export class Workspace {
         },
       });
     }
+    await this.stopDraftPreview();
     await this.stopPreview();
     this.store = store;
     this.generation = null;
+    try { await store.syncExternalConfig(); }
+    catch (error) { this.notice = `外部 site.yaml 尚未导入：${message(error)}`; }
     const prior = this.session.recent.find((r) => r.path === store.root);
     const recent = {
       id: prior?.id ?? randomUUID(),
@@ -326,28 +335,60 @@ export class Workspace {
   applyTheme() {
     return this.exclusive(async () => {
       const store = this.project();
+      await store.syncExternalConfig();
       if (store.current().theme) return;
-      await store.revise(
-        newRevision(
-          store.current().headline,
-          sampleTheme(),
-          "应用 Canopy 1.0.0 的独立副本",
-        ),
-      );
+      const theme = sampleTheme();
+      const revision = newRevision(store.current().headline, theme, "应用 Canopy 1.0.0 的独立副本");
+      revision.sourceFiles = { ...sourceFiles(store.current()), ...theme.files };
+      await store.revise(revision);
     });
   }
   editHeadline(headline: string) {
     return this.exclusive(async () => {
-      const store = this.project(),
-        current = store.current();
+      const store = this.project();
+      await store.syncExternalConfig();
+      const current = store.current();
       const revision = newRevision(headline, current.theme, "修改首页标题");
-      if (current.sourceFiles) revision.sourceFiles = { ...sourceFiles(current), "site.yaml": siteConfig(revision.headline) };
+      revision.sourceFiles = { ...sourceFiles(current), "site.yaml": withSiteInfo(sourceFiles(current)["site.yaml"], revision.headline,
+        siteInfo(sourceFiles(current)["site.yaml"]).description) };
       if (revision.headline !== current.headline) await store.revise(revision);
     });
+  }
+  saveSiteInfo(value: unknown) {
+    return this.exclusive(async () => {
+      const input = value as { title?: unknown; description?: unknown; revisionId?: unknown } | null;
+      const store = this.project();
+      await store.syncExternalConfig();
+      const current = store.current();
+      if (!input || input.revisionId !== current.id || typeof input.title !== "string" ||
+          typeof input.description !== "string")
+        throw new Error("网站配置已变化，请重新查看后保存。");
+      const files = sourceFiles(current), before = siteInfo(files["site.yaml"]);
+      if (input.title === before.title && input.description === before.description) return;
+      const config = withSiteInfo(files["site.yaml"], input.title, input.description);
+      const revision = newRevision(siteInfo(config).title, current.theme, "更新网站基本信息");
+      revision.sourceFiles = { ...files, "site.yaml": config };
+      await store.revise(revision);
+    });
+  }
+  revisionDiff(value: unknown): FileChange[] {
+    const input = value as { projectPath?: unknown; revisionId?: unknown } | null;
+    const store = this.project();
+    if (!input || input.projectPath !== store.root || !isId(input.revisionId))
+      throw new Error("版本所属项目无效。");
+    const target = store.data.revisions.find((revision) => revision.id === input.revisionId);
+    if (!target) throw new Error("版本不存在。");
+    return fileChanges(sourceFiles(store.current()), sourceFiles(target));
+  }
+  async configPath(): Promise<string> {
+    const store = this.project();
+    await readText(store.root, "site.yaml", 256_000);
+    return scopedPath(store.root, "site.yaml");
   }
   restore(id: string) {
     return this.exclusive(async () => {
       const store = this.project();
+      await store.syncExternalConfig();
       if (!isId(id) || !store.data.revisions.some((r) => r.id === id))
         throw new Error("恢复的版本不存在。");
       await store.save({ ...store.data, currentRevisionId: id });
@@ -355,7 +396,93 @@ export class Workspace {
   }
 
   build() {
-    return this.exclusive(() => this.buildProject());
+    if (this.generation?.status === "review") {
+      if (!this.copy) return Promise.reject(new Error("待确认副本已失效，请重新生成。"));
+      return this.exclusive(async () => {
+        this.abort = new AbortController();
+        try { await this.buildDraftPreview(this.copy!); }
+        finally { this.abort = null; }
+      }, true);
+    }
+    return this.exclusive(async () => {
+      this.abort = new AbortController();
+      try { await this.project().syncExternalConfig(); await this.buildProject(); }
+      finally { this.abort = null; }
+    });
+  }
+
+  private runBukitBuild(binary: string, input: string, output: (text: string) => void) {
+    this.buildProcess = new ManagedProcess(binary,
+      ["build", "--config", path.join(input, "site.yaml"), "--output", "dist",
+        "--cache-dir", ".cache", "--no-incremental", "--clean"], input, output);
+    return this.buildProcess;
+  }
+
+  private async buildDraftPreview(copy: GenerationCopy) {
+    const store = this.project(), review = this.generation;
+    if (!review || review.status !== "review" || review.id !== copy.id || !review.hash)
+      throw new Error("待确认副本已失效，请重新生成。");
+    await store.unchanged();
+    await store.configUnchanged();
+    if (!this.session.binary) throw new Error("请在全局设置中选择本机 Bukit 可执行文件。");
+    const files = await copy.previewFiles(review.hash);
+    const binary = await this.validateBinary(this.session.binary);
+    const root = await fs.realpath(this.dataDir);
+    const relative = `generation-previews/${copy.id}/${randomUUID()}/input`;
+    const input = await scopedPath(root, relative);
+    const abort = this.abort ?? new AbortController();
+    this.abort = abort;
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; void this.cancel(); }, 120_000);
+    const priorUrl = this.draftPreview?.reviewId === copy.id ? this.draftPreview.url : null;
+    this.draftPreview = { reviewId: copy.id, url: priorUrl, status: "running", log: "" };
+    this.emit();
+    try {
+      await fs.mkdir(input, { recursive: true });
+      for (const [filename, content] of Object.entries(files)) {
+        abort.signal.throwIfAborted();
+        await atomicWrite(root, `${relative}/${filename}`, content);
+      }
+      abort.signal.throwIfAborted();
+      this.runBukitBuild(binary, input, (text) => {
+        if (!this.draftPreview || this.draftPreview.reviewId !== copy.id) return;
+        this.draftPreview.log = (this.draftPreview.log + text).slice(-64_000);
+        this.emit();
+      });
+      const result = await this.buildProcess!.done;
+      abort.signal.throwIfAborted();
+      if (result.error || result.code !== 0)
+        throw new Error(result.error ?? `Bukit 构建失败（退出码 ${result.code}）。请查看构建日志。`);
+      await readText(root, `${relative}/dist/index.html`);
+      await checkOutputTree(root, `${relative}/dist`);
+      const { child, url } = await this.launchPreview(input, path.join(input, "dist"), abort.signal);
+      await this.draftPreviewProcess?.stop();
+      this.draftPreviewProcess = child;
+      this.draftPreview = { reviewId: copy.id, url, status: "success", log: this.draftPreview!.log };
+      void child.done.then(() => {
+        void child.stop();
+        if (this.draftPreviewProcess === child) {
+          this.draftPreviewProcess = null;
+          if (this.draftPreview) {
+            this.draftPreview.url = null;
+            this.draftPreview.status = "failed";
+            this.draftPreview.error = "待确认副本预览进程已退出，请重新构建。";
+            this.emit();
+          }
+        }
+      });
+    } catch (error) {
+      if (this.draftPreview?.reviewId === copy.id) {
+        this.draftPreview.status = abort.signal.aborted && !timedOut ? "cancelled" : "failed";
+        this.draftPreview.error = timedOut ? "副本构建超过 120 秒，已停止。" : message(error);
+      }
+    } finally {
+      clearTimeout(timeout);
+      await this.buildProcess?.stop();
+      this.buildProcess = null;
+      this.abort = null;
+      this.emit();
+    }
   }
 
   private async buildProject() {
@@ -364,7 +491,7 @@ export class Workspace {
     if (!revision.theme) throw new Error("请先应用样例主题。");
     if (!this.session.binary)
       throw new Error("请先选择本机 Bukit 可执行文件。");
-    const abort = new AbortController();
+    const abort = this.abort ?? new AbortController();
     this.abort = abort;
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -391,27 +518,12 @@ export class Workspace {
         await atomicWrite(store.root, `${base}/input/${filename}`, content);
       }
       abort.signal.throwIfAborted();
-      this.buildProcess = new ManagedProcess(
-        binary,
-        [
-          "build",
-          "--config",
-          path.join(input, "site.yaml"),
-          "--output",
-          "dist",
-          "--cache-dir",
-          ".cache",
-          "--no-incremental",
-          "--clean",
-        ],
-        input,
-        (text) => {
+      this.runBukitBuild(binary, input, (text) => {
           build.log = (build.log + text).slice(-64_000);
           store.data.lastBuild = { ...build };
           this.emit();
-        },
-      );
-      const result = await this.buildProcess.done;
+        });
+      const result = await this.buildProcess!.done;
       abort.signal.throwIfAborted();
       if (result.error || result.code !== 0)
         throw new Error(
@@ -455,6 +567,7 @@ export class Workspace {
   generate(value: unknown, codex: CodexChat) {
     return this.exclusive(async () => {
       const store = this.project();
+      await store.syncExternalConfig();
       const input = value as { projectPath?: unknown; text?: unknown } | null;
       if (!input || input.projectPath !== store.root || typeof input.text !== "string" ||
           !input.text.trim() || input.text.length > 8000 || input.text.includes("\0"))
@@ -505,6 +618,7 @@ export class Workspace {
   rejectGeneration(value: unknown) {
     return this.exclusive(async () => {
       const { copy, view } = this.reviewCopy(value, false);
+      await this.stopDraftPreview();
       this.copy = null; view.status = "rejected"; view.changes = []; view.hash = null;
       await copy.remove();
     }, true);
@@ -514,6 +628,7 @@ export class Workspace {
     return this.exclusive(async () => {
       const { copy, view } = this.reviewCopy(value, true), store = this.project();
       try {
+        await store.syncExternalConfig();
         const files = await copy.approved(view.hash!, await store.unchanged());
         if (!view.changes.length) throw new Error("副本没有源文件差异，无需应用。");
         // Recovery is durable before the single atomic manifest replacement. Source files live in that manifest.
@@ -527,6 +642,7 @@ export class Workspace {
       } catch (error) {
         view.status = "failed"; view.error = message(error); throw error;
       } finally {
+        await this.stopDraftPreview();
         this.copy = null; view.hash = null;
         await copy.remove().catch(() => { this.notice = "生成副本清理失败，已保留在应用数据目录。"; });
         this.emit();
@@ -560,13 +676,29 @@ export class Workspace {
     const output = await scopedPath(store.root, `${base}/input/dist`);
     const input = await scopedPath(store.root, `${base}/input`);
     await checkOutputTree(store.root, `${base}/input/dist`);
-    // Regenerate the safe config; never execute arbitrary project YAML on reopen.
+    // Restore the exact config snapshot that produced this successful build.
     const revision = store.data.revisions.find((r) => r.id === revisionId)!;
     await atomicWrite(
       store.root,
       `${base}/input/site.yaml`,
-      siteConfig(revision.headline),
+      sourceFiles(revision)["site.yaml"],
     );
+    const { child, url } = await this.launchPreview(input, output, signal);
+    await this.stopPreview();
+    this.previewProcess = child;
+    this.preview = { url, revisionId };
+    void child.done.then(() => {
+      void child.stop();
+      if (this.previewProcess === child) {
+        this.previewProcess = null;
+        this.preview = null;
+        this.notice = "预览进程已退出。请重新构建以启动预览。";
+        this.emit();
+      }
+    });
+  }
+
+  private async launchPreview(input: string, output: string, signal?: AbortSignal) {
     let text = "";
     let wake: ((url: string) => void) | undefined;
     const ready = new Promise<string>((resolve) => {
@@ -619,18 +751,7 @@ export class Workspace {
       if (!response.ok || child.exited)
         throw new Error("预览服务未返回成功页面。");
       signal?.throwIfAborted();
-      await this.stopPreview();
-      this.previewProcess = child;
-      this.preview = { url, revisionId };
-      void child.done.then(() => {
-        void child.stop();
-        if (this.previewProcess === child) {
-          this.previewProcess = null;
-          this.preview = null;
-          this.notice = "预览进程已退出。请重新构建以启动预览。";
-          this.emit();
-        }
-      });
+      return { child, url };
     } catch (error) {
       await child.stop();
       throw error;
@@ -647,10 +768,23 @@ export class Workspace {
     await child?.stop();
   }
 
+  private async stopDraftPreview(): Promise<void> {
+    const reviewId = this.draftPreview?.reviewId;
+    const child = this.draftPreviewProcess;
+    this.draftPreviewProcess = null;
+    this.draftPreview = null;
+    await child?.stop();
+    if (reviewId && isId(reviewId)) {
+      const root = await fs.realpath(this.dataDir);
+      await fs.rm(await scopedPath(root, `generation-previews/${reviewId}`), { recursive: true, force: true });
+    }
+  }
+
   async dispose(): Promise<void> {
     this.closing = true;
     await this.cancel();
     await this.operation?.catch(() => {});
+    await this.stopDraftPreview();
     await this.stopPreview();
     const copy = this.copy; this.copy = null;
     await copy?.remove().catch(() => {});

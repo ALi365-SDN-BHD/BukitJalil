@@ -6,7 +6,7 @@ import os from "node:os";
 import { CodexChat, type ChatContext } from "../src/main/codex";
 import { CodexRpc } from "../src/main/codex-rpc";
 
-async function fixture(mode = {}) {
+async function fixture(mode = {}, onEdit: (projectPath: string, text: string) => Promise<void> = async () => {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bukitjalil-chat-test-")));
   const binary = path.join(root, "codex");
   await fs.copyFile(new URL("./fixtures/fake-codex.cjs", import.meta.url), binary);
@@ -15,16 +15,22 @@ async function fixture(mode = {}) {
   const data = path.join(root, "app"); await fs.mkdir(data);
   let current: ChatContext | null = { path: path.join(root, "site-a"), name: "A", snapshot: { name: "A", files: { "site.yaml": "title: A" } } };
   const urls: string[] = [];
-  let service = new CodexChat(data, () => current, () => {}, async (url) => { urls.push(url); }, binary);
+  const phases: string[] = [];
+  const changed = (state: ReturnType<CodexChat["state"]>) => {
+    const phase = current && state.conversations[current.path]?.phase;
+    if (phase) phases.push(phase);
+  };
+  let service = new CodexChat(data, () => current, changed, async (url) => { urls.push(url); }, binary, onEdit);
   await service.initialize();
   return {
-    root, data, binary, urls,
+    root, data, binary, urls, phases,
     get service() { return service; },
     get current() { return current!; },
     select(name: string) { current = { path: path.join(root, "site-" + name.toLowerCase()), name, snapshot: { name, files: { "site.yaml": "title: " + name } } }; },
-    async reopen() {
+    async reopen(before?: () => Promise<void>) {
       await service.dispose();
-      service = new CodexChat(data, () => current, () => {}, async () => {}, binary);
+      await before?.();
+      service = new CodexChat(data, () => current, changed, async () => {}, binary, onEdit);
       await service.initialize();
       await until(() => service.state().connection === "ready");
     },
@@ -50,6 +56,7 @@ test("isolated project turns stream UTF-8, interrupt the server, fail visibly, a
     const a = f.current.path;
     await f.service.send({ projectPath: a, text: "慢消息 A" });
     await until(() => f.service.state().conversations[a].messages.some((m) => m.text === "站点建议："));
+    assert.equal(f.service.state().conversations[a].phase, "reply");
     f.select("B");
     const b = f.current.path;
     await f.service.send({ projectPath: b, text: "B 的首页" });
@@ -58,6 +65,7 @@ test("isolated project turns stream UTF-8, interrupt the server, fail visibly, a
     assert.ok(!JSON.stringify(f.service.state().conversations[b]).includes("慢消息 A"));
     await f.service.cancel(a);
     await until(() => f.service.state().conversations[a].status === "interrupted");
+    assert.equal(f.service.state().conversations[a].phase, undefined);
     await f.service.send({ projectPath: b, text: "失败" });
     await until(() => f.service.state().conversations[b].status === "failed");
     await f.reopen();
@@ -78,6 +86,72 @@ test("isolated project turns stream UTF-8, interrupt the server, fail visibly, a
     assert.equal(turns[0].params.approvalPolicy, "never");
     assert.equal(requests.filter((r) => r.method === "turn/interrupt").length, 1);
     await assert.rejects(f.service.send({ projectPath: a, text: "旧页面请求" }), /项目已切换/);
+  } finally { await f.close(); }
+});
+
+test("one semantic edit request routes the original text to a reviewed-copy callback; questions and ambiguity stay conversational", async () => {
+  const edits: { projectPath: string; text: string }[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const f = await fixture({}, async (projectPath, text) => { edits.push({ projectPath, text }); await gate; });
+  try {
+    await f.service.connect();
+    const projectPath = f.current.path;
+    for (const text of ["关于页有什么内容？", "是否要修改首页？", "不要修改网站首页", "有点想改，但还没决定"]) {
+      await f.service.send({ projectPath, text });
+      await until(() => f.service.state().conversations[projectPath].status === "completed");
+    }
+    assert.equal(edits.length, 0);
+    await f.service.send({ projectPath, text: "请修改网站首页的标题" });
+    await until(() => f.service.state().conversations[projectPath].phase === "generation");
+    assert.deepEqual(edits, [{ projectPath, text: "请修改网站首页的标题" }]);
+    assert.equal(f.service.state().conversations[projectPath].status, "running");
+    release();
+    await until(() => f.service.state().conversations[projectPath].status === "completed");
+    assert.equal(f.service.state().conversations[projectPath].phase, undefined);
+    assert.ok(f.phases.includes("processing") && f.phases.includes("reply") && f.phases.includes("generation"));
+    const requests = await f.requests();
+    const route = requests.filter((item) => item.method === "item/tool/call" && item.params?.tool === "request_website_edit");
+    assert.equal(route.length, 0, "tool requests are server-originated, not client requests");
+    assert.equal(requests.filter((item) => item.method === "thread/start")[0].params.dynamicTools[0].tools[0].name, "request_website_edit");
+    assert.equal(requests.filter((item) => item.method === "turn/start").length, 5);
+  } finally { release(); await f.close(); }
+});
+
+test("a legacy discussion thread migrates once and keeps its prior messages across restart", async () => {
+  const f = await fixture();
+  try {
+    await f.service.connect();
+    const projectPath = f.current.path;
+    await f.service.send({ projectPath, text: "旧对话" });
+    await until(() => f.service.state().conversations[projectPath].status === "completed");
+    await f.reopen(async () => {
+      const file = path.join(f.data, "codex-chats.json");
+      const saved = JSON.parse(await fs.readFile(file, "utf8"));
+      delete saved.bindings[0].routing;
+      await fs.writeFile(file, JSON.stringify(saved));
+    });
+    await f.service.send({ projectPath, text: "请修改网站首页的标题" });
+    await until(() => f.service.state().conversations[projectPath].status === "completed");
+    const starts = (await f.requests()).filter((item) => item.method === "thread/start");
+    assert.equal(starts.length, 2);
+    assert.equal(starts[1].params.dynamicTools[0].tools[0].name, "request_website_edit");
+    await f.reopen();
+    const messages = f.service.state().conversations[projectPath].messages;
+    assert.ok(messages.some((item) => item.role === "user" && item.text === "旧对话"));
+    assert.ok(messages.some((item) => item.role === "user" && item.text === "请修改网站首页的标题"));
+  } finally { await f.close(); }
+});
+
+test("conversation edit tool rejects model-supplied file arguments before starting a copy", async () => {
+  let edits = 0;
+  const f = await fixture({}, async () => { edits++; });
+  try {
+    await f.service.connect();
+    await f.service.send({ projectPath: f.current.path, text: "请修改网站首页，越权参数" });
+    await until(() => f.service.state().conversations[f.current.path].status === "interrupted");
+    assert.equal(edits, 0);
+    assert.match(f.service.state().conversations[f.current.path].error ?? "", /未授权的工具/);
   } finally { await f.close(); }
 });
 

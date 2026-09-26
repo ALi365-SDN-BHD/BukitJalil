@@ -55,6 +55,7 @@ export interface State {
         path: string;
         revisions: Omit<Revision, "theme" | "sourceFiles">[];
         themeApplied: boolean;
+        siteDescription: string;
         pages: { path: string; title: string }[];
       })
     | null;
@@ -64,6 +65,7 @@ export interface State {
   busy: boolean;
   generation: GenerationState | null;
   preview: { url: string; revisionId: string } | null;
+  draftPreview: { reviewId: string; url: string | null; status: "running" | "success" | "failed" | "cancelled"; log: string; error?: string } | null;
   notice: string | null;
 }
 export type ChatStatus = "idle" | "starting" | "running" | "cancelling" | "completed" | "interrupted" | "failed" | "unknown";
@@ -75,6 +77,7 @@ export interface ChatMessage {
 export interface Conversation {
   name: string;
   status: ChatStatus;
+  phase?: "processing" | "reply" | "generation";
   messages: ChatMessage[];
   error: string | null;
 }
@@ -100,7 +103,6 @@ export interface DesktopAPI {
   sendChat(value: { projectPath: string; text: string }): Promise<void>;
   cancelChat(projectPath: string): Promise<void>;
   subscribeChat(listener: (state: ChatState) => void): () => void;
-  generate(value: { projectPath: string; text: string }): Promise<void>;
   approveGeneration(value: { projectPath: string; id: string; hash: string }): Promise<void>;
   rejectGeneration(value: { projectPath: string; id: string }): Promise<void>;
   state(): Promise<State>;
@@ -115,6 +117,9 @@ export interface DesktopAPI {
   pickExecutable(engine: "Bukit" | "Codex"): Promise<string | null>;
   applyTheme(): Promise<void>;
   editHeadline(headline: string): Promise<void>;
+  saveSiteInfo(value: { title: string; description: string; revisionId: string }): Promise<void>;
+  openSiteConfig(): Promise<void>;
+  revisionDiff(value: { projectPath: string; revisionId: string }): Promise<FileChange[]>;
   restore(id: string): Promise<void>;
   build(): Promise<void>;
   cancel(): Promise<void>;

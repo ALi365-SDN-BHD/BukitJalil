@@ -36,7 +36,7 @@ test("project home: explicit entry, missing paths, rename, remove, create, reope
   try {
     await launch();
     expect(await fs.readFile(path.join(kept.root, "bukitjalil.json"), "utf8")).toBe(original);
-    expect(await fs.readdir(kept.root)).toEqual(["bukitjalil.json"]);
+    expect((await fs.readdir(kept.root)).sort()).toEqual(["bukitjalil.json", "site.yaml"]);
     await expect(card("山间工作室")).toContainText(kept.root);
     await expect(card("山间工作室")).toContainText("尚未记录");
     await expect(card("已移动项目")).toContainText("找不到项目目录或项目文件");
@@ -72,15 +72,14 @@ test("project home: explicit entry, missing paths, rename, remove, create, reope
     expect((await state()).project!.path).toBe(kept.root);
     const openedAt = (await state()).recent[0].lastOpenedAt;
     expect(Number.isFinite(Date.parse(openedAt!))).toBe(true);
-    await page.getByLabel("首页标题", { exact: false }).fill("尚未保存的标题");
-    await expect(page.getByRole("button", { name: "返回项目首页" })).toBeDisabled();
-    await page.getByRole("button", { name: "放弃未保存的修改" }).click();
+    await expect(page.getByLabel("首页标题")).toHaveCount(0);
     await page.getByRole("button", { name: "应用样例主题" }).click();
     await page.getByRole("button", { name: "构建预览", exact: false }).click();
     await expect.poll(async () => (await state()).project?.lastBuild?.status).toBe("success");
-    await page.getByRole("button", { name: "展开预览" }).click();
+    await expect(page.getByRole("dialog", { name: "网站构建预览" })).toBeVisible();
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText("让你的想法，在这里生长。");
     const preview = (await state()).preview!.url;
+    await page.getByRole("button", { name: "关闭预览" }).click();
     await page.getByRole("button", { name: "返回项目首页" }).click();
     await expect(page.getByRole("main", { name: "项目首页" })).toBeVisible();
     expect((await state()).preview).toBeNull();
@@ -108,10 +107,11 @@ test("project home: explicit entry, missing paths, rename, remove, create, reope
     await page.getByRole("button", { name: "返回项目首页" }).click();
     await app!.evaluate(({ dialog }, target) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] }); }, kept.root);
     await page.getByRole("button", { name: "打开项目", exact: true }).click();
-    await page.getByRole("button", { name: "展开预览" }).click();
+    await page.getByRole("button", { name: "构建预览" }).click();
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText("让你的想法，在这里生长。");
     expect((await state()).project!.name).toBe("山间设计工作室");
     await page.screenshot({ path: info.outputPath("workbench-from-home.png") });
+    await page.getByRole("button", { name: "关闭预览" }).click();
     await page.getByRole("button", { name: "返回项目首页" }).click();
     await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1080, 720));
     expect(await columns()).toBe(2);

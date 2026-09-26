@@ -147,6 +147,22 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
           namespace: question.includes("跨命名空间") ? "outside" : thread.dynamicTools?.[0]?.name, tool: "edit_website_copy", arguments: { files: edits } } });
       return;
     }
+    if (/^(?:生成一个新首页|请修改网站|再改一次)/.test(question) &&
+        thread.dynamicTools?.[0]?.tools?.[0]?.name === "request_website_edit") {
+      const callId = crypto.randomUUID();
+      pendingTools.set(callId, (reply) => {
+        if (reply.error) return;
+        const answer = reply.result?.success ? "修改副本已就绪，请审核后保存。" : "请先处理当前待审核的副本，再提出新的修改。";
+        const item = { type: "agentMessage", id: crypto.randomUUID(), text: answer };
+        turn.items.push(item); save();
+        notify("item/completed", { threadId: thread.id, turnId: turn.id, item });
+        finish(thread, turn, "completed");
+      });
+      emit({ id: callId, method: "item/tool/call", params: { threadId: thread.id, turnId: turn.id,
+        callId, namespace: "bukitjalil", tool: "request_website_edit",
+        arguments: question.includes("越权参数") ? { files: [] } : {} } });
+      return;
+    }
     const item = { type: "agentMessage", id: crypto.randomUUID(), text: "站点建议：" + question };
     thread.turns.at(-1).items.push(item); save();
     notify("item/agentMessage/delta", { threadId: thread.id, turnId: turn.id, itemId: item.id, delta: "站点建议：" });
@@ -163,7 +179,8 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (method === "turn/interrupt") {
     const turn = thread.turns.find((t) => t.id === p.turnId);
     result(id, {});
-    finish(thread, turn, "interrupted");
+    if (mode().slowInterrupt) setTimeout(() => finish(thread, turn, "interrupted"), 180);
+    else finish(thread, turn, "interrupted");
     return;
   }
   if (method === "timeout") return;

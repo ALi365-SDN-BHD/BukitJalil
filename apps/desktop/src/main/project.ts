@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Project, Revision, ThemeCopy, BuildRecord } from "../shared";
-import { atomicWrite, readText } from "./files";
+import { atomicWrite, readText, scopedPath } from "./files";
 import { themePaths } from "./theme";
-import { validateSource, sourceHeadline } from "./source";
+import { validateSource, sourceFiles, sourceHeadline } from "./source";
 
 export const manifestFile = "bukitjalil.json";
 export const isId = (value: unknown): value is string =>
@@ -69,18 +69,19 @@ export function validateProject(value: unknown): Project {
   const revisions: Revision[] = data.revisions.map((value) => {
     const revision = record(value);
     if (!isId(revision.id)) throw new Error("版本编号无效。");
+    const theme = validateTheme(revision.theme);
     return {
       id: revision.id,
       createdAt: validDate(revision.createdAt),
       headline: textField(revision.headline, 120),
       summary: textField(revision.summary, 300),
-      theme: validateTheme(revision.theme),
-      ...(revision.sourceFiles === undefined ? {} : { sourceFiles: validateSource(revision.sourceFiles) }),
+      theme,
+      ...(revision.sourceFiles === undefined ? {} : { sourceFiles: validateSource(revision.sourceFiles, !!theme) }),
     };
   });
   for (const revision of revisions) {
     if (data.format === 1 && revision.sourceFiles) throw new Error("扩展源文件快照需要项目格式 2。");
-    if (revision.sourceFiles && (!revision.theme || sourceHeadline(revision.sourceFiles) !== revision.headline))
+    if (revision.sourceFiles && sourceHeadline(revision.sourceFiles) !== revision.headline)
       throw new Error("源文件快照与版本标题或主题不一致。");
   }
   const ids = new Set(revisions.map((r) => r.id));
@@ -184,6 +185,20 @@ export class ProjectStore {
     const original = await readText(root, manifestFile);
     const store = new ProjectStore(root, validateProject(JSON.parse(original)));
     store.original = original;
+    try {
+      await readText(root, "site.yaml", 256_000);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // Legacy projects gain a real project-level config without replacing an existing file.
+      const file = await fs.open(await scopedPath(root, "site.yaml"), "wx", 0o600).catch((failure) => {
+        if ((failure as NodeJS.ErrnoException).code === "EEXIST") return null;
+        throw failure;
+      });
+      if (file) {
+        try { await file.writeFile(sourceFiles(store.current())["site.yaml"]); await file.sync(); }
+        finally { await file.close(); }
+      }
+    }
     return store;
   }
 
@@ -199,15 +214,62 @@ export class ProjectStore {
     return text;
   }
 
-  async save(data: Project, creating = false): Promise<void> {
+  async configUnchanged(): Promise<void> {
+    if (await readText(this.root, "site.yaml", 256_000) !== sourceFiles(this.current())["site.yaml"])
+      throw new Error("site.yaml 已被外部修改。请重新打开或构建以导入后，再重新生成和审核。");
+  }
+
+  async save(data: Project, creating = false, expectedConfig?: string): Promise<void> {
     if (!creating) await this.unchanged();
     data = validateProject(data);
+    const config = sourceFiles(data.revisions.find((revision) => revision.id === data.currentRevisionId)!)["site.yaml"];
+    const previous = creating ? null : sourceFiles(this.current())["site.yaml"];
     const content = JSON.stringify(data, null, 2) + "\n";
     if (Buffer.byteLength(content) > 8 * 1024 * 1024)
       throw new Error("项目历史已达到 8 MB，请创建新项目后继续。");
-    await atomicWrite(this.root, manifestFile, content, creating ? undefined : () => this.unchanged().then(() => {}));
+    if (creating) {
+      const file = await fs.open(await scopedPath(this.root, "site.yaml"), "wx", 0o600);
+      try { await file.writeFile(config); await file.sync(); }
+      finally { await file.close(); }
+    } else {
+      const checkConfig = async (expected: string) => {
+        if (await readText(this.root, "site.yaml", 256_000) !== expected)
+          throw new Error("site.yaml 已被其他程序修改。请重新打开或构建以导入修改，原文件已保留。");
+      };
+      const baseline = expectedConfig ?? previous!;
+      await checkConfig(baseline);
+      let configWritten = false;
+      try {
+        if (config !== baseline) {
+          await atomicWrite(this.root, "site.yaml", config, async () => { await this.unchanged(); await checkConfig(baseline); });
+          configWritten = true;
+        }
+        await atomicWrite(this.root, manifestFile, content, async () => { await this.unchanged(); await checkConfig(config); });
+      } catch (error) {
+        if (configWritten) {
+          try { await atomicWrite(this.root, "site.yaml", baseline, () => checkConfig(config)); }
+          catch { throw new Error("项目保存失败，site.yaml 又被其他程序修改；原文件已保留，请重新打开核对。", { cause: error }); }
+        }
+        throw error;
+      }
+      this.original = content;
+      this.data = data;
+      return;
+    }
+    await atomicWrite(this.root, manifestFile, content);
     this.original = content;
     this.data = data;
+  }
+
+  async syncExternalConfig(): Promise<boolean> {
+    const config = await readText(this.root, "site.yaml", 256_000);
+    if (config === sourceFiles(this.current())["site.yaml"]) return false;
+    const files = validateSource({ ...sourceFiles(this.current()), "site.yaml": config }, !!this.current().theme);
+    const revision = newRevision(sourceHeadline(files), this.current().theme, "导入外部 site.yaml 修改");
+    revision.sourceFiles = files;
+    await this.save({ ...this.data, format: 2, currentRevisionId: revision.id,
+      revisions: [...this.data.revisions, revision] }, false, config);
+    return true;
   }
 
   async revise(revision: Revision): Promise<void> {

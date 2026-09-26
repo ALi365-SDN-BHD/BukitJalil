@@ -105,18 +105,24 @@ async function start() {
     },
     (url) => shell.openExternal(url),
     process.env.BUKITJALIL_CODEX_BIN,
+    (projectPath, text) => workspace!.generate({ projectPath, text }, codex!),
   );
   session.defaultSession.setPermissionRequestHandler(
     (_contents, _permission, callback) => callback(false),
   );
   session.defaultSession.setPermissionCheckHandler(() => false);
   session.defaultSession.on("will-download", (event) => event.preventDefault());
+  const isPreviewUrl = (url: string) => {
+    const state = workspace?.state();
+    return [state?.preview?.url, state?.draftPreview?.url].some(
+      (base) => !!base && url.startsWith(base),
+    );
+  };
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-    const preview = workspace?.state().preview?.url;
     callback({
       cancel: !(
         details.url.startsWith("bukitjalil://app/") ||
-        (preview && details.url.startsWith(preview))
+        isPreviewUrl(details.url)
       ),
     });
   });
@@ -153,8 +159,7 @@ async function start() {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.webContents.on("will-frame-navigate", (event) => {
-    const preview = workspace?.state().preview?.url;
-    if (event.isMainFrame || !preview || !event.url.startsWith(preview))
+    if (event.isMainFrame || !isPreviewUrl(event.url))
       event.preventDefault();
   });
   window.webContents.on("will-attach-webview", (event) =>
@@ -206,10 +211,6 @@ async function start() {
   });
   handle("chat:cancel", (value) => codex!.cancel(value));
   handle("workspace:state", () => workspace!.state());
-  handle("workspace:generate", (value) => {
-    if (settingsBusy) throw new Error("请等待引擎设置完成后再生成。");
-    return workspace!.generate(value, codex!);
-  });
   handle("workspace:approve-generation", (value) => workspace!.approveGeneration(value));
   handle("workspace:reject-generation", (value) => workspace!.rejectGeneration(value));
   handle("workspace:create", async (value) => {
@@ -264,6 +265,12 @@ async function start() {
   handle("workspace:headline", (value) =>
     workspace!.editHeadline(textField(value, 120)),
   );
+  handle("workspace:site-info", (value) => workspace!.saveSiteInfo(value));
+  handle("workspace:revision-diff", (value) => workspace!.revisionDiff(value));
+  handle("workspace:open-config", async () => {
+    const error = await shell.openPath(await workspace!.configPath());
+    if (error) throw new Error(`无法打开 site.yaml：${error}`);
+  });
   handle("workspace:restore", (value) =>
     workspace!.restore(textField(value, 36)),
   );
