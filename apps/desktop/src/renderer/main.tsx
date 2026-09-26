@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { State } from "../shared";
+import type { State, ChatState } from "../shared";
 import "./style.css";
+import { ChatPanel } from "./chat";
 
 const labels = {
   running: "正在构建",
@@ -18,10 +19,11 @@ const shortTime = (date: string) =>
 
 function App() {
   const [state, setState] = useState<State | null>(null);
+  const [chat, setChat] = useState<ChatState | null>(null);
   const [error, setError] = useState("");
   const [headline, setHeadline] = useState("");
   const [page, setPage] = useState("/");
-  const [tab, setTab] = useState<"edit" | "history">("edit");
+  const [tab, setTab] = useState<"edit" | "history" | "chat">("edit");
   const [logs, setLogs] = useState(false);
   const [compact, setCompact] = useState(false);
   const [projectName, setProjectName] = useState("我的第一个网站");
@@ -43,12 +45,14 @@ function App() {
       setError("请通过 Electron 启动桌面应用。");
       return;
     }
+    const unsubscribeChat = window.desktop.subscribeChat(setChat);
+    window.desktop.chatState().then(setChat).catch((e) => setError(String(e)));
     const unsubscribe = window.desktop.subscribe(setState);
     window.desktop
       .state()
       .then(setState)
       .catch((e) => setError(String(e)));
-    return unsubscribe;
+    return () => { unsubscribe(); unsubscribeChat(); };
   }, []);
   useEffect(() => {
     setHeadline(current?.headline ?? "");
@@ -139,7 +143,9 @@ function App() {
               >
                 <span className="project-glyph">▧</span>
                 <span>{recent.name}</span>
-                <span className="active-dot" />
+                {["starting", "running", "cancelling"].includes(chat?.conversations[recent.path]?.status ?? "") ?
+                  <span className="chat-background" aria-label={recent.name + " 对话进行中"}>AI</span> :
+                  <span className="active-dot" />}
               </button>
             ))}
             {!state?.recent.length && (
@@ -374,6 +380,9 @@ function App() {
           >
             编辑
           </button>
+          <button role="tab" aria-selected={tab === "chat"} onClick={() => setTab("chat")}>
+            对话
+          </button>
           <button
             role="tab"
             aria-selected={tab === "history"}
@@ -382,7 +391,10 @@ function App() {
             历史{project && <span>{project.revisions.length}</span>}
           </button>
         </div>
-        {tab === "edit" ? (
+        <div className="chat-tab" hidden={tab !== "chat"}>
+          <ChatPanel state={chat} projectPath={project?.path ?? null} run={run} />
+        </div>
+        {tab === "chat" ? null : tab === "edit" ? (
           <div className="inspector-content">
             <span className="eyebrow">页面内容</span>
             <h2>一句话，介绍你自己。</h2>
@@ -452,9 +464,9 @@ function App() {
               <div>
                 <strong>对话工作区</strong>
                 <p>
-                  AI 对话尚未接入。
+                  在“对话”中讨论当前网站与主题。
                   <br />
-                  此版本由你编辑，由 Bukit 构建。
+                  由你确认编辑，由 Bukit 构建。
                 </p>
               </div>
             </div>

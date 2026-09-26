@@ -5,10 +5,12 @@ import {
   ipcMain,
   protocol,
   session,
+  shell,
 } from "electron";
 import path from "node:path";
 import * as fs from "node:fs/promises";
 import { Workspace } from "./workspace";
+import { CodexChat } from "./codex";
 import { scopedPath } from "./files";
 import { textField } from "./project";
 
@@ -25,6 +27,7 @@ if (process.env.BUKITJALIL_DATA_DIR)
 
 let window: BrowserWindow | null = null;
 let workspace: Workspace | undefined;
+let codex: CodexChat | undefined;
 let quitting = false;
 let cleanupComplete = false;
 
@@ -40,7 +43,7 @@ else {
     event.preventDefault();
     if (quitting) return;
     quitting = true;
-    void workspace.dispose().finally(() => {
+    void Promise.allSettled([workspace.dispose(), codex?.dispose()]).finally(() => {
       cleanupComplete = true;
       app.quit();
     });
@@ -92,6 +95,16 @@ async function start() {
       if (window && !window.isDestroyed())
         window.webContents.send("workspace:changed", state);
     },
+  );
+  codex = new CodexChat(
+    await fs.realpath(app.getPath("userData")),
+    () => workspace!.chatContext(),
+    (state) => {
+      if (window && !window.isDestroyed())
+        window.webContents.send("chat:changed", state);
+    },
+    (url) => shell.openExternal(url),
+    process.env.BUKITJALIL_CODEX_BIN,
   );
   session.defaultSession.setPermissionRequestHandler(
     (_contents, _permission, callback) => callback(false),
@@ -166,6 +179,12 @@ async function start() {
         throw new Error("拒绝不受信任的 IPC 调用。");
       return action(value);
     });
+  handle("chat:state", () => codex!.state());
+  handle("chat:connect", () => codex!.connect());
+  handle("chat:login", () => codex!.login());
+  handle("chat:cancel-login", () => codex!.cancelLogin());
+  handle("chat:send", (value) => codex!.send(value));
+  handle("chat:cancel", (value) => codex!.cancel(value));
   handle("workspace:state", () => workspace!.state());
   handle("workspace:create", async (value) => {
     const name = textField(value, 60);
@@ -209,5 +228,6 @@ async function start() {
   handle("workspace:cancel", () => workspace!.cancel());
 
   await workspace.initialize(process.env.BUKIT_BIN);
+  await codex.initialize();
   await window.loadURL(appURL);
 }

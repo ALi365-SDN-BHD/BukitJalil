@@ -8,8 +8,9 @@
     "postinstall": "install-electron",
     "build": "tsc --noEmit && node scripts/build.mjs",
     "start": "npm run build && electron .",
-    "test": "tsx --test tests/core.test.ts",
+    "test": "tsx --test tests/core.test.ts tests/codex.test.ts",
     "test:electron": "npm run build && playwright test",
+    "test:codex": "tsx scripts/probe-codex.mts",
     "test:real": "tsx --test tests/real-bukit.test.ts"
   },
   "dependencies": {

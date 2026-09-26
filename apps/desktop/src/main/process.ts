@@ -11,13 +11,14 @@ export class ManagedProcess {
     args: string[],
     cwd: string,
     output: (text: string) => void,
+    options: { stdin?: boolean; stderr?: (text: string) => void; env?: NodeJS.ProcessEnv } = {},
   ) {
     this.child = spawn(binary, args, {
       cwd,
       shell: false,
       detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, NO_COLOR: "1" },
+      stdio: [options.stdin ? "pipe" : "ignore", "pipe", "pipe"],
+      env: { ...(options.env ?? process.env), NO_COLOR: "1" },
     });
     this.done = new Promise((resolve) => {
       let error: string | undefined;
@@ -32,7 +33,9 @@ export class ManagedProcess {
     for (const pipe of [this.child.stdout, this.child.stderr]) {
       pipe?.setEncoding("utf8");
       pipe?.on("data", (text: string) =>
-        output(text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")),
+        (pipe === this.child.stderr ? options.stderr ?? output : output)(
+          text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""),
+        ),
       );
     }
   }

@@ -233,3 +233,92 @@ test("macOS desktop: build, isolated preview, edit, failure, restore and reopen"
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("read-only Codex chat: stream, background project, cancel, reconcile and reopen (synthetic server)", async ({}, info) => {
+  const { ProjectStore, newRevision } = await import("../src/main/project");
+  const { sampleTheme } = await import("../src/main/theme");
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bukitjalil-chat-gui-")));
+  const dataDir = path.join(root, "app");
+  await fs.mkdir(dataDir);
+  const a = await ProjectStore.create(path.join(root, "site-a"), "站点 A");
+  const b = await ProjectStore.create(path.join(root, "site-b"), "站点 B");
+  for (const project of [a, b])
+    await project.revise(newRevision(project.current().headline, sampleTheme(), "应用主题"));
+  const aId = crypto.randomUUID();
+  const binary = path.join(root, "codex"), engine = path.join(root, "bukit");
+  await fs.copyFile(new URL("./fixtures/fake-codex.cjs", import.meta.url), binary);
+  await fs.copyFile(new URL("./fixtures/fake-bukit.cjs", import.meta.url), engine);
+  await fs.chmod(binary, 0o700); await fs.chmod(engine, 0o700);
+  await fs.writeFile(path.join(dataDir, "session.json"), JSON.stringify({
+    recent: [{ id: aId, name: "站点 A", path: a.root }, { id: crypto.randomUUID(), name: "站点 B", path: b.root }],
+    lastProjectId: aId, binary: engine,
+  }));
+  let app: ElectronApplication | undefined;
+  let page!: Page;
+  const env: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    BUKITJALIL_DATA_DIR: dataDir, BUKITJALIL_CODEX_BIN: binary, BUKIT_BIN: engine,
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+  async function launch() {
+    app = await electron.launch({ args: ["."], cwd: process.cwd(), env });
+    page = await app.firstWindow();
+    await page.waitForURL("bukitjalil://app/index.html");
+  }
+  const state = () => page.evaluate(() => window.desktop.chatState());
+  const send = async (text: string) => {
+    await page.getByLabel("讨论你的网站", { exact: true }).fill(text);
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+  };
+  try {
+    await launch();
+    await page.getByRole("button", { name: "构建预览", exact: false }).click();
+    await expect(page.frameLocator("iframe").locator("h1")).toBeVisible();
+    const beforeA = await fs.readFile(path.join(a.root, "bukitjalil.json"), "utf8");
+    const beforeB = await fs.readFile(path.join(b.root, "bukitjalil.json"), "utf8");
+    await page.getByRole("tab", { name: "对话", exact: true }).click();
+    await page.getByRole("button", { name: "连接 Codex", exact: true }).click();
+    await expect(page.getByText("Codex · ChatGPT 已登录", { exact: true })).toBeVisible();
+    await send("慢消息 A");
+    await expect(page.getByRole("log", { name: "当前项目对话" })).toContainText("站点建议：");
+    await page.getByLabel("讨论你的网站", { exact: true }).fill("A 的未发送草稿");
+    await page.getByRole("button", { name: "站点 B", exact: false }).click();
+    await expect(page.getByLabel("讨论你的网站", { exact: true })).toHaveValue("");
+    await send("B 的首页");
+    await expect.poll(async () => (await state()).conversations[b.root]?.status).toBe("completed");
+    await expect(page.getByLabel("站点 A 对话进行中", { exact: true })).toBeVisible();
+    await expect(page.getByRole("log", { name: "当前项目对话" })).not.toContainText("慢消息 A");
+    await page.screenshot({ path: info.outputPath("chat-background-project.png") });
+    await page.getByRole("button", { name: "站点 A", exact: false }).click();
+    await expect(page.getByLabel("讨论你的网站", { exact: true })).toHaveValue("A 的未发送草稿");
+    await page.getByRole("button", { name: "中断回复", exact: true }).click();
+    await expect.poll(async () => (await state()).conversations[a.root]?.status).toBe("interrupted");
+    await send("失败");
+    await expect.poll(async () => (await state()).conversations[a.root]?.status).toBe("failed");
+    await expect(page.getByRole("alert")).toContainText("Codex 本轮失败");
+    await send("断线");
+    await expect(page.getByRole("button", { name: "核对并恢复会话" })).toBeVisible();
+    await page.getByRole("button", { name: "核对并恢复会话" }).click();
+    await expect.poll(async () => (await state()).conversations[a.root]?.status).toBe("completed");
+    await expect(page.getByRole("log", { name: "当前项目对话" })).toContainText("已保存的站点建议");
+    // Preview still has neither the old nor new privileged API.
+    await expect(page.frameLocator("iframe").locator("h1")).toBeVisible();
+    const preview = page.frames().find((frame) => frame.url().startsWith("http://127.0.0.1:"))!;
+    expect(await preview.evaluate(() => typeof (globalThis as any).desktop)).toBe("undefined");
+    await expect(page.locator("iframe")).toHaveAttribute("sandbox", "");
+    expect(await fs.readFile(path.join(a.root, "bukitjalil.json"), "utf8")).toBe(beforeA);
+    expect(await fs.readFile(path.join(b.root, "bukitjalil.json"), "utf8")).toBe(beforeB);
+    await page.screenshot({ path: info.outputPath("chat-reconciled.png") });
+    await app!.close(); app = undefined;
+    await launch();
+    await page.getByRole("tab", { name: "对话", exact: true }).click();
+    await expect(page.getByRole("log", { name: "当前项目对话" })).toContainText("已保存的站点建议");
+    const requests = (await fs.readFile(path.join(root, "requests.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(requests.filter((r) => r.method === "thread/start")).toHaveLength(2);
+    expect(requests.filter((r) => r.method === "turn/start")).toHaveLength(4);
+    expect(requests.filter((r) => r.method === "turn/interrupt")).toHaveLength(1);
+  } finally {
+    await app?.close();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

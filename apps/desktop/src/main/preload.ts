@@ -1,7 +1,18 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopAPI, State } from "../shared";
+import type { DesktopAPI, State, ChatState } from "../shared";
 
 const api: DesktopAPI = {
+  chatState: () => ipcRenderer.invoke("chat:state"),
+  connectChat: () => ipcRenderer.invoke("chat:connect"),
+  loginChat: () => ipcRenderer.invoke("chat:login"),
+  cancelLoginChat: () => ipcRenderer.invoke("chat:cancel-login"),
+  sendChat: (value) => ipcRenderer.invoke("chat:send", value),
+  cancelChat: (projectPath) => ipcRenderer.invoke("chat:cancel", projectPath),
+  subscribeChat: (listener) => {
+    const receive = (_event: unknown, state: ChatState) => listener(state);
+    ipcRenderer.on("chat:changed", receive);
+    return () => ipcRenderer.removeListener("chat:changed", receive);
+  },
   state: () => ipcRenderer.invoke("workspace:state"),
   create: (name) => ipcRenderer.invoke("workspace:create", name),
   open: () => ipcRenderer.invoke("workspace:open"),

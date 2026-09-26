@@ -55,6 +55,25 @@ export class Workspace {
       notice: this.notice,
     };
   }
+  chatContext() {
+    if (!this.store) return null;
+    const revision = this.store.current();
+    return {
+      path: this.store.root,
+      name: this.store.data.name,
+      snapshot: {
+        name: this.store.data.name,
+        revisionId: revision.id,
+        headline: revision.headline,
+        theme: revision.theme ? { name: revision.theme.name, version: revision.theme.version } : null,
+        files: {
+          "site.yaml": siteConfig(revision.headline),
+          "content/about.md": aboutPage,
+          ...(revision.theme?.files ?? {}),
+        },
+      },
+    };
+  }
   private emit() {
     this.changed(this.state());
   }

@@ -40,7 +40,7 @@ if (args[0] === "build") {
   }
 } else if (args[0] === "preview") {
   const server = http.createServer((_request, response) => {
-    response.setHeader("Content-Type", "text/html");
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
     response.end(fs.readFileSync(path.join(option("--dir"), "index.html")));
   });
   server.listen(0, "127.0.0.1", () =>

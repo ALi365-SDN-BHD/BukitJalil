@@ -46,7 +46,34 @@ export interface State {
   preview: { url: string; revisionId: string } | null;
   notice: string | null;
 }
+export type ChatStatus = "idle" | "starting" | "running" | "cancelling" | "completed" | "interrupted" | "failed" | "unknown";
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+}
+export interface Conversation {
+  name: string;
+  status: ChatStatus;
+  messages: ChatMessage[];
+  error: string | null;
+}
+export interface ChatState {
+  connection: "disconnected" | "connecting" | "ready" | "error" | "unavailable";
+  version: string | null;
+  account: { type: "chatgpt" | "apiKey"; plan: string | null } | null;
+  loginPending: boolean;
+  error: string | null;
+  conversations: Record<string, Conversation>;
+}
 export interface DesktopAPI {
+  chatState(): Promise<ChatState>;
+  connectChat(): Promise<void>;
+  loginChat(): Promise<void>;
+  cancelLoginChat(): Promise<void>;
+  sendChat(value: { projectPath: string; text: string }): Promise<void>;
+  cancelChat(projectPath: string): Promise<void>;
+  subscribeChat(listener: (state: ChatState) => void): () => void;
   state(): Promise<State>;
   create(name: string): Promise<void>;
   open(): Promise<void>;
