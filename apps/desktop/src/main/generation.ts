@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { FileChange, ThemeFiles } from "../shared";
 import { atomicWrite, scopedPath } from "./files";
 import { maxSourceFile, maxSourceBytes, sourcePath, validateSource } from "./source";
+import { keepOnlyProposedTitle } from "./site-config";
 
 const directories = new Set(["content", "themes", "themes/canopy", "themes/canopy/assets",
   "themes/canopy/layouts", "themes/canopy/layouts/pages", "themes/canopy/layouts/layouts", "themes/canopy/layouts/partials"]);
@@ -76,12 +77,23 @@ export class GenerationCopy {
     signal.throwIfAborted();
   }
   async review() {
-    this.reviewed = await readCopy(this.root);
+    this.reviewed = await this.snapshot();
     return { hash: sourceHash(this.reviewed), changes: fileChanges(this.before, this.reviewed) };
+  }
+  private async snapshot() {
+    const files = await readCopy(this.root);
+    if (files["site.yaml"] !== this.before["site.yaml"])
+      files["site.yaml"] = keepOnlyProposedTitle(this.before["site.yaml"], files["site.yaml"]);
+    return files;
+  }
+  async previewFiles(hash: string) {
+    if (!this.reviewed || sourceHash(this.reviewed) !== hash || sourceHash(await this.snapshot()) !== hash)
+      throw new Error("待确认副本已变化，请重新生成并审核。");
+    return structuredClone(this.reviewed);
   }
   async approved(hash: string, baseline: string) {
     if (!this.reviewed || hash !== sourceHash(this.reviewed) || manifestHash(baseline) !== manifestHash(this.baseline) ||
-        sourceHash(await readCopy(this.root)) !== hash)
+        sourceHash(await this.snapshot()) !== hash)
       throw new Error("正式项目或生成副本已变化，审批失效；请重新生成并审核。");
     // Apply only this immutable reviewed snapshot, never reread files while committing.
     return structuredClone(this.reviewed);

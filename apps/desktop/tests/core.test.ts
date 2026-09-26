@@ -12,6 +12,8 @@ import {
 import { scopedPath, atomicWrite } from "../src/main/files";
 import { sampleTheme } from "../src/main/theme";
 import { ManagedProcess } from "../src/main/process";
+import { keepOnlyProposedTitle, withSiteInfo } from "../src/main/site-config";
+import { siteConfig } from "../src/main/theme";
 
 async function fixture(t: test.TestContext) {
   const root = await fs.realpath(
@@ -83,6 +85,39 @@ test("project → theme copy → build → edit → failure keeps preview → re
     await (await fetch(reopened.state().preview!.url)).text(),
     /让你的想法/,
   );
+});
+
+test("persistent site.yaml imports external edits, preserves extra fields, restores snapshots and rejects conflicts", async (t) => {
+  const { workspace, root } = await fixture(t);
+  const filename = path.join(root, "site/site.yaml");
+  const initial = await fs.readFile(filename, "utf8");
+  const originalId = workspace.state().project!.currentRevisionId;
+  const external = withSiteInfo(initial, "外部标题", "外部简介") + "logging:\n  level: warn\n";
+  await fs.writeFile(filename, external);
+  await workspace.build();
+  const imported = workspace.state().project!;
+  assert.equal(imported.revisions.length, 3);
+  assert.equal(imported.revisions.at(-1)!.summary, "导入外部 site.yaml 修改");
+  assert.equal(imported.revisions.at(-1)!.headline, "外部标题");
+  assert.equal(await fs.readFile(filename, "utf8"), external);
+  assert.equal(JSON.parse(await fs.readFile(path.join(root, "site/bukitjalil.json"), "utf8")).format, 2);
+  assert.match(keepOnlyProposedTitle(external, siteConfig("AI 标题")), /level: warn/);
+  await workspace.saveSiteInfo({ title: "内部标题", description: "内部简介", revisionId: imported.currentRevisionId });
+  assert.match(await fs.readFile(filename, "utf8"), /level: warn/);
+  await workspace.restore(originalId);
+  assert.equal(await fs.readFile(filename, "utf8"), initial);
+  await workspace.restore(imported.currentRevisionId);
+  assert.equal(await fs.readFile(filename, "utf8"), external);
+  const preview = workspace.state().preview!.url;
+  const invalid = external.replace(/title: .+/, "title: [bad]");
+  await fs.writeFile(filename, invalid);
+  await assert.rejects(workspace.build(), /site.yaml/);
+  assert.equal(await fs.readFile(filename, "utf8"), invalid);
+  assert.equal(workspace.state().preview!.url, preview);
+  const staleId = workspace.state().project!.currentRevisionId;
+  await fs.writeFile(filename, withSiteInfo(external, "又一次外部修改", "外部简介"));
+  await assert.rejects(workspace.saveSiteInfo({ title: "不应覆盖", description: "本地", revisionId: staleId }), /配置已变化/);
+  assert.match(await fs.readFile(filename, "utf8"), /又一次外部修改/);
 });
 
 test("Bukit path reports a version and rejects invalid replacements without losing the saved engine", async (t) => {

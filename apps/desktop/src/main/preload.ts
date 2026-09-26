@@ -15,7 +15,6 @@ const api: DesktopAPI = {
     ipcRenderer.on("chat:changed", receive);
     return () => ipcRenderer.removeListener("chat:changed", receive);
   },
-  generate: (value) => ipcRenderer.invoke("workspace:generate", value),
   approveGeneration: (value) => ipcRenderer.invoke("workspace:approve-generation", value),
   rejectGeneration: (value) => ipcRenderer.invoke("workspace:reject-generation", value),
   state: () => ipcRenderer.invoke("workspace:state"),
@@ -31,6 +30,9 @@ const api: DesktopAPI = {
   applyTheme: () => ipcRenderer.invoke("workspace:theme"),
   editHeadline: (headline) =>
     ipcRenderer.invoke("workspace:headline", headline),
+  saveSiteInfo: (value) => ipcRenderer.invoke("workspace:site-info", value),
+  openSiteConfig: () => ipcRenderer.invoke("workspace:open-config"),
+  revisionDiff: (value) => ipcRenderer.invoke("workspace:revision-diff", value),
   restore: (id) => ipcRenderer.invoke("workspace:restore", id),
   build: () => ipcRenderer.invoke("workspace:build"),
   cancel: () => ipcRenderer.invoke("workspace:cancel"),

@@ -1,5 +1,6 @@
 import type { Revision, ThemeFiles } from "../shared";
 import { aboutPage, sampleTheme, siteConfig, themePaths } from "./theme";
+import { siteInfo } from "./site-config";
 
 export const maxSourceFile = 256_000;
 export const maxSourceBytes = 1_000_000;
@@ -17,15 +18,10 @@ export function sourceFiles(revision: Revision): ThemeFiles {
   });
 }
 export function sourceHeadline(files: ThemeFiles): string {
-  try {
-    const value: unknown = JSON.parse(/^  title: (.+)$/m.exec(files["site.yaml"])![1]);
-    if (typeof value === "string" && value.trim() === value && value.length > 0 &&
-        value.length <= 120 && !/[\x00-\x1f\x7f]/.test(value) && files["site.yaml"] === siteConfig(value))
-      return value;
-  } catch { /* Do not parse or execute arbitrary YAML configuration. */ }
-  throw new Error("site.yaml 只允许修改标题，构建路径与数据来源必须保持应用配置。");
+  if (typeof files["site.yaml"] !== "string") throw new Error("site.yaml 不存在。");
+  return siteInfo(files["site.yaml"]).title;
 }
-export function validateSource(value: unknown): ThemeFiles {
+export function validateSource(value: unknown, hasTheme = true): ThemeFiles {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("源文件快照无效。");
   const entries = Object.entries(value);
   if (entries.length > 64) throw new Error("副本最多支持 64 个源文件。");
@@ -41,8 +37,9 @@ export function validateSource(value: unknown): ThemeFiles {
   }
   if (total > maxSourceBytes) throw new Error("副本源文件合计超过 1 MB。");
   sourceHeadline(files);
-  if (themePaths.some((name) => !(name in files)) ||
-      files["themes/canopy/theme.yaml"] !== sampleTheme().files["themes/canopy/theme.yaml"])
+  if (hasTheme ? themePaths.some((name) => !(name in files)) ||
+      files["themes/canopy/theme.yaml"] !== sampleTheme().files["themes/canopy/theme.yaml"] :
+      Object.keys(files).some((name) => name.startsWith("themes/")))
     throw new Error("Canopy 主题清单与必需模板必须保留。");
   return files;
 }

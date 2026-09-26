@@ -19,9 +19,9 @@ BUKIT_BIN=/absolute/path/to/bukit npm start
 1. 启动先进入独立项目首页，不自动打开最近项目。列表显示项目名称、磁盘位置和最近打开时间；点击项目进入工作台。也可新建项目，输入名称后选择一个**尚不存在的目录**，或打开本应用创建的项目目录。
 2. 应用 Canopy 1.0.0 样例主题；主题文件复制进当前项目，不共享可变引用。
 3. 点击“构建预览”，等待真实 Bukit 构建完成。首页、关于页、窄屏预览都可查看。
-4. 编辑右侧“首页标题”，检查变更摘要，点击“保存为新版本”，再点击“构建预览”。
-5. 在“历史”中恢复一个旧版本，再次构建。较新的版本仍然保留。
-6. 点击“项目首页”返回列表，当前预览进程随之关闭。退出并重开仍先显示首页；主动打开项目后恢复其保存版本和最后一次成功预览。
+4. 左侧编辑网站标题、简介并保存为新版本；“高级设置”会用系统默认编辑器打开项目根目录的 `site.yaml`。右侧“页面 / 历史”切换显示页面列表或版本记录；历史可查看当前版本到所选版本的实际文件差异，再决定是否恢复。
+5. 中间保留项目对话和生成审核。统一输入框按 Enter 发送、Shift+Enter 换行；普通问题由 Codex 回答，明确的网站修改请求转入待审核副本，含糊请求先追问。顶部“保存”打开待确认修改的差异审核；在聊天中独立发送“保存这些修改”会直接应用当前待审核副本，两种入口共用相同的基线与哈希校验。顶部“构建预览”或聊天中独立发送“预览一下”会打开预览窗口；待审核时优先构建隔离副本，拒绝或应用后即清理。
+6. 点击顶部面包屑中的“项目”返回列表，当前预览进程随之关闭。退出并重开仍先显示首页；主动打开项目后恢复其保存版本和最后一次成功预览。
 7. 在首页重命名项目，只更新显示名称，不移动目录、不改网站标题或版本。移除入口只更新本机索引，绝不删除磁盘项目，可通过“打开项目”重新加入。缺失目录或项目文件会明确提示，仍允许移除入口。
 
 首页的“全局设置”可选择 Bukit、Codex 可执行文件，并查看检测版本、连接与登录状态。连接 Codex 后，模型和推理强度来自本机 App Server 的可用列表；不选择时沿用 Codex 的有效默认值。设置只保存在应用数据目录：Bukit 路径沿用 `session.json`，Codex 路径及模型偏好保存在 `codex-settings.json`。更改在之后的新一轮讨论和生成生效，保留已有会话历史，不自动重发；运行中的回复、构建、生成或待审核副本会阻止引擎切换。路径或连接验证失败时保留原有可用配置。
@@ -32,10 +32,12 @@ BUKIT_BIN=/absolute/path/to/bukit npm start
 
 ## 文件与版本
 
-正式受管理源文件保存在 `bukitjalil.json` 版本快照内，构建目录只是派生产物。旧格式 1 项目仍可打开；第一次确认 AI 修改时升级为格式 2，新增完整 `sourceFiles` 快照。旧版应用会拒绝格式 2，避免忽略新字段而丢失修改。
+正式受管理源文件保存在 `bukitjalil.json` 版本快照内；项目根目录同时保有可直接编辑的 `site.yaml`。旧格式 1 项目仍可打开，首次打开会补齐缺失的项目级配置；外部有效修改在打开或构建时导入为新版本，不会覆盖原文件。配置格式错误或与应用固定的内容来源、路由、主题及安全构建路径冲突时，导入与构建失败，上次成功预览保留。第一次写入完整 `sourceFiles` 快照时升级为格式 2；旧版应用会拒绝格式 2，避免忽略新字段而丢失修改。
 
 - `项目/bukitjalil.json`：项目名称、当前版本、不可变版本快照、主题副本、最后构建记录。临时文件写入并同步后原子替换；检测到外部修改时拒绝覆盖。
+- `项目/site.yaml`：当前版本的持久 Bukit 配置。内部保存、历史恢复及生成应用会核对磁盘基线；若编辑器在此期间改动了它，操作会拒绝覆盖并要求重新导入与审核。
 - `项目/.bukitjalil/builds/<构建 UUID>/input/`：由快照生成的完整 `site.yaml`、Markdown、主题文件，以及 Bukit 缓存。
+- 应用数据目录 `generation-previews/<审核 UUID>/`：待确认修改的临时副本构建和预览；不成为正式构建记录，审核结束时清理。
 - `项目/.bukitjalil/builds/<构建 UUID>/input/dist/`：此次真实构建产物。只有成功构建可成为预览目标，失败产物不会替代旧预览。
 - 应用数据目录中的 `session.json`：最近项目与本机引擎路径。可用 `BUKITJALIL_DATA_DIR=/absolute/path` 隔离测试会话。
 
@@ -52,7 +54,7 @@ bukit preview --dir /absolute/input/dist --config /absolute/input/site.yaml --ho
 
 ## 边界
 
-IPC 只暴露明确操作，验证主窗口、主 frame 与应用 URL。项目路径来自系统文件对话框或已保存的最近项目；文件操作拒绝路径穿越、符号链接、硬链接和特殊文件。构建配置由应用生成，仅使用本地 Markdown 和固定主题路径，不运行项目提供的任意 CLI 参数。
+IPC 只暴露明确操作，验证主窗口、主 frame 与应用 URL。项目路径来自系统文件对话框或已保存的最近项目；文件操作拒绝路径穿越、符号链接、硬链接和特殊文件。项目级 `site.yaml` 可在默认编辑器中修改，但应用仍固定本地 Markdown 来源、页面路由、Canopy 主题及安全构建路径；不会运行项目提供的任意 CLI 参数。
 
 主窗口启用 context isolation 和 renderer sandbox，禁用 Node integration、webview、下载、新窗口和权限申请。预览是无脚本的 sandboxed iframe，无 preload / 文件 / 进程 API；网络只允许当前 loopback 预览来源。预览响应额外限制 CSP，禁止脚本、连接、表单和对象。采用 [Electron 官方安全建议](https://www.electronjs.org/docs/latest/tutorial/security) 中的 IPC 来源检查、上下文隔离和进程沙箱措施。
 
@@ -81,7 +83,9 @@ BUKIT_BIN=/absolute/path/to/bukit npm run test:electron
 
 发送消息会使用本机 Codex 已登录账户的模型服务与额度。每次发送附带当前已保存版本的项目名称、版本 ID、site.yaml、关于页和当前主题副本，不扫描目录，也不附带旧版本、构建日志或其他项目内容。输入上限 8000 字、消息与项目快照合计上限 80000 字符。项目快照作为数据提供给模型，网站预览始终留在隔离 iframe 内。
 
-每个项目的规范路径绑定一段原生会话；切换项目只改变显示内容，后台回复和取消状态仍属于原项目，未发送草稿按项目保留。重开应用自动恢复已有会话。断线或请求超时标为“需要核对”，点击“核对并恢复会话”读取 / 恢复原生记录，绝不自动重发原消息。“中断回复”调用真实 turn/interrupt，收到最终通知后才显示已中断。
+输入框按 Enter 发送、Shift+Enter 换行；中文输入法选字的 Enter 不会发送。会话只提供无参数的修改请求工具，主进程使用本轮原始用户文字启动隔离副本生成；模型不能直接编辑正式项目或批准应用。普通问题由对话回答，含糊意图应追问。独立的“预览一下”或“保存这些修改”（可加“请”和句末句号/叹号）由应用处理，不发起模型轮次；带否定、引号或问号的句子不作为保存指令。待审核副本存在时可继续提问，新修改请求需先处理当前副本。
+
+每个项目的规范路径绑定一段原生会话；切换项目只改变显示内容，后台回复和取消状态仍属于原项目，未发送草稿按项目保留。旧版无工具会话在首次新消息时开启受限新线程，保留旧线程供历史显示，不重发旧消息。重开应用自动恢复已有会话。断线或请求超时标为“需要核对”，点击“核对并恢复会话”读取 / 恢复原生记录，绝不自动重发原消息。输入框右侧只在执行时出现小方形“停止”按钮；回复中调用 turn/interrupt，副本生成中取消专属进程。状态在输入框上方靠右显示实际处理、回复、生成或停止，完成后收起；错误保留提示。
 
 安全边界：
 - React 只调用显式聊天 IPC；主窗口、主 frame、应用 URL 的来源检查继续适用。没有任意 RPC、命令、路径或工具接口；模型回复按纯文本显示。
@@ -103,22 +107,22 @@ BUKIT_BIN=/absolute/path/to/bukit npm run test:electron
 
 ## 副本生成与审核（阶段二）
 
-1. 应用样例主题、连接 Codex，在“对话”输入具体修改要求。**发送**仍然只读讨论；**生成修改 · 先审核副本**才启动一个使用账户额度的独立生成轮次。
+1. 应用样例主题、连接 Codex，在统一输入框按 Enter 发送明确修改需求。会话调用受限请求工具后，应用启动使用账户额度的独立副本生成轮次；普通问题仍由会话直接回答。
 2. 应用记录正式项目文件的基线，将当前受管理源文件写入应用数据目录 `generation-copies/<UUID>/`。Codex 只得到这份源文件快照。
 3. 生成结束并关闭专属 app-server 后，应用重新枚举副本中的真实新增、修改和删除文件，展示每个文件修改前后的完整文本。模型说明另列，不能作为文件差异的依据。
-4. 点击“拒绝修改”仅移除本轮自有副本。点击“确认应用并构建”重新校验项目、任务 ID、正式基线和审核副本 SHA-256；任何变化都会使审批失效，必须重新生成审核。
-5. 应用先保存 `.bukitjalil/recovery/<生成 UUID>.json`，再将审核时冻结的源快照写入新版本。正式源统一保存在一个 manifest 中，通过临时文件、同步、再次基线检查和原子替换提交，不逐个覆盖正式源文件。因此部分临时写入或最终替换失败时，正式基线仍在，恢复点也保留。
+4. 顶部“保存”打开差异审核，由用户点击“确认应用并构建”；独立聊天指令“保存这些修改”是直接应用当前待审核副本的明确确认。两者都重新校验项目、任务 ID、正式 manifest、项目级 `site.yaml` 和审核副本 SHA-256；变化会使审批失效，必须重新生成审核。顶部“构建预览”与聊天指令“预览一下”都可在应用数据目录中构建待确认副本，不改变正式源文件、构建记录或上次成功预览。点击“拒绝修改”仅移除本轮自有副本和副本预览。
+5. 应用先保存 `.bukitjalil/recovery/<生成 UUID>.json`，再将审核时冻结的源快照写入新版本，同时更新项目级 `site.yaml`。两个文件分别使用临时文件和原子替换，并在替换前复核基线；manifest 替换失败时尝试回滚配置，若其他程序并发修改配置则保留其改动并报告冲突。恢复点仍保留。
 6. 应用后自动调用既有 Bukit 构建。失败时新源版本与历史保留，上一成功预览继续运行；界面标注当前源版本尚未构建成功。历史恢复仍可使用。页面列表随受管理 Markdown 页面增删更新。
 
 ### 生成权限与范围
 
 沿用 [App Server 官方协议](https://learn.chatgpt.com/docs/app-server)，并以本机 `0.155.0-alpha.16.4` 生成的实验 schema 为准：`dynamicTools` 使用 `type: function`，客户端处理 `item/tool/call` 并返回 `contentItems/inputText`。官方新版的 `readableRoots` 在此本机协议中不存在，不能假设它有效。
 
-原生生成会话仍使用 **readOnly / networkAccess:false / approval never**。shell、原生执行、浏览器、MCP、插件、apps、技能发现、memory、通知 hook 和提权保持禁用；逐项覆盖继承配置并复核，检查会话实际沙箱及外部工具列表。唯一提供的 `bukitjalil.edit_website_copy` 动态工具由主进程执行，只接受当前命名空间及 thread/turn 的文件列表；没有通用命令、宿主文件读取或任意路径接口。原生只读沙箱禁止其直接写正式项目，副本编辑能力来自主进程严格限定的文件工具。不会把正式项目作为 Codex 工作目录，也不修改全局认证/配置。
+原生生成会话仍使用 **readOnly / networkAccess:false / approval never**。shell、原生执行、浏览器、MCP、插件、apps、技能发现、memory、通知 hook 和提权保持禁用；逐项覆盖继承配置并复核，检查会话实际沙箱及外部工具列表。生成专属进程唯一提供的 `bukitjalil.edit_website_copy` 动态工具由主进程执行，只接受当前命名空间及 thread/turn 的文件列表；没有通用命令、宿主文件读取或任意路径接口。原生只读沙箱禁止其直接写正式项目，副本编辑能力来自主进程严格限定的文件工具。不会把正式项目作为 Codex 工作目录，也不修改全局认证/配置。
 
 副本只支持当前 Canopy 网站的 UTF-8 文本：`site.yaml`（只允许标题变化）、`content/*.md`、`themes/canopy/layouts/{pages,layouts,partials}/*.html`、`themes/canopy/assets/*.css`。文件名采用小写字母、数字、连字符；固定主题清单及必需模板保留。限制为 64 个文件、单文件 256 KB、合计 1 MB。路径穿越、符号链接、硬链接、特殊文件、非法 UTF-8、未知类型和超限内容都会拒绝。图片、可执行脚本、插件、外部数据源及主题市场不在范围内。侧栏页面按简单 Markdown front matter 的 `title` / `slug` 显示；实际模板语法、页面语义由 Bukit 构建验证。
 
-生成和审核期间，主进程串行约束项目切换、手动保存、恢复、另一轮生成和构建；只读讨论仍可继续。取消、失败、断线和超时均停止自有生成进程，禁止自动重发或自动应用。最长生成时间为 5 分钟。
+生成和审核期间，主进程串行约束项目切换、手动保存、恢复和另一轮生成；审核期间只允许隔离副本预览构建，仍可继续只读讨论。取消、失败、断线和超时均停止自有生成进程，禁止自动重发或自动应用。最长生成时间为 5 分钟。
 
 副本是临时任务：拒绝、取消、失败、应用或正常退出后清理本轮创建的 UUID 目录；不扫描删除用户网站或其他任务内容。审核不跨应用重启恢复。强制杀死或系统崩溃留下的副本保留在应用数据目录，重开时不会自动读取、续跑或应用，也不会自动删除无法确认归属的旧目录。恢复点与构建历史继续保留。原生宿主读取范围、可信 Bukit 程序及其他本机程序恶意并发替换文件的边界，仍与上文一致；这不是完整宿主进程的 OS 隔离。
 
@@ -138,7 +142,7 @@ npm run test:codex-generation   # 显式原生探测：不调用 turn/start
 
 2026-09-26 当前模型直接工具兼容性修复、真实应用闭环及真实拒绝闭环均已通过。第一次真实 gpt-6-astra 轮次 completed，但没有工具调用和文件差异，正式项目未变；该次调查保留在 `test-results/stage2-real-acceptance.json`。随后修复只调整专用工具的暴露方式，没有切换模型或更改全局配置。
 
-本机 `0.155.0-alpha.16.4` 对应官方源码 `3853cf0c49daadcacaacceb2cbb732f512eaacdb`。[配置定义](https://github.com/openai/codex/blob/3853cf0c49daadcacaacceb2cbb732f512eaacdb/codex-rs/features/src/feature_configs.rs#L22) 与 [原生配置解析](https://github.com/openai/codex/blob/3853cf0c49daadcacaacceb2cbb732f512eaacdb/codex-rs/core/src/config/mod.rs#L2676) 确认受支持的入口是 `features.code_mode={enabled=false,direct_only_tool_namespaces=["bukitjalil"]}`；顶层 `code_mode.direct_only_tool_namespaces` 会被忽略。[对应工具规划器测试](https://github.com/openai/codex/blob/3853cf0c49daadcacaacceb2cbb732f512eaacdb/codex-rs/core/src/tools/spec_plan_tests.rs#L2605) 覆盖了 CodeModeOnly 下直接暴露指定动态命名空间。应用仅在生成专属进程中设置该例外；要求有效配置仍为 enabled=false 且名单恰好只有 bukitjalil，否则拒绝发起轮次。普通讨论仍要求布尔 false。工具请求的命名空间、工具名、thread、turn 必须全部匹配。
+本机 `0.155.0-alpha.16.4` 对应官方源码 `3853cf0c49daadcacaacceb2cbb732f512eaacdb`。[配置定义](https://github.com/openai/codex/blob/3853cf0c49daadcacaacceb2cbb732f512eaacdb/codex-rs/features/src/feature_configs.rs#L22) 与 [原生配置解析](https://github.com/openai/codex/blob/3853cf0c49daadcacaacceb2cbb732f512eaacdb/codex-rs/core/src/config/mod.rs#L2676) 确认受支持的入口是 `features.code_mode={enabled=false,direct_only_tool_namespaces=["bukitjalil"]}`；顶层 `code_mode.direct_only_tool_namespaces` 会被忽略。[对应工具规划器测试](https://github.com/openai/codex/blob/3853cf0c49daadcacaacceb2cbb732f512eaacdb/codex-rs/core/src/tools/spec_plan_tests.rs#L2605) 覆盖了 CodeModeOnly 下直接暴露指定动态命名空间。会话进程只注册无参数的 `request_website_edit`；生成专属进程只注册 `edit_website_copy`。两者均要求有效配置 enabled=false 且名单恰好只有 bukitjalil，否则拒绝发起轮次。工具请求的命名空间、工具名、thread、turn 必须全部匹配。统一路由目前仅通过合成协议测试，尚未用真实模型验收语义判断。
 
 零模型探测确认有效配置的专有名单、无效类型拒绝、原生 code_mode / code_mode_host / code_mode_only 均关闭、外部工具为空、只读沙箱保持不变。仅有 schema 接受不算模型验证；修复后的 **1 次真实 gpt-6-astra 调用**已进一步确认专用动态工具实际请求和成功响应，实际新增 `content/verification.md` 并仅修改 `site.yaml` 标题。审核前正式 manifest / 源摘要完全未变。审核真实差异后，在临时网站确认应用，真实 Bukit 构建、新标题与新页面预览、关闭重开保留新版本、历史恢复和旧新增路由返回 404 全部通过。实际回复、工具参数/响应、差异和截图保存于 `test-results/live-stage2-1790416197168/`，汇总证据及源哈希在 `test-results/stage2-direct-tool-acceptance.json`。
 

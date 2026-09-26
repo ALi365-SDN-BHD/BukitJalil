@@ -8,6 +8,7 @@ import { CodexChat } from "../src/main/codex";
 import { sourceHash, readCopy } from "../src/main/generation";
 import { sourceFiles } from "../src/main/source";
 import { ProjectStore } from "../src/main/project";
+import { withSiteInfo } from "../src/main/site-config";
 
 async function setup(t: test.TestContext, real = false) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "bukitjalil-generation-")));
@@ -46,6 +47,14 @@ test("synthetic Codex edits a real copy; diff includes add/modify/delete; reject
   ]);
   assert.match(changes.find((c) => c.path === "site.yaml")!.after!, /来自 AI/);
   assert.equal(sourceHash(await readCopy(f.copy())), f.approval().hash);
+  const officialConfig = await fs.readFile(path.join(f.site, "site.yaml"), "utf8");
+  await f.workspace.build();
+  const pendingPreview = f.workspace.state().draftPreview!;
+  assert.equal(pendingPreview.status, "success", pendingPreview.error);
+  assert.match(await (await fetch(pendingPreview.url!)).text(), /来自 AI/);
+  assert.equal(f.workspace.state().preview, null);
+  assert.equal(await f.manifest(), original);
+  assert.equal(await fs.readFile(path.join(f.site, "site.yaml"), "utf8"), officialConfig);
   await assert.rejects(f.workspace.editHeadline("manual"), /审核/);
   await assert.rejects(f.workspace.open(f.site), /审核/);
   await assert.rejects(f.workspace.home(), /当前操作|审核/);
@@ -55,13 +64,20 @@ test("synthetic Codex edits a real copy; diff includes add/modify/delete; reject
   const discarded = f.copy();
   await f.workspace.rejectGeneration(f.approval());
   assert.equal(await f.manifest(), original);
+  assert.equal(f.workspace.state().draftPreview, null);
+  await assert.rejects(fetch(pendingPreview.url!));
   await assert.rejects(fs.stat(discarded), { code: "ENOENT" });
   await f.generate();
   const approved = f.approval(), oldRevision = f.workspace.state().project!.currentRevisionId;
+  await f.workspace.build();
+  const approvedDraftURL = f.workspace.state().draftPreview!.url!;
+  assert.match(await (await fetch(approvedDraftURL)).text(), /来自 AI/);
   await f.workspace.approveGeneration(approved);
   assert.equal(f.workspace.state().generation!.status, "applied");
   assert.equal(f.workspace.state().project!.lastBuild!.status, "success");
   assert.match(await (await fetch(f.workspace.state().preview!.url)).text(), /来自 AI/);
+  assert.equal(f.workspace.state().draftPreview, null);
+  await assert.rejects(fetch(approvedDraftURL));
   assert.equal(await fs.readFile(path.join(f.site, ".bukitjalil/recovery", approved.id + ".json"), "utf8"), original);
   let store = await ProjectStore.open(f.site);
   assert.equal(store.data.format, 2, "old applications must reject the extended source format instead of discarding edits");
@@ -98,6 +114,38 @@ test("official baseline and reviewed copy changes invalidate approval; no stale 
   await assert.rejects(f.workspace.approveGeneration(next), /审批失效/);
   assert.equal(await f.manifest(), baseline);
   await assert.rejects(f.workspace.approveGeneration(next), /已失效/);
+  await f.generate();
+  const pending = f.approval(), configPath = path.join(f.site, "site.yaml");
+  const externalConfig = withSiteInfo(await fs.readFile(configPath, "utf8"), "外部新标题", "外部简介");
+  await fs.writeFile(configPath, externalConfig);
+  await assert.rejects(f.workspace.build(), /site.yaml/);
+  assert.equal(f.workspace.state().draftPreview, null);
+  await assert.rejects(f.workspace.approveGeneration(pending), /审批失效/);
+  assert.equal(await fs.readFile(configPath, "utf8"), externalConfig);
+  assert.equal(f.workspace.state().project!.revisions.at(-1)!.summary, "导入外部 site.yaml 修改");
+});
+
+test("review preview failure and cancellation leave the official successful preview and source untouched", async (t) => {
+  const f = await setup(t);
+  await f.workspace.build();
+  const officialPreview = f.workspace.state().preview!, manifest = await f.manifest();
+  const config = await fs.readFile(path.join(f.site, "site.yaml"), "utf8");
+  await f.generate();
+  await fs.writeFile(path.join(f.root, "engine-mode"), "fail");
+  await f.workspace.build();
+  assert.equal(f.workspace.state().draftPreview?.status, "failed");
+  assert.deepEqual(f.workspace.state().preview, officialPreview);
+  assert.equal(await f.manifest(), manifest);
+  assert.equal(await fs.readFile(path.join(f.site, "site.yaml"), "utf8"), config);
+  await fs.writeFile(path.join(f.root, "engine-mode"), "slow");
+  const pending = f.workspace.build();
+  await until(async () => !!await fs.stat(path.join(f.root, "build.pid")).catch(() => null));
+  await f.workspace.cancel(); await pending;
+  assert.equal(f.workspace.state().draftPreview?.status, "cancelled");
+  assert.deepEqual(f.workspace.state().preview, officialPreview);
+  assert.equal(await f.manifest(), manifest);
+  await f.workspace.rejectGeneration(f.approval());
+  assert.equal(f.workspace.state().draftPreview, null);
 });
 
 test("cancel, failure, disconnect, denied elevation and cross-task requests never apply or resend", async (t) => {
