@@ -25,9 +25,10 @@ function App() {
   const [error, setError] = useState("");
   const [headline, setHeadline] = useState("");
   const [page, setPage] = useState("/");
-  const [tab, setTab] = useState<"edit" | "history" | "chat">("edit");
+  const [tab, setTab] = useState<"edit" | "history">("edit");
   const [logs, setLogs] = useState(false);
   const [compact, setCompact] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [projectName, setProjectName] = useState("我的第一个网站");
   const [homeScreen, setHomeScreen] = useState<"projects" | "settings">("projects");
   const createDialog = useRef<HTMLDialogElement>(null);
@@ -62,6 +63,7 @@ function App() {
   }, [current?.id]);
   useEffect(() => {
     setPage("/");
+    setPreviewOpen(false);
   }, [project?.path]);
   useEffect(() => {
     if (project && !project.pages.some((entry) => entry.path === page)) setPage("/");
@@ -87,7 +89,7 @@ function App() {
   </div>;
 
   return (
-    <div className={`app-shell ${project ? "" : "project-home-shell"}`}>
+    <div className={`app-shell ${project ? previewOpen ? "preview-open" : "" : "project-home-shell"}`}>
       <header className="app-bar">
         <div className="wordmark">
           <span className="logo" aria-hidden="true">
@@ -124,16 +126,8 @@ function App() {
         onBack={() => setHomeScreen("projects")} />}
 
       <aside className="sidebar" hidden={!project}>
-        <button className="return-home secondary" aria-label="返回项目首页"
-          disabled={locked || draft} onClick={() => run(() => window.desktop.home())}>
-          ← 项目首页
-        </button>
-        {(locked || draft) && <p className="rail-empty">{draft
-          ? "保存或放弃未保存的修改后，可返回项目首页。"
-          : "结束当前操作或处理待审核修改后，可返回项目首页。"}</p>}
-        {project && (
-          <>
-            <div className="rail-section">
+        {project && <>
+            <div className="rail-section page-section">
               <h2>页面 <span>{project.pages.length}</span></h2>
               {project.pages.map((entry) => <button key={entry.path}
                 className={`page-link ${page === entry.path ? "selected" : ""}`}
@@ -141,70 +135,19 @@ function App() {
                 <span>{entry.path === "/" ? "⌂" : "▤"}</span> {entry.title} <small>{entry.path === "/" ? "/" : entry.path.slice(0, -1)}</small>
               </button>)}
             </div>
-            <div className="rail-section theme-section">
-              <h2>主题</h2>
-              <div className="theme-swatch" aria-hidden="true">
-                <span>canopy</span>
-                <i />
-                <b />
-              </div>
-              <div className="theme-name">
-                <strong>Canopy</strong>
-                <span>1.0.0</span>
-              </div>
-              <p>为小小的开始，留一片空间。</p>
-              <button
-                className="theme-apply"
-                disabled={locked || !project || project.themeApplied}
-                onClick={() => run(() => window.desktop.applyTheme())}
-              >
-                {project.themeApplied ? "✓ 已应用独立副本" : "应用样例主题"}
-              </button>
-              <small>修改仅属于当前项目。</small>
-            </div>
-          </>
-        )}
-        <div className="rail-footer">
-          <span className="status-dot ready" /> 保存在你的 Mac 上
-        </div>
-      </aside>
-
-      <main className="workspace" hidden={!project}>
-        {notice}
-        {project && (
-          <>
-            <div className="workspace-heading">
-              <div>
-                <span className="eyebrow">你的网站</span>
-                <h1>{project.pages.find((entry) => entry.path === page)?.title ?? "页面"}</h1>
-              </div>
-              <div className="build-actions">
-                {locked && build?.status === "running" ? (
-                  <button
-                    className="secondary"
-                    onClick={() => run(() => window.desktop.cancel())}
-                  >
-                    取消构建
-                  </button>
-                ) : (
-                  <span className="save-state">
-                    {draft ? "有未保存的修改" : "版本已保存在本地"}
-                  </span>
-                )}
-                <button
-                  className="primary"
-                  disabled={
-                    locked || !project.themeApplied || !state?.binary || draft
-                  }
-                  onClick={() => run(() => window.desktop.build())}
-                >
-                  {locked && build?.status === "running"
-                    ? "构建中…"
-                    : "构建预览"}
-                  <span>↗</span>
-                </button>
-              </div>
-            </div>
+          <button className="preview-toggle secondary" aria-expanded={previewOpen}
+            onClick={() => setPreviewOpen(!previewOpen)}>
+            {previewOpen ? "关闭预览" : "展开预览"}
+          </button>
+          <div className="build-actions">
+            {locked && build?.status === "running" ? (
+              <button className="secondary" onClick={() => run(() => window.desktop.cancel())}>取消构建</button>
+            ) : <span className="save-state">{draft ? "有未保存的修改" : "版本已保存在本地"}</span>}
+            <button className="primary" disabled={locked || !project.themeApplied || !state?.binary || draft}
+              onClick={() => run(() => window.desktop.build())}>
+              {locked && build?.status === "running" ? "构建中…" : "构建预览"} <span>↗</span>
+            </button>
+          </div>
             <div
               className={`preview-status ${stale ? "stale" : ""}`}
               aria-live="polite"
@@ -216,13 +159,14 @@ function App() {
                 {state?.preview
                   ? stale
                     ? "显示上次成功预览 · 当前版本尚未构建成功"
-                    : "当前版本已构建 · 正在预览本地网站"
+                    : previewOpen ? "当前版本已构建 · 正在预览本地网站" : "当前版本已构建 · 可展开预览"
                   : project.themeApplied
                     ? "主题已就绪，点击“构建预览”查看网站。"
                     : "先从左侧应用 Canopy 样例主题。"}
               </span>
             </div>
-            <div className="preview-stage">
+          {previewOpen && (
+            <div id="site-preview" className="preview-stage">
               <div className={`browser-frame ${compact ? "compact" : ""}`}>
                 <div className="browser-chrome">
                   <div className="browser-dots">
@@ -271,6 +215,7 @@ function App() {
                 )}
               </div>
             </div>
+          )}
             <div className="build-strip">
               <button
                 className="log-toggle"
@@ -298,34 +243,54 @@ function App() {
                 </pre>
               </section>
             )}
-          </>
-        )}
+        </>}
+      </aside>
+
+      <main className="workspace" hidden={!project}>
+        {notice}
+        <ChatPanel state={chat} projectPath={project?.path ?? null} generation={state?.generation ?? null}
+          canGenerate={!!project?.themeApplied && !locked && !draft} run={run} />
       </main>
 
       <aside className="inspector" hidden={!project}>
-        <div className="inspector-tabs" role="tablist" aria-label="工作面板">
-          <button
-            role="tab"
-            aria-selected={tab === "edit"}
-            onClick={() => setTab("edit")}
-          >
-            编辑
-          </button>
-          <button role="tab" aria-selected={tab === "chat"} onClick={() => setTab("chat")}>
-            对话
-          </button>
-          <button
-            role="tab"
-            aria-selected={tab === "history"}
-            onClick={() => setTab("history")}
-          >
+        <button className="return-home secondary" aria-label="返回项目首页"
+          disabled={locked || draft} onClick={() => run(() => window.desktop.home())}>
+          ← 项目首页
+        </button>
+        {(locked || draft) && <p className="rail-empty">{draft
+          ? "保存或放弃未保存的修改后，可返回项目首页。"
+          : "结束当前操作或处理待审核修改后，可返回项目首页。"}</p>}
+        <div className="inspector-heading"><span className="eyebrow">你的网站</span><h1>网站设置</h1></div>
+        {project && <>
+            <div className="rail-section theme-section">
+              <h2>主题</h2>
+              <div className="theme-swatch" aria-hidden="true">
+                <span>canopy</span>
+                <i />
+                <b />
+              </div>
+              <div className="theme-name">
+                <strong>Canopy</strong>
+                <span>1.0.0</span>
+              </div>
+              <p>为小小的开始，留一片空间。</p>
+              <button
+                className="theme-apply"
+                disabled={locked || !project || project.themeApplied}
+                onClick={() => run(() => window.desktop.applyTheme())}
+              >
+                {project.themeApplied ? "✓ 已应用独立副本" : "应用样例主题"}
+              </button>
+              <small>修改仅属于当前项目。</small>
+            </div>
+        </>}
+        <div className="inspector-tabs" role="tablist" aria-label="网站设置">
+          <button role="tab" aria-selected={tab === "edit"} onClick={() => setTab("edit")}>编辑</button>
+          <button role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}>
             历史{project && <span>{project.revisions.length}</span>}
           </button>
         </div>
-        <div className="chat-tab" hidden={tab !== "chat"}>
-          <ChatPanel state={chat} projectPath={project?.path ?? null} generation={state?.generation ?? null} canGenerate={!!project?.themeApplied && !locked && !draft} run={run} />
-        </div>
-        {tab === "chat" ? null : tab === "edit" ? (
+        {tab === "edit" ? (
           <div className="inspector-content">
             <span className="eyebrow">页面内容</span>
             <h2>一句话，介绍你自己。</h2>
@@ -395,7 +360,7 @@ function App() {
               <div>
                 <strong>对话工作区</strong>
                 <p>
-                  在“对话”中讨论当前网站与主题。
+                  在中间对话区讨论当前网站与主题。
                   <br />
                   由你确认编辑，由 Bukit 构建。
                 </p>

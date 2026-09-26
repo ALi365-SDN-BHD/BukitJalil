@@ -78,6 +78,7 @@ test("project home: explicit entry, missing paths, rename, remove, create, reope
     await page.getByRole("button", { name: "应用样例主题" }).click();
     await page.getByRole("button", { name: "构建预览", exact: false }).click();
     await expect.poll(async () => (await state()).project?.lastBuild?.status).toBe("success");
+    await page.getByRole("button", { name: "展开预览" }).click();
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText("让你的想法，在这里生长。");
     const preview = (await state()).preview!.url;
     await page.getByRole("button", { name: "返回项目首页" }).click();
@@ -107,6 +108,7 @@ test("project home: explicit entry, missing paths, rename, remove, create, reope
     await page.getByRole("button", { name: "返回项目首页" }).click();
     await app!.evaluate(({ dialog }, target) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] }); }, kept.root);
     await page.getByRole("button", { name: "打开项目", exact: true }).click();
+    await page.getByRole("button", { name: "展开预览" }).click();
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText("让你的想法，在这里生长。");
     expect((await state()).project!.name).toBe("山间设计工作室");
     await page.screenshot({ path: info.outputPath("workbench-from-home.png") });

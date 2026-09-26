@@ -25,7 +25,6 @@ test("generation UI: real copy diff, reject, confirm, build and reopen with synt
     await page.getByRole("button", { name: "应用样例主题" }).click();
     await expect(page.getByRole("button", { name: "✓ 已应用独立副本" })).toBeVisible();
     const baseline = await fs.readFile(path.join(site, "bukitjalil.json"), "utf8");
-    await page.getByRole("tab", { name: "对话", exact: true }).click();
     await page.getByRole("button", { name: "连接 Codex", exact: true }).click();
     await expect(page.getByText("Codex · ChatGPT 已登录")).toBeVisible();
     const generate = async () => {
@@ -52,6 +51,7 @@ test("generation UI: real copy diff, reject, confirm, build and reopen with synt
     await generate();
     await page.getByRole("button", { name: "确认应用并构建", exact: true }).click();
     await expect.poll(async () => (await page.evaluate(() => window.desktop.state())).project?.lastBuild?.status).toBe("success");
+    await page.getByRole("button", { name: "展开预览" }).click();
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText("来自 AI 的新首页");
     await expect(page.getByRole("button", { name: /新故事 \/story/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /关于 \/about/ })).toHaveCount(0);
@@ -66,6 +66,7 @@ test("generation UI: real copy diff, reject, confirm, build and reopen with synt
     await expect(page.getByRole("main", { name: "项目首页" })).toBeVisible();
     await page.getByRole("button", { name: "打开项目 AI 副本工作室", exact: true }).click();
     await expect.poll(async () => (await page.evaluate(() => window.desktop.state())).preview?.revisionId).toBe(current);
+    await page.getByRole("button", { name: "展开预览" }).click();
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText("来自 AI 的新首页");
     expect((await page.evaluate(() => window.desktop.state())).generation).toBeNull();
     const requests = (await fs.readFile(path.join(root, "requests.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));

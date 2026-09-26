@@ -47,6 +47,10 @@ test("macOS desktop: build, isolated preview, edit, failure, restore and reopen"
     const initial = await page.evaluate(() => window.desktop.state());
     expect(initial.project).toBeNull();
     if (initial.recent.length) await page.getByRole("button", { name: "打开项目 " + initial.recent[0].name, exact: true }).click();
+    if ((await state()).project) {
+      await expect(page.locator("iframe")).toHaveCount(0);
+      await page.getByRole("button", { name: "展开预览" }).click();
+    }
   }
   const state = () => page.evaluate(() => window.desktop.state());
   const build = async () => {
@@ -57,6 +61,8 @@ test("macOS desktop: build, isolated preview, edit, failure, restore and reopen"
     await expect
       .poll(async () => (await state()).preview?.revisionId)
       .toBe((await state()).project!.currentRevisionId);
+    if (await page.getByRole("button", { name: "展开预览" }).isVisible())
+      await page.getByRole("button", { name: "展开预览" }).click();
     await expect(page.frameLocator("iframe").locator("h1")).toBeVisible();
   };
   try {
@@ -76,7 +82,25 @@ test("macOS desktop: build, isolated preview, edit, failure, restore and reopen"
       page.getByRole("button", { name: "应用样例主题" }),
     ).toBeEnabled();
     await page.getByRole("button", { name: "应用样例主题" }).click();
+    await expect(page.locator("iframe")).toHaveCount(0);
+    await page.getByLabel("讨论你的网站", { exact: true }).fill("保留这段未发送草稿");
+    const columns = async () => page.evaluate(() => {
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      return { left: box(".inspector"), chat: box(".workspace"), right: box(".sidebar"), compose: box(".chat-compose") };
+    });
+    const collapsed = await columns();
+    expect(collapsed.left.x).toBeLessThan(collapsed.chat.x);
+    expect(collapsed.chat.x).toBeLessThan(collapsed.right.x);
+    expect(Math.abs(collapsed.compose.bottom - collapsed.chat.bottom)).toBeLessThan(2);
+    await page.screenshot({ path: info.outputPath("chat-first-collapsed.png") });
     await build();
+    const expanded = await columns();
+    expect(expanded.chat.width).toBeLessThan(collapsed.chat.width);
+    await expect(page.getByLabel("讨论你的网站", { exact: true })).toHaveValue("保留这段未发送草稿");
+    await page.getByRole("button", { name: "关闭预览" }).click();
+    await expect(page.locator("iframe")).toHaveCount(0);
+    expect((await columns()).chat.width).toBeGreaterThan(expanded.chat.width);
+    await page.getByRole("button", { name: "展开预览" }).click();
     const original = (await state()).project!.currentRevisionId;
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
       "让你的想法，在这里生长。",
@@ -230,6 +254,7 @@ test("macOS desktop: build, isolated preview, edit, failure, restore and reopen"
     }, projectDir);
     await page.getByRole("button", { name: "返回项目首页" }).click();
     await page.getByRole("button", { name: "打开项目", exact: true }).click();
+    await page.getByRole("button", { name: "展开预览" }).click();
     await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
       "让你的想法，在这里生长。",
     );
@@ -280,10 +305,10 @@ test("read-only Codex chat: stream, background project, cancel, reconcile and re
   try {
     await launch();
     await page.getByRole("button", { name: "构建预览", exact: false }).click();
+    await page.getByRole("button", { name: "展开预览" }).click();
     await expect(page.frameLocator("iframe").locator("h1")).toBeVisible();
     const beforeA = await fs.readFile(path.join(a.root, "bukitjalil.json"), "utf8");
     const beforeB = await fs.readFile(path.join(b.root, "bukitjalil.json"), "utf8");
-    await page.getByRole("tab", { name: "对话", exact: true }).click();
     await page.getByRole("button", { name: "连接 Codex", exact: true }).click();
     await expect(page.getByText("Codex · ChatGPT 已登录", { exact: true })).toBeVisible();
     await send("慢消息 A");
@@ -308,6 +333,7 @@ test("read-only Codex chat: stream, background project, cancel, reconcile and re
     await expect(page.getByLabel("站点 A 对话进行中", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "打开项目 站点 A", exact: true }).click();
     await expect(page.getByLabel("讨论你的网站", { exact: true })).toHaveValue("A 的未发送草稿");
+    await page.getByRole("button", { name: "展开预览" }).click();
     await page.getByRole("button", { name: "中断回复", exact: true }).click();
     await expect.poll(async () => (await state()).conversations[a.root]?.status).toBe("interrupted");
     await send("失败");
@@ -328,7 +354,6 @@ test("read-only Codex chat: stream, background project, cancel, reconcile and re
     await page.screenshot({ path: info.outputPath("chat-reconciled.png") });
     await app!.close(); app = undefined;
     await launch();
-    await page.getByRole("tab", { name: "对话", exact: true }).click();
     await expect(page.getByRole("log", { name: "当前项目对话" })).toContainText("已保存的站点建议");
     const requests = (await fs.readFile(path.join(root, "requests.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     expect(requests.filter((r) => r.method === "thread/start")).toHaveLength(2);
