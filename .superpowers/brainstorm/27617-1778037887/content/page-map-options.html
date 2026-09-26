@@ -1,0 +1,109 @@
+<h2>BukitJalil 页面地图方向</h2>
+<p class="subtitle">目标：保留 AIBuilding 的视觉气质与操作习惯，但按 BukitJalil 的新信息架构重组，桌面端优先，界面全中文。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="label">方案 A</div>
+      <h3>AIBuilding 等价映射</h3>
+      <p>最像旧产品，迁移阻力最低，但结构化工作流表达会比较弱。</p>
+      <div class="mockup">
+        <div class="mockup-header">应用结构</div>
+        <div class="mockup-body">
+          <div class="mock-sidebar">项目 / 工作台 / 部署 / 设置</div>
+          <div class="mock-content">
+            顶部工具栏
+            <div class="section">左：预览 / 代码 / 文件 / 构建 / 日志</div>
+            <div class="section">右：AI 对话</div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>最接近 AIBuilding 习惯</li>
+            <li>用户迁移成本低</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>结构 / 内容 / 审核主线不够清晰</li>
+            <li>容易回到“功能面板堆叠”</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="label">方案 B（推荐）</div>
+      <h3>AIBuilding 外形 + 新信息架构</h3>
+      <p>保留熟悉的工具台密度与右侧 AI 工作方式，但把主流程重组为可审核、可回放的结构化工作流。</p>
+      <div class="mockup">
+        <div class="mockup-header">应用结构</div>
+        <div class="mockup-body">
+          <div class="mock-sidebar">项目 / 最近 / 部署 / 设置 / 诊断</div>
+          <div class="mock-content">
+            顶部项目栏 + 全局动作
+            <div class="section">工作台 Tab：总览 / 对话 / 结构 / 内容 / 构建 / 部署 / 历史</div>
+            <div class="section">主区：左侧当前任务面板，中间主编辑区，右侧 AI / Inspector</div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>既像 AIBuilding，又更适合 BukitJalil V1</li>
+            <li>结构化工作流清晰，便于后续审核和自动化</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>需要重新设计页面地图与面板边界</li>
+            <li>不是简单 1:1 复刻</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="label">方案 C</div>
+      <h3>流程编排优先</h3>
+      <p>按“项目建立 -> 结构生成 -> 内容生产 -> 构建部署”做成向导式工作台，最现代，但最不像 AIBuilding。</p>
+      <div class="mockup">
+        <div class="mockup-header">应用结构</div>
+        <div class="mockup-body">
+          <div class="mock-sidebar">项目 / 队列 / 历史 / 设置</div>
+          <div class="mock-content">
+            头部进度条
+            <div class="section">步骤：项目 -> 结构 -> 内容 -> 预览 -> 构建 -> 部署</div>
+            <div class="section">AI 作为每一步的协同面板</div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>流程最清楚</li>
+            <li>最容易加入审核门禁</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>偏离 AIBuilding 体验较大</li>
+            <li>老用户会觉得陌生</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
