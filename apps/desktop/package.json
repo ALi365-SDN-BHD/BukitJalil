@@ -1,0 +1,30 @@
+{
+  "name": "bukitjalil-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "postinstall": "install-electron",
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test": "tsx --test tests/core.test.ts",
+    "test:electron": "npm run build && playwright test",
+    "test:real": "tsx --test tests/real-bukit.test.ts"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "electron": "44.4.5",
+    "esbuild": "0.28.2",
+    "tsx": "^4.20.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.1"
+  }
+}

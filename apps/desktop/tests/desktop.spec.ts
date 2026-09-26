@@ -1,0 +1,235 @@
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test";
+import * as fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import type { Project } from "../src/shared";
+
+test("macOS desktop: build, isolated preview, edit, failure, restore and reopen", async ({}, info) => {
+  const root = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "bukitjalil-gui-")),
+  );
+  const projectDir = path.join(root, "site");
+  const dataDir = path.join(root, "app");
+  let app: ElectronApplication | undefined;
+  let page!: Page;
+  const env: Record<string, string> = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    ),
+    BUKITJALIL_DATA_DIR: dataDir,
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+  if (!env.BUKIT_BIN) {
+    env.BUKIT_BIN = path.join(root, "bukit");
+    await fs.copyFile(
+      new URL("./fixtures/fake-bukit.cjs", import.meta.url),
+      env.BUKIT_BIN,
+    );
+    await fs.chmod(env.BUKIT_BIN, 0o700);
+  }
+  async function launch() {
+    app = await electron.launch({ args: ["."], cwd: process.cwd(), env });
+    app.process().stderr?.on("data", (chunk) => process.stderr.write(chunk));
+    page = await app.firstWindow();
+    await page.waitForURL("bukitjalil://app/index.html");
+    await expect(
+      page.getByRole("button", { name: "Bukit 已连接" }),
+    ).toBeVisible();
+  }
+  const state = () => page.evaluate(() => window.desktop.state());
+  const build = async () => {
+    await page.getByRole("button", { name: "构建预览", exact: false }).click();
+    await expect
+      .poll(async () => (await state()).project?.lastBuild?.status)
+      .toBe("success");
+    await expect
+      .poll(async () => (await state()).preview?.revisionId)
+      .toBe((await state()).project!.currentRevisionId);
+    await expect(page.frameLocator("iframe").locator("h1")).toBeVisible();
+  };
+  try {
+    await launch();
+    await page.screenshot({ path: info.outputPath("welcome.png") });
+    // Only native file selection is supplied by the test; UI/IPC/build/preview are real.
+    await app!.evaluate(({ dialog }, target) => {
+      dialog.showSaveDialog = async () => ({
+        canceled: false,
+        filePath: target,
+      });
+    }, projectDir);
+    await page.getByRole("button", { name: "创建第一个项目" }).click();
+    await page.getByLabel("项目名称", { exact: true }).fill("山间工作室");
+    await page.getByRole("button", { name: "选择位置并创建" }).click();
+    await expect(
+      page.getByRole("button", { name: "应用样例主题" }),
+    ).toBeEnabled();
+    await page.getByRole("button", { name: "应用样例主题" }).click();
+    await build();
+    const original = (await state()).project!.currentRevisionId;
+    await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
+      "让你的想法，在这里生长。",
+    );
+    await page.screenshot({ path: info.outputPath("desktop.png") });
+    if (process.env.BUKIT_BIN) {
+      await page.getByRole("button", { name: /关于 \/about/ }).click();
+      await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
+        "给好想法一个家",
+      );
+      await page.getByRole("button", { name: /首页 \// }).click();
+      await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
+        "让你的想法，在这里生长。",
+      );
+    }
+
+    const previewFrame = page
+      .frames()
+      .find((frame) => frame.url().startsWith("http://127.0.0.1:"))!;
+    expect(
+      await previewFrame.evaluate(() => {
+        const scope = globalThis as unknown as Record<string, unknown>;
+        let parentBlocked = false;
+        try {
+          void parent.document;
+        } catch {
+          parentBlocked = true;
+        }
+        return {
+          bridge: typeof scope.desktop,
+          require: typeof scope.require,
+          process: typeof scope.process,
+          parentBlocked,
+        };
+      }),
+    ).toEqual({
+      bridge: "undefined",
+      require: "undefined",
+      process: "undefined",
+      parentBlocked: true,
+    });
+    expect(await page.locator("iframe").getAttribute("sandbox")).toBe("");
+    const invalid = await page.evaluate(async () => {
+      try {
+        await window.desktop.openRecent("../../outside");
+        return "allowed";
+      } catch {
+        return "denied";
+      }
+    });
+    expect(invalid).toBe("denied");
+
+    await page
+      .getByLabel("首页标题", { exact: false })
+      .fill("为好想法，留一片空间。");
+    await expect(page.getByRole("button", { name: "构建预览" })).toBeDisabled();
+    await page.getByRole("button", { name: "保存为新版本" }).click();
+    await expect(
+      page.getByText("显示上次成功预览 · 当前版本尚未构建成功"),
+    ).toBeVisible();
+    await build();
+    await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
+      "为好想法，留一片空间。",
+    );
+    await page.getByRole("button", { name: "切换窄屏宽度" }).click();
+    await page.screenshot({ path: info.outputPath("narrow.png") });
+    await page.getByRole("button", { name: "切换桌面宽度" }).click();
+    await app!.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].setSize(1080, 720),
+    );
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({ path: info.outputPath("minimum-window.png") });
+
+    // Reopen a locally edited, invalid template to exercise real Bukit failure feedback.
+    const lastURL = (await state()).preview!.url;
+    const closed = app!.waitForEvent("close");
+    await app!.evaluate(({ app }) => {
+      setTimeout(() => {
+        app.quit();
+        app.quit();
+      }, 100);
+    });
+    await closed;
+    app = undefined;
+    await expect(async () => {
+      await expect(fetch(lastURL)).rejects.toThrow();
+    }).toPass();
+    const filename = path.join(projectDir, "bukitjalil.json");
+    const project = JSON.parse(await fs.readFile(filename, "utf8")) as Project;
+    const changed = structuredClone(
+      project.revisions.find((r) => r.id === project.currentRevisionId)!,
+    );
+    changed.id = crypto.randomUUID();
+    changed.headline = "这一次构建会失败";
+    changed.summary = "测试无效主题";
+    changed.theme!.files["themes/canopy/layouts/pages/index.html"] = "{{ if }}";
+    project.revisions.push(changed);
+    project.currentRevisionId = changed.id;
+    await fs.writeFile(filename, JSON.stringify(project));
+    if (!process.env.BUKIT_BIN)
+      await fs.writeFile(path.join(root, "engine-mode"), "fail");
+    await launch();
+    await expect(
+      page.getByText("显示上次成功预览 · 当前版本尚未构建成功"),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "构建预览" }).click();
+    await expect
+      .poll(async () => (await state()).project?.lastBuild?.status)
+      .toBe("failed");
+    await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
+      "为好想法，留一片空间。",
+    );
+    await page.getByRole("button", { name: "构建日志", exact: false }).click();
+    await expect(page.getByRole("region", { name: "构建日志" })).toContainText(
+      /Error|synthetic build failure/,
+    );
+    await page.screenshot({ path: info.outputPath("failed-build.png") });
+    if (!process.env.BUKIT_BIN)
+      await fs.writeFile(path.join(root, "engine-mode"), "");
+    await page.getByRole("tab", { name: "历史" }).click();
+    await page
+      .locator(".history-entry")
+      .filter({
+        has: page.getByText("应用 Canopy 1.0.0 的独立副本", { exact: true }),
+      })
+      .getByRole("button", { name: "恢复此版本" })
+      .click();
+    await expect
+      .poll(async () => (await state()).project!.currentRevisionId)
+      .toBe(original);
+    await build();
+    await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
+      "让你的想法，在这里生长。",
+    );
+    await app!.close();
+    app = undefined;
+    await launch();
+    expect((await state()).project!.currentRevisionId).toBe(original);
+    await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
+      "让你的想法，在这里生长。",
+    );
+    await app!.evaluate(({ dialog }, target) => {
+      dialog.showOpenDialog = async () => ({
+        canceled: false,
+        filePaths: [target],
+      });
+    }, projectDir);
+    await page.getByRole("button", { name: "打开本地项目" }).click();
+    await expect(page.frameLocator("iframe").locator("h1")).toHaveText(
+      "让你的想法，在这里生长。",
+    );
+  } finally {
+    await app?.close();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

@@ -1,5 +1,9 @@
 # 🏔️ BukitJalil
 
+> 当前可运行路线：**Electron + React + TypeScript + 独立 Bukit 进程**。
+> 首个桌面闭环位于 [`apps/desktop`](apps/desktop/README.md)：创建/打开本地项目、主题副本、真实构建、内嵌预览、编辑标题、恢复历史与重开恢复。
+> AI 接入和完整可视化编辑尚未实现。下文及既有 MAUI 源码保留为历史产品构想，不代表本次桌面实现的依赖或已完成功能。
+
 AI-native website builder control panel with a conversational UI for static site generation.
 
 ## 📌 Overview
