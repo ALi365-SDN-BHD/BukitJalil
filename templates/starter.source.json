@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/ALi365-SDN-BHD/Bukit",
+  "tag": "v2.0.11",
+  "commit": "9006a2bd42290abea01f0e519607344983d9dd87",
+  "path": "src/Bukit-Core/Bukit.Cli/Resources/StarterTheme",
+  "license": "MIT"
+}
