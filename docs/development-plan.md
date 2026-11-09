@@ -802,6 +802,7 @@ packages/web/src/
   - 预览遇到符号链接返回 404（和 8.4 一致），并加了 `realpath` 必须在构建目录内的检查；同一预览并发打开不再泄漏 HTTP 服务
   - Vite 关闭 CORS、加防嵌入头；开发脚本给 Vite 的环境变量改为白名单；Biome 的导入限制补上不带 `node:` 前缀的内置模块和子路径
   - 端到端测试的服务端改为每个浏览器项目一个（Playwright worker 固件），每个测试拿新的一次性登录地址
+- CI 通过（GitHub Actions，Ubuntu + Node 24、macOS + Node 24、Ubuntu + Node 22.19.0 三组，包括三种浏览器的端到端测试）。调通过程中的两处修正：`actions/setup-node` 自带的 pnpm 缓存会在 corepack 装好 pnpm 之前找 pnpm，已关闭，依赖缓存由 `actions/cache` 负责；Node 22.19.0 自带的 corepack 装不了 pnpm 12，CI 统一先装 corepack 0.34.6（0.36 要求 Node ≥ 22.22.2）
 
 **验收**：`pnpm dev` 打开三栏空界面，能在中英文之间切换；`/api/health` 报告 git 可用且版本 ≥ 2.38；不带 Cookie、`Origin` 不符或为 `null`、缺少 `X-BukitJalil` 头、非 JSON 的非 GET 请求都被拒绝（有自动化测试）；预览端口的响应带 `CSP: sandbox`；管理端口的响应带 `frame-ancestors 'none'` 和 `X-Frame-Options: DENY`；`preview-isolation-browsers.mjs` 的用例改写成 Playwright 测试并在三种浏览器里通过；CI 通过。
 
