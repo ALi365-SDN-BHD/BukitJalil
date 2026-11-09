@@ -8,8 +8,8 @@ import http from "node:http";
 const ADMIN = 47880, PREVIEW = 47881;
 const ADMIN_ORIGIN = `http://127.0.0.1:${ADMIN}`;
 const COOKIE = "bj=spike-token";
-export const state = { applied: 0, rejected: [], leakReads: 0, requests: [], previewHits: [], evilLog: [] };
-export function resetState() { Object.assign(state, { applied: 0, rejected: [], leakReads: 0, requests: [], previewHits: [], evilLog: [] }); }
+export const state = { applied: 0, rejected: [], leakReads: 0, requests: [], guardedHits: 0, previewHits: [], evilLog: [] };
+export function resetState() { Object.assign(state, { applied: 0, rejected: [], leakReads: 0, requests: [], guardedHits: 0, previewHits: [], evilLog: [] }); }
 
 const adminCsp = "default-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src http://127.0.0.1:47881";
 // /guarded is the same page with the anti-framing headers the plan should add.
@@ -25,6 +25,7 @@ export const adminServer = http.createServer((req, res) => {
       cookie: (req.headers.cookie ?? "").includes(COOKIE), dest: req.headers["sec-fetch-dest"] ?? null, site: req.headers["sec-fetch-site"] ?? null });
   }
   if (url.pathname === "/guarded") {
+    state.guardedHits++;
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...guardHeaders });
     res.end("<!doctype html><meta charset=utf-8><title>admin-guarded</title><button>危险操作</button>");
     return;

@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.2（2026-11-09，已按评审、七轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离） · 分支：`pi-harness-ui` · 状态：待确认
+> 版本：v2.3（2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离） · 分支：`pi-harness-ui` · 状态：待确认
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -163,7 +163,7 @@ BukitJalil/
   - 浏览器里的页面来自 Vite，代理转发的请求 `Origin` 是 `http://127.0.0.1:47890`。所以 server 以 `--dev-origin http://127.0.0.1:47890` 启动时（只有 `pnpm dev` 会传，`pnpm start` 不接受这个参数），防跨站校验允许的 Origin 换成这个地址，`Host` 校验同时接受 Vite 转发的 `127.0.0.1:47880`
   - token 打开流程同样走 Vite：打印 `http://127.0.0.1:47890/?token=…`，Vite 开发配置把带 `token` 参数的首页请求代理给 server，和生产一样校验后设置 Cookie 并重定向；Cookie 按主机 `127.0.0.1` 生效、不区分端口，之后经 Vite 代理的 `/api` 请求都会带上它
 - 生产：`pnpm build` 后 server 直接托管 web 的静态文件，一个 Node 进程监听管理端口 47880，预览端口按需从 47881 起分配（见 8.4），`pnpm start` 启动并打开浏览器
-- 默认端口：管理界面和 API 用 47880，预览端口池从 47881 开始（和管理界面隔离，见 8.4）；被占用时报错并提示 `--port` / `--preview-port-base`
+- 默认端口：管理界面和 API 用 47880，被占用时报错并提示 `--port`；预览端口池从 47881 开始（和管理界面隔离，见 8.4），起点可用 `--preview-port-base` 改，池里的端口被占用时跳到下一个可用端口，不报错
 
 ---
 
@@ -337,7 +337,7 @@ BukitJalil/
 - 路径检查：对已存在的路径取 `realpath.native`（macOS 上会返回磁盘上的真实大小写）；不存在的路径（新建文件）逐级找到最近的已存在上级目录取 `realpath.native`，再拼回剩余部分；最终结果必须以工作副本的 `realpath` 加路径分隔符开头（防符号链接和 `..` 逃逸）
 - 禁止读写：路径中**任何一级**名为 `.git`（不区分大小写），包括嵌套目录里的 `.git`：工作副本根目录的 `.git` 是指向网站仓库的文件，被改写就能把 git 指到 AI 准备的目录；嵌套的 `.git` 会让 `git add -A` 失败或把内容变成看不见的子模块
 - 禁止写：`dist/**`、`.bukit/**`、`.cache/**`、`.bukitjalil-build/**`、`node_modules/**`、任何以 `.env` 开头的文件
-- 禁止写插件相关文件：`plugins/**` 以及任何 `plugin.yaml` / `plugin.json`（Bukit 的外部插件配置在 `.bukit/plugins.yaml`，已在上一条的 `.bukit/**` 里禁止）（Bukit 示例清单位于 `plugins/<name>/plugin.yaml`，M1 根据源码确认完整约定）；`site.yaml` 的插件配置在构建前另行检查（见 8.5）
+- 禁止写插件相关文件：`plugins/**` 以及任何 `plugin.yaml` / `plugin.json`（插件按 `plugins/<id>/plugin.yaml` 启动；外部插件配置在 `.bukit/plugins.yaml`，已在上一条的 `.bukit/**` 里禁止；M1 已核对源码，见 8.5）；`site.yaml` 的插件配置在构建前另行检查（见 8.5）
 - `grep` / `find` 的 glob 只在根目录下匹配；根目录在 `operations.isDirectory` / `glob` 里检查
 - 自定义工具只接受集合名、语言代码等受限参数，不接受任意路径；有路径参数的（如以后的素材工具）走同一个解析函数
 - 单个文件写入上限 1 MB（在 `writeFile` 里按最终内容检查）；二进制文件不允许 AI 写入（图片等素材走后续的"上传素材"功能）
@@ -468,7 +468,7 @@ AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukit
   - 用 `git config --list --show-scope --includes`（同样加固）列出**仓库级和 worktree 级**的全部配置（`--local` 看不到 `extensions.worktreeConfig` 打开后的 `config.worktree`）
   - 允许的只有：`core.repositoryformatversion`、`core.filemode`、`core.bare`、`core.logallrefupdates`、`core.ignorecase`、`core.precomposeunicode`、`core.symlinks`、`core.autocrlf`、`core.eol`、`remote.*.url`、`remote.*.pushurl`、`remote.*.fetch`、`branch.*.remote`、`branch.*.merge`、`branch.*.rebase`、`user.name`、`user.email`，以及 M1 在本机 71 个真实仓库上统计后补充的：`branch.*.vscode-merge-base`（VS Code 写入，79 处）、`submodule.active`（66 个仓库）、`lfs.repositoryformatversion`（63 个，装过 git-lfs 就会写，不代表仓库用了 LFS）、`lfs.<url>.access`、`extensions.worktreeConfig`（8 个；worktree 级配置本身由 `--show-scope` 列出、同样按白名单检查，已实测）。按原先的白名单，这 71 个仓库几乎全部会被标为只读。`include.*` / `includeIf.*` 仍然拒绝（71 个仓库里没有一个用到）
   - 出现其他任何配置、`.git/info/attributes` 里有 `filter=` 属性，就把网站标为"只读：不满足安全规则"并列出原因，当前操作一并拒绝
-  - **钩子不再作为只读条件**：BukitJalil 的 git 调用用空的 `core.hooksPath`，Bukit 的 git 通过 `GIT_CONFIG_*` 拿到同样的设置（M1 已实测钩子不再运行），钩子文件存在与否不影响安全。本机 71 个仓库里有 2 个带 git-lfs 安装的钩子，按原规则会被误标为只读
+  - **钩子不再作为只读条件**：BukitJalil 的 git 调用用空的 `core.hooksPath`；Bukit 构建多语言网站时的 git 通过 `GIT_CONFIG_*` 拿到同样的设置（M1 已实测钩子不再运行）。例外是 `bukit deploy`：它会删掉 `GIT_CONFIG_*`（见 M6），但它在网站目录里只执行 `git config --get`，不触发钩子，其余操作都在新建的临时仓库里。所以钩子文件存在与否不影响安全；如果以后 Bukit 的 deploy 在网站目录里执行会触发钩子的命令（升级 Bukit 时用 M6 的包装脚本复查），需要恢复这条规则或改在空钩子的副本里执行。本机 71 个仓库里有 2 个带 git-lfs 安装的钩子，按原规则会被误标为只读
   - **在 `git/run.ts` 里每次调用前执行**，按 `.git/config`、`config.worktree`、`info/attributes` 的修改时间和大小缓存结果。不再维护"哪些操作之前要检查"的清单：每轮快照里的 `git add -A`、开新改动集的 `reset --hard` 也会运行过滤器，同样要被覆盖
 - **`.gitattributes`**：配置白名单不允许任何 `filter.*` / `diff.*` / `merge.*` 定义，全局配置又被隔离，属性里引用的驱动没有任何来源，所以不再逐个扫描 `.gitattributes` 的内容（`diff=markdown`、`merge=union` 这类 git 内置驱动是无害的，不应该因此拒绝）
 - **Git LFS 不支持**：隔离全局配置后 LFS 过滤器不再运行，LFS 仓库里只能看到指针文件。导入时如果被跟踪的 `.gitattributes` 里有 `filter=` 属性，网站标为"只读：不满足安全规则"，原因写明 MVP 不支持 Git LFS
@@ -554,7 +554,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 - **输出目录的约束**（已核对 Bukit CLI 文档）：Bukit 的清理逻辑拒绝清理"当前项目以外的路径"和非空且没有输出标记的目录，构建时的清理也走同一套规则。所以不能直接把 `--output` 指向 `~/.bukitjalil/previews/` 并加 `--clean`
 - **做法**：每次构建输出到项目内一个全新的空目录 `.bukitjalil-build/<buildId>/`（已在排除规则里），使用 `--no-clean`；构建成功后把目录整体移动到 `~/.bukitjalil/previews/<siteId>/<buildId>/`；失败也删除临时目录
 - 改动集预览在 `worktrees/<siteId>/ai/` 里构建，正式版本预览在 `worktrees/<siteId>/main/` 里构建，都不在用户的网站目录里产生任何文件
-- **每份预览一个端口，构建用 `--base-url /`**：由 BukitJalil 服务端（同一个 Node 进程）托管构建输出，不启动 `bukit preview` / `bukit dev`。每个网站的"正式版本"和"当前改动集"预览各占一个端口，打开预览时从 47881 起按需分配，网站关闭或空闲 30 分钟后释放；端口根目录指向该预览当前显示的那次构建，换构建时原子切换
+- **每份预览一个端口，构建用 `--base-url /`**：由 BukitJalil 服务端（同一个 Node 进程）托管构建输出，不启动 `bukit preview` / `bukit dev`。每个网站的"正式版本"和"当前改动集"预览各占一个端口，打开预览时从 47881 起按需分配，网站关闭或空闲 30 分钟后释放；端口根目录指向该预览当前显示的那次构建，换构建时原子切换。同一个端口会先后托管不同构建、甚至不同网站，所以预览端口的所有响应都带 `Cache-Control: no-store`，避免浏览器显示上一次构建的缓存页面，让用户审核的内容和实际构建不一致
 - **为什么不用路径前缀**（M1 实测，`make-starter.sh` + `check-base-url.py`）：用 `--base-url /preview/<siteId>/<buildId>/` 构建 starter 网站时，Bukit 自己生成的链接都遵守前缀，但模板和内容里手写的根路径不会被改写：starter 主题的标签索引页用 `{{ term.url }}`、内容里的 `![](/assets/x.png)`、RSS 里的图片都指向 `/…`，在预览里 404。主题模板靠手动拼 `base_url`，AI 写的模板很容易漏掉。用 `--base-url /` 加独立端口，所有根路径都天然正确
 - 也不用每次构建一个 `*.localhost` 子域名：Chrome、Firefox 自己解析 `*.localhost`，但 macOS 系统解析器不解析（M1 实测 `b-123.localhost` 返回 ENOTFOUND），Safari 等走系统解析的浏览器打不开
 - 界面用 iframe 显示，可以切换"正式版本"和"当前改动集"两份预览
@@ -566,7 +566,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
   - 预览的每个响应都带 `Content-Security-Policy: sandbox allow-scripts allow-popups; connect-src 'none'; form-action 'none'`（**不给 `allow-forms`**），即使用户在新标签页直接打开，页面也运行在不透明来源里，脚本也不能用 `fetch` / `XMLHttpRequest` 向任何地址（包括管理端口）发请求
   - iframe 同样加 `sandbox="allow-scripts"`（不给 `allow-same-origin`、`allow-forms`）
   - **端口不同不等于跨站**：浏览器判断 Cookie 是否同站时不看端口，`127.0.0.1:47881` 发往 `:47880` 的请求照样带 `SameSite=Strict` 的 Cookie。所以光靠换端口挡不住表单提交、`<img>` 之类的跨端口请求，管理端 API 必须自己防跨站请求（见 11 节"跨站请求"）
-  - **M1 实测**（`preview-isolation.mjs`，内置浏览器 Chromium 内核，在新标签页直接打开恶意预览页）：页面脚本看到的来源是 `null`；`fetch`（带 JSON 和自定义头、`no-cors`、读取 GET 接口）和 `sendBeacon` 都被 `connect-src 'none'` 拦下；表单提交被沙箱拦下（没有 `allow-forms`）；`document.cookie`、`localStorage` 抛出 `SecurityError`；管理端没有收到任何请求。curl 验证了管理端的规则：`Origin` 是预览端口、`null`、`Content-Type` 不是 JSON 时都返回 403，Host 不对返回 421。内置浏览器会自己拦截跨端口的子资源请求，所以又用 Playwright 1.65.0 在 Chromium 158、Firefox 159、WebKit 27.2 里跑了一遍（`preview-isolation-browsers.mjs`，15 项通过），包括预览嵌在管理界面 iframe 里和直接打开两种情况：
+  - **M1 实测**（`preview-isolation.mjs`，内置浏览器 Chromium 内核，在新标签页直接打开恶意预览页）：页面脚本看到的来源是 `null`；`fetch`（带 JSON 和自定义头、`no-cors`、读取 GET 接口）和 `sendBeacon` 都被 `connect-src 'none'` 拦下；表单提交被沙箱拦下（没有 `allow-forms`）；`document.cookie`、`localStorage` 抛出 `SecurityError`；管理端没有收到任何请求。curl 验证了管理端的规则：`Origin` 是预览端口、`null`、`Content-Type` 不是 JSON 时都返回 403，Host 不对返回 421。内置浏览器会自己拦截跨端口的子资源请求，所以又用 Playwright 1.65.0 在 Chromium 158、Firefox 159、WebKit 27.2 里跑了一遍（`preview-isolation-browsers.mjs`，18 项通过），包括预览嵌在管理界面 iframe 里和直接打开两种情况：
     - 三种浏览器里 `fetch`、`sendBeacon`、表单提交都没有到达管理端，没有任何操作被执行；脚本看到的来源都是 `null`，`document.cookie`、`localStorage` 都抛 `SecurityError`
     - `<img>` 跨端口 GET 都会发出（`Sec-Fetch-Site: cross-site`）。Chromium、Firefox 不带 `SameSite=Strict` 的 Cookie；**WebKit 在预览嵌在管理界面里时会带上**（直接打开预览时不带）。图片请求读不到响应内容，所以这只要求"GET 没有副作用"（11 节），不会泄露数据
     - **预览页能把管理界面嵌进自己的 iframe**：没有防护头时三种浏览器都正常渲染，可以用来诱导点击。所以管理端口所有响应加 `frame-ancestors 'none'` 和 `X-Frame-Options: DENY`，加上后三种浏览器都拒绝渲染（11 节"点击劫持"）
@@ -803,7 +803,7 @@ packages/web/src/
 | ripgrep 发布记录 | 定 rg 版本和各平台 SHA-256 | 15.2.0，6 个安装包的摘要和官方 `.sha256` 一致（6.3） |
 | 本机 71 个仓库的配置统计 | 仓库配置白名单会误伤多少真实仓库 | 原白名单几乎全部误伤，已补充（7.3） |
 | `preview-isolation.mjs` | 恶意预览页能否调用管理端 API；Host 校验；防跨站规则 | 在 Chromium 内核里全部拦下（8.4） |
-| `preview-isolation-browsers.mjs` | 同上，用 Playwright 在 Chromium、Firefox、WebKit 里跑，加上 iframe 嵌入、`<img>` 带 Cookie、预览嵌入管理界面 | 15 项通过；WebKit 会给 `<img>` 带 Cookie；管理端口要加防嵌入的响应头（8.4、11 节） |
+| `preview-isolation-browsers.mjs` | 同上，用 Playwright 在 Chromium、Firefox、WebKit 里跑，加上 iframe 嵌入、`<img>` 带 Cookie、预览嵌入管理界面 | 18 项通过；WebKit 会给 `<img>` 带 Cookie；管理端口要加防嵌入的响应头（8.4、11 节） |
 | 三个平台的 Bukit 安装包 | 下载核对 SHA-256，检查压缩包条目 | 全部一致；每包两个文件，tar 条目带 `./` 前缀，Linux 版依赖 glibc（8.1） |
 
 还没验证的项（不影响进入 M2 的设计）：

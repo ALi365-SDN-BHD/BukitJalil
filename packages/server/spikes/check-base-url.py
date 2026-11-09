@@ -41,7 +41,7 @@ for dirpath, _, files in os.walk(root):
             if not u.startswith("/") or u.startswith("//"):
                 continue
             total[ext] += 1
-            if not u.startswith(base):
+            if not (u.startswith(base) or u == base.rstrip("/")):
                 bad[ext].append((rel, u))
 
 print(f"root-relative URLs checked: {sum(total.values())}  ({dict(total)})")

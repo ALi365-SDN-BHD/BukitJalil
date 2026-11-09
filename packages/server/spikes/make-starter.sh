@@ -47,7 +47,7 @@ write_content() { # dir lang
 collection: post
 title: Welcome ($l)
 slug: welcome
-date: 2026-01-01
+publishAt: "2026-01-01T00:00:00Z"
 author: Bukit Team
 summary: A first post you can replace with your own writing.
 tags: [intro, bukit]

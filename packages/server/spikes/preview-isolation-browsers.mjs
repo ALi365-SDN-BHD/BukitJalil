@@ -61,7 +61,9 @@ for (const [name, type] of [["chromium", chromium], ["firefox", firefox], ["webk
   ok(`${name}: nothing applied`, framed.applied === 0 && topLevel.applied === 0);
   ok(`${name}: no fetch / beacon reached /api (only image and frame loads)`, both.every((r) => r.dest === "image" || r.dest === "iframe" || r.dest === null && r.method === "GET"),
     both.filter((r) => r.dest !== "image" && r.dest !== "iframe").map((r) => `${r.method} ${r.path} dest=${r.dest}`).join("; "));
-  ok(`${name}: /guarded (frame-ancestors 'none' + X-Frame-Options) not rendered inside the preview`, guardedInPreview !== "admin-guarded", guardedInPreview);
+  ok(`${name}: control: unguarded admin page renders inside the preview`, adminInPreview === "admin", adminInPreview);
+  ok(`${name}: /guarded was requested but not rendered inside the preview (frame-ancestors 'none' + X-Frame-Options)`,
+    framed.guardedHits > 0 && guardedInPreview !== "admin-guarded", `requests=${framed.guardedHits} title=${guardedInPreview}`);
   summary.push({
     browser: `${name} ${browser.version()}`,
     imgCookieFramed: framed.requests.filter((r) => r.path.includes("via=img")).map((r) => r.cookie).join(","),

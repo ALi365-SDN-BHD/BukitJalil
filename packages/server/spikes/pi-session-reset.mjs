@@ -38,7 +38,7 @@ async function open(sessionManager) {
 }
 const edit = (oldText, newText) => ai.fauxToolCall("edit", { path: "site.yaml", edits: [{ oldText, newText }] });
 const ends = (events) => events.filter((e) => e.type === "tool_execution_end");
-let seen;
+let seen, fileAfterStaleEdit;
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${name}${extra ? `  (${extra})` : ""}`); cond ? pass++ : fail++; };
@@ -57,14 +57,14 @@ fs.writeFileSync(site, "site:\n  title: Main2\n");
 // Same in-memory session: the model still thinks the title is New.
 faux.setResponses([
   ai.fauxAssistantMessage([edit("title: New", "title: Newer")], { stopReason: "toolUse" }),
-  (ctx) => { seen = ctx; return ai.fauxAssistantMessage([ai.fauxToolCall("read", { path: "site.yaml" })], { stopReason: "toolUse" }); },
+  (ctx) => { seen = ctx; fileAfterStaleEdit = fs.readFileSync(site, "utf8"); return ai.fauxAssistantMessage([ai.fauxToolCall("read", { path: "site.yaml" })], { stopReason: "toolUse" }); },
   ai.fauxAssistantMessage([edit("title: Main2", "title: Newer")], { stopReason: "toolUse" }),
   ai.fauxAssistantMessage("改好了。"),
 ]);
 await a.session.prompt("再把标题改成 Newer");
 await a.session.waitForIdle();
 const staleEdit = ends(a.events).filter((e) => e.toolName === "edit").at(-2);
-ok("edit with stale oldText fails as a tool error, file untouched", staleEdit?.isError === true, JSON.stringify(staleEdit?.result).slice(0, 140));
+ok("edit with stale oldText fails as a tool error, file untouched", staleEdit?.isError === true && fileAfterStaleEdit === "site:\n  title: Main2\n", JSON.stringify(staleEdit?.result).slice(0, 140));
 ok("model context after the failure still holds change set 1 messages", JSON.stringify(seen?.messages ?? []).includes("把标题改成 New"));
 ok("after re-reading, the edit lands on the reset content", fs.readFileSync(site, "utf8").includes("title: Newer"));
 const file = sm.getSessionFile();
