@@ -4,12 +4,15 @@ import type { DatabaseSync } from "node:sqlite";
 import { type BukitResponse, type HealthResponse, SettingsPatch, sessionCookieName } from "@bukitjalil/shared";
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
+import { siteRoutes } from "./api/sites.ts";
 import type { BukitService } from "./bukit/locate.ts";
+import type { GitIdentity } from "./git/identity.ts";
 import type { GitHealth } from "./git/version.ts";
 import type { Logger } from "./log.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
 import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./security/headers.ts";
 import type { LoginToken } from "./security/token.ts";
+import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
 import { SettingsStore } from "./store/settings.ts";
 
@@ -26,16 +29,20 @@ export interface AdminAppOptions {
   webDist: string | null;
   checkGit: () => Promise<GitHealth>;
   bukit: BukitService;
+  sites: SiteService;
+  readIdentity: () => Promise<GitIdentity>;
+  /** Overrides the home directory used by the directory picker (tests). */
+  userHome?: string;
   version: string;
   logger: Logger;
 }
 
-type Env = { Variables: { cspNonce: string | undefined } };
+export type AppEnv = { Variables: { cspNonce: string | undefined } };
 
 export function createAdminApp(opts: AdminAppOptions) {
   const settings = new SettingsStore(opts.db);
   const cookieName = sessionCookieName(opts.port);
-  const app = new Hono<Env>();
+  const app = new Hono<AppEnv>();
 
   app.use("*", async (c, next) => {
     await next();
@@ -79,7 +86,7 @@ export function createAdminApp(opts: AdminAppOptions) {
     return c.redirect("/", 303);
   });
 
-  const api = new Hono<Env>();
+  const api = new Hono<AppEnv>();
   api.use("*", apiGuard({ allowedOrigin: opts.allowedOrigin, cookieName, sessionValue: opts.sessionValue }));
 
   api.get("/health", async (c) => {
@@ -119,6 +126,8 @@ export function createAdminApp(opts: AdminAppOptions) {
     if (!opts.bukit.install()) return apiError(c, 409, "bukit.install_running");
     return c.json({ install: opts.bukit.installer.progress }, 202);
   });
+
+  siteRoutes(api, { sites: opts.sites, readIdentity: opts.readIdentity, userHome: opts.userHome });
 
   api.all("*", (c) => apiError(c, 404, "request.not_found"));
   app.route("/api", api);

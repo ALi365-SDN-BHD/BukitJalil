@@ -23,6 +23,11 @@ export interface GitRunnerOptions {
   emptyFile: string;
   /** Empty directory used as core.hooksPath. */
   hooksDir: string;
+  /**
+   * GIT_CEILING_DIRECTORIES: git never looks for a repository at or above these. The app data directory
+   * goes here, so a broken checkout under worktrees/ cannot make git find a repository in the user's home.
+   */
+  ceilingDirs?: string[];
 }
 
 export interface RunOptions {
@@ -96,6 +101,7 @@ export class GitRunner {
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_GLOBAL: this.opts.emptyFile,
       GIT_TERMINAL_PROMPT: "0",
+      ...(this.opts.ceilingDirs?.length ? { GIT_CEILING_DIRECTORIES: this.opts.ceilingDirs.join(path.delimiter) } : {}),
     };
   }
 

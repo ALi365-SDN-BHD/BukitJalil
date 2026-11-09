@@ -6,12 +6,15 @@ import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/share
 import { serve } from "@hono/node-server";
 import { createAdminApp } from "./app.ts";
 import { BukitService } from "./bukit/locate.ts";
-import { resolveGitPath } from "./git/run.ts";
+import { readGlobalIdentity } from "./git/identity.ts";
+import { GitRunner, resolveGitPath } from "./git/run.ts";
 import { checkGit } from "./git/version.ts";
 import { createLogger } from "./log.ts";
 import { ensureAppHome, resolveAppHome } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
+import { SiteLocks } from "./sites/locks.ts";
+import { SiteService } from "./sites/service.ts";
 import { openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
 
@@ -69,6 +72,23 @@ const bukit = new BukitService({
 });
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
+// Without git, site operations fail when they run git; /api/health tells the user git is missing.
+const git = new GitRunner({
+  gitPath: gitPath ?? "/nonexistent/git",
+  home: paths.home,
+  emptyFile: paths.emptyGitConfig,
+  hooksDir: paths.emptyHooks,
+  ceilingDirs: [paths.home],
+});
+const sites = new SiteService({
+  db,
+  git,
+  paths,
+  settings: settingsStore,
+  bukit,
+  locks: new SiteLocks(),
+  templateDir: path.join(repoRoot, "templates", "starter"),
+});
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
@@ -83,6 +103,8 @@ const app = createAdminApp({
   checkGit: () =>
     gitPath ? checkGit(gitPath) : Promise.resolve({ ok: false, version: null, problem: "missing" as const }),
   bukit,
+  sites,
+  readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,
   logger,
 });

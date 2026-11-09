@@ -48,13 +48,27 @@ describe("SQLite store (plan 4.2)", () => {
   it("settings fall back to defaults for corrupt or unknown values", () => {
     const db = openDatabase(":memory:");
     const store = new SettingsStore(db);
-    expect(store.get()).toEqual({ locale: null, lastParentDir: null, bukitPath: null });
+    expect(store.get()).toEqual({
+      locale: null,
+      lastParentDir: null,
+      bukitPath: null,
+      commitName: null,
+      commitEmail: null,
+    });
     db.prepare("INSERT INTO settings (key, value_json) VALUES ('locale', '\"fr\"'), ('junk', '1')").run();
-    expect(store.get()).toEqual({ locale: null, lastParentDir: null, bukitPath: null });
+    expect(store.get()).toEqual({
+      locale: null,
+      lastParentDir: null,
+      bukitPath: null,
+      commitName: null,
+      commitEmail: null,
+    });
     expect(store.update({ locale: "en", lastParentDir: "/Users/x/Sites" })).toEqual({
       locale: "en",
       lastParentDir: "/Users/x/Sites",
       bukitPath: null,
+      commitName: null,
+      commitEmail: null,
     });
   });
 });

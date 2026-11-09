@@ -250,7 +250,7 @@ BukitJalil/
 2. 服务端把 `templates/starter/` 复制到目标目录（包含 `site.yaml`、`content/`、`themes/starter/`）。Bukit 没有"生成初始网站"的命令，官方 starter 主题只以资源文件形式嵌在 CLI 源码里（`src/Bukit-Core/Bukit.Cli/Resources/StarterTheme/`，MIT 协议）。BukitJalil 从 v2.0.11 复制这些模板，补上 `theme.yaml` 和最小内容，作为自己维护的模板，并记录来源 commit。M1 的 `make-starter.sh` 是这一步的草稿，已用真实 Bukit 构建通过。注意：模板里的占位符是 `{{-- bukit:name --}}`；不能照搬 Bukit Labs 的博客模板——它和 Core 2.0.11 有出入（`archive` 必须是布尔值，发布时间读 `publishAt` 而不是 `date`）；starter 的标签索引页用了 `{{ term.url }}` 这类手写根路径，配合 8.4 的 `--base-url /` 才正确。M2 已实现：`scripts/make-starter.sh` 生成 `templates/starter/`，来源记录在 `templates/starter.source.json`；草稿里文章和页面共用一个数据源，源级别的 `collection: post` 会把页面也当成文章，正式模板拆成 `content/posts`、`content/pages` 两个源；分享图改为 1200×630 的 PNG；页头的站名占位符留空（草稿填了固定的 "starter"），主题里输出站名、标题的地方由脚本加上 `html.escape`；示例文章用相对链接，部署到 GitHub Pages 项目地址也能用；模板不写 `site.url`，避免每个网站都把 canonical、站点地图指向占位域名——Bukit 会提示"需要 site.url"，由用户在设置或发布前填写。`starter.source.json` 记录每个文件的 SHA-256，测试发现手改模板就失败。真实 Bukit 2.0.11 下 check、doctor、build 都通过
 3. 用表单值替换 `site.name`、`site.title`、`site.language`
 4. `git init -b main`（git 不读全局配置后，`init.defaultBranch` 不生效，不写 `-b` 会得到 `master`）、写入排除规则、首次提交 "Initial site from BukitJalil starter"；提交需要设置页里的身份（7.2），没有填写时先引导填写
-5. 对首次提交跑构建前安全检查（8.5），再创建 `worktrees/<siteId>/main/` 检出并执行 `bukit config check` 和预览构建（8.3），确认可以构建；不在用户的网站目录里调用 Bukit，网站目录不会出现 `dist/`
+5. 对首次提交跑构建前安全检查（8.5），再创建 `worktrees/<siteId>/main/` 检出并执行 `bukit config check` 和预览构建（8.3），确认可以构建；不在用户的网站目录里调用 Bukit，网站目录不会出现 `dist/`。M2 第 4 层已实现到 `config check`，预览构建随第 6 层（构建与预览托管）接入；结果存在 `sites` 表（迁移 002：`read_only_reasons`、`checked_commit`、`config_check`，后者为 `ok` / `failed` / `not_run`（找不到可用的 Bukit）/ `notion`）。新建和导入失败时撤销已做的步骤（删除复制的文件或新建的 `.git`）。提交身份存在设置的 `commitName` / `commitEmail`，界面可用 `GET /api/git/identity` 读到的全局 git 身份预填
 6. 如果填写了描述，自动打开第一个会话，把描述作为第一条消息发给 AI
 
 ### 5.3 面板数据来源
@@ -607,7 +607,10 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | --- | --- | --- |
 | GET | `/api/sites` | 网站列表 |
 | POST | `/api/sites` | 新建网站 |
-| POST | `/api/sites/import` | 导入已有目录 |
+| POST | `/api/sites/import/inspect` | 导入前检查目录，不做任何修改：是 git 仓库时返回当前分支和只读原因；不是时返回首次提交会包含的文件清单（按排除规则过滤 `.env*`、`node_modules/`、`dist/` 等），含嵌套仓库时拒绝 |
+| POST | `/api/sites/import` | 导入已有目录；不是 git 仓库时需带上 `initGit.files`，必须与用户确认过的清单一致，否则撤销 `git init` 并返回 `site.file_list_changed` |
+| POST | `/api/sites/:siteId/recheck` | 重新执行安全检查（配置白名单、构建前检查、`config check`），用于用户修好只读原因之后 |
+| POST | `/api/sites/:siteId/open` | 记录最近打开时间，返回 204 |
 | GET | `/api/sites/:siteId` | 网站详情（含配置摘要、状态） |
 | PATCH | `/api/sites/:siteId` | 改显示名、归档 |
 | DELETE | `/api/sites/:siteId` | 从 BukitJalil 移除网站：删除工作副本、`refs/bukitjalil/*` 引用和 `.git/info/exclude` 里的 BukitJalil 段落，`git worktree prune`，删除会话和构建记录；**不删除网站目录** |
@@ -634,6 +637,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | GET | `/api/sites/:siteId/builds` | 构建记录 |
 | GET | `/api/settings` / PUT `/api/settings` | 全局设置（含界面语言、上次选择的目录） |
 | GET | `/api/fs/dirs?path=` | 目录选择器：列出 `path` 下一层的子目录名（只有目录，不跟随符号链接），`path` 缺省为主目录；用于新建和导入网站（5.2） |
+| GET | `/api/git/identity` | 全局 git 的 `user.name` / `user.email`，只用来预填设置里的提交身份 |
 | GET | `/api/models` | 可用模型 |
 | PUT | `/api/providers/:provider/key` | 保存 API Key |
 | POST | `/api/providers/:provider/test` | 测试连接 |
@@ -848,7 +852,7 @@ packages/web/src/
 | starter 模板：从 Bukit 源码复制 StarterTheme，补 `theme.yaml`、最小 `site.yaml` 和示例内容，用真实 Bukit 构建通过 | `templates/starter/` |
 | 构建前安全检查 `bukit/guard.ts`（插件、路径字段、网络、环境变量，见 8.5）+ 单元测试 | 检查模块 |
 | 目录选择器（`/api/fs/dirs` + 界面组件，见 5.2）| 新建、导入时选择位置 |
-| 新建网站、导入网站（含不满足安全规则时的"只读"状态，见 5.1；先检查 git 对象再创建检出）、`git/run.ts`（`spawn` 流式读取 + 加固参数 + 参数校验 + 机器可读输出解析）与配置白名单检查（7.3）、`readGlobalIdentity()`、网站列表、归档、移除（删除引用和排除规则段落） | 侧栏网站列表 |
+| 新建网站、导入网站（含不满足安全规则时的"只读"状态，见 5.1；先检查 git 对象再创建检出）、`git/run.ts`（`spawn` 流式读取 + 加固参数 + 参数校验 + 机器可读输出解析）与配置白名单检查（7.3）、`readGlobalIdentity()`、网站列表、归档、移除（删除引用和排除规则段落）、网站操作锁（同一网站已有操作时返回 409 `site.busy`）。服务端已实现（第 4 层），界面在第 7 层；移除时仓库配置不安全就跳过删除引用和 `worktree prune`，在返回的 `leftovers` 里列出 | 侧栏网站列表 |
 | 文件树（按目录懒加载，读 git 对象）和文件预览（Shiki、Markdown、位图；SVG / HTML / PDF 通过预览端口或下载，见 9.1） | 文件面板 |
 | 配置面板（结构化 + 原文） | 配置面板 |
 | 主题面板、数据面板（Markdown 集合、data 源、Notion 源只显示配置） | 主题、数据面板 |

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { SiteLanguage, SiteName } from "@bukitjalil/shared";
 import { parseDocument } from "yaml";
 
 /**
@@ -15,14 +16,15 @@ export interface StarterValues {
   language: string;
 }
 
-const LANGUAGE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
-
 export function validateStarterValues(values: StarterValues): string | null {
-  const title = values.title.trim();
-  if (title.length === 0 || title.length > 200) return "title must be 1-200 characters";
-  // Control, format (bidi overrides, zero-width) and line/paragraph separator characters.
-  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(title)) return "title must not contain control characters";
-  if (!LANGUAGE.test(values.language)) return "language must be a BCP 47 tag like zh-CN";
+  // The same rules as the API request (shared SiteName / SiteLanguage), so a valid request never fails here.
+  const title = SiteName.safeParse(values.title);
+  if (!title.success) {
+    return title.error.issues.some((i) => i.code === "custom")
+      ? "title must not contain control characters"
+      : "title must be 1-200 characters";
+  }
+  if (!SiteLanguage.safeParse(values.language).success) return "language must be a BCP 47 tag like zh-CN";
   return null;
 }
 

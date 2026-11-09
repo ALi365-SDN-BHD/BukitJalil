@@ -3,8 +3,13 @@ import type { Context, MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { safeEqual } from "./token.ts";
 
-export function apiError(c: Context, status: 400 | 401 | 403 | 404 | 409 | 421 | 500, code: ErrorCode) {
-  return c.json({ code }, status);
+export function apiError(
+  c: Context,
+  status: 400 | 401 | 403 | 404 | 409 | 421 | 500,
+  code: ErrorCode,
+  params?: Record<string, string>,
+) {
+  return c.json(params && Object.keys(params).length > 0 ? { code, params } : { code }, status);
 }
 
 /** Reject any Host other than the listed ones (DNS rebinding, plan 11). */
