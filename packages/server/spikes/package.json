@@ -1,0 +1,9 @@
+{
+  "name": "@bukitjalil/spikes",
+  "private": true,
+  "type": "module",
+  "description": "M1 technical spikes; not part of the app build",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.0"
+  }
+}

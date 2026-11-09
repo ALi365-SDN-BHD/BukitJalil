@@ -83,7 +83,7 @@ Pi 的工作方式（模型请求、工具执行、会话树、技能、扩展�
 
 ## 🧰 技术栈
 
-全部使用 TypeScript，开发统一用 Node 24 LTS（最低 22.19）、pnpm 12.18.0、TypeScript 7.0.2、Bukit 2.0.8。服务端和界面分开，先做本地 Web 应用（支持 macOS 和 Linux），以后再用 Electron 套成桌面版。每个依赖的固定版本见[开发方案 · 固定技术栈](docs/development-plan.md#2-固定技术栈)。
+全部使用 TypeScript，开发统一用 Node 24 LTS（最低 22.19）、pnpm 12.18.0、TypeScript 7.0.2、Bukit 2.0.11。服务端和界面分开，先做本地 Web 应用（支持 macOS 和 Linux），以后再用 Electron 套成桌面版。每个依赖的固定版本见[开发方案 · 固定技术栈](docs/development-plan.md#2-固定技术栈)。
 
 | 部分 | 技术 | 说明 |
 | --- | --- | --- |
