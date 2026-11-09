@@ -1,8 +1,8 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v1.1（2026-11-09，已按第一轮评审修改） · 分支：`pi-harness-ui` · 状态：待确认
+> 版本：v1.3（2026-11-09，已按评审和两轮审计修改） · 分支：`pi-harness-ui` · 状态：待确认
 >
-> 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自本机安装的 Pi 1.4.0 文档、npm 仓库和 Bukit 仓库（v2.0.8）；"待验证"的内容需要在对应里程碑的技术验证里确认。
+> 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.8 的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
 ## 目录
 
@@ -36,7 +36,7 @@
 | 包含 | 不包含 |
 | --- | --- |
 | 本地单用户 Web 应用（只监听 127.0.0.1） | 多用户、远程访问、账号体系 |
-| 新建网站（基于 Bukit starter 主题）、导入已有 Bukit 网站 | 克隆其他网站、HTML 导入（Bukit 也未支持） |
+| 新建网站（基于从 Bukit 源码复制的 starter 主题）、导入已有 Bukit 网站 | 克隆其他网站、HTML 导入（Bukit 也未支持） |
 | 每个网站多个 AI 会话：对话、流式输出、恢复、分叉 | 子代理、计划模式 |
 | 只读面板：文件、配置、主题、数据、改动、预览 | 可视化编辑器、直接改文件 |
 | 改动审核：差异、应用、拒绝、版本历史、恢复 | 按代码块部分应用（放到后续版本） |
@@ -62,7 +62,7 @@
 | Node.js | **24 LTS**（`engines: ">=22.19.0"`） | Pi SDK 要求 ≥ 22.19。开发统一用 24 LTS；Node 22 在 2027-04-30 停止维护，本机现在是 22.22.3，可以运行但建议升级 |
 | pnpm | **12.18.0** | 写进根 `package.json` 的 `packageManager` 字段，由 corepack 自动使用（本机是 10.5.0，执行 `corepack enable` 即可） |
 | TypeScript | **7.0.2** | 只用来做类型检查（`tsc --noEmit`），打包和运行由 Vite / tsx 负责。TypeScript 7 是 Go 重写的版本，部分旧 tsconfig 选项已移除；M0 确认与 Vite、Vitest、Biome、shadcn 配合正常，不行就退回 TypeScript 6 最新版 |
-| Bukit | **2.0.8** | .NET Native AOT 单文件程序，官方提供 osx-arm64、linux-x64、win-x64 |
+| Bukit | **2.0.8** | .NET Native AOT 单文件程序，官方提供 osx-arm64、linux-x64、win-x64（没有 Intel Mac 版，见 8.1） |
 
 ### 2.2 服务端（`packages/server`）
 
@@ -104,7 +104,7 @@
 | `vitest` | 5.1.0 | 单元测试、服务端集成测试 |
 | `@playwright/test` | 1.65.0 | 端到端测试 |
 | `@biomejs/biome` | 2.6.6 | 代码格式化和检查（替代 ESLint + Prettier） |
-| `@types/node` | 24.x | Node 类型，与 Node 24 对齐 |
+| `@types/node` | 24.19.2 | Node 类型，与 Node 24 对齐 |
 | `electron` | 45.2.3 | M7 桌面版才引入 |
 
 ---
@@ -117,13 +117,13 @@
 浏览器（packages/web）
   │  REST（JSON）  +  SSE（会话事件、构建事件）
   ▼
-本地服务（packages/server，Hono，127.0.0.1:47880）
+本地服务（packages/server，Hono；管理界面与 API 127.0.0.1:47880，预览 127.0.0.1:47881）
   ├─ api/            路由、请求校验、SSE
   ├─ sites/          网站项目：创建、导入、读取配置/主题/文件/数据
   ├─ agent/          Pi SDK：会话管理、建站工具、权限闸门、技能加载
   ├─ changes/        改动集：工作树、差异、应用、拒绝、历史、恢复
   ├─ bukit/          Bukit 程序管理与调用：check、doctor、build、报告解析
-  ├─ preview/        构建结果的静态托管
+  ├─ preview/        构建结果的静态托管（独立端口 47881，CSP sandbox）
   ├─ store/          SQLite（系统数据）
   └─ settings/       模型、密钥、Bukit 路径
   │
@@ -157,7 +157,7 @@ BukitJalil/
 
 - 开发：`pnpm dev` 同时启动 server（tsx watch）和 web（Vite，代理 `/api` 到 server）
 - 生产：`pnpm build` 后 server 直接托管 web 的静态文件，一个进程一个端口，`pnpm start` 启动并打开浏览器
-- 默认端口 47880，被占用时报错并提示 `--port`
+- 默认端口：管理界面和 API 用 47880，预览用 47881（和管理界面隔离，见 8.4）；被占用时报错并提示 `--port` / `--preview-port`
 
 ---
 
@@ -188,8 +188,9 @@ BukitJalil/
 
 要点：
 
-- 网站目录保持"纯 Bukit 项目"，不放 BukitJalil 私有文件，离开 BukitJalil 也能用 `bukit build` 构建
-- 会话、工作副本、构建输出都放在应用数据目录，删除应用数据不会损坏网站
+- 网站目录的**工作区**保持"纯 Bukit 项目"，不放 BukitJalil 私有文件，离开 BukitJalil 也能用 `bukit build` 构建
+- BukitJalil 在网站的 `.git` 里会留下两类记录：工作副本登记（`.git/worktrees/ai`、`.git/worktrees/main`）和排除规则（`.git/info/exclude`）。它们不影响网站内容，也不会被提交
+- 会话、工作副本、构建输出都放在应用数据目录，删除应用数据不会损坏网站内容；但网站 `.git` 里会留下失效的工作副本登记，执行 `git worktree prune` 即可清理。BukitJalil 提供"从 BukitJalil 移除网站"操作，会先删除工作副本并清理这些登记
 
 ### 4.2 SQLite 表
 
@@ -197,7 +198,7 @@ BukitJalil/
 | --- | --- | --- |
 | `sites` | `id`, `name`, `path`, `default_branch`, `created_at`, `last_opened_at`, `archived` | 网站列表；`path` 是网站目录绝对路径；`default_branch` 是网站的正式分支（新建为 `main`，导入时读取当前默认分支） |
 | `sessions` | `id`, `site_id`, `pi_session_file`, `title`, `created_at`, `updated_at`, `status` | 会话索引；正文在 Pi 的 JSONL 里 |
-| `change_sets` | `id`, `site_id`, `session_id`, `base_commit`, `worktree_path`, `branch`, `status`, `summary`, `created_at`, `resolved_at`, `result_commit` | 改动集，状态：`open` / `applied` / `rejected` / `stale` |
+| `change_sets` | `id`, `site_id`, `session_id`, `base_commit`, `branch`, `status`, `summary`, `created_at`, `resolved_at`, `result_commit` | 改动集，状态：`open` / `applied` / `rejected` / `stale` |
 | `builds` | `id`, `site_id`, `change_set_id`, `commit`, `kind`, `status`, `exit_code`, `output_dir`, `report_json`, `started_at`, `finished_at` | 构建记录；`kind`：`check` / `doctor` / `build` |
 | `settings` | `key`, `value_json` | 全局设置：默认模型、思考级别、Bukit 路径 |
 | `schema_migrations` | `version`, `applied_at` | 数据库迁移 |
@@ -219,7 +220,7 @@ BukitJalil/
 ### 5.2 新建网站
 
 1. 用户在界面填写：网站名、目录位置、主语言、可选的一句话描述
-2. 服务端把 `templates/starter/` 复制到目标目录（包含 `site.yaml`、`content/`、`themes/starter/`，基于 Bukit 官方最小配置）
+2. 服务端把 `templates/starter/` 复制到目标目录（包含 `site.yaml`、`content/`、`themes/starter/`）。Bukit 没有"生成初始网站"的命令，官方 starter 主题只以资源文件形式嵌在 CLI 源码里（`src/Bukit-Core/Bukit.Cli/Resources/StarterTheme/`，MIT 协议）。BukitJalil 从 v2.0.8 复制这些模板，补上 `theme.yaml` 和最小内容，作为自己维护的模板，并记录来源 commit
 3. 用表单值替换 `site.name`、`site.title`、`site.language`
 4. `git init`、首次提交 "Initial site from BukitJalil starter"
 5. 执行 `bukit config check` 和 `bukit build`，确认可以构建
@@ -282,16 +283,22 @@ BukitJalil/
 
 **权限闸门**（内联扩展的 `tool_call` 处理器，失败即阻止）：
 
-- `edit` / `write` 的目标路径必须解析到工作副本内（`realpath` 后比较，防符号链接逃逸）
-- 禁止写：`.git/**`、`dist/**`、`.bukit/**`、`node_modules/**`、任何以 `.env` 开头的文件
-- `read` 允许整个工作副本，但拒绝 `.git/**`
+- **所有带路径参数的工具**（`read`、`grep`、`find`、`ls`、`edit`、`write`）的路径都必须解析到工作副本内；不传路径时默认就是工作副本根目录。读也要限制：否则 AI 可以读到 `~/.bukitjalil/pi/auth.json`（模型密钥）、`~/.ssh` 等，再借提示词注入写进网站文件带出去
+- 路径解析：相对路径以工作副本为基准；已存在的路径取 `realpath`；不存在的路径（新建文件）逐级找到最近的已存在上级目录取 `realpath`，再拼回剩余部分；最终结果必须以工作副本的 `realpath` 加路径分隔符开头（防符号链接和 `..` 逃逸）
+- 禁止读写：`.git` 和 `.git/**`（工作副本里的 `.git` 是指向网站仓库的文件）
+- 禁止写：`dist/**`、`.bukit/**`、`.cache/**`、`.bukitjalil-build/**`、`node_modules/**`、任何以 `.env` 开头的文件
+- 禁止写插件相关文件：`plugins/**` 以及任何 `plugin.yaml` / `plugin.json`（Bukit 示例清单位于 `plugins/<name>/plugin.yaml`，M1 根据源码确认完整约定）；`site.yaml` 的插件配置在构建前另行检查（见 8.5）
+- 除路径参数外，`grep` / `find` 的 glob、include 等模式参数同样校验：不能是绝对路径、不能含 `..`
+- 自定义工具只接受集合名、语言代码等受限参数，不接受任意路径；有路径参数的（如以后的素材工具）走同一个解析函数
 - 单个文件写入上限 1 MB；二进制文件不允许 AI 写入（图片等素材走后续的"上传素材"功能）
+- 闸门本身有完整单元测试：绝对路径、`..`、符号链接（指向外部的文件和目录）、大小写变体、`.git` 文件、新建深层目录
 
 ### 6.4 技能与提示
 
 - **Bukit 官方技能**：Bukit 仓库 `guide/skills/` 下已有 14 个面向 AI 的技能（`using-bukit`、`bukit-config`、`bukit-content`、`bukit-theme`、`bukit-templating`、`bukit-i18n`、`bukit-seo`、`bukit-geo` 等）。按 Bukit 2.0.8 对应的版本复制到 `skills/bukit/`，记录来源 commit，升级 Bukit 时同步
 - **BukitJalil 技能**（`skills/bukitjalil/`）：
-  - `site-editing`：工作规则——只改网站文件；改完先 `bukit_check`，再 `bukit_build`；最后调用 `summarize_changes`
+  - `site-editing`：工作规则——只改网站文件；改完先 `bukit_check`，再 `bukit_build`；最后调用 `summarize_changes`。**同时说明命令和工具的对应关系**：Bukit 官方技能里写的是 `bukit config check`、`bukit doctor`、`bukit build` 等命令，而 AI 没有执行命令的工具，要改用 `bukit_check`、`bukit_build`、`bukit_schema`；官方技能里涉及 `dev`、`preview`、`deploy`、插件和 Labs 的部分由 BukitJalil 处理，AI 不要尝试
+  - 复制官方技能时去掉 Labs 相关内容，并在每个技能开头加一行说明上述对应关系
   - `content-writing`：公司介绍、服务页、首屏文案、FAQ、SEO 标题描述、按主题写文章的写法和 frontmatter 约定
   - `multilingual`：按 `site.languages` 生成和对齐多语言内容
 - **系统提示**：自定义 `getSystemPrompt()`，说明身份（BukitJalil 建站助手）、当前网站名和路径、可用工具、"不要执行命令、不要改网站目录以外的东西"、回答用用户的语言
@@ -307,8 +314,8 @@ BukitJalil/
 
 - [ ] `customTools` 和内联扩展的 `tool_call` 阻止在 SDK 1.5.0 里的确切写法
 - [ ] 自定义 `ResourceLoader` 加载目录形式的技能
-- [ ] 会话文件放在自定义目录（`SessionManager` 的路径参数）以及分叉 API
-- [ ] 工作副本被 `git reset` 到新提交后，同一个会话文件继续使用是否正常（cwd 不变，但文件内容变了）
+- [x] 会话文件放在自定义目录：已核对 1.5.0 类型定义，`SessionManager.create(cwd, sessionDir)`、`SessionManager.open(path, sessionDir, cwdOverride)`、`SessionManager.forkFrom(sourcePath, targetCwd, sessionDir)` 都支持；实际行为在 M1 跑通
+- [ ] 工作副本切到新分支后，同一个会话文件继续使用是否正常（cwd 不变，但文件内容变了）；必要时用 `open()` 的 `cwdOverride` 固定工作目录
 - [ ] `agent_settled`、`tool_execution_*` 事件字段，用于界面显示工具调用
 
 ---
@@ -339,12 +346,14 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
         ▼              ▼              ▼
      应用            拒绝           继续对话
         │              │              │
-  在工作副本提交      丢弃工作副本改动   回到 AI 修改
+  在工作副本提交      丢弃改动并 detach  回到 AI 修改
   main 快进合并      删除分支
   （main 已前进则     状态 rejected
    先 rebase，有冲突
    标记 stale）
-  删除分支，工作副本留着复用
+  工作副本 git switch --detach
+  （分支正被检出时 git 不允许删除）
+  再删除分支，工作副本留着复用
   状态 applied
 ```
 
@@ -352,7 +361,9 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
 - **排除规则**：创建工作副本时，在网站仓库的 `.git/info/exclude` 写入 `dist/`、`.bukit/`、`.cache/`、`.bukitjalil-build/`，保证 Bukit 的构建产物和缓存不会出现在差异里，也不需要改用户的 `.gitignore`
 - **提交身份**：提交信息为 `summarize_changes` 的说明 + 会话 ID；作者固定为 `BukitJalil AI <ai@bukitjalil.local>`；提交者用网站仓库或全局的 git 身份，没有配置时使用设置页里填写的身份，首次启动引导里会要求填写（只写入 BukitJalil 设置，通过 `-c user.name/-c user.email` 传给 git，不改用户的 git 配置）
 - 应用前自动跑一次 `bukit_check`；失败时允许用户坚持应用，但要明确提示
-- **合入方式**：在网站目录里执行 `git merge --ff-only bj/change/<changeId>`。网站目录有未提交的改动（比如用户在 BukitJalil 外手动改过）时拒绝合入，提示用户先处理，不覆盖任何东西
+- **合入方式**：在网站目录里执行 `git merge --ff-only bj/change/<changeId>`。合入前检查两件事，任一不满足就拒绝并提示用户先处理，不覆盖任何东西：
+  - 网站目录当前检出的分支就是 `sites.default_branch`（用户可能在 BukitJalil 外切到了别的分支，直接 merge 会合进错误的分支）
+  - 网站目录没有未提交的改动（比如用户在 BukitJalil 外手动改过）
 
 ### 7.3 版本历史与恢复
 
@@ -368,7 +379,8 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
 
 - 首次启动检查：设置里的自定义路径 → `~/.bukitjalil/bin/bukit-2.0.8/` → 系统 `PATH` 里的 `bukit`
 - 都没有时，界面提示从 Bukit GitHub Release v2.0.8 下载对应平台的包（需用户确认），解压到 `~/.bukitjalil/bin/`
-- 完整性校验：M1 确认 Release 是否附带校验文件；有就校验，没有就由 BukitJalil 在代码里固定三个平台安装包的 SHA-256（首次下载时人工核对后写入），下载后比对
+- 完整性校验：v2.0.8 的 Release 附带 `checksums.txt` 和 `checksums.json`（已核对）。BukitJalil 在代码里固定三个平台安装包的 SHA-256（开发时从 `checksums.txt` 核对后写入），下载后比对，不在运行时信任下载来的校验文件
+- 平台：官方只提供 osx-arm64、linux-x64、win-x64，**没有 Intel Mac（osx-x64）和 Linux ARM 版本**。这些平台的用户需要自己编译 Bukit 并在设置里指定路径，界面要给出明确提示
 - 启动时执行 `bukit version`，版本不是 2.0.x 时警告
 
 > Bukit 官方说明常规公开二进制发布已暂停，2.0.8 是当前最新的公开版本。因此固定 2.0.8，同时支持用户指定自己编译的 Bukit 路径。
@@ -384,7 +396,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 - 只用参数数组调用，不经过 shell
 - 默认超时：check / doctor 60 秒，build 5 分钟
 - 退出码映射（已核对 Bukit CLI 文档）：0 成功、1 运行失败、2 参数/配置/内容错误、3 渲染错误
-- `--log-format`：M4 技术验证时确认是否有 JSON 日志格式，有就用于结构化错误
+- `--log-format`：M1 技术验证时确认是否有 JSON 日志格式，有就用于结构化错误
 
 ### 8.3 使用的命令
 
@@ -393,7 +405,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | 配置检查 | `bukit config check --config site.yaml` |
 | 诊断 | `bukit doctor --config site.yaml` |
 | 配置结构 | `bukit config schema --output <tmp>.json` |
-| 构建预览 | `bukit build --config site.yaml --output .bukitjalil-build/<buildId> --base-url /preview/<siteId>/<buildId>/ --no-clean`（在工作副本或网站目录里执行） |
+| 构建预览 | `bukit build --config site.yaml --output .bukitjalil-build/<buildId> --base-url /preview/<siteId>/<buildId>/ --no-clean`（只在 `worktrees/<siteId>/ai/` 或 `worktrees/<siteId>/main/` 里执行，不在用户的网站目录里执行） |
 | SEO / GEO / 发布审计 | `bukit seo audit --dir <out>`、`bukit geo audit --dir <out>`、`bukit publish audit --dir <out>`（M4 以后） |
 | 发布 | `bukit deploy`（M6） |
 
@@ -402,10 +414,30 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 - **输出目录的约束**（已核对 Bukit CLI 文档）：Bukit 的清理逻辑拒绝清理"当前项目以外的路径"和非空且没有输出标记的目录，构建时的清理也走同一套规则。所以不能直接把 `--output` 指向 `~/.bukitjalil/previews/` 并加 `--clean`
 - **做法**：每次构建输出到项目内一个全新的空目录 `.bukitjalil-build/<buildId>/`（已在排除规则里），使用 `--no-clean`；构建成功后把目录整体移动到 `~/.bukitjalil/previews/<siteId>/<buildId>/`；失败也删除临时目录
 - 改动集预览在 `worktrees/<siteId>/ai/` 里构建，正式版本预览在 `worktrees/<siteId>/main/` 里构建，都不在用户的网站目录里产生任何文件
-- 由 BukitJalil 服务端直接托管构建输出：`GET /preview/:siteId/:buildId/*`，不额外启动 `bukit preview` / `bukit dev` 端口
+- 由 BukitJalil 服务端在预览端口托管构建输出：`GET http://127.0.0.1:47881/preview/:siteId/:buildId/*`（同一个 Node 进程的第二个监听端口），不启动 `bukit preview` / `bukit dev`
 - 构建时用 `--base-url` 设成预览路径，保证页面里的链接和资源路径正确（待验证：Bukit 生成的 URL 是否完全遵守 `--base-url`）
 - 界面用 iframe 显示，可以切换"正式版本"和"当前改动集"两份预览
 - 每个网站保留最近 10 次构建输出，旧的自动清理
+- **预览与管理界面隔离**：预览页面的内容来自 AI 生成的网站，必须当作不可信内容。只限制 Cookie 的 `Path` 挡不住它——Cookie 是否携带看请求地址，同源页面里的脚本照样能带着 Cookie 调用 `/api`。所以：
+  - 预览由服务端在**另一个端口**（默认 47881，只监听 127.0.0.1）提供，和管理界面不同源，浏览器的同源策略阻止它读写 `/api`
+  - 预览的每个响应都带 `Content-Security-Policy: sandbox allow-scripts allow-popups`（**不给 `allow-forms`**），即使用户在新标签页直接打开，页面也运行在不透明来源里
+  - iframe 同样加 `sandbox="allow-scripts"`（不给 `allow-same-origin`、`allow-forms`）
+  - **端口不同不等于跨站**：浏览器判断 Cookie 是否同站时不看端口，`127.0.0.1:47881` 发往 `:47880` 的请求照样带 `SameSite=Strict` 的 Cookie。所以光靠换端口挡不住表单提交、`<img>` 之类的跨端口请求，管理端 API 必须自己防跨站请求（见 11 节"跨站请求"）
+
+### 8.5 构建前的安全检查
+
+网站的 `site.yaml`、主题和内容都可能由 AI 写成：改动集里的是还没审核的 AI 内容，正式版本里的也是 AI 写、用户审核通过的内容（审核时可能漏看一行配置）。所以**不论谁触发、构建哪个版本，所有 Bukit 调用（check、doctor、build、审计、发布）之前都先做同一套检查**，不通过就拒绝并说明原因（AI 触发时原因返回给 AI）：
+
+- **插件**：Bukit Core 有插件宿主，能按清单启动外部进程（源码里有 `Bukit.PluginHost`、`IPluginProcessInvoker`；示例清单位于 `plugins/<name>/plugin.yaml`）。因此：
+  - `site.plugins` 只允许 Bukit Core 内置插件（白名单 M1 根据 2.0.8 源码确定，例如 `analytics`）
+  - 项目里存在 `plugins/` 目录或任何插件清单文件时拒绝构建
+  - AI 不能写 `plugins/**`（见 6.3）
+- **路径字段**：`site.yaml` 里所有表示路径的字段都必须解析到当前检出目录内，不能是绝对路径、不能含 `..`、不能经由符号链接指向外部。至少包括 `content.sources[].markdown.dir`、`content.sources[].notion.cacheDir`、`content.media.downloadDir`、`build.output`、`theme.name`（对应 `themes/<name>`）、`theme.layouts`、`theme.assets`、`theme.static`、`theme.staticTemplate`、`theme.components.*.template`、`theme.scss.entryPoint`、`theme.scss.outputDir`；完整清单 M1 从 `bukit config schema` 输出里逐个字段整理（Bukit 文档只对 `content.media.downloadDir` 明确说会拒绝越界路径，其他字段不能依赖 Bukit 自己检查）
+- **网络**：`content.media.blockPrivateNetworks` 必须为 `true`（防止构建时访问本机和内网服务）；M1 确认是否需要进一步关闭 `downloadToLocal`
+- **SCSS 等编译选项**：M1 确认 `theme.scss` 是否调用外部程序；如果会，强制关闭或拒绝
+- **环境变量**：默认只传最小环境（`PATH`、`HOME`、`LANG`）。`NOTION_TOKEN` 等密钥**只在用户手动构建正式版本或发布时**传入；改动集预览（还没审核的 AI 内容）不论谁触发都不传密钥
+
+检查逻辑放在 `packages/server/src/bukit/guard.ts`，配一套单元测试（每个路径字段的越界用例、插件、网络开关）。
 
 ---
 
@@ -524,10 +556,15 @@ packages/web/src/
 | --- | --- |
 | 本机其他网页调用本地服务 | 只监听 127.0.0.1；校验 `Host`（防 DNS 重绑定）和 `Origin`；启动时生成随机 token，用 `http://127.0.0.1:47880/?token=…` 打开浏览器，服务端校验后设置 `HttpOnly; SameSite=Strict; Path=/api` 的 Cookie，并重定向到不带 token 的地址；所有 `/api` 请求必须带这个 Cookie。重启服务会换 token，终端里打印新的打开地址 |
 | AI 越权写文件 | 工具白名单 + 路径闸门（6.3）+ 只改工作副本 + 人工审核 |
-| AI 执行命令 | 不开放 `bash`；Bukit 只通过固定参数的自定义工具调用 |
+| AI 执行命令 | 不开放 `bash`；Bukit 只通过固定参数的自定义工具调用；所有构建前检查插件和编译选项（8.5） |
 | 路径穿越（文件接口） | 所有路径参数 `realpath` 后必须在网站目录或工作副本内 |
 | 密钥泄露 | 密钥只存在 `~/.bukitjalil/pi/auth.json`（600 权限），不进数据库、不进日志、不返回浏览器；Notion Token 只通过环境变量传给 Bukit |
-| 预览页面脚本 | iframe 加 `sandbox="allow-scripts"`（不给 `allow-same-origin`）；API Cookie 限定 `Path=/api`，预览路由 `/preview/*` 拿不到 |
+| 预览页面脚本（AI 写的 JS） | 预览在另一个端口提供（不同源）+ 响应头 `CSP: sandbox`（不含 `allow-forms`）+ iframe `sandbox`（见 8.4） |
+| 跨站请求（预览页或其他网页向 API 发表单、图片请求等） | Cookie 不按端口隔离，所以 API 自己防护：① 所有非 GET 请求的 `Origin` 必须**完全等于**管理界面地址（`http://127.0.0.1:47880`），缺失或为 `null` 一律拒绝；② 非 GET 请求必须是 `Content-Type: application/json` 并带自定义请求头 `X-BukitJalil: 1`（普通表单发不出这种请求，跨源时会触发预检，而服务端不允许任何跨源预检）；③ 所有 GET 接口都没有副作用；④ 服务端不返回任何 `Access-Control-Allow-*` 头 |
+| AI 读取密钥或系统文件 | 读类工具同样受路径闸门限制，只能访问工作副本（见 6.3） |
+| AI 借 Bukit 插件 / 编译选项间接执行代码 | 所有构建前检查插件和编译选项，AI 不能写 `plugins/**`（见 6.3、8.5） |
+| AI 借 `site.yaml` 路径字段或远程素材读取工作副本外的文件、访问内网 | 所有构建前校验路径字段必须在检出目录内，强制 `blockPrivateNetworks: true`（见 8.5） |
+| 密钥进入未审核内容的构建 | 只有用户手动构建正式版本或发布时才传密钥（见 8.5） |
 | 提示词注入（网站内容里夹带指令） | AI 能力本身受限；所有改动必须人工审核 |
 
 ---
@@ -536,11 +573,11 @@ packages/web/src/
 
 | 层级 | 工具 | 覆盖 |
 | --- | --- | --- |
-| 单元 | Vitest | `shared` 的 schema；`server` 的路径闸门、`site.yaml` 解析、差异解析、Bukit 退出码映射 |
+| 单元 | Vitest | `shared` 的 schema；`server` 的路径闸门（读写工具、glob 参数）、构建前安全检查 `bukit/guard.ts`（插件、每个路径字段、网络开关、环境变量）、防跨站请求中间件、`site.yaml` 解析、差异解析、Bukit 退出码映射 |
 | 服务端集成 | Vitest + 临时目录 | 真实 git：创建网站、工作树、应用 / 拒绝 / 恢复；Bukit 用假程序（脚本模拟输出和退出码） |
 | Pi 集成 | Vitest + 假模型 | 用 Pi 的自定义提供商注册一个脚本化的假模型，按剧本返回工具调用，验证工具和闸门，不花钱、结果稳定 |
 | 真实 Bukit | Vitest（标记 `@bukit`，CI 可选） | 用真实 Bukit 2.0.8 构建 starter 模板 |
-| 端到端 | Playwright | 新建网站 → 对话（假模型）→ 审核 → 应用 → 构建 → 预览；拒绝流程；恢复流程 |
+| 端到端 | Playwright | 新建网站 → 对话（假模型）→ 审核 → 应用 → 构建 → 预览；拒绝流程；恢复流程；**安全用例**：预览页里的恶意脚本 / 自动提交表单 / 图片请求无法调用管理端 API，新标签页直接打开预览同样无效 |
 | 真实模型验收 | 手动脚本（`scripts/accept-real-model.ts`） | 每个里程碑结束跑一次，用真实模型完成一个建站任务 |
 
 覆盖率目标：`server` 核心模块（agent 闸门、changes、bukit）行覆盖 ≥ 80%。
@@ -560,60 +597,64 @@ packages/web/src/
 
 ## 14. 实施计划
 
-估算按一名开发者（配合 AI 编程）计，单位为工作日，含测试。总计约 **24–31 个工作日**完成 MVP（M0–M5），不含 M6、M7。
+估算按一名开发者（配合 AI 编程）计，单位为工作日，含测试。总计约 **28–36 个工作日**完成 MVP（M0–M5），不含 M6、M7。两轮评审新增的安全工作（防跨站请求、预览隔离、构建前检查、路径校验）已计入 M0–M3。
 
-### M0 工程骨架（2–3 天）
+### M0 工程骨架（3–4 天）
 
 | 任务 | 产出 |
 | --- | --- |
 | pnpm workspace、三个包、tsconfig、Biome | 能 `pnpm install`、`pnpm check` |
 | server：Hono 启动、`/api/health`、静态托管 web | `pnpm dev` 打开页面 |
 | web：Vite + React + Tailwind + shadcn 初始化，三栏空布局 | 可拖动三栏 |
-| 安全基础：127.0.0.1、Host/Origin 校验、token Cookie | 外部来源请求被拒 |
+| 安全基础：127.0.0.1、Host 校验、token Cookie、防跨站请求（Origin 完全匹配、JSON + 自定义头、无 CORS，见 11 节）、预览端口骨架（CSP sandbox） | 外部来源和跨端口表单请求被拒 |
 | SQLite 与迁移机制 | `app.db` 自动创建 |
 | 确认 TypeScript 7.0.2 与 Vite、Vitest、Biome、shadcn 兼容 | 不兼容则退回 TypeScript 6 并更新本文 |
 | CI 工作流 | PR 自动检查 |
 
 **验收**：`pnpm dev` 打开三栏空界面；`/api/health` 报告 git 可用；CI 通过。
 
-### M1 技术验证（2–3 天）
+### M1 技术验证（3–4 天）
 
 在 `packages/server/spikes/` 写最小验证脚本，逐项确认 6.6 和 8.2、8.4 的待验证项：
 
 - Pi SDK：自定义 agentDir、ResourceLoader 加载技能、自定义工具、`tool_call` 阻止、会话文件路径、分叉、事件字段、假模型提供商
-- Bukit：在 macOS 上运行 2.0.8；`--output` 指向项目内新空目录 + `--no-clean` 能正常构建；`--base-url` 预览路径；`--log-format` 选项；`config schema` 输出；Release 是否附带校验文件
+- Bukit：在 macOS 上运行 2.0.8；`--output` 指向项目内新空目录 + `--no-clean` 能正常构建；`--base-url` 预览路径；`--log-format` 选项；`config schema` 输出；用 `checksums.txt` 核对三个平台安装包
+- Bukit 安全面（8.5）：Core 内置插件清单；是否加载项目内的外部插件、插件清单的文件名约定、插件能否启动进程；`site.yaml` 每个路径字段对绝对路径、`..`、符号链接的处理（从 `bukit config schema` 整理完整字段清单）；`theme.scss` 是否调用外部程序；`content.media` 的联网行为和 `blockPrivateNetworks`
+- 预览隔离与防跨站：第二端口 + `CSP: sandbox`（无 `allow-forms`）下，预览页的脚本、表单、图片请求都无法让管理端 API 产生副作用（写恶意测试页验证）
 - git：同一仓库两个固定工作树（`ai/`、`main/`）的创建、重置、复用；`.git/info/exclude` 对工作树生效
 
 **验收**：每一项都有可运行的脚本和结论，更新本文档"待验证"清单；如有不可行项，在进入 M2 前调整设计。
 
-### M2 网站项目与只读面板（5–6 天）
+### M2 网站项目与只读面板（6–8 天）
 
 | 任务 | 产出 |
 | --- | --- |
 | Bukit 程序检测、下载（需确认）、版本检查 | 设置页显示 Bukit 状态 |
-| starter 模板（基于 Bukit 最小配置 + starter 主题） | `templates/starter/` |
+| starter 模板：从 Bukit 源码复制 StarterTheme，补 `theme.yaml`、最小 `site.yaml` 和示例内容，用真实 Bukit 构建通过 | `templates/starter/` |
+| 构建前安全检查 `bukit/guard.ts`（插件、路径字段、网络、环境变量，见 8.5）+ 单元测试 | 检查模块 |
 | 新建网站、导入网站、网站列表、归档 | 侧栏网站列表 |
 | 文件树和文件预览（Shiki、Markdown、图片、PDF） | 文件面板 |
 | 配置面板（结构化 + 原文） | 配置面板 |
 | 主题面板、数据面板（Markdown 集合、data 源、Notion 源只显示配置） | 主题、数据面板 |
-| 构建（main）与预览托管 | 预览面板 |
+| 构建（main）与预览托管（独立预览端口 + CSP sandbox） | 预览面板 |
 
 **验收**：能新建一个网站并构建预览；能导入一个已有 Bukit 网站；六个面板中除"改动"外都能正常显示；全程没有编辑入口。
 
-### M3 AI 会话（6–8 天）
+### M3 AI 会话（7–9 天）
 
 | 任务 | 产出 |
 | --- | --- |
 | agent 模块：会话管理、ResourceLoader、系统提示、模型运行时 | 能创建 AgentSession |
 | 建站工具：`site_info`、`bukit_check`、`bukit_build`、`bukit_schema`、`list_content`、`summarize_changes` | 自定义工具 |
-| 权限闸门 + 单元测试（含符号链接、`..`、`.git` 等用例） | 闸门测试全过 |
+| 权限闸门 + 单元测试（读写工具都覆盖；含绝对路径、符号链接、`..`、`.git`、新建深层目录等用例） | 闸门测试全过 |
+| `bukit_check` / `bukit_build` 接入 M2 的构建前检查，改动集构建不传密钥（见 8.5） | AI 构建受检查 |
 | 技能打包：同步 Bukit 官方技能，编写 BukitJalil 技能 | `skills/` |
 | SSE 事件流、断线重连 | 事件接口 |
 | 界面：会话列表、消息流、流式输出、工具卡片、停止、steer / followUp | 对话界面 |
 | 会话恢复、重命名、删除、分叉 | 会话管理 |
 | 设置：模型选择、API Key、测试连接 | 设置页 |
 
-**验收**：用真实模型说"把首页标题改成 X，并加一个 FAQ 页面"，AI 只在工作副本里修改并通过检查；尝试让 AI 改网站目录外的文件会被阻止；刷新页面后会话可以恢复。
+**验收**：用真实模型说"把首页标题改成 X，并加一个 FAQ 页面"，AI 只在工作副本里修改并通过检查；尝试让 AI 读或改工作副本以外的文件（包括 `~/.bukitjalil/pi/auth.json`）会被阻止；在 `site.yaml` 里加入非内置插件后 AI 的构建会被拒绝；刷新页面后会话可以恢复。
 
 ### M4 改动审核与版本（5–6 天）
 
@@ -655,7 +696,7 @@ packages/web/src/
 
 ```text
 M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 ─► M4 审核与版本 ─► M5 MVP
- 2–3d        2–3d           5–6d            6–8d          5–6d            4–5d
+ 3–4d        3–4d           6–8d            7–9d          5–6d            4–5d
                                                                             │
                                                      M6 GitHub Pages ◄──────┤
                                                      M7 桌面版      ◄───────┘
