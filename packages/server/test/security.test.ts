@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADMIN, jsonPut, makeApp, req, TOKEN } from "./helpers.ts";
+import { ADMIN, COOKIE, jsonPut, makeApp, req, TOKEN } from "./helpers.ts";
 
 describe("admin port security (plan 11)", () => {
   it("rejects a foreign Host with 421 (DNS rebinding)", async () => {
@@ -21,26 +21,63 @@ describe("admin port security (plan 11)", () => {
     const { app } = makeApp();
     const res = await app.request(req("/api/health", { cookie: false }));
     expect(res.status).toBe(401);
+    expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await res.json()).toEqual({ code: "auth.required" });
-    const wrong = await app.request(req("/api/health", { cookie: false, headers: { cookie: "bj_session=nope" } }));
+    const wrong = await app.request(req("/api/health", { cookie: false, headers: { cookie: `${COOKIE}=nope` } }));
     expect(wrong.status).toBe(401);
   });
 
   it("token login sets an HttpOnly, SameSite=Strict, /api-scoped cookie and drops the token from the URL", async () => {
     const { app } = makeApp();
     const bad = await app.request(req("/?token=wrong", { cookie: false }));
-    expect(bad.status).toBe(403);
+    expect(bad.status).toBe(303);
+    expect(bad.headers.get("location")).toBe("/");
     expect(bad.headers.get("set-cookie")).toBeNull();
 
     const ok = await app.request(req(`/?token=${TOKEN}`, { cookie: false }));
     expect(ok.status).toBe(303);
     expect(ok.headers.get("location")).toBe("/");
     const cookie = ok.headers.get("set-cookie") ?? "";
-    expect(cookie).toMatch(/^bj_session=/);
+    expect(cookie).toMatch(new RegExp(`^${COOKIE}=`));
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Strict");
     expect(cookie).toContain("Path=/api");
     expect(cookie).not.toContain(TOKEN);
+  });
+
+  it("accepts each login token once; a newly issued token replaces the previous one", async () => {
+    const { app, loginToken } = makeApp();
+    const first = await app.request(req(`/?token=${TOKEN}`, { cookie: false }));
+    expect(first.headers.get("set-cookie")).not.toBeNull();
+    const again = await app.request(req(`/?token=${TOKEN}`, { cookie: false }));
+    expect(again.status).toBe(303);
+    expect(again.headers.get("set-cookie")).toBeNull();
+
+    const older = loginToken.issue();
+    const newer = loginToken.issue();
+    expect((await app.request(req(`/?token=${older}`, { cookie: false }))).headers.get("set-cookie")).toBeNull();
+    expect((await app.request(req(`/?token=${newer}`, { cookie: false }))).headers.get("set-cookie")).not.toBeNull();
+  });
+
+  it("ignores a session cookie set for another admin port", async () => {
+    const { app } = makeApp();
+    const res = await app.request(req("/api/health", { cookie: false, headers: { cookie: `bj_session_47980=x` } }));
+    expect(res.status).toBe(401);
+  });
+
+  it("answers unexpected errors with a code and logs the details", async () => {
+    const lines: Record<string, unknown>[] = [];
+    const { app } = makeApp({
+      checkGit: async () => {
+        throw new Error("boom");
+      },
+      logger: { log: (level, event, fields) => lines.push({ level, event, ...fields }) },
+    });
+    const res = await app.request(req("/api/health"));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ code: "server.internal" });
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(lines).toEqual([expect.objectContaining({ level: "error", event: "request.failed", error: "boom" })]);
   });
 
   it("sends anti-framing and CSP headers on every response, including errors", async () => {

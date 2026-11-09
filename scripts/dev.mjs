@@ -1,15 +1,21 @@
 // `pnpm dev`: start the server (tsx watch) and Vite together (plan 3.3).
-// Vite gets an environment without BUKITJALIL_*_TOKEN and model keys, so it never sees secrets.
+// Vite gets only an allowlisted environment, so it never sees tokens or model keys whatever they are called.
 import { spawn } from "node:child_process";
 
-const SECRET = /^(BUKITJALIL_.*_TOKEN|.*_API_KEY|.*_AUTH_TOKEN|NOTION_TOKEN|GITHUB_TOKEN|GH_TOKEN)$/;
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const VITE_ENV_ALLOWED =
+  /^(PATH|PATHEXT|HOME|USER|LOGNAME|SHELL|LANG|LC_\w+|TZ|TERM|TERM_PROGRAM|COLORTERM|NO_COLOR|FORCE_COLOR|TMPDIR|TMP|TEMP|XDG_\w+|CI|NODE_ENV|PNPM_HOME|COREPACK_HOME|npm_config_\w+|SystemRoot|ComSpec|APPDATA|LOCALAPPDATA|USERPROFILE)$/;
+const LOOKS_SECRET = /token|secret|key|password|passwd|auth|credential/i;
 
-const viteEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !SECRET.test(k)));
+const viteEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([k]) => VITE_ENV_ALLOWED.test(k) && !LOOKS_SECRET.test(k)),
+);
+
+// pnpm is a .cmd shim on Windows, which Node only runs through a shell.
+const pnpm = (args, options) => spawn("pnpm", args, { ...options, shell: process.platform === "win32" });
 
 const children = [
-  spawn(
-    pnpm,
+  // The server owns the terminal's input: tsx watch restarts on Enter and the server prints a new login link.
+  pnpm(
     [
       "--filter",
       "@bukitjalil/server",
@@ -22,12 +28,9 @@ const children = [
       "http://127.0.0.1:47890",
       "--no-open",
     ],
-    {
-      stdio: "inherit",
-      env: { ...process.env, BUKITJALIL_DEV: "1" },
-    },
+    { stdio: "inherit", env: { ...process.env, BUKITJALIL_DEV: "1" } },
   ),
-  spawn(pnpm, ["--filter", "@bukitjalil/web", "dev"], { stdio: "inherit", env: viteEnv }),
+  pnpm(["--filter", "@bukitjalil/web", "dev"], { stdio: ["ignore", "inherit", "inherit"], env: viteEnv }),
 ];
 
 let exiting = false;

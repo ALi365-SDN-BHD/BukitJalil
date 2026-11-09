@@ -7,8 +7,11 @@ export const DEV_WEB_PORT = 47890;
 export const CSRF_HEADER = "x-bukitjalil";
 export const CSRF_HEADER_VALUE = "1";
 
-/** Session cookie set after the one-time token check. */
-export const SESSION_COOKIE = "bj_session";
+/**
+ * Session cookie set after the one-time token check. Browsers share cookies across ports, so the name
+ * carries the admin port: two instances on one machine do not overwrite each other's session.
+ */
+export const sessionCookieName = (adminPort: number) => `bj_session_${adminPort}`;
 
 export const SUPPORTED_LOCALES = ["zh-CN", "en"] as const;
 export const DEFAULT_LOCALE: (typeof SUPPORTED_LOCALES)[number] = "zh-CN";

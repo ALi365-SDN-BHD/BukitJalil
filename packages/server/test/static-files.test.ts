@@ -39,9 +39,15 @@ describe("resolveStaticFile (plan 8.4)", () => {
     }
   });
 
-  it("refuses symlinks to files and directories", () => {
-    expect(resolveStaticFile(root, "/link.txt")).toEqual({ ok: false, status: 403 });
-    expect(resolveStaticFile(root, "/linkdir/secret.txt")).toEqual({ ok: false, status: 403 });
+  it("answers symlinks to files and directories like missing files", () => {
+    expect(resolveStaticFile(root, "/link.txt")).toEqual({ ok: false, status: 404 });
+    expect(resolveStaticFile(root, "/linkdir/secret.txt")).toEqual({ ok: false, status: 404 });
+  });
+
+  it("works when the root itself sits below a symlinked directory", () => {
+    const linked = path.join(path.dirname(root), "via-link");
+    fs.symlinkSync(path.dirname(root), linked);
+    expect(resolveStaticFile(path.join(linked, "site"), "/posts/a/")).toMatchObject({ ok: true });
   });
 
   it("returns 404 for missing files", () => {

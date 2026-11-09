@@ -33,10 +33,10 @@ const en: Messages = {
   },
   settings: {
     language: "Language",
+    saveFailed: "Could not save: {reason}",
   },
   errors: {
-    "auth.required": "Your session has expired. Reopen the URL printed in the terminal.",
-    "auth.bad_token": "This link is invalid or expired",
+    "auth.required": "Your session has expired. Press Enter in the terminal running BukitJalil and open the new link.",
     "request.bad_host": "This address is not allowed",
     "request.bad_origin": "This request origin is not allowed",
     "request.bad_content_type": "Malformed request",

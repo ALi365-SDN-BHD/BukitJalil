@@ -1,4 +1,4 @@
-import { CSRF_HEADER, CSRF_HEADER_VALUE, type ErrorCode, SESSION_COOKIE } from "@bukitjalil/shared";
+import { CSRF_HEADER, CSRF_HEADER_VALUE, type ErrorCode } from "@bukitjalil/shared";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { safeEqual } from "./token.ts";
@@ -23,13 +23,15 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
  * - no CORS: preflights are refused and no Access-Control-* header is ever sent
  * - every request needs the session cookie
  * - non-GET requests need an exact Origin, a JSON body and the custom header
+ * - no API response is cached, errors included
  */
-export function apiGuard(opts: { allowedOrigin: string; sessionValue: string }): MiddlewareHandler {
+export function apiGuard(opts: { allowedOrigin: string; cookieName: string; sessionValue: string }): MiddlewareHandler {
   return async (c, next) => {
+    c.header("Cache-Control", "no-store");
     const method = c.req.method.toUpperCase();
     if (method === "OPTIONS") return apiError(c, 403, "request.cors_not_allowed");
 
-    const cookie = getCookie(c, SESSION_COOKIE);
+    const cookie = getCookie(c, opts.cookieName);
     if (!cookie || !safeEqual(cookie, opts.sessionValue)) return apiError(c, 401, "auth.required");
 
     if (!SAFE_METHODS.has(method)) {
@@ -41,6 +43,5 @@ export function apiGuard(opts: { allowedOrigin: string; sessionValue: string }):
       if (c.req.header(CSRF_HEADER) !== CSRF_HEADER_VALUE) return apiError(c, 403, "request.missing_csrf_header");
     }
     await next();
-    c.header("Cache-Control", "no-store");
   };
 }

@@ -32,10 +32,10 @@ const zhCN = {
   },
   settings: {
     language: "界面语言",
+    saveFailed: "保存失败：{reason}",
   },
   errors: {
-    "auth.required": "登录已失效，请使用终端里打印的地址重新打开",
-    "auth.bad_token": "链接无效或已过期",
+    "auth.required": "登录已失效：在运行 BukitJalil 的终端里按回车，打开新打印的地址",
     "request.bad_host": "请求的地址不被允许",
     "request.bad_origin": "请求来源不被允许",
     "request.bad_content_type": "请求格式不正确",

@@ -21,6 +21,8 @@ const MAX_PORT_ATTEMPTS = 200;
  */
 export class PreviewPool {
   private readonly slots = new Map<string, Slot>();
+  /** Opens in flight, so two calls for one key share one server instead of leaking the first. */
+  private readonly opening = new Map<string, Promise<{ port: number; url: string }>>();
 
   constructor(
     private readonly base: number,
@@ -35,9 +37,21 @@ export class PreviewPool {
       existing.root = root; // atomic switch to the new build
       return { port: existing.port, url: `http://127.0.0.1:${existing.port}/` };
     }
-    const used = new Set([...this.reserved, ...[...this.slots.values()].map((s) => s.port)]);
+    const pending = this.opening.get(key);
+    if (pending) {
+      const opened = await pending;
+      const slot = this.slots.get(key);
+      if (slot) slot.root = root; // the later call wins, as with an existing slot
+      return opened;
+    }
+    const opening = this.bind(key, root).finally(() => this.opening.delete(key));
+    this.opening.set(key, opening);
+    return opening;
+  }
+
+  private async bind(key: string, root: string): Promise<{ port: number; url: string }> {
     for (let port = this.base, attempts = 0; attempts < MAX_PORT_ATTEMPTS; port++) {
-      if (used.has(port)) continue;
+      if (this.reserved.has(port) || [...this.slots.values()].some((s) => s.port === port)) continue;
       attempts++;
       const slot: Slot = { key, port, root, server: http.createServer() };
       slot.server.on("request", (req, res) => this.handle(slot, req, res));

@@ -1,10 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // End-to-end tests against the real server and the built UI (`pnpm build` first).
-// One worker: all projects share one server and its settings.
+// One worker, so each browser project gets one server (worker fixture in e2e/fixtures.ts) on fixed ports.
 export default defineConfig({
   testDir: "e2e",
-  globalSetup: "./e2e/global-setup.ts",
   workers: 1,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

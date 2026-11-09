@@ -6,7 +6,6 @@ import { z } from "zod";
  */
 export const errorCodes = [
   "auth.required",
-  "auth.bad_token",
   "request.bad_host",
   "request.bad_origin",
   "request.bad_content_type",

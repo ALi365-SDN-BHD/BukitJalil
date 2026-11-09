@@ -13,15 +13,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Node 24 is the development version on both MVP platforms; 22.19.0 is the declared minimum (plan 2.1).
+        include:
+          - { os: ubuntu-latest, node: "24" }
+          - { os: macos-latest, node: "24" }
+          - { os: ubuntu-latest, node: "22.19.0" }
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
       - name: Enable corepack (pnpm from packageManager)
         run: corepack enable
+      - name: Locate the pnpm store
+        run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE }}
+          key: pnpm-${{ runner.os }}-node${{ matrix.node }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-node${{ matrix.node }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec biome check .
       - run: pnpm typecheck
@@ -33,6 +46,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-${{ matrix.os }}
+          name: playwright-${{ matrix.os }}-node${{ matrix.node }}
           path: test-results/
           retention-days: 7

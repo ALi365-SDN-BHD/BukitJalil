@@ -9,7 +9,7 @@ import { checkGit } from "./git/version.ts";
 import { createLogger } from "./log.ts";
 import { ensureAppHome, resolveAppHome } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
-import { randomSecret } from "./security/token.ts";
+import { LoginToken, randomSecret } from "./security/token.ts";
 import { openDatabase } from "./store/db.ts";
 
 const VERSION = "0.0.0";
@@ -57,17 +57,19 @@ const db = openDatabase(paths.db);
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const webDist = path.join(repoRoot, "packages/web/dist");
-const token = randomSecret();
+const loginToken = new LoginToken();
+const dev = values["dev-origin"] !== undefined;
 
 const app = createAdminApp({
   port,
   allowedOrigin,
-  token,
+  loginToken,
   sessionValue: randomSecret(),
   db,
-  webDist: values["dev-origin"] === undefined && fs.existsSync(path.join(webDist, "index.html")) ? webDist : null,
+  webDist: !dev && fs.existsSync(path.join(webDist, "index.html")) ? webDist : null,
   checkGit: () => checkGit(),
   version: VERSION,
+  logger,
 });
 
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
@@ -77,11 +79,27 @@ server.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EADDRINUSE") fail(`Port ${port} is in use. Start with --port <another port>.`);
   fail(`Cannot start server: ${err.message}`);
 });
+
+/** Print a fresh one-time login link (plan 11); the previous unused link stops working. */
+function printLoginUrl(): string {
+  const url = `${openOrigin}/?token=${loginToken.issue()}`;
+  process.stdout.write(`\nBukitJalil login link (works once):\n  ${url}\n`);
+  // In dev, tsx watch takes Enter to restart the server, which prints a new link as well.
+  process.stdout.write(dev ? "Press Enter to restart and get a new link.\n\n" : "Press Enter for a new link.\n\n");
+  return url;
+}
+
 server.on("listening", () => {
-  const url = `${openOrigin}/?token=${token}`;
-  logger.log("info", "server.listening", { port, previewBase, dev: values["dev-origin"] !== undefined });
-  process.stdout.write(`\nBukitJalil is running. Open:\n  ${url}\n\n`);
+  logger.log("info", "server.listening", { port, previewBase, dev });
+  const url = printLoginUrl();
   if (!values["no-open"]) openBrowser(url);
+  if (!dev) {
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk: string) => {
+      if (chunk.includes("\n")) printLoginUrl();
+    });
+    process.stdin.on("error", () => {});
+  }
 });
 
 function openBrowser(url: string) {

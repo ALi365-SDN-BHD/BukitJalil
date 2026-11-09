@@ -23,7 +23,45 @@
                 "paths": { "@bukitjalil/server": "web talks to server only over HTTP/SSE (plan 3.2)" },
                 "patterns": [
                   {
-                    "group": ["node:*", "@bukitjalil/server/**"],
+                    "group": [
+                      "node:*",
+                      "assert",
+                      "assert/*",
+                      "buffer",
+                      "child_process",
+                      "cluster",
+                      "crypto",
+                      "dgram",
+                      "dns",
+                      "dns/*",
+                      "events",
+                      "fs",
+                      "fs/*",
+                      "http",
+                      "http2",
+                      "https",
+                      "module",
+                      "net",
+                      "os",
+                      "path",
+                      "path/*",
+                      "process",
+                      "readline",
+                      "sqlite",
+                      "stream",
+                      "stream/*",
+                      "timers",
+                      "timers/*",
+                      "tls",
+                      "url",
+                      "util",
+                      "util/*",
+                      "v8",
+                      "vm",
+                      "worker_threads",
+                      "zlib",
+                      "@bukitjalil/server/**"
+                    ],
                     "message": "web must not use Node modules or import server code (plan 3.2)"
                   }
                 ]
@@ -47,7 +85,61 @@
                   "@bukitjalil/server": "shared must not depend on server",
                   "@bukitjalil/web": "shared must not depend on web"
                 },
-                "patterns": [{ "group": ["node:*"], "message": "shared must stay runtime-neutral (plan 3.2)" }]
+                "patterns": [
+                  {
+                    "group": [
+                      "node:*",
+                      "assert",
+                      "assert/*",
+                      "buffer",
+                      "child_process",
+                      "cluster",
+                      "crypto",
+                      "dgram",
+                      "dns",
+                      "dns/*",
+                      "events",
+                      "fs",
+                      "fs/*",
+                      "http",
+                      "http2",
+                      "https",
+                      "module",
+                      "net",
+                      "os",
+                      "path",
+                      "path/*",
+                      "process",
+                      "readline",
+                      "sqlite",
+                      "stream",
+                      "stream/*",
+                      "timers",
+                      "timers/*",
+                      "tls",
+                      "url",
+                      "util",
+                      "util/*",
+                      "v8",
+                      "vm",
+                      "worker_threads",
+                      "zlib"
+                    ],
+                    "message": "shared must stay runtime-neutral (plan 3.2)"
+                  },
+                  {
+                    "group": [
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "hono/**",
+                      "@hono/**",
+                      "@bukitjalil/server/**",
+                      "@bukitjalil/web/**"
+                    ],
+                    "message": "shared must stay runtime-neutral and not depend on server or web (plan 3.2)"
+                  }
+                ]
               }
             }
           }

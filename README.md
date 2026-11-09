@@ -2,7 +2,7 @@
 
 把**网站当作项目**来管理的系统。每个网站的配置、主题、文件、数据都在这里统一管理；建站和修改都通过和 AI 对话完成，用户不直接改代码。
 
-> 状态：重新规划中，还没有代码。旧的 Electron + Codex 实现仍保留在 `main` 分支上。
+> 状态：M0 工程骨架和 M1 技术验证已完成，下一步是 M2（网站与面板）。旧的 Electron + Codex 实现仍保留在 `main` 分支上。
 
 ## 📌 定位
 
@@ -145,11 +145,13 @@ BukitJalil/
 ```bash
 corepack enable
 pnpm install
-pnpm dev        # 服务端 + Vite，终端里打印带 token 的打开地址
+pnpm dev        # 服务端 + Vite，终端里打印一次性登录地址（按回车重启并换新地址）
 pnpm check      # Biome + 类型检查
 pnpm test       # 单元测试
 pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
 ```
+
+`pnpm build && pnpm start` 运行构建好的版本。登录地址只能用一次，需要新地址（换浏览器、会话失效）时在终端按回车。
 
 ## 🔗 相关项目
 

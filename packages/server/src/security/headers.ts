@@ -1,20 +1,35 @@
+import crypto from "node:crypto";
+
 /**
- * Response headers for the admin port (plan 11). frame-ancestors / X-Frame-Options stop a
- * preview page from framing the admin UI (clickjacking, measured in M1).
+ * Placeholder Vite writes into the built index.html (`html.cspNonce` in packages/web/vite.config.ts);
+ * the server replaces it with a fresh nonce on every response.
  */
-export const ADMIN_CSP = [
-  "default-src 'self'",
-  "img-src 'self' data:",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "frame-src http://127.0.0.1:*",
-  "frame-ancestors 'none'",
-  "base-uri 'none'",
-  "form-action 'self'",
-].join("; ");
+export const CSP_NONCE_PLACEHOLDER = "BJ_CSP_NONCE";
+
+export const newCspNonce = () => crypto.randomBytes(16).toString("base64");
+
+/**
+ * Admin port CSP (plan 11). frame-ancestors / X-Frame-Options stop a preview page from framing the
+ * admin UI (clickjacking, measured in M1). Pages served with a nonce may add <style> elements carrying
+ * it: Radix (shadcn dialogs, selects) injects its scroll-lock styles that way.
+ */
+export function adminCsp(nonce: string | null): string {
+  return [
+    "default-src 'self'",
+    nonce ? `style-src 'self' 'nonce-${nonce}'` : null,
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "frame-src http://127.0.0.1:*",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+  ]
+    .filter((d) => d !== null)
+    .join("; ");
+}
 
 export const adminHeaders: Record<string, string> = {
-  "Content-Security-Policy": ADMIN_CSP,
   "X-Frame-Options": "DENY",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",

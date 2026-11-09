@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { silentLogger } from "../packages/server/src/log.ts";
 import { PreviewPool } from "../packages/server/src/preview/pool.ts";
+import { expect, test } from "./fixtures.ts";
 import { ADMIN, E2E_ADMIN_PORT } from "./ports.ts";
 
 // The M1 spike (packages/server/spikes/preview-isolation-browsers.mjs) as a regression test against the
@@ -45,9 +46,7 @@ test.afterAll(async () => {
   await pool.closeAll();
 });
 
-async function login(page: Page) {
-  const url = process.env.BJ_E2E_URL;
-  if (!url) throw new Error("BJ_E2E_URL not set");
+async function login(page: Page, url: string) {
   await page.goto(url);
   await page.evaluate(async () => {
     // Reset through the real UI path (same origin, all headers).
@@ -75,8 +74,8 @@ function waitForEvilDone(page: Page) {
   return Promise.race([done, new Promise<string[]>((r) => setTimeout(() => r(lines), 10_000))]);
 }
 
-test("preview inside the admin iframe cannot change settings or frame the admin UI", async ({ page }) => {
-  await login(page);
+test("preview inside the admin iframe cannot change settings or frame the admin UI", async ({ page, server }) => {
+  await login(page, await server.loginUrl());
   const adminFrameResponses: number[] = [];
   page.on("response", (res) => {
     if (res.url() === `${ADMIN}/` && res.request().frame() !== page.mainFrame()) adminFrameResponses.push(res.status());
@@ -108,8 +107,8 @@ test("preview inside the admin iframe cannot change settings or frame the admin 
   expect(adminFrameResponses.length).toBeGreaterThan(0);
 });
 
-test("preview opened directly cannot change settings", async ({ page, context }) => {
-  await login(page);
+test("preview opened directly cannot change settings", async ({ page, context, server }) => {
+  await login(page, await server.loginUrl());
   const top = await context.newPage();
   const logs = waitForEvilDone(top);
   await top.goto(previewUrl);

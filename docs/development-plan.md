@@ -159,10 +159,11 @@ BukitJalil/
 
 ### 3.3 运行方式
 
-- 开发：`pnpm dev` 同时启动 server（tsx watch）和 web（Vite，代理 `/api` 到 server）；开发脚本启动 Vite 时去掉 `BUKITJALIL_*_TOKEN` 和模型密钥环境变量，Vite 进程拿不到密钥
+- 开发：`pnpm dev` 同时启动 server（tsx watch）和 web（Vite，代理 `/api` 到 server）；开发脚本启动 Vite 时只传白名单里的环境变量，Vite 进程拿不到 `BUKITJALIL_*_TOKEN`、模型密钥等任何密钥
   - Vite 固定监听 `127.0.0.1:47890`（`strictPort: true`，端口被占用直接报错，不会悄悄换端口）
   - 浏览器里的页面来自 Vite，代理转发的请求 `Origin` 是 `http://127.0.0.1:47890`。所以 server 以 `--dev-origin http://127.0.0.1:47890` 启动时（只有 `pnpm dev` 会传，`pnpm start` 不接受这个参数），防跨站校验允许的 Origin 换成这个地址，`Host` 校验同时接受 Vite 转发的 `127.0.0.1:47880`
-  - token 打开流程同样走 Vite：打印 `http://127.0.0.1:47890/?token=…`，Vite 开发配置把带 `token` 参数的首页请求代理给 server，和生产一样校验后设置 Cookie 并重定向；Cookie 按主机 `127.0.0.1` 生效、不区分端口，之后经 Vite 代理的 `/api` 请求都会带上它
+  - token 打开流程同样走 Vite：打印 `http://127.0.0.1:47890/?token=…`，Vite 开发配置把带 `token` 参数的首页请求代理给 server，和生产一样校验后设置 Cookie 并重定向；Cookie 按主机 `127.0.0.1` 生效、不区分端口，之后经 Vite 代理的 `/api` 请求都会带上它。开发时在终端按回车，tsx watch 会重启 server 并打印新的登录地址（重启后旧会话失效）
+  - Vite 开发服务器和管理端口遵守同样的规则：关闭 Vite 自带的 CORS（`server.cors: false`，跨源预检转给 server，由 server 拒绝），响应带 `X-Frame-Options: DENY` 和 `frame-ancestors 'none'`，预览页不能嵌入开发界面；Vite 进程只拿到白名单里的环境变量（`PATH`、`HOME`、`LANG` 等，名字像密钥的一律去掉）
 - 生产：`pnpm build` 后 server 直接托管 web 的静态文件，一个 Node 进程监听管理端口 47880，预览端口按需从 47881 起分配（见 8.4），`pnpm start` 启动并打开浏览器
 - 默认端口：管理界面和 API 用 47880，被占用时报错并提示 `--port`；预览端口池从 47881 开始（和管理界面隔离，见 8.4），起点可用 `--preview-port-base` 改，池里的端口被占用时跳到下一个可用端口，不报错
 
@@ -716,14 +717,14 @@ packages/web/src/
 
 | 风险 | 措施 |
 | --- | --- |
-| 本机其他网页调用本地服务 | 只监听 127.0.0.1；校验 `Host`（防 DNS 重绑定）和 `Origin`；启动时生成随机 token，用 `http://127.0.0.1:47880/?token=…` 打开浏览器，服务端校验后设置 `HttpOnly; SameSite=Strict; Path=/api` 的 Cookie，并重定向到不带 token 的地址；所有 `/api` 请求必须带这个 Cookie。重启服务会换 token，终端里打印新的打开地址 |
+| 本机其他网页调用本地服务 | 只监听 127.0.0.1；校验 `Host`（防 DNS 重绑定）和 `Origin`；启动时生成随机 token，用 `http://127.0.0.1:47880/?token=…` 打开浏览器，服务端校验后设置 `HttpOnly; SameSite=Strict; Path=/api` 的 Cookie，并重定向到不带 token 的地址；所有 `/api` 请求必须带这个 Cookie。**token 只能用一次**：浏览器用过之后，终端记录、浏览器历史、其他用户 `ps` 里看到的浏览器启动参数都失效；在终端按回车打印新的一次性地址（之前没用过的地址同时作废）；用过或错误的 token 只重定向到首页、不设置 Cookie，界面提示去终端拿新地址。Cookie 名带管理端口（`bj_session_47880`），浏览器的 Cookie 不分端口，这样同一台机器上的两个实例不会互相顶掉登录。重启服务会换 token 和会话 |
 | AI 越权写文件 | 工具白名单 + 路径闸门（6.3）+ 只改工作副本 + 人工审核 |
 | AI 执行命令 | 不开放 `bash`；Bukit 只通过固定参数的自定义工具调用；所有构建前检查插件和编译选项（8.5） |
 | 路径穿越（文件接口） | 所有路径参数 `realpath` 后必须在网站目录或工作副本内 |
 | 密钥泄露 | 模型密钥来自 `~/.bukitjalil/pi/auth.json` 或提供商环境变量（6.5），Notion / GitHub token 来自环境变量 `BUKITJALIL_NOTION_TOKEN` / `BUKITJALIL_GITHUB_TOKEN`（优先）或 `~/.bukitjalil/secrets.json`（600 权限）；Notion / GitHub 环境变量读取后立即从进程环境删除；所有子进程（git、Bukit）都只拿到显式构造的最小环境（7.3、8.5）；都在 AI 工作副本之外，不进数据库、不进日志、不返回浏览器；只按 8.5 和 M6 的规则显式传给 Bukit（见 6.5） |
 | 预览页面脚本（AI 写的 JS） | 预览在另一个端口提供（不同源）+ 响应头 `CSP: sandbox allow-scripts allow-popups; connect-src 'none'; form-action 'none'` + iframe `sandbox`（见 8.4） |
 | DNS 重绑定读取预览内容 | 每个预览端口同样校验 `Host`，只接受 `127.0.0.1:<端口>` / `localhost:<端口>`（见 8.4） |
-| 管理端口上的 XSS（AI 写的 SVG / HTML 文件、对话里的 Markdown） | 管理界面响应头 `CSP: default-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src http://127.0.0.1:*; frame-ancestors 'none'`；文件接口不在管理端口直接打开 SVG / HTML / PDF，位图带 `nosniff` + `CSP: sandbox`（见 9.1）；对话 Markdown 不渲染原始 HTML，不加载远程图片 |
+| 管理端口上的 XSS（AI 写的 SVG / HTML 文件、对话里的 Markdown） | 管理界面响应头 `CSP: default-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src http://127.0.0.1:*; frame-ancestors 'none'`，没有 `unsafe-inline` 和 `unsafe-eval`；HTML 页面每次响应生成一个 nonce，CSP 加 `style-src 'self' 'nonce-…'`，页面里的 `<meta property="csp-nonce">` 把它交给 Radix（shadcn 的对话框、下拉框运行时插入的滚动锁定样式），没有 nonce 的 `<style>` 照样被拦；zod 设为 `jitless`，不用 `new Function`；端到端测试断言界面运行时没有任何 CSP 违规；文件接口不在管理端口直接打开 SVG / HTML / PDF，位图带 `nosniff` + `CSP: sandbox`（见 9.1）；对话 Markdown 不渲染原始 HTML，不加载远程图片 |
 | 绕过路径闸门（`@`、`~`、`file://`、Unicode 空格经 Pi 归一化后变成别的路径） | 闸门放在工具的 `operations` 里，检查的是 Pi 归一化之后真正要读写的绝对路径；`tool_call` 再快速拒绝这些前缀（见 6.3） |
 | 跨站请求（预览页或其他网页向 API 发表单、图片请求等） | Cookie 不按端口隔离，所以 API 自己防护：① 所有非 GET 请求的 `Origin` 必须**完全等于**管理界面地址（`http://127.0.0.1:47880`；开发模式下是 Vite 地址，见 3.3），缺失或为 `null` 一律拒绝；② 非 GET 请求必须是 `Content-Type: application/json` 并带自定义请求头 `X-BukitJalil: 1`（普通表单发不出这种请求，跨源时会触发预检，而服务端不允许任何跨源预检）；③ 所有 GET 接口都没有副作用（M1 实测 WebKit 会给预览 iframe 里的 `<img>` 跨端口 GET 带上 `SameSite=Strict` 的 Cookie，见 8.4）；④ 服务端不返回任何 `Access-Control-Allow-*` 头 |
 | 点击劫持（预览页把管理界面嵌进自己的 iframe，诱导用户点"应用"等按钮） | 管理端口的所有响应带 `CSP: frame-ancestors 'none'` 和 `X-Frame-Options: DENY`（M1 实测：不加时三种浏览器都会在预览页里渲染管理界面，且同站请求照样带 Cookie；加上后都拒绝渲染，见 8.4） |
@@ -763,7 +764,7 @@ packages/web/src/
 - **提交**：Conventional Commits（`feat:`、`fix:`、`docs:`、`chore:`、`test:`）
 - **分支**：功能在 `pi-harness-ui` 上推进；每个里程碑一个 PR 合入 `main`
 - **代码风格**：Biome 统一格式和检查；TypeScript `strict: true`、`noUncheckedIndexedAccess: true`
-- **CI**（GitHub Actions）：`pnpm install --frozen-lockfile` → `biome check` → `tsc --noEmit` → `vitest run` → `playwright test`；macOS 和 Linux 各跑一遍（MVP 支持的平台，见 1.2）
+- **CI**（GitHub Actions）：`pnpm install --frozen-lockfile` → `biome check` → `tsc --noEmit` → `vitest run` → `playwright test`；macOS 和 Linux 各用 Node 24 跑一遍（MVP 支持的平台，见 1.2），Linux 上再用最低版本 Node 22.19.0 跑一遍
 - **日志**：服务端结构化日志（JSON 行），写到 `~/.bukitjalil/logs/`，不记录消息正文和密钥
 - **文档**：每个里程碑更新 README 的状态说明；重要设计变更在 `docs/decisions/` 记录
 
@@ -787,11 +788,20 @@ packages/web/src/
 | CI 工作流 | PR 自动检查 |
 
 **M0 结果（2026-11-10）**：全部完成。
-- `pnpm check`（Biome + 四个类型检查）通过；`pnpm test` 40 项单元测试通过（安全规则、数据库迁移、静态文件、预览端口池、git 版本、多语言）；`pnpm e2e` 在 Chromium、Firefox、WebKit 里共 18 项通过，包括 M1 的预览隔离用例（`e2e/preview-isolation.spec.ts`，对真实服务端）
+- `pnpm check`（Biome + 四个类型检查）通过；`pnpm test` 51 项单元测试通过（安全规则、数据库迁移、静态文件、预览端口池、git 版本、多语言）；`pnpm e2e` 在 Chromium、Firefox、WebKit 里共 27 项通过，包括 M1 的预览隔离用例（`e2e/preview-isolation.spec.ts`，对真实服务端）
 - `pnpm dev` 实测：打印 Vite 地址，token 登录经 Vite 代理设置 Cookie，接口只接受 Vite 的 Origin
 - pnpm 12 默认不运行依赖的安装脚本，遇到未表态的包会报错：`pnpm-workspace.yaml` 的 `allowBuilds` 里把 esbuild 设为不运行（平台二进制已作为可选依赖安装）
 - 管理端口额外加了 `Cross-Origin-Resource-Policy: same-origin`、`Cross-Origin-Opener-Policy: same-origin`、`Referrer-Policy: no-referrer`、`base-uri 'none'`、`form-action 'self'`；构建后的 `index.html` 没有内联脚本，符合 CSP
-- 本机 Node 22.22 运行正常（`node:sqlite` 有实验性提示）；CI 用 Node 24
+- 本机 Node 22.22 运行正常（`node:sqlite` 有实验性提示）；CI 用 Node 24，Linux 上加跑最低版本 22.19.0
+- M0 深度审计后的修改：
+  - 登录 token 改为一次性，终端按回车打印新地址；用过或错误的 token 只重定向到首页（不再返回固定语言的错误页）；Cookie 名带管理端口
+  - 管理界面 CSP 给 HTML 页面加每次响应的 `style-src` nonce，否则 M2 用到 shadcn 对话框时 Radix 插入的样式会被拦；zod 设为 `jitless`，避免 `new Function` 探测触发 CSP 违规；端到端测试检查界面没有 CSP 违规
+  - 构建产物里不存在的文件（如旧版本的 `/assets/*.js`）返回 404，只有页面路由回退到 `index.html`，不会把 HTML 当作 JS 缓存一年
+  - 未处理的异常：`/api` 返回 `{code: "server.internal"}`，详情写进 JSON 日志；所有 `/api` 响应（包括 401 / 403）都带 `Cache-Control: no-store`
+  - `~/.bukitjalil`、`logs/` 每次启动都收紧为 700，`app.db`（及 `-wal` / `-shm`）为 600
+  - 预览遇到符号链接返回 404（和 8.4 一致），并加了 `realpath` 必须在构建目录内的检查；同一预览并发打开不再泄漏 HTTP 服务
+  - Vite 关闭 CORS、加防嵌入头；开发脚本给 Vite 的环境变量改为白名单；Biome 的导入限制补上不带 `node:` 前缀的内置模块和子路径
+  - 端到端测试的服务端改为每个浏览器项目一个（Playwright worker 固件），每个测试拿新的一次性登录地址
 
 **验收**：`pnpm dev` 打开三栏空界面，能在中英文之间切换；`/api/health` 报告 git 可用且版本 ≥ 2.38；不带 Cookie、`Origin` 不符或为 `null`、缺少 `X-BukitJalil` 头、非 JSON 的非 GET 请求都被拒绝（有自动化测试）；预览端口的响应带 `CSP: sandbox`；管理端口的响应带 `frame-ancestors 'none'` 和 `X-Frame-Options: DENY`；`preview-isolation-browsers.mjs` 的用例改写成 Playwright 测试并在三种浏览器里通过；CI 通过。
 

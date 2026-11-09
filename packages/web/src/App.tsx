@@ -25,13 +25,21 @@ export function App() {
 
   return (
     <I18nProvider locale={locale}>
-      <Shell locale={locale} onLocaleChange={(next) => save.mutate({ locale: next })} />
+      <Shell locale={locale} onLocaleChange={(next) => save.mutate({ locale: next })} saveError={save.error} />
     </I18nProvider>
   );
 }
 
-function Shell({ locale, onLocaleChange }: { locale: Locale; onLocaleChange: (l: Locale) => void }) {
-  const { m } = useI18n();
+function Shell({
+  locale,
+  onLocaleChange,
+  saveError,
+}: {
+  locale: Locale;
+  onLocaleChange: (l: Locale) => void;
+  saveError: Error | null;
+}) {
+  const { m, t, errorText } = useI18n();
   const layout = useDefaultLayout({ id: "bj-main", storage: safeLocalStorage() });
 
   return (
@@ -40,6 +48,13 @@ function Shell({ locale, onLocaleChange }: { locale: Locale; onLocaleChange: (l:
         <span className="font-semibold">{m.app.name}</span>
         <HealthBadge />
         <div className="ml-auto flex items-center gap-2 text-sm">
+          {saveError && (
+            <span role="alert" data-testid="save-error" className="text-xs text-destructive">
+              {t(m.settings.saveFailed, {
+                reason: saveError instanceof ApiRequestError ? errorText(saveError.code) : m.status.unreachable,
+              })}
+            </span>
+          )}
           <Globe className="size-4 text-muted-foreground" aria-hidden />
           <label htmlFor="locale" className="sr-only">
             {m.settings.language}

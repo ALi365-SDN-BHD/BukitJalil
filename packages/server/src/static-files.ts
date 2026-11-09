@@ -28,11 +28,12 @@ export function contentType(file: string): string {
   return MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";
 }
 
-export type ResolveResult = { ok: true; file: string } | { ok: false; status: 400 | 403 | 404 };
+export type ResolveResult = { ok: true; file: string } | { ok: false; status: 400 | 404 };
 
 /**
  * Map a URL path to a regular file under `root` (plan 8.4). Rejects encoded traversal, NUL bytes
- * and any symlink on the way (checked with lstat on every segment); directories map to index.html.
+ * and any symlink on the way (lstat on every segment, answered like a missing file so nothing about
+ * the link leaks); directories map to index.html. The realpath must stay inside the root's realpath.
  */
 export function resolveStaticFile(root: string, urlPath: string): ResolveResult {
   let decoded: string;
@@ -45,21 +46,23 @@ export function resolveStaticFile(root: string, urlPath: string): ResolveResult 
   const segments = decoded.split("/").filter((s) => s.length > 0);
   if (segments.some((s) => s === "." || s === "..")) return { ok: false, status: 400 };
 
+  const notFound = { ok: false, status: 404 } as const;
   let current = root;
   try {
-    if (fs.lstatSync(current).isSymbolicLink()) return { ok: false, status: 403 };
+    if (fs.lstatSync(current).isSymbolicLink()) return notFound;
     for (const segment of segments) {
       current = path.join(current, segment);
-      const st = fs.lstatSync(current);
-      if (st.isSymbolicLink()) return { ok: false, status: 403 };
+      if (fs.lstatSync(current).isSymbolicLink()) return notFound;
     }
     let st = fs.lstatSync(current);
     if (st.isDirectory()) {
       current = path.join(current, "index.html");
       st = fs.lstatSync(current);
-      if (st.isSymbolicLink()) return { ok: false, status: 403 };
+      if (st.isSymbolicLink()) return notFound;
     }
-    if (!st.isFile()) return { ok: false, status: 404 };
+    if (!st.isFile()) return notFound;
+    const realRoot = fs.realpathSync(root);
+    if (!fs.realpathSync(current).startsWith(realRoot + path.sep)) return notFound;
   } catch {
     return { ok: false, status: 404 };
   }

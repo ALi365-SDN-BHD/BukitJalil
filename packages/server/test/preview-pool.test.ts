@@ -93,6 +93,17 @@ describe("PreviewPool (plan 8.4)", () => {
     expect((await get(port, { path: "/../../etc/passwd" })).status).toBe(400);
   });
 
+  it("shares one server between concurrent opens of the same slot; the later root wins", async () => {
+    const pool = new PreviewPool(BASE, new Set(), silentLogger);
+    pools.push(pool);
+    const [a, b] = await Promise.all([pool.open("s:change", site("v1")), pool.open("s:change", site("v2"))]);
+    expect(a.port).toBe(b.port);
+    expect(pool.list()).toEqual([{ key: "s:change", port: a.port }]);
+    expect((await get(a.port)).body).toBe("v2");
+    await pool.closeAll();
+    await expect(get(a.port)).rejects.toThrow(); // no leaked server still answering
+  });
+
   it("closes slots and frees their ports", async () => {
     const pool = new PreviewPool(BASE, new Set(), silentLogger);
     pools.push(pool);
