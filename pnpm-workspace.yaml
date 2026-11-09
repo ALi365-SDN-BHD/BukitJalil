@@ -1,0 +1,12 @@
+packages:
+  - packages/shared
+  - packages/server
+  - packages/web
+minimumReleaseAgeExclude:
+  - "@vitejs/plugin-react@6.3.0"
+  - react-resizable-panels@4.21.0
+
+# Dependency install scripts are off unless listed (pnpm 12). esbuild's postinstall only verifies the
+# platform binary, which pnpm already installs as an optional dependency.
+allowBuilds:
+  esbuild: false

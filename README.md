@@ -8,14 +8,14 @@
 
 BukitJalil 的界面和用法参考 [Pi Web](https://github.com/agegr/pi-web)（[Pi](https://github.com/earendil-works/pi) 编程助手的 Web 界面），区别在于管理的对象不同：
 
-| | Pi Web | BukitJalil |
-| --- | --- | --- |
-| 一个"项目"是 | 一个代码仓库 / 开发目录 | 一个网站 |
-| 侧栏按项目分组 | 会话 | 网站和它的会话 |
-| 文件面板 | 浏览、预览源码和 Git 差异 | 浏览、预览网站文件，查看改动差异 |
-| 额外面板 | — | 网站配置、主题、数据（内容源）、构建预览 |
-| AI 的工作 | 写代码、跑命令 | 按建站规则改网站，交给 Bukit 构建 |
-| 用户直接改文件 | 可以 | 不可以：界面只读，改动都经过 AI 和审核 |
+|                | Pi Web                    | BukitJalil                               |
+| -------------- | ------------------------- | ---------------------------------------- |
+| 一个"项目"是   | 一个代码仓库 / 开发目录   | 一个网站                                 |
+| 侧栏按项目分组 | 会话                      | 网站和它的会话                           |
+| 文件面板       | 浏览、预览源码和 Git 差异 | 浏览、预览网站文件，查看改动差异         |
+| 额外面板       | —                         | 网站配置、主题、数据（内容源）、构建预览 |
+| AI 的工作      | 写代码、跑命令            | 按建站规则改网站，交给 Bukit 构建        |
+| 用户直接改文件 | 可以                      | 不可以：界面只读，改动都经过 AI 和审核   |
 
 ```text
 用户描述需求 → AI 会话（Pi，建站规则约束） → 网站文件 / 配置 / 数据变更 → 用户审核差异 → Bukit 构建 → 预览 / 发布
@@ -45,15 +45,15 @@ BukitJalil 的界面和用法参考 [Pi Web](https://github.com/agegr/pi-web)（
 └──────────────┴─────────────────────────────┴──────────────────────┘
 ```
 
-| 面板 | 看什么 |
-| --- | --- |
+| 面板 | 看什么                                                                    |
+| ---- | ------------------------------------------------------------------------- |
 | 文件 | 网站目录树，预览源码、Markdown、图片；HTML、SVG、PDF 在隔离的预览端口查看 |
-| 配置 | `site.yaml`：站点名称、语言、域名、导航、SEO 等 |
-| 主题 | 当前主题、主题副本、样式变量 |
-| 数据 | `site.yaml` 里的内容源：Markdown 集合、data 数据源、Notion 源 |
-| 改动 | AI 每次改动的文件差异，版本历史和恢复 |
-| 预览 | Bukit 构建后的页面 |
-| 设置 | 模型和 API Key、技能、全局 Bukit 路径 |
+| 配置 | `site.yaml`：站点名称、语言、域名、导航、SEO 等                           |
+| 主题 | 当前主题、主题副本、样式变量                                              |
+| 数据 | `site.yaml` 里的内容源：Markdown 集合、data 数据源、Notion 源             |
+| 改动 | AI 每次改动的文件差异，版本历史和恢复                                     |
+| 预览 | Bukit 构建后的页面                                                        |
+| 设置 | 模型和 API Key、技能、全局 Bukit 路径                                     |
 
 ## 🏗️ 架构
 
@@ -85,20 +85,20 @@ Pi 的工作方式（模型请求、工具执行、会话树、技能、扩展�
 
 全部使用 TypeScript，开发统一用 Node 24 LTS（最低 22.19）、pnpm 12.18.0、TypeScript 7.0.2、Bukit 2.0.11。服务端和界面分开，先做本地 Web 应用（支持 macOS 和 Linux），以后再用 Electron 套成桌面版。每个依赖的固定版本见[开发方案 · 固定技术栈](docs/development-plan.md#2-固定技术栈)。
 
-| 部分 | 技术 | 说明 |
-| --- | --- | --- |
-| 项目结构 | pnpm workspaces | `shared` / `server` / `web` 三个包 |
-| 本地服务 | Node 24 LTS + TypeScript + [Hono](https://hono.dev) | 只有服务端引用 Pi SDK，也只有它调用 Bukit |
-| AI | [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md) | 每个会话一个 `AgentSession`，版本锁定 |
-| 实时推送 | SSE | AI 的流式输出、工具调用和改动事件 |
-| 界面 | React + Vite + Tailwind CSS + shadcn/ui | 三栏工作区 |
-| 只读查看 | Shiki，以及 Markdown / 图片 / PDF 预览 | 只能看，不能改 |
-| 改动审核 | 差异查看组件 | 显示每次 AI 改动 |
-| 版本 | 每个网站一个 git 仓库 | 差异、历史、恢复；直接调用系统 git（≥ 2.38，统一加固），不用封装库 |
-| 系统数据 | SQLite（`node:sqlite`） | 网站列表、设置等；和网站自己的数据分开 |
-| 构建 | Bukit（.NET Native AOT）子进程 | 构建、预览、发布 |
-| 测试 | Vitest + Playwright | 单元测试和端到端测试 |
-| 桌面版（以后） | Electron | 加载同一个本地服务和界面 |
+| 部分           | 技术                                                                                       | 说明                                                               |
+| -------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| 项目结构       | pnpm workspaces                                                                            | `shared` / `server` / `web` 三个包                                 |
+| 本地服务       | Node 24 LTS + TypeScript + [Hono](https://hono.dev)                                        | 只有服务端引用 Pi SDK，也只有它调用 Bukit                          |
+| AI             | [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md) | 每个会话一个 `AgentSession`，版本锁定                              |
+| 实时推送       | SSE                                                                                        | AI 的流式输出、工具调用和改动事件                                  |
+| 界面           | React + Vite + Tailwind CSS + shadcn/ui                                                    | 三栏工作区                                                         |
+| 只读查看       | Shiki，以及 Markdown / 图片 / PDF 预览                                                     | 只能看，不能改                                                     |
+| 改动审核       | 差异查看组件                                                                               | 显示每次 AI 改动                                                   |
+| 版本           | 每个网站一个 git 仓库                                                                      | 差异、历史、恢复；直接调用系统 git（≥ 2.38，统一加固），不用封装库 |
+| 系统数据       | SQLite（`node:sqlite`）                                                                    | 网站列表、设置等；和网站自己的数据分开                             |
+| 构建           | Bukit（.NET Native AOT）子进程                                                             | 构建、预览、发布                                                   |
+| 测试           | Vitest + Playwright                                                                        | 单元测试和端到端测试                                               |
+| 桌面版（以后） | Electron                                                                                   | 加载同一个本地服务和界面                                           |
 
 计划中的目录结构：
 
@@ -127,16 +127,29 @@ BukitJalil/
 
 详细设计和每个阶段的任务、验收标准见 [开发方案与实施计划](docs/development-plan.md)。
 
-| 阶段 | 内容 | 估算 |
-| --- | --- | --- |
-| M0 工程骨架 | pnpm workspace、Hono 服务、三栏空界面、安全基础（防跨站请求、预览隔离）、CI | 3–4 天 |
-| M1 技术验证 | 验证 Pi SDK 自定义工具 / 权限闸门 / 技能，Bukit 预览路径、插件与路径字段的安全行为 | 3–4 天 |
-| M2 网站与面板 | 新建 / 导入网站，starter 模板，构建前安全检查，git 加固，文件、配置、主题、数据、预览面板 | 7–9 天 |
-| M3 AI 会话 | Pi 会话、建站工具、权限闸门、流式对话、模型设置 | 8–10 天 |
-| M4 审核与版本 | 工作副本快照、网站操作锁、差异审核、应用 / 拒绝、历史与恢复 | 6–8 天 |
-| M5 MVP | 端到端测试、错误处理、首次启动引导、文档 | 4–5 天 |
-| M6 发布 | GitHub Pages（`bukit deploy`） | 3–4 天 |
-| M7 桌面版 | Electron 壳 | 4–5 天 |
+| 阶段           | 内容                                                                                      | 估算    |
+| -------------- | ----------------------------------------------------------------------------------------- | ------- |
+| M0 工程骨架 ✅ | pnpm workspace、Hono 服务、三栏空界面、安全基础（防跨站请求、预览隔离）、CI               | 3–4 天  |
+| M1 技术验证 ✅ | 验证 Pi SDK 自定义工具 / 权限闸门 / 技能，Bukit 预览路径、插件与路径字段的安全行为        | 3–4 天  |
+| M2 网站与面板  | 新建 / 导入网站，starter 模板，构建前安全检查，git 加固，文件、配置、主题、数据、预览面板 | 7–9 天  |
+| M3 AI 会话     | Pi 会话、建站工具、权限闸门、流式对话、模型设置                                           | 8–10 天 |
+| M4 审核与版本  | 工作副本快照、网站操作锁、差异审核、应用 / 拒绝、历史与恢复                               | 6–8 天  |
+| M5 MVP         | 端到端测试、错误处理、首次启动引导、文档                                                  | 4–5 天  |
+| M6 发布        | GitHub Pages（`bukit deploy`）                                                            | 3–4 天  |
+| M7 桌面版      | Electron 壳                                                                               | 4–5 天  |
+
+## 🛠️ 开发
+
+需要 Node ≥ 22.19（推荐 24 LTS）和 git ≥ 2.38。pnpm 版本由 `packageManager` 固定，通过 corepack 使用。
+
+```bash
+corepack enable
+pnpm install
+pnpm dev        # 服务端 + Vite，终端里打印带 token 的打开地址
+pnpm check      # Biome + 类型检查
+pnpm test       # 单元测试
+pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
+```
 
 ## 🔗 相关项目
 

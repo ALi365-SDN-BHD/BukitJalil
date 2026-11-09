@@ -62,7 +62,7 @@
 | --- | --- | --- |
 | Node.js | **24 LTS**（`engines: ">=22.19.0"`） | Pi SDK 要求 ≥ 22.19。开发统一用 24 LTS；Node 22 在 2027-04-30 停止维护，本机现在是 22.22.3，可以运行但建议升级 |
 | pnpm | **12.18.0** | 写进根 `package.json` 的 `packageManager` 字段，由 corepack 自动使用（本机是 10.5.0，执行 `corepack enable` 即可） |
-| TypeScript | **7.0.2** | 只用来做类型检查（`tsc --noEmit`），打包和运行由 Vite / tsx 负责。TypeScript 7 是 Go 重写的版本，部分旧 tsconfig 选项已移除；M0 确认与 Vite、Vitest、Biome、shadcn 配合正常，不行就退回 TypeScript 6 最新版 |
+| TypeScript | **7.0.2** | 只用来做类型检查（`tsc --noEmit`），打包和运行由 Vite / tsx 负责。TypeScript 7 是 Go 重写的版本，部分旧 tsconfig 选项已移除。**M0 已确认**与 Vite 8、Vitest 5、Biome、shadcn 配合正常；唯一要改的是 `baseUrl` 已被移除，路径别名直接写 `paths` |
 | Bukit | **2.0.11** | .NET Native AOT 单文件程序，官方提供 osx-arm64、linux-x64、win-x64（没有 Intel Mac 版，见 8.1） |
 
 ### 2.2 服务端（`packages/server`）
@@ -98,6 +98,7 @@
 | `shiki` | 4.6.0 | 只读代码高亮 |
 | `react-markdown` | 10.1.0 | Markdown 预览、AI 消息渲染 |
 | `react-diff-view` + `diff` | 3.3.3 + 9.0.0 | 改动差异显示 |
+| `radix-ui` / `class-variance-authority` / `cn` / `tw-animate-css` | 1.8.1 / 0.7.1 / 0.5.2 / 1.4.0 | shadcn 初始化时加入的组件依赖（M0）；`cn` 是 shadcn 官方维护的类名合并包，替代 clsx + tailwind-merge |
 
 ### 2.4 工具链
 
@@ -784,6 +785,13 @@ packages/web/src/
 | 界面多语言骨架：`web/src/i18n/zh-CN.ts`、`en.ts`，语言检测和切换，服务端错误 `code` + `params` 约定（10.1） | 三栏空界面能在中英文之间切换 |
 | 确认 TypeScript 7.0.2 与 Vite、Vitest、Biome、shadcn 兼容 | 不兼容则退回 TypeScript 6 并更新本文 |
 | CI 工作流 | PR 自动检查 |
+
+**M0 结果（2026-11-10）**：全部完成。
+- `pnpm check`（Biome + 四个类型检查）通过；`pnpm test` 40 项单元测试通过（安全规则、数据库迁移、静态文件、预览端口池、git 版本、多语言）；`pnpm e2e` 在 Chromium、Firefox、WebKit 里共 18 项通过，包括 M1 的预览隔离用例（`e2e/preview-isolation.spec.ts`，对真实服务端）
+- `pnpm dev` 实测：打印 Vite 地址，token 登录经 Vite 代理设置 Cookie，接口只接受 Vite 的 Origin
+- pnpm 12 默认不运行依赖的安装脚本，遇到未表态的包会报错：`pnpm-workspace.yaml` 的 `allowBuilds` 里把 esbuild 设为不运行（平台二进制已作为可选依赖安装）
+- 管理端口额外加了 `Cross-Origin-Resource-Policy: same-origin`、`Cross-Origin-Opener-Policy: same-origin`、`Referrer-Policy: no-referrer`、`base-uri 'none'`、`form-action 'self'`；构建后的 `index.html` 没有内联脚本，符合 CSP
+- 本机 Node 22.22 运行正常（`node:sqlite` 有实验性提示）；CI 用 Node 24
 
 **验收**：`pnpm dev` 打开三栏空界面，能在中英文之间切换；`/api/health` 报告 git 可用且版本 ≥ 2.38；不带 Cookie、`Origin` 不符或为 `null`、缺少 `X-BukitJalil` 头、非 JSON 的非 GET 请求都被拒绝（有自动化测试）；预览端口的响应带 `CSP: sandbox`；管理端口的响应带 `frame-ancestors 'none'` 和 `X-Frame-Options: DENY`；`preview-isolation-browsers.mjs` 的用例改写成 Playwright 测试并在三种浏览器里通过；CI 通过。
 
