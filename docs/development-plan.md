@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.3（2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离） · 分支：`pi-harness-ui` · 状态：待确认
+> 版本：v2.3（2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -187,7 +187,7 @@ BukitJalil/
 │   └── main/                       # 正式版本的只读检出，只用于构建正式预览
 └── previews/<siteId>/<buildId>/    # 构建输出（从工作副本内的临时输出目录搬过来，见 8.4）
 
-<用户选择的位置>/<网站目录>/          # 网站项目本身（默认 ~/BukitJalil Sites/<slug>/）
+<用户选择的位置>/<网站目录>/          # 网站项目本身，位置每次由用户选择（见 5.2），没有默认目录
 ├── .git/                           # BukitJalil 初始化和管理
 ├── site.yaml
 ├── content/
@@ -242,6 +242,9 @@ BukitJalil/
 ### 5.2 新建网站
 
 1. 用户在界面填写：网站名、目录位置、主语言、可选的一句话描述
+   - **目录位置每次由用户选择**，没有默认目录。浏览器拿不到本机文件夹的绝对路径（File System Access API 只给句柄），所以用服务端提供的目录选择器：`GET /api/fs/dirs?path=` 只返回某个目录下一层的子目录名（不返回文件，不跟随符号链接，隐藏目录默认不显示），从主目录开始逐级打开；也可以直接粘贴绝对路径。上次选择的父目录记在设置里，作为下次的起点
+   - 新网站的目标目录必须不存在或为空；不能位于 `~/.bukitjalil/` 内、不能是主目录或根目录本身，也不能在另一个已登记网站的目录里。导入网站用同一个选择器
+   - M7 桌面版改用系统原生的文件夹选择对话框
 2. 服务端把 `templates/starter/` 复制到目标目录（包含 `site.yaml`、`content/`、`themes/starter/`）。Bukit 没有"生成初始网站"的命令，官方 starter 主题只以资源文件形式嵌在 CLI 源码里（`src/Bukit-Core/Bukit.Cli/Resources/StarterTheme/`，MIT 协议）。BukitJalil 从 v2.0.11 复制这些模板，补上 `theme.yaml` 和最小内容，作为自己维护的模板，并记录来源 commit。M1 的 `make-starter.sh` 是这一步的草稿，已用真实 Bukit 构建通过。注意：模板里的占位符是 `{{-- bukit:name --}}`；不能照搬 Bukit Labs 的博客模板——它和 Core 2.0.11 有出入（`archive` 必须是布尔值，发布时间读 `publishAt` 而不是 `date`）；starter 的标签索引页用了 `{{ term.url }}` 这类手写根路径，配合 8.4 的 `--base-url /` 才正确
 3. 用表单值替换 `site.name`、`site.title`、`site.language`
 4. `git init -b main`（git 不读全局配置后，`init.defaultBranch` 不生效，不写 `-b` 会得到 `master`）、写入排除规则、首次提交 "Initial site from BukitJalil starter"；提交需要设置页里的身份（7.2），没有填写时先引导填写
@@ -627,7 +630,8 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | POST | `/api/sites/:siteId/history/:commit/restore` | 恢复到某个版本：生成一个恢复改动集供审核（7.4）；`:commit` 校验同上 |
 | POST | `/api/sites/:siteId/builds` | 触发构建（`ref`: `main` / `change`） |
 | GET | `/api/sites/:siteId/builds` | 构建记录 |
-| GET | `/api/settings` / PUT `/api/settings` | 全局设置 |
+| GET | `/api/settings` / PUT `/api/settings` | 全局设置（含界面语言、上次选择的目录） |
+| GET | `/api/fs/dirs?path=` | 目录选择器：列出 `path` 下一层的子目录名（只有目录，不跟随符号链接），`path` 缺省为主目录；用于新建和导入网站（5.2） |
 | GET | `/api/models` | 可用模型 |
 | PUT | `/api/providers/:provider/key` | 保存 API Key |
 | POST | `/api/providers/:provider/test` | 测试连接 |
@@ -675,7 +679,11 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 - 三栏宽度可拖动，记住在本地存储
 - 窄屏（< 1024px）时右侧面板变成抽屉
 - 支持亮色 / 暗色，跟随系统
-- 界面文字：中文为主，结构上预留多语言（文案集中在 `web/src/i18n/`）
+- **界面多语言**：MVP 提供简体中文和英文，首次打开跟随浏览器语言（`navigator.languages`，不匹配时用中文），设置页可切换，选择保存在设置里
+  - 不引入 i18n 库：文案按语言放在 `web/src/i18n/<locale>.ts`，以中文文件为基准定义类型，其他语言缺少键时 `tsc` 报错；插值用简单的 `{name}` 占位；日期、数字、相对时间用 `Intl`
+  - 服务端返回给界面的错误和状态不写死某种语言：响应里是 `code` + `params`（如 `{ code: "site.dir_not_empty", params: { path } }`），由界面翻译；服务端日志统一用英文
+  - Bukit、git 的原始输出和 AI 的回复按原样显示，不翻译；返回给 AI 的工具结果（如"搜索工具未安装"）也不属于界面文案
+  - 开发规范：新增界面文字必须同时提供中英文，CI 里的 `tsc` 保证不漏
 
 ### 10.2 关键交互
 
@@ -771,12 +779,13 @@ packages/web/src/
 | pnpm workspace、三个包、tsconfig、Biome | 能 `pnpm install`、`pnpm check` |
 | server：Hono 启动、`/api/health`、静态托管 web | `pnpm dev` 打开页面 |
 | web：Vite + React + Tailwind + shadcn 初始化，三栏空布局 | 可拖动三栏 |
-| 安全基础：127.0.0.1、两个端口都做 Host 校验、token Cookie、防跨站请求（Origin 完全匹配、JSON + 自定义头、无 CORS，见 11 节）、管理界面 CSP、预览端口骨架（CSP sandbox + `connect-src 'none'`） | 外部来源和跨端口表单请求被拒 |
+| 安全基础：127.0.0.1、管理端口和预览端口都做 Host 校验、token Cookie、防跨站请求（Origin 完全匹配、JSON + 自定义头、无 CORS，见 11 节）、管理界面 CSP、预览端口骨架（CSP sandbox + `connect-src 'none'`） | 外部来源和跨端口表单请求被拒 |
 | SQLite 与迁移机制 | `app.db` 自动创建 |
+| 界面多语言骨架：`web/src/i18n/zh-CN.ts`、`en.ts`，语言检测和切换，服务端错误 `code` + `params` 约定（10.1） | 三栏空界面能在中英文之间切换 |
 | 确认 TypeScript 7.0.2 与 Vite、Vitest、Biome、shadcn 兼容 | 不兼容则退回 TypeScript 6 并更新本文 |
 | CI 工作流 | PR 自动检查 |
 
-**验收**：`pnpm dev` 打开三栏空界面；`/api/health` 报告 git 可用且版本 ≥ 2.38；不带 Cookie、`Origin` 不符或为 `null`、缺少 `X-BukitJalil` 头、非 JSON 的非 GET 请求都被拒绝（有自动化测试）；预览端口的响应带 `CSP: sandbox`；管理端口的响应带 `frame-ancestors 'none'` 和 `X-Frame-Options: DENY`；`preview-isolation-browsers.mjs` 的用例改写成 Playwright 测试并在三种浏览器里通过；CI 通过。
+**验收**：`pnpm dev` 打开三栏空界面，能在中英文之间切换；`/api/health` 报告 git 可用且版本 ≥ 2.38；不带 Cookie、`Origin` 不符或为 `null`、缺少 `X-BukitJalil` 头、非 JSON 的非 GET 请求都被拒绝（有自动化测试）；预览端口的响应带 `CSP: sandbox`；管理端口的响应带 `frame-ancestors 'none'` 和 `X-Frame-Options: DENY`；`preview-isolation-browsers.mjs` 的用例改写成 Playwright 测试并在三种浏览器里通过；CI 通过。
 
 ### M1 技术验证（3–4 天）
 
@@ -819,6 +828,7 @@ packages/web/src/
 | Bukit 程序检测、下载（需确认）、版本检查 | 设置页显示 Bukit 状态 |
 | starter 模板：从 Bukit 源码复制 StarterTheme，补 `theme.yaml`、最小 `site.yaml` 和示例内容，用真实 Bukit 构建通过 | `templates/starter/` |
 | 构建前安全检查 `bukit/guard.ts`（插件、路径字段、网络、环境变量，见 8.5）+ 单元测试 | 检查模块 |
+| 目录选择器（`/api/fs/dirs` + 界面组件，见 5.2）| 新建、导入时选择位置 |
 | 新建网站、导入网站（含不满足安全规则时的"只读"状态，见 5.1；先检查 git 对象再创建检出）、`git/run.ts`（`spawn` 流式读取 + 加固参数 + 参数校验 + 机器可读输出解析）与配置白名单检查（7.3）、`readGlobalIdentity()`、网站列表、归档、移除（删除引用和排除规则段落） | 侧栏网站列表 |
 | 文件树（按目录懒加载，读 git 对象）和文件预览（Shiki、Markdown、位图；SVG / HTML / PDF 通过预览端口或下载，见 9.1） | 文件面板 |
 | 配置面板（结构化 + 原文） | 配置面板 |
@@ -924,9 +934,9 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 
 ## 16. 待定问题
 
-1. **网站默认存放位置**：`~/BukitJalil Sites/` 还是让用户每次选？（当前设计：默认目录 + 可改）
+1. ~~**网站默认存放位置**~~：已确定每次由用户选择，没有默认目录（5.2）
 2. **素材上传**：图片等二进制文件 AI 不能写，用户怎么加素材？建议加"上传到 `content/media`"的受控入口——这是唯一的用户直接写入，需要确认是否接受。**目前没有排进 M0–M5**；确认接受后作为 M5 的新增任务（约 1–2 天，上传同样生成改动集、走审核），MVP 估算相应增加
 3. **Notion 数据源**：MVP 只显示配置；是否需要在 BukitJalil 里管理 Notion Token 并预览 Notion 数据？
 4. **多会话并发改同一网站**：MVP 限制一个 open 改动集，是否够用？
-5. **界面语言**：MVP 只做中文，还是中英双语？
+5. ~~**界面语言**~~：已确定做多语言，MVP 提供简体中文和英文（10.1）
 6. **默认主题的外观**：MVP 已确定从 Bukit 源码复制 StarterTheme 作为起点（5.2、M2）；是否在此基础上做一套更好看的默认主题，可以放到 MVP 之后决定
