@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v1.6（2026-11-09，已按评审和四轮审计修改） · 分支：`pi-harness-ui` · 状态：待确认
+> 版本：v1.7（2026-11-09，已按评审和五轮审计修改） · 分支：`pi-harness-ui` · 状态：待确认
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.8 的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -299,6 +299,7 @@ BukitJalil/
 - 路径解析：相对路径以工作副本为基准；已存在的路径取 `realpath`；不存在的路径（新建文件）逐级找到最近的已存在上级目录取 `realpath`，再拼回剩余部分；最终结果必须以工作副本的 `realpath` 加路径分隔符开头（防符号链接和 `..` 逃逸）
 - 禁止读写：`.git` 和 `.git/**`（工作副本里的 `.git` 是指向网站仓库的文件）
 - 禁止写：`dist/**`、`.bukit/**`、`.cache/**`、`.bukitjalil-build/**`、`node_modules/**`、任何以 `.env` 开头的文件
+- `.gitattributes`：任何位置的 `.gitattributes` 写入后的内容不能出现 `filter=`、`diff=`、`merge=` 属性（见 7.3）
 - 禁止写插件相关文件：`plugins/**` 以及任何 `plugin.yaml` / `plugin.json`（Bukit 示例清单位于 `plugins/<name>/plugin.yaml`，M1 根据源码确认完整约定）；`site.yaml` 的插件配置在构建前另行检查（见 8.5）
 - 除路径参数外，`grep` / `find` 的 glob、include 等模式参数同样校验：不能是绝对路径、不能含 `..`
 - 自定义工具只接受集合名、语言代码等受限参数，不接受任意路径；有路径参数的（如以后的素材工具）走同一个解析函数
@@ -389,11 +390,11 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
   - 点"应用"时，请求必须带上这个指纹；服务端先确认**这个网站没有任何会话在运行或排队**，再重新 `git add -A` + `git write-tree`，结果必须和指纹完全一致，否则拒绝应用并刷新审核卡片
   - 会话开始运行（包括排队的会话轮到运行）时，当前审核卡片立即失效，界面禁用"应用"按钮，等这一轮结束后重新生成
   - 提交用 `git commit-tree <指纹> -p <base>` 生成，再用 `git update-ref` 把 `bj/change/<changeId>` 指向这个提交，保证合入的内容就是审核过的那棵树
-- **正式版本已前进时**：应用前发现 `main` 不再等于改动集的 `base_commit`（例如期间做过恢复，或用户在 BukitJalil 外提交过），先在工作副本里把改动 rebase 到新的 `main`；rebase 成功后**不自动合入**，而是重新计算差异和指纹、生成新的审核卡片，用户再确认一次；rebase 有冲突则标记 `stale`，让 AI 基于新版本重做
+- **正式版本已前进时**：应用前发现 `main` 不再等于改动集的 `base_commit`（例如期间做过恢复，或用户在 BukitJalil 外提交过），先用 `git commit-tree <指纹> -p <base>` 把审核过的暂存内容生成提交并让 `bj/change/<changeId>` 指向它（暂存内容还不是提交，没有东西可以 rebase），再在工作副本里执行 `git rebase --no-autostash main`（同样经过 7.3 的加固）；rebase 成功后**不自动合入**，而是重新计算差异和指纹、生成新的审核卡片，用户再确认一次；rebase 有冲突则标记 `stale`，让 AI 基于新版本重做
 - **清理被忽略的文件**：AI 可以改 `.gitignore`，把文件藏起来——被忽略的文件不出现在差异里、不会被提交，但会留在工作副本里影响之后的预览构建。所以开新改动集和拒绝时都用 `git clean -fdx`，只用 `-e` 保留 `.bukit/`、`.cache/` 两个缓存目录；`.gitignore` 本身是被跟踪的文件，它的改动会出现在差异里
 - 一个网站同一时间最多一个 `open` 改动集，多个会话共享它；配合"同一时间只有一个会话在运行"（6.1），不会出现两个 AI 同时改文件（M4 之后视情况放开）
 - **排除规则**：创建工作副本时，在网站仓库的 `.git/info/exclude` 写入 `dist/`、`.bukit/`、`.cache/`、`.bukitjalil-build/`，保证 Bukit 的构建产物和缓存不会出现在差异里，也不需要改用户的 `.gitignore`
-- **提交身份**：提交信息为 `summarize_changes` 的说明 + 会话 ID；作者固定为 `BukitJalil AI <ai@bukitjalil.local>`；提交者用网站仓库或全局的 git 身份，没有配置时使用设置页里填写的身份，首次启动引导里会要求填写（只写入 BukitJalil 设置，通过 `-c user.name/-c user.email` 传给 git，不改用户的 git 配置）
+- **提交身份**：提交信息为 `summarize_changes` 的说明 + 会话 ID；作者固定为 `BukitJalil AI <ai@bukitjalil.local>`；提交者使用设置页里填写的身份。git 子进程不读全局配置（7.3），所以首次启动引导单独读一次全局 `user.name` / `user.email`（`git config --global --get`，只读取这两个值，不执行任何操作）作为默认值，用户确认后写入 BukitJalil 设置；每次提交通过 `-c user.name/-c user.email` 传给 git，不改用户的 git 配置
 - 应用前自动跑一次 `bukit_check`；失败时允许用户坚持应用，但要明确提示
 - **合入方式**：在网站目录里执行 `git merge --ff-only bj/change/<changeId>`。合入前检查两件事，任一不满足就拒绝并提示用户先处理，不覆盖任何东西：
   - 网站目录当前检出的分支就是 `sites.default_branch`（用户可能在 BukitJalil 外切到了别的分支，直接 merge 会合进错误的分支）
@@ -401,13 +402,16 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
 
 ### 7.3 git 调用加固
 
-网站仓库（尤其是导入的）可能自带会执行命令的 git 配置和钩子。已用本机 git 2.39.5 实验确认：仓库 `.git/config` 里的 `core.fsmonitor = <命令>` 会在**执行 `git status` 时**直接运行；`.git/hooks/pre-commit` 会在提交时运行。所以 BukitJalil 的所有 git 调用都必须加固，统一由 `packages/server/src/git/run.ts` 发起，不允许其他模块直接调用 git：
+网站仓库（尤其是导入的）可能自带会执行命令的 git 配置和钩子。已用本机 git 2.39.5 实验确认：仓库 `.git/config` 里的 `core.fsmonitor = <命令>` 会在**执行 `git status` 时**直接运行；`.git/hooks/pre-commit` 会在提交时运行；**用户全局配置**（`~/.gitconfig`）里定义的过滤器（例如 git-lfs 安装的 `filter.lfs.*`）也会被仓库里的 `.gitattributes` 触发，在 `git add` / 检出时运行，仓库配置里不需要任何定义。所以 BukitJalil 的所有 git 调用都必须加固，统一由 `packages/server/src/git/run.ts` 发起，不允许其他模块直接调用 git：
 
-- **固定参数**：每次调用都带 `-c core.fsmonitor=false -c core.hooksPath=<应用自带的空目录> -c core.untrackedCache=false -c protocol.allow=never`（已实验确认前两个参数能挡住上述两种执行）；`diff` / `log -p` 一律加 `--no-ext-diff --no-textconv`
-- **最小环境变量**：git 子进程只传 `PATH`、`HOME`、`LANG`，外加 `GIT_CONFIG_NOSYSTEM=1`、`GIT_TERMINAL_PROMPT=0`；不继承服务进程的其他环境变量（包括模型密钥）
-- **导入时检查仓库配置**：用 `git config --local --list`（同样加固）列出仓库配置，出现以下任一项就把网站标为"只读：不满足安全规则"并列出原因：`core.fsmonitor`、`core.hooksPath`、`core.sshCommand`、`core.pager`、`core.editor`、`filter.*`、`diff.*.command`、`diff.*.textconv`、`merge.*.driver`、`include.path` / `includeIf.*`；`.git/hooks/` 里有非 `.sample` 的可执行文件时同样标为只读并提示
-- **`.gitattributes`**：AI 可以写 `.gitattributes`，但只有仓库配置里定义了对应驱动才会执行；导入检查已拒绝带驱动配置的仓库，固定参数又关掉了外部差异和文本转换，所以不额外限制
-- 加固函数有单元测试：用带 `core.fsmonitor`、钩子、`filter` 的测试仓库验证都不会执行
+- **固定参数**：每次调用都带 `-c core.fsmonitor=false -c core.hooksPath=<应用自带的空目录> -c core.untrackedCache=false -c core.attributesFile=/dev/null -c protocol.allow=never`（已实验确认前两个参数能挡住 fsmonitor 和钩子）；`diff` / `log -p` 一律加 `--no-ext-diff --no-textconv`
+- **不读系统和全局配置**：git 子进程只传 `PATH`、`HOME`、`LANG`，外加 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_GLOBAL=/dev/null`、`GIT_TERMINAL_PROMPT=0`；不继承服务进程的其他环境变量（包括模型密钥）。这样用户全局配置里的过滤器、差异驱动、合并驱动、`core.attributesFile` 都不生效；需要的身份通过 `-c user.name/-c user.email` 显式传入（见 7.2"提交身份"）
+- **检查仓库配置**：导入时，以及之后每次应用、恢复、在 `main/` 检出里构建或检查之前（用户可能在 BukitJalil 外改过 `.git/config` 或加了钩子），都用 `git config --local --list`（同样加固）列出仓库配置，出现以下任一项就把网站标为"只读：不满足安全规则"并列出原因：`core.fsmonitor`、`core.hooksPath`、`core.sshCommand`、`core.pager`、`core.editor`、`filter.*`、`diff.*.command`、`diff.*.textconv`、`merge.*.driver`、`include.path` / `includeIf.*`；`.git/hooks/` 里有非 `.sample` 的可执行文件时同样标为只读并提示；检查不通过时当前操作也一并拒绝
+- **`.gitattributes`**：隔离全局配置之后驱动已经没有来源，但仍做双重限制：
+  - 路径闸门检查 AI 对任何 `.gitattributes` 的写入（6.3），内容里出现 `filter=`、`diff=`、`merge=` 属性就拒绝写入并把原因返回给 AI
+  - 构建前安全检查（8.5）和仓库配置检查同样扫描所有被跟踪的 `.gitattributes`，出现上述属性就拒绝当前操作
+- **Git LFS 不支持**：隔离全局配置后 LFS 过滤器不再运行，LFS 仓库里只能看到指针文件。导入时如果 `.gitattributes` 里有 `filter=lfs`（或其他 `filter=`），网站标为"只读：不满足安全规则"，原因写明 MVP 不支持 Git LFS
+- 加固函数有单元测试：用带 `core.fsmonitor`、钩子、仓库 `filter` 的测试仓库，以及"全局配置定义过滤器 + 仓库 `.gitattributes` 引用它"的场景（测试里用临时 `HOME` 写全局配置），验证都不会执行
 
 ### 7.4 版本历史与恢复
 
@@ -418,7 +422,7 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
   - 网站目录当前检出的是 `sites.default_branch`，且没有未提交的改动
   - 有 `open` 改动集时先提示用户：继续恢复会让该改动集过时（标记 `stale`），可以先应用或拒绝它
   - 恢复后的版本先在 `main/` 检出里跑构建前安全检查（8.5），不通过时提示原因（旧版本可能用了现在不允许的配置），用户确认后仍可恢复，但正式预览构建会被拒绝
-- 恢复提交由用户发起，作者和提交者都是用户的 git 身份
+- 恢复提交由用户发起，作者和提交者都是设置页里填写的用户身份（同 7.2"提交身份"）
 
 ---
 
@@ -484,6 +488,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
   - AI 不能写 `plugins/**`（见 6.3）
 - **路径字段**：`site.yaml` 里所有表示路径的字段都必须解析到当前检出目录内，不能是绝对路径、不能含 `..`、不能经由符号链接指向外部。至少包括 `content.sources[].markdown.dir`、`content.sources[].notion.cacheDir`、`content.media.downloadDir`、`build.output`、`theme.name`（对应 `themes/<name>`）、`theme.layouts`、`theme.assets`、`theme.static`、`theme.staticTemplate`、`theme.components.*.template`、`theme.scss.entryPoint`、`theme.scss.outputDir`；完整清单 M1 从 `bukit config schema` 输出里逐个字段整理（Bukit 文档只对 `content.media.downloadDir` 明确说会拒绝越界路径，其他字段不能依赖 Bukit 自己检查）
 - **网络**：`content.media.blockPrivateNetworks` 必须为 `true`（防止构建时访问本机和内网服务）；M1 确认是否需要进一步关闭 `downloadToLocal`
+- **git 属性**：所有被跟踪的 `.gitattributes` 不能出现 `filter=`、`diff=`、`merge=` 属性（见 7.3）
 - **SCSS 等编译选项**：M1 确认 `theme.scss` 是否调用外部程序；如果会，强制关闭或拒绝
 - **环境变量**：默认只传最小环境（`PATH`、`HOME`、`LANG`）。Notion token（以 Bukit 读取的 `NOTION_TOKEN` 传入）等密钥**只在用户手动构建正式版本或发布时**传入，token 的来源见 6.5；改动集预览（还没审核的 AI 内容）不论谁触发都不传密钥
 
@@ -619,7 +624,8 @@ packages/web/src/
 | AI 借 Bukit 插件 / 编译选项间接执行代码 | 所有构建前检查插件和编译选项，AI 不能写 `plugins/**`（见 6.3、8.5） |
 | AI 借 `site.yaml` 路径字段或远程素材读取工作副本外的文件、访问内网 | 所有构建前校验路径字段必须在检出目录内，强制 `blockPrivateNetworks: true`（见 8.5） |
 | 密钥进入未审核内容的构建 | 只有用户手动构建正式版本或发布时才传密钥（见 8.5） |
-| 导入仓库借 git 配置或钩子执行命令（`core.fsmonitor`、hooks、filter 等） | 所有 git 调用统一加固（关闭 fsmonitor、钩子、外部差异和文本转换，最小环境变量）；导入时检查仓库配置和钩子，有风险项则只读导入（见 7.3） |
+| 导入仓库借 git 配置或钩子执行命令（`core.fsmonitor`、hooks、filter 等） | 所有 git 调用统一加固（关闭 fsmonitor、钩子、外部差异和文本转换，不读系统和全局配置，最小环境变量）；导入时和每次应用 / 恢复 / 正式构建前检查仓库配置和钩子，有风险项则只读并拒绝操作（见 7.3） |
+| AI 写 `.gitattributes` 触发全局配置里的过滤器（如 git-lfs） | `GIT_CONFIG_GLOBAL=/dev/null` + `core.attributesFile=/dev/null`；路径闸门和构建前检查拒绝 `filter=` / `diff=` / `merge=` 属性；不支持 Git LFS（见 7.3） |
 | 审核后内容被改动（AI 仍在运行、排队消息、正式版本已前进） | 审核卡片绑定内容指纹；只有没有会话运行且指纹一致才允许应用；rebase 后重新审核（见 7.2） |
 | 提示词注入（网站内容里夹带指令） | AI 能力本身受限；所有改动必须人工审核，且应用时校验审核指纹 |
 
@@ -630,7 +636,7 @@ packages/web/src/
 | 层级 | 工具 | 覆盖 |
 | --- | --- | --- |
 | 单元 | Vitest | `shared` 的 schema；`server` 的路径闸门（读写工具、glob 参数）、构建前安全检查 `bukit/guard.ts`（插件、每个路径字段、网络开关、环境变量）、防跨站请求中间件、密钥来源（环境变量优先、读取后从进程环境删除、子进程环境里不含密钥）、`site.yaml` 解析、差异解析、Bukit 退出码映射 |
-| 服务端集成 | Vitest + 临时目录 | 真实 git：创建网站、工作树、应用 / 拒绝 / 恢复；git 加固（带 `core.fsmonitor`、钩子、`filter` 的测试仓库不执行任何命令）；审核指纹（AI 运行中、指纹不符、正式版本前进时应用被拒绝或要求重新审核）；Bukit 用假程序（脚本模拟输出和退出码） |
+| 服务端集成 | Vitest + 临时目录 | 真实 git：创建网站、工作树、应用 / 拒绝 / 恢复；git 加固（带 `core.fsmonitor`、钩子、`filter` 的测试仓库，以及临时 `HOME` 里全局配置定义过滤器 + 仓库 `.gitattributes` 引用它，都不执行任何命令）；rebase 前先 `commit-tree` 再 rebase；审核指纹（AI 运行中、指纹不符、正式版本前进时应用被拒绝或要求重新审核）；Bukit 用假程序（脚本模拟输出和退出码） |
 | Pi 集成 | Vitest + 假模型 | 用 Pi 的自定义提供商注册一个脚本化的假模型，按剧本返回工具调用，验证工具和闸门，不花钱、结果稳定 |
 | 真实 Bukit | Vitest（标记 `@bukit`，CI 可选） | 用真实 Bukit 2.0.8 构建 starter 模板 |
 | 端到端 | Playwright | 新建网站 → 对话（假模型）→ 审核 → 应用 → 构建 → 预览；拒绝流程；恢复流程；**安全用例**：预览页里的恶意脚本 / 自动提交表单 / 图片请求无法调用管理端 API，新标签页直接打开预览同样无效 |
