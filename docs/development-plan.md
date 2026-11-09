@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v1.3（2026-11-09，已按评审和两轮审计修改） · 分支：`pi-harness-ui` · 状态：待确认
+> 版本：v1.4（2026-11-09，已按评审和三轮审计修改） · 分支：`pi-harness-ui` · 状态：待确认
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.8 的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -36,7 +36,7 @@
 | 包含 | 不包含 |
 | --- | --- |
 | 本地单用户 Web 应用（只监听 127.0.0.1） | 多用户、远程访问、账号体系 |
-| 新建网站（基于从 Bukit 源码复制的 starter 主题）、导入已有 Bukit 网站 | 克隆其他网站、HTML 导入（Bukit 也未支持） |
+| 新建网站（基于从 Bukit 源码复制的 starter 主题）、导入已有 Bukit 网站 | 克隆其他网站、HTML 导入（Bukit 也未支持）；Bukit 外部插件（用了它们的网站只能只读导入，见 5.1） |
 | 每个网站多个 AI 会话：对话、流式输出、恢复、分叉 | 子代理、计划模式 |
 | 只读面板：文件、配置、主题、数据、改动、预览 | 可视化编辑器、直接改文件 |
 | 改动审核：差异、应用、拒绝、版本历史、恢复 | 按代码块部分应用（放到后续版本） |
@@ -167,7 +167,8 @@ BukitJalil/
 
 ```text
 ~/.bukitjalil/                      # 应用数据目录（可用 BUKITJALIL_HOME 覆盖）
-├── app.db                          # SQLite：网站列表、会话索引、改动集、构建记录、设置
+├── app.db                          # SQLite：网站列表、会话索引、改动集、构建记录、设置（不含密钥）
+├── secrets.json                    # Notion / GitHub 等非模型密钥（权限 600）
 ├── bin/bukit-2.0.8/bukit           # 应用管理的 Bukit 程序
 ├── pi/                             # 给 Pi 用的独立目录（agentDir），不读用户 ~/.pi
 │   ├── auth.json                   # 模型 API Key / OAuth（权限 600）
@@ -198,7 +199,8 @@ BukitJalil/
 | --- | --- | --- |
 | `sites` | `id`, `name`, `path`, `default_branch`, `created_at`, `last_opened_at`, `archived` | 网站列表；`path` 是网站目录绝对路径；`default_branch` 是网站的正式分支（新建为 `main`，导入时读取当前默认分支） |
 | `sessions` | `id`, `site_id`, `pi_session_file`, `title`, `created_at`, `updated_at`, `status` | 会话索引；正文在 Pi 的 JSONL 里 |
-| `change_sets` | `id`, `site_id`, `session_id`, `base_commit`, `branch`, `status`, `summary`, `created_at`, `resolved_at`, `result_commit` | 改动集，状态：`open` / `applied` / `rejected` / `stale` |
+| `change_sets` | `id`, `site_id`, `created_by_session_id`, `base_commit`, `branch`, `status`, `summary`, `created_at`, `resolved_at`, `result_commit` | 改动集，状态：`open` / `applied` / `rejected` / `stale`；`created_by_session_id` 是开启它的会话 |
+| `change_set_sessions` | `change_set_id`, `session_id`, `first_turn_at` | 参与过这个改动集的所有会话（多个会话可以共用一个改动集） |
 | `builds` | `id`, `site_id`, `change_set_id`, `commit`, `kind`, `status`, `exit_code`, `output_dir`, `report_json`, `started_at`, `finished_at` | 构建记录；`kind`：`check` / `doctor` / `build` |
 | `settings` | `key`, `value_json` | 全局设置：默认模型、思考级别、Bukit 路径 |
 | `schema_migrations` | `version`, `applied_at` | 数据库迁移 |
@@ -213,9 +215,18 @@ BukitJalil/
 
 一个目录满足以下条件就是一个 BukitJalil 网站：
 
-1. 根目录有 `site.yaml`，且 `bukit config check` 通过（导入时允许失败，但要标记"配置有误"）
+1. 根目录有 `site.yaml`
 2. 是一个 git 仓库（导入时如果不是，征得用户同意后 `git init` 并做首次提交）；导入时记录当前默认分支，不假设叫 `main`，工作区有未提交改动时要求用户先处理
 3. 已登记在 `sites` 表里
+
+**导入流程**（导入的网站可能来自外部，当作不可信内容处理）：
+
+1. 只读检查目录：有 `site.yaml`、是否 git 仓库、当前分支、是否有未提交改动；这一步不调用 Bukit
+2. 登记网站，创建 `worktrees/<siteId>/main/` 检出
+3. 在 `main/` 检出里先跑构建前安全检查（8.5）。不通过时网站仍可导入，标记为"**只读：不满足安全规则**"，界面列出原因（例如使用了外部插件、路径越界）；这类网站可以浏览文件、配置，但不能构建、不能开 AI 会话
+4. 检查通过后，才在 `main/` 检出里执行 `bukit config check`；失败标记"配置有误"，仍可以开 AI 会话让 AI 修复
+
+> 限制：Bukit 的外部插件（如官方的 IndexNow、WechatSync、Import）在 BukitJalil 里不被支持，使用了它们的网站只能以只读方式导入。
 
 ### 5.2 新建网站
 
@@ -223,7 +234,7 @@ BukitJalil/
 2. 服务端把 `templates/starter/` 复制到目标目录（包含 `site.yaml`、`content/`、`themes/starter/`）。Bukit 没有"生成初始网站"的命令，官方 starter 主题只以资源文件形式嵌在 CLI 源码里（`src/Bukit-Core/Bukit.Cli/Resources/StarterTheme/`，MIT 协议）。BukitJalil 从 v2.0.8 复制这些模板，补上 `theme.yaml` 和最小内容，作为自己维护的模板，并记录来源 commit
 3. 用表单值替换 `site.name`、`site.title`、`site.language`
 4. `git init`、首次提交 "Initial site from BukitJalil starter"
-5. 执行 `bukit config check` 和 `bukit build`，确认可以构建
+5. 创建 `worktrees/<siteId>/main/` 检出，在检出里先跑构建前安全检查（8.5），再执行 `bukit config check` 和预览构建（8.3），确认可以构建；不在用户的网站目录里调用 Bukit，网站目录不会出现 `dist/`
 6. 如果填写了描述，自动打开第一个会话，把描述作为第一条消息发给 AI
 
 ### 5.3 面板数据来源
@@ -249,7 +260,7 @@ BukitJalil/
 - 不读取用户本机的 Pi 配置：独立的 `agentDir`（`~/.bukitjalil/pi`）、自定义 `ResourceLoader`、内存或应用专属的 `SettingsManager`
 - 每个会话一个 `AgentSession`，`cwd` 固定为该网站的 AI 工作副本 `~/.bukitjalil/worktrees/<siteId>/ai/`；路径永远不变，所以同一个会话跨多个改动集也能继续使用
 - 同一个网站**同一时间只有一个会话在运行**：另一个会话在运行时，新消息进入排队，界面显示"另一个对话正在修改这个网站"，可以选择等待或停止对方
-- AI 只能用白名单里的工具；写入路径由权限闸门再检查一遍
+- AI 只能用白名单里的工具；读写路径都由权限闸门再检查一遍（6.3）
 
 ### 6.2 会话生命周期
 
@@ -260,7 +271,7 @@ BukitJalil/
           ──► createAgentSession({ cwd: worktree, tools, customTools, resourceLoader, sessionManager, settingsManager, modelRuntime, model })
           ──► session.subscribe(事件 → SSE)
           ──► session.prompt(text)（正在运行时用 steer / followUp）
-运行结束 ──► agent_settled：统计工作副本的改动；有改动就把改动集标记为待审核，推送 change_set.ready
+运行结束 ──► agent_settled：统计工作副本的改动；有改动就把改动集标记为待审核，推送 change.ready（见 9.2）
 空闲 10 分钟 ──► session.dispose() 释放内存；会话文件保留，下次发消息时重建
 停止 ──► session.abort()
 分叉 ──► SessionManager 的 fork 能力，新会话从指定消息开始
@@ -334,13 +345,13 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
            用户发消息（且没有 open 改动集）
                        │
                        ▼
-   在工作副本里：git switch -f -C bj/change/<changeId> main && git clean -fd（不加 -x，保留被排除的缓存目录）
+   在工作副本里：git switch -f -C bj/change/<changeId> main && git clean -fdx -e .bukit -e .cache
                        │
                        ▼
         AI 在工作副本里修改（可以多轮对话持续修改同一个改动集）
                        │
                        ▼
-              每轮结束：计算 git diff <base>...工作副本
+     每轮结束：git add -A，再 git diff --cached <base>（见下方"差异计算"）
                        │
         ┌──────────────┼──────────────┐
         ▼              ▼              ▼
@@ -357,6 +368,8 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
   状态 applied
 ```
 
+- **差异计算**（已用本地 git 实验确认）：`git diff <base>...` 不显示还没被跟踪的新文件，而应用时的提交会把它们带进去，审核就会漏看。所以每轮结束先在工作副本里 `git add -A`，再用 `git diff --cached <base>` 计算差异；应用时提交的正是这份暂存内容，**审核看到的 = 将要提交的**
+- **清理被忽略的文件**：AI 可以改 `.gitignore`，把文件藏起来——被忽略的文件不出现在差异里、不会被提交，但会留在工作副本里影响之后的预览构建。所以开新改动集和拒绝时都用 `git clean -fdx`，只用 `-e` 保留 `.bukit/`、`.cache/` 两个缓存目录；`.gitignore` 本身是被跟踪的文件，它的改动会出现在差异里
 - 一个网站同一时间最多一个 `open` 改动集，多个会话共享它；配合"同一时间只有一个会话在运行"（6.1），不会出现两个 AI 同时改文件（M4 之后视情况放开）
 - **排除规则**：创建工作副本时，在网站仓库的 `.git/info/exclude` 写入 `dist/`、`.bukit/`、`.cache/`、`.bukitjalil-build/`，保证 Bukit 的构建产物和缓存不会出现在差异里，也不需要改用户的 `.gitignore`
 - **提交身份**：提交信息为 `summarize_changes` 的说明 + 会话 ID；作者固定为 `BukitJalil AI <ai@bukitjalil.local>`；提交者用网站仓库或全局的 git 身份，没有配置时使用设置页里填写的身份，首次启动引导里会要求填写（只写入 BukitJalil 设置，通过 `-c user.name/-c user.email` 传给 git，不改用户的 git 配置）
@@ -369,7 +382,12 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
 
 - 历史 = `main` 的提交列表，每条显示说明、时间、改动文件数、关联会话
 - 查看任意版本的差异
-- 恢复 = 新建一个"恢复到 <版本>"的提交（`git revert` 或基于目标树的新提交），不改写历史
+- 恢复 = 新建一个"恢复到 <版本>"的提交，内容是目标版本的完整文件树（`git read-tree` 目标版本后提交），不用逐个 `git revert`，也不改写历史
+- 恢复走和"应用"相同的保护，任一不满足就拒绝：
+  - 网站目录当前检出的是 `sites.default_branch`，且没有未提交的改动
+  - 有 `open` 改动集时先提示用户：继续恢复会让该改动集过时（标记 `stale`），可以先应用或拒绝它
+  - 恢复后的版本先在 `main/` 检出里跑构建前安全检查（8.5），不通过时提示原因（旧版本可能用了现在不允许的配置），用户确认后仍可恢复，但正式预览构建会被拒绝
+- 恢复提交由用户发起，作者和提交者都是用户的 git 身份
 
 ---
 
@@ -380,6 +398,7 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
 - 首次启动检查：设置里的自定义路径 → `~/.bukitjalil/bin/bukit-2.0.8/` → 系统 `PATH` 里的 `bukit`
 - 都没有时，界面提示从 Bukit GitHub Release v2.0.8 下载对应平台的包（需用户确认），解压到 `~/.bukitjalil/bin/`
 - 完整性校验：v2.0.8 的 Release 附带 `checksums.txt` 和 `checksums.json`（已核对）。BukitJalil 在代码里固定三个平台安装包的 SHA-256（开发时从 `checksums.txt` 核对后写入），下载后比对，不在运行时信任下载来的校验文件
+- 解压安全：先解压到临时目录，逐个检查压缩包条目，拒绝绝对路径、含 `..` 的路径和符号链接（防止解压到目标目录外），检查通过后再整体移动到 `~/.bukitjalil/bin/bukit-2.0.8/`，并确认可执行文件存在、`bukit version` 输出 2.0.8
 - 平台：官方只提供 osx-arm64、linux-x64、win-x64，**没有 Intel Mac（osx-x64）和 Linux ARM 版本**。这些平台的用户需要自己编译 Bukit 并在设置里指定路径，界面要给出明确提示
 - 启动时执行 `bukit version`，版本不是 2.0.x 时警告
 
@@ -454,6 +473,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | POST | `/api/sites/import` | 导入已有目录 |
 | GET | `/api/sites/:siteId` | 网站详情（含配置摘要、状态） |
 | PATCH | `/api/sites/:siteId` | 改显示名、归档 |
+| DELETE | `/api/sites/:siteId` | 从 BukitJalil 移除网站：删除工作副本、`git worktree prune`、删除会话和构建记录；**不删除网站目录** |
 | GET | `/api/sites/:siteId/tree?ref=main\|change` | 目录树 |
 | GET | `/api/sites/:siteId/file?path=&ref=` | 文件内容（文本 / 二进制流） |
 | GET | `/api/sites/:siteId/config` | `site.yaml` 结构化视图 + 原文 |
@@ -479,6 +499,8 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | GET | `/api/models` | 可用模型 |
 | PUT | `/api/providers/:provider/key` | 保存 API Key |
 | POST | `/api/providers/:provider/test` | 测试连接 |
+| GET | `/api/bukit` | Bukit 状态：路径、版本、来源（自定义 / 应用管理 / PATH）、当前平台是否有官方安装包 |
+| POST | `/api/bukit/install` | 下载并安装 Bukit 2.0.8（界面确认后调用），进度通过 SSE 推送 |
 | GET | `/api/health` | 健康检查：Bukit、git、Pi 是否可用 |
 
 ### 9.2 SSE 事件
@@ -558,7 +580,7 @@ packages/web/src/
 | AI 越权写文件 | 工具白名单 + 路径闸门（6.3）+ 只改工作副本 + 人工审核 |
 | AI 执行命令 | 不开放 `bash`；Bukit 只通过固定参数的自定义工具调用；所有构建前检查插件和编译选项（8.5） |
 | 路径穿越（文件接口） | 所有路径参数 `realpath` 后必须在网站目录或工作副本内 |
-| 密钥泄露 | 密钥只存在 `~/.bukitjalil/pi/auth.json`（600 权限），不进数据库、不进日志、不返回浏览器；Notion Token 只通过环境变量传给 Bukit |
+| 密钥泄露 | 模型密钥只存在 `~/.bukitjalil/pi/auth.json`，Notion / GitHub 等其他密钥只存在 `~/.bukitjalil/secrets.json`（都是 600 权限，都在 AI 工作副本之外）；不进数据库、不进日志、不返回浏览器；只按 8.5 和 M6 的规则以环境变量传给 Bukit |
 | 预览页面脚本（AI 写的 JS） | 预览在另一个端口提供（不同源）+ 响应头 `CSP: sandbox`（不含 `allow-forms`）+ iframe `sandbox`（见 8.4） |
 | 跨站请求（预览页或其他网页向 API 发表单、图片请求等） | Cookie 不按端口隔离，所以 API 自己防护：① 所有非 GET 请求的 `Origin` 必须**完全等于**管理界面地址（`http://127.0.0.1:47880`），缺失或为 `null` 一律拒绝；② 非 GET 请求必须是 `Content-Type: application/json` 并带自定义请求头 `X-BukitJalil: 1`（普通表单发不出这种请求，跨源时会触发预检，而服务端不允许任何跨源预检）；③ 所有 GET 接口都没有副作用；④ 服务端不返回任何 `Access-Control-Allow-*` 头 |
 | AI 读取密钥或系统文件 | 读类工具同样受路径闸门限制，只能访问工作副本（见 6.3） |
@@ -611,11 +633,11 @@ packages/web/src/
 | 确认 TypeScript 7.0.2 与 Vite、Vitest、Biome、shadcn 兼容 | 不兼容则退回 TypeScript 6 并更新本文 |
 | CI 工作流 | PR 自动检查 |
 
-**验收**：`pnpm dev` 打开三栏空界面；`/api/health` 报告 git 可用；CI 通过。
+**验收**：`pnpm dev` 打开三栏空界面；`/api/health` 报告 git 可用；不带 Cookie、`Origin` 不符或为 `null`、缺少 `X-BukitJalil` 头、非 JSON 的非 GET 请求都被拒绝（有自动化测试）；预览端口的响应带 `CSP: sandbox`；CI 通过。
 
 ### M1 技术验证（3–4 天）
 
-在 `packages/server/spikes/` 写最小验证脚本，逐项确认 6.6 和 8.2、8.4 的待验证项：
+在 `packages/server/spikes/` 写最小验证脚本，逐项确认 6.6、8.2、8.4、8.5 的待验证项：
 
 - Pi SDK：自定义 agentDir、ResourceLoader 加载技能、自定义工具、`tool_call` 阻止、会话文件路径、分叉、事件字段、假模型提供商
 - Bukit：在 macOS 上运行 2.0.8；`--output` 指向项目内新空目录 + `--no-clean` 能正常构建；`--base-url` 预览路径；`--log-format` 选项；`config schema` 输出；用 `checksums.txt` 核对三个平台安装包
@@ -632,7 +654,7 @@ packages/web/src/
 | Bukit 程序检测、下载（需确认）、版本检查 | 设置页显示 Bukit 状态 |
 | starter 模板：从 Bukit 源码复制 StarterTheme，补 `theme.yaml`、最小 `site.yaml` 和示例内容，用真实 Bukit 构建通过 | `templates/starter/` |
 | 构建前安全检查 `bukit/guard.ts`（插件、路径字段、网络、环境变量，见 8.5）+ 单元测试 | 检查模块 |
-| 新建网站、导入网站、网站列表、归档 | 侧栏网站列表 |
+| 新建网站、导入网站（含不满足安全规则时的"只读"状态，见 5.1）、网站列表、归档、移除 | 侧栏网站列表 |
 | 文件树和文件预览（Shiki、Markdown、图片、PDF） | 文件面板 |
 | 配置面板（结构化 + 原文） | 配置面板 |
 | 主题面板、数据面板（Markdown 集合、data 源、Notion 源只显示配置） | 主题、数据面板 |
@@ -660,7 +682,7 @@ packages/web/src/
 
 | 任务 | 产出 |
 | --- | --- |
-| 改动集：工作树创建、差异计算、状态管理 | changes 模块 |
+| 改动集：工作树创建、差异计算（`git add -A` + `git diff --cached`，含新文件）、`git clean -fdx` 清理、状态管理 | changes 模块 |
 | 审核卡片、改动面板（文件列表 + 差异视图） | 审核界面 |
 | 应用（含检查、rebase、冲突处理）、拒绝 | 应用 / 拒绝 |
 | 改动集预览构建，预览面板切换"正式 / 改动中" | 双预览 |
@@ -683,7 +705,8 @@ packages/web/src/
 ### M6 发布到 GitHub Pages（3–4 天，MVP 之后）
 
 - 部署设置：仓库、分支（写入 `site.yaml` 的 `deploy`，通过 AI 或设置向导生成改动集，同样走审核）
-- 发布前检查：`config check`、`doctor`、`build --clean`、`publish audit`
+- 发布前检查（都在 `main/` 检出里执行，先过 8.5 的构建前安全检查）：`config check`、`doctor`、`build --clean`、`publish audit`
+- GitHub token：用户在设置里填写，和模型密钥一样存放在应用数据目录的权限 600 文件里（`~/.bukitjalil/secrets.json`），不进数据库、不返回浏览器；只在用户点击发布时，通过 `bukit deploy --token-env BUKITJALIL_GH_TOKEN` 以环境变量传给 Bukit，任何其他构建都不传
 - 调用 `bukit deploy`，显示进度和结果；发布记录
 
 ### M7 桌面版（4–5 天，MVP 之后）
@@ -723,8 +746,8 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 ## 16. 待定问题
 
 1. **网站默认存放位置**：`~/BukitJalil Sites/` 还是让用户每次选？（当前设计：默认目录 + 可改）
-2. **素材上传**：图片等二进制文件 AI 不能写，用户怎么加素材？建议 M5 加"上传到 `content/media`"的受控入口——这是唯一的用户直接写入，需要确认是否接受
+2. **素材上传**：图片等二进制文件 AI 不能写，用户怎么加素材？建议加"上传到 `content/media`"的受控入口——这是唯一的用户直接写入，需要确认是否接受。**目前没有排进 M0–M5**；确认接受后作为 M5 的新增任务（约 1–2 天，上传同样生成改动集、走审核），MVP 估算相应增加
 3. **Notion 数据源**：MVP 只显示配置；是否需要在 BukitJalil 里管理 Notion Token 并预览 Notion 数据？
 4. **多会话并发改同一网站**：MVP 限制一个 open 改动集，是否够用？
 5. **界面语言**：MVP 只做中文，还是中英双语？
-6. **starter 主题来源**：直接用 Bukit 仓库里的 starter 主题，还是 BukitJalil 自己维护一套更好看的默认主题？
+6. **默认主题的外观**：MVP 已确定从 Bukit 源码复制 StarterTheme 作为起点（5.2、M2）；是否在此基础上做一套更好看的默认主题，可以放到 MVP 之后决定
