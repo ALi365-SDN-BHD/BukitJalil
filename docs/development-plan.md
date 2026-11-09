@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v1.5（2026-11-09，已按评审和三轮审计修改；密钥来源规则） · 分支：`pi-harness-ui` · 状态：待确认
+> 版本：v1.6（2026-11-09，已按评审和四轮审计修改） · 分支：`pi-harness-ui` · 状态：待确认
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.8 的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -121,7 +121,8 @@
   ├─ api/            路由、请求校验、SSE
   ├─ sites/          网站项目：创建、导入、读取配置/主题/文件/数据
   ├─ agent/          Pi SDK：会话管理、建站工具、权限闸门、技能加载
-  ├─ changes/        改动集：工作树、差异、应用、拒绝、历史、恢复
+  ├─ changes/        改动集：工作树、差异、审核指纹、应用、拒绝、历史、恢复
+  ├─ git/            唯一的 git 调用入口：固定加固参数、最小环境变量、仓库配置检查（7.3）
   ├─ bukit/          Bukit 程序管理与调用：check、doctor、build、报告解析
   ├─ preview/        构建结果的静态托管（独立端口 47881，CSP sandbox）
   ├─ store/          SQLite（系统数据）
@@ -155,7 +156,7 @@ BukitJalil/
 
 ### 3.3 运行方式
 
-- 开发：`pnpm dev` 同时启动 server（tsx watch）和 web（Vite，代理 `/api` 到 server）
+- 开发：`pnpm dev` 同时启动 server（tsx watch）和 web（Vite，代理 `/api` 到 server）；开发脚本启动 Vite 时去掉 `BUKITJALIL_*_TOKEN` 和模型密钥环境变量，Vite 进程拿不到密钥
 - 生产：`pnpm build` 后 server 直接托管 web 的静态文件，一个进程一个端口，`pnpm start` 启动并打开浏览器
 - 默认端口：管理界面和 API 用 47880，预览用 47881（和管理界面隔离，见 8.4）；被占用时报错并提示 `--port` / `--preview-port`
 
@@ -221,7 +222,7 @@ BukitJalil/
 
 **导入流程**（导入的网站可能来自外部，当作不可信内容处理）：
 
-1. 只读检查目录：有 `site.yaml`、是否 git 仓库、当前分支、是否有未提交改动；这一步不调用 Bukit
+1. 只读检查目录：有 `site.yaml`、是否 git 仓库、当前分支、是否有未提交改动；这一步不调用 Bukit，所有 git 调用都按 7.3 加固，并先检查仓库配置和钩子（不通过则只读导入）
 2. 登记网站，创建 `worktrees/<siteId>/main/` 检出
 3. 在 `main/` 检出里先跑构建前安全检查（8.5）。不通过时网站仍可导入，标记为"**只读：不满足安全规则**"，界面列出原因（例如使用了外部插件、路径越界）；这类网站可以浏览文件、配置，但不能构建、不能开 AI 会话
 4. 检查通过后，才在 `main/` 检出里执行 `bukit config check`；失败标记"配置有误"，仍可以开 AI 会话让 AI 修复
@@ -318,7 +319,9 @@ BukitJalil/
 ### 6.5 模型与密钥
 
 - `ModelRuntime.create({ authPath: ~/.bukitjalil/pi/auth.json, modelsPath: ~/.bukitjalil/pi/models.json })`
-- 设置面板支持：选择提供商和模型、填写 API Key（写入 `auth.json`，界面只显示末四位）、思考级别、"测试连接"
+- 模型密钥有两个来源：设置页填写（写入 `auth.json`）和环境变量（Pi 会读取 `ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等提供商环境变量，已核对 Pi 文档）。设置页对每个提供商显示密钥来源；来自环境变量的不能在界面里修改
+- Pi 在请求时可能才读取环境变量，所以模型密钥变量**不从进程环境删除**；改为保证所有子进程（git、Bukit）都只拿到显式构造的最小环境（7.3、8.5），不会继承它们
+- 设置面板支持：选择提供商和模型、填写 API Key（界面只显示末四位）、思考级别、"测试连接"
 - 密钥永远不通过 API 返回给浏览器
 
 **其他密钥（Notion token、GitHub token）的来源**，由 `packages/server/src/settings/secrets.ts` 统一处理：
@@ -350,7 +353,7 @@ BukitJalil/
 
 ### 7.2 改动集流程
 
-AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/worktrees/<siteId>/ai --detach main`），之后一直复用。正式版本另有一个检出 `worktrees/<siteId>/main/`（`--detach`，每次构建前更新到 `main` 最新提交），两者互不干扰。
+AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/worktrees/<siteId>/ai --detach main`），之后一直复用。正式版本另有一个检出 `worktrees/<siteId>/main/`，两者互不干扰。`main/` 检出每次使用前（构建、安全检查、导入检查）都执行 `git switch -f --detach main && git clean -fdx -e .bukit -e .cache`，保证内容和正式版本完全一致、没有残留文件；AI 不能访问 `main/` 检出。
 
 ```text
            用户发消息（且没有 open 改动集）
@@ -368,11 +371,12 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
         ▼              ▼              ▼
      应用            拒绝           继续对话
         │              │              │
-  在工作副本提交      丢弃改动并 detach  回到 AI 修改
-  main 快进合并      删除分支
-  （main 已前进则     状态 rejected
-   先 rebase，有冲突
-   标记 stale）
+  校验审核指纹        丢弃改动并 detach  回到 AI 修改
+  在工作副本提交      删除分支           （审核卡片失效）
+  main 快进合并      状态 rejected
+  （main 已前进则
+   rebase 后重新审核，
+   有冲突标记 stale）
   工作副本 git switch --detach
   （分支正被检出时 git 不允许删除）
   再删除分支，工作副本留着复用
@@ -380,6 +384,12 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
 ```
 
 - **差异计算**（已用本地 git 实验确认）：`git diff <base>...` 不显示还没被跟踪的新文件，而应用时的提交会把它们带进去，审核就会漏看。所以每轮结束先在工作副本里 `git add -A`，再用 `git diff --cached <base>` 计算差异；应用时提交的正是这份暂存内容，**审核看到的 = 将要提交的**
+- **审核指纹**：光是"审核看到的 = 暂存内容"还不够——用户看差异时，AI 可能还在运行，或排队的消息让 AI 接着改，点"应用"时提交的就是没看过的内容。所以：
+  - 每次生成审核卡片时，用 `git write-tree` 得到暂存内容的树哈希，作为这份差异的**指纹**，和差异一起发给界面
+  - 点"应用"时，请求必须带上这个指纹；服务端先确认**这个网站没有任何会话在运行或排队**，再重新 `git add -A` + `git write-tree`，结果必须和指纹完全一致，否则拒绝应用并刷新审核卡片
+  - 会话开始运行（包括排队的会话轮到运行）时，当前审核卡片立即失效，界面禁用"应用"按钮，等这一轮结束后重新生成
+  - 提交用 `git commit-tree <指纹> -p <base>` 生成，再用 `git update-ref` 把 `bj/change/<changeId>` 指向这个提交，保证合入的内容就是审核过的那棵树
+- **正式版本已前进时**：应用前发现 `main` 不再等于改动集的 `base_commit`（例如期间做过恢复，或用户在 BukitJalil 外提交过），先在工作副本里把改动 rebase 到新的 `main`；rebase 成功后**不自动合入**，而是重新计算差异和指纹、生成新的审核卡片，用户再确认一次；rebase 有冲突则标记 `stale`，让 AI 基于新版本重做
 - **清理被忽略的文件**：AI 可以改 `.gitignore`，把文件藏起来——被忽略的文件不出现在差异里、不会被提交，但会留在工作副本里影响之后的预览构建。所以开新改动集和拒绝时都用 `git clean -fdx`，只用 `-e` 保留 `.bukit/`、`.cache/` 两个缓存目录；`.gitignore` 本身是被跟踪的文件，它的改动会出现在差异里
 - 一个网站同一时间最多一个 `open` 改动集，多个会话共享它；配合"同一时间只有一个会话在运行"（6.1），不会出现两个 AI 同时改文件（M4 之后视情况放开）
 - **排除规则**：创建工作副本时，在网站仓库的 `.git/info/exclude` 写入 `dist/`、`.bukit/`、`.cache/`、`.bukitjalil-build/`，保证 Bukit 的构建产物和缓存不会出现在差异里，也不需要改用户的 `.gitignore`
@@ -389,7 +399,17 @@ AI 工作副本在第一次需要时创建（`git worktree add ~/.bukitjalil/wor
   - 网站目录当前检出的分支就是 `sites.default_branch`（用户可能在 BukitJalil 外切到了别的分支，直接 merge 会合进错误的分支）
   - 网站目录没有未提交的改动（比如用户在 BukitJalil 外手动改过）
 
-### 7.3 版本历史与恢复
+### 7.3 git 调用加固
+
+网站仓库（尤其是导入的）可能自带会执行命令的 git 配置和钩子。已用本机 git 2.39.5 实验确认：仓库 `.git/config` 里的 `core.fsmonitor = <命令>` 会在**执行 `git status` 时**直接运行；`.git/hooks/pre-commit` 会在提交时运行。所以 BukitJalil 的所有 git 调用都必须加固，统一由 `packages/server/src/git/run.ts` 发起，不允许其他模块直接调用 git：
+
+- **固定参数**：每次调用都带 `-c core.fsmonitor=false -c core.hooksPath=<应用自带的空目录> -c core.untrackedCache=false -c protocol.allow=never`（已实验确认前两个参数能挡住上述两种执行）；`diff` / `log -p` 一律加 `--no-ext-diff --no-textconv`
+- **最小环境变量**：git 子进程只传 `PATH`、`HOME`、`LANG`，外加 `GIT_CONFIG_NOSYSTEM=1`、`GIT_TERMINAL_PROMPT=0`；不继承服务进程的其他环境变量（包括模型密钥）
+- **导入时检查仓库配置**：用 `git config --local --list`（同样加固）列出仓库配置，出现以下任一项就把网站标为"只读：不满足安全规则"并列出原因：`core.fsmonitor`、`core.hooksPath`、`core.sshCommand`、`core.pager`、`core.editor`、`filter.*`、`diff.*.command`、`diff.*.textconv`、`merge.*.driver`、`include.path` / `includeIf.*`；`.git/hooks/` 里有非 `.sample` 的可执行文件时同样标为只读并提示
+- **`.gitattributes`**：AI 可以写 `.gitattributes`，但只有仓库配置里定义了对应驱动才会执行；导入检查已拒绝带驱动配置的仓库，固定参数又关掉了外部差异和文本转换，所以不额外限制
+- 加固函数有单元测试：用带 `core.fsmonitor`、钩子、`filter` 的测试仓库验证都不会执行
+
+### 7.4 版本历史与恢复
 
 - 历史 = `main` 的提交列表，每条显示说明、时间、改动文件数、关联会话
 - 查看任意版本的差异
@@ -499,7 +519,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | POST | `/api/sessions/:sessionId/abort` | 停止 |
 | POST | `/api/sessions/:sessionId/fork` | 从某条消息分叉 |
 | GET | `/api/sites/:siteId/changes/current` | 当前改动集与差异 |
-| POST | `/api/changes/:changeId/apply` | 应用 |
+| POST | `/api/changes/:changeId/apply` | 应用；请求体必须带审核指纹 `treeHash`，指纹不符、网站有会话在运行或排队时返回 409 |
 | POST | `/api/changes/:changeId/reject` | 拒绝 |
 | GET | `/api/sites/:siteId/history` | 版本历史 |
 | GET | `/api/sites/:siteId/history/:commit/diff` | 某个版本的差异 |
@@ -526,7 +546,8 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | `tool.start` / `tool.update` / `tool.end` | Pi `tool_execution_*` | 工具调用卡片 |
 | `run.settled` | Pi `agent_settled` | 结束加载状态 |
 | `change.updated` | 改动集文件变化 | 刷新改动面板和文件树 |
-| `change.ready` | 一轮结束且有改动 | 显示审核卡片 |
+| `change.ready` | 一轮结束且有改动（带差异摘要和审核指纹） | 显示审核卡片 |
+| `change.invalidated` | 会话开始运行、指纹不再匹配、rebase 后需重新审核 | 禁用"应用"，等待新的 `change.ready` |
 | `change.resolved` | 应用 / 拒绝 | 关闭审核卡片，刷新历史 |
 | `build.start` / `build.end` | Bukit 构建 | 预览面板状态 |
 
@@ -591,14 +612,16 @@ packages/web/src/
 | AI 越权写文件 | 工具白名单 + 路径闸门（6.3）+ 只改工作副本 + 人工审核 |
 | AI 执行命令 | 不开放 `bash`；Bukit 只通过固定参数的自定义工具调用；所有构建前检查插件和编译选项（8.5） |
 | 路径穿越（文件接口） | 所有路径参数 `realpath` 后必须在网站目录或工作副本内 |
-| 密钥泄露 | 模型密钥只存在 `~/.bukitjalil/pi/auth.json`，Notion / GitHub token 来自环境变量 `BUKITJALIL_NOTION_TOKEN` / `BUKITJALIL_GITHUB_TOKEN`（优先）或 `~/.bukitjalil/secrets.json`（600 权限）；环境变量读取后立即从进程环境删除，避免子进程继承；都在 AI 工作副本之外，不进数据库、不进日志、不返回浏览器；只按 8.5 和 M6 的规则显式传给 Bukit（见 6.5） |
+| 密钥泄露 | 模型密钥来自 `~/.bukitjalil/pi/auth.json` 或提供商环境变量（6.5），Notion / GitHub token 来自环境变量 `BUKITJALIL_NOTION_TOKEN` / `BUKITJALIL_GITHUB_TOKEN`（优先）或 `~/.bukitjalil/secrets.json`（600 权限）；Notion / GitHub 环境变量读取后立即从进程环境删除；所有子进程（git、Bukit）都只拿到显式构造的最小环境（7.3、8.5）；都在 AI 工作副本之外，不进数据库、不进日志、不返回浏览器；只按 8.5 和 M6 的规则显式传给 Bukit（见 6.5） |
 | 预览页面脚本（AI 写的 JS） | 预览在另一个端口提供（不同源）+ 响应头 `CSP: sandbox`（不含 `allow-forms`）+ iframe `sandbox`（见 8.4） |
 | 跨站请求（预览页或其他网页向 API 发表单、图片请求等） | Cookie 不按端口隔离，所以 API 自己防护：① 所有非 GET 请求的 `Origin` 必须**完全等于**管理界面地址（`http://127.0.0.1:47880`），缺失或为 `null` 一律拒绝；② 非 GET 请求必须是 `Content-Type: application/json` 并带自定义请求头 `X-BukitJalil: 1`（普通表单发不出这种请求，跨源时会触发预检，而服务端不允许任何跨源预检）；③ 所有 GET 接口都没有副作用；④ 服务端不返回任何 `Access-Control-Allow-*` 头 |
 | AI 读取密钥或系统文件 | 读类工具同样受路径闸门限制，只能访问工作副本（见 6.3） |
 | AI 借 Bukit 插件 / 编译选项间接执行代码 | 所有构建前检查插件和编译选项，AI 不能写 `plugins/**`（见 6.3、8.5） |
 | AI 借 `site.yaml` 路径字段或远程素材读取工作副本外的文件、访问内网 | 所有构建前校验路径字段必须在检出目录内，强制 `blockPrivateNetworks: true`（见 8.5） |
 | 密钥进入未审核内容的构建 | 只有用户手动构建正式版本或发布时才传密钥（见 8.5） |
-| 提示词注入（网站内容里夹带指令） | AI 能力本身受限；所有改动必须人工审核 |
+| 导入仓库借 git 配置或钩子执行命令（`core.fsmonitor`、hooks、filter 等） | 所有 git 调用统一加固（关闭 fsmonitor、钩子、外部差异和文本转换，最小环境变量）；导入时检查仓库配置和钩子，有风险项则只读导入（见 7.3） |
+| 审核后内容被改动（AI 仍在运行、排队消息、正式版本已前进） | 审核卡片绑定内容指纹；只有没有会话运行且指纹一致才允许应用；rebase 后重新审核（见 7.2） |
+| 提示词注入（网站内容里夹带指令） | AI 能力本身受限；所有改动必须人工审核，且应用时校验审核指纹 |
 
 ---
 
@@ -607,7 +630,7 @@ packages/web/src/
 | 层级 | 工具 | 覆盖 |
 | --- | --- | --- |
 | 单元 | Vitest | `shared` 的 schema；`server` 的路径闸门（读写工具、glob 参数）、构建前安全检查 `bukit/guard.ts`（插件、每个路径字段、网络开关、环境变量）、防跨站请求中间件、密钥来源（环境变量优先、读取后从进程环境删除、子进程环境里不含密钥）、`site.yaml` 解析、差异解析、Bukit 退出码映射 |
-| 服务端集成 | Vitest + 临时目录 | 真实 git：创建网站、工作树、应用 / 拒绝 / 恢复；Bukit 用假程序（脚本模拟输出和退出码） |
+| 服务端集成 | Vitest + 临时目录 | 真实 git：创建网站、工作树、应用 / 拒绝 / 恢复；git 加固（带 `core.fsmonitor`、钩子、`filter` 的测试仓库不执行任何命令）；审核指纹（AI 运行中、指纹不符、正式版本前进时应用被拒绝或要求重新审核）；Bukit 用假程序（脚本模拟输出和退出码） |
 | Pi 集成 | Vitest + 假模型 | 用 Pi 的自定义提供商注册一个脚本化的假模型，按剧本返回工具调用，验证工具和闸门，不花钱、结果稳定 |
 | 真实 Bukit | Vitest（标记 `@bukit`，CI 可选） | 用真实 Bukit 2.0.8 构建 starter 模板 |
 | 端到端 | Playwright | 新建网站 → 对话（假模型）→ 审核 → 应用 → 构建 → 预览；拒绝流程；恢复流程；**安全用例**：预览页里的恶意脚本 / 自动提交表单 / 图片请求无法调用管理端 API，新标签页直接打开预览同样无效 |
@@ -665,7 +688,7 @@ packages/web/src/
 | Bukit 程序检测、下载（需确认）、版本检查 | 设置页显示 Bukit 状态 |
 | starter 模板：从 Bukit 源码复制 StarterTheme，补 `theme.yaml`、最小 `site.yaml` 和示例内容，用真实 Bukit 构建通过 | `templates/starter/` |
 | 构建前安全检查 `bukit/guard.ts`（插件、路径字段、网络、环境变量，见 8.5）+ 单元测试 | 检查模块 |
-| 新建网站、导入网站（含不满足安全规则时的"只读"状态，见 5.1）、网站列表、归档、移除 | 侧栏网站列表 |
+| 新建网站、导入网站（含不满足安全规则时的"只读"状态，见 5.1）、git 调用加固与导入时的仓库配置检查（7.3）、网站列表、归档、移除 | 侧栏网站列表 |
 | 文件树和文件预览（Shiki、Markdown、图片、PDF） | 文件面板 |
 | 配置面板（结构化 + 原文） | 配置面板 |
 | 主题面板、数据面板（Markdown 集合、data 源、Notion 源只显示配置） | 主题、数据面板 |
@@ -693,7 +716,7 @@ packages/web/src/
 
 | 任务 | 产出 |
 | --- | --- |
-| 改动集：工作树创建、差异计算（`git add -A` + `git diff --cached`，含新文件）、`git clean -fdx` 清理、状态管理 | changes 模块 |
+| 改动集：工作树创建、差异计算（`git add -A` + `git diff --cached`，含新文件）、`git clean -fdx` 清理、审核指纹（`write-tree` / `commit-tree`）、会话运行时审核卡片失效、正式版本前进后 rebase 并重新审核、状态管理 | changes 模块 |
 | 审核卡片、改动面板（文件列表 + 差异视图） | 审核界面 |
 | 应用（含检查、rebase、冲突处理）、拒绝 | 应用 / 拒绝 |
 | 改动集预览构建，预览面板切换"正式 / 改动中" | 双预览 |
