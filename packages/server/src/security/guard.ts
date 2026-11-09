@@ -3,7 +3,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { safeEqual } from "./token.ts";
 
-export function apiError(c: Context, status: 400 | 401 | 403 | 404 | 421 | 500, code: ErrorCode) {
+export function apiError(c: Context, status: 400 | 401 | 403 | 404 | 409 | 421 | 500, code: ErrorCode) {
   return c.json({ code }, status);
 }
 

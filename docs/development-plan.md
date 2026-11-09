@@ -637,8 +637,8 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | GET | `/api/models` | 可用模型 |
 | PUT | `/api/providers/:provider/key` | 保存 API Key |
 | POST | `/api/providers/:provider/test` | 测试连接 |
-| GET | `/api/bukit` | Bukit 状态：路径、版本、来源（自定义 / 应用管理 / PATH）、当前平台是否有官方安装包 |
-| POST | `/api/bukit/install` | 下载并安装 Bukit 2.0.11（界面确认后调用），进度通过 SSE 推送 |
+| GET | `/api/bukit` | Bukit 状态：路径、版本、来源（自定义 / 应用管理 / PATH）、当前平台是否有官方安装包、安装进度；结果缓存，修改设置里的 `bukitPath` 或安装完成后重新查找 |
+| POST | `/api/bukit/install` | 下载并安装 Bukit 2.0.11（界面确认后调用），返回 202；进度由界面轮询 `GET /api/bukit` 的 `install` 字段（只有一个下载，不值得为它单开 SSE）；已在安装时返回 409 |
 | GET | `/api/health` | 健康检查：Bukit、git（版本 ≥ 2.38）、Pi 是否可用 |
 
 ### 9.2 SSE 事件

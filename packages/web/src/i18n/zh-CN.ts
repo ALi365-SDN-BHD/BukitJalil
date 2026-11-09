@@ -44,6 +44,8 @@ const zhCN = {
     "request.invalid_body": "请求内容无效",
     "request.not_found": "接口不存在",
     "server.internal": "服务内部错误",
+    "bukit.install_running": "Bukit 正在安装中",
+    "bukit.unsupported_platform": "当前平台没有官方 Bukit 安装包：请自行编译 Bukit，并在设置里填写路径",
   },
 };
 

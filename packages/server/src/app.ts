@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { type HealthResponse, SettingsPatch, sessionCookieName } from "@bukitjalil/shared";
+import { type BukitResponse, type HealthResponse, SettingsPatch, sessionCookieName } from "@bukitjalil/shared";
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
+import type { BukitService } from "./bukit/locate.ts";
 import type { GitHealth } from "./git/version.ts";
 import type { Logger } from "./log.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
@@ -24,6 +25,7 @@ export interface AdminAppOptions {
   /** Built web UI to serve; null in dev, where Vite serves the UI. */
   webDist: string | null;
   checkGit: () => Promise<GitHealth>;
+  bukit: BukitService;
   version: string;
   logger: Logger;
 }
@@ -102,7 +104,20 @@ export function createAdminApp(opts: AdminAppOptions) {
     }
     const patch = SettingsPatch.safeParse(body);
     if (!patch.success) return apiError(c, 400, "request.invalid_body");
-    return c.json(settings.update(patch.data));
+    const updated = settings.update(patch.data);
+    if (patch.data.bukitPath !== undefined) opts.bukit.invalidate();
+    return c.json(updated);
+  });
+
+  api.get("/bukit", async (c) => {
+    const body: BukitResponse = { status: await opts.bukit.status(), install: opts.bukit.installer.progress };
+    return c.json(body);
+  });
+  // Install Bukit 2.0.11 (plan 8.1) after the user confirmed in the UI. Progress is polled from GET /bukit.
+  api.post("/bukit/install", async (c) => {
+    if (!(await opts.bukit.status()).installable) return apiError(c, 400, "bukit.unsupported_platform");
+    if (!opts.bukit.install()) return apiError(c, 409, "bukit.install_running");
+    return c.json({ install: opts.bukit.installer.progress }, 202);
   });
 
   api.all("*", (c) => apiError(c, 404, "request.not_found"));

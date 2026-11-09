@@ -5,12 +5,15 @@ import { parseArgs } from "node:util";
 import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/shared";
 import { serve } from "@hono/node-server";
 import { createAdminApp } from "./app.ts";
+import { BukitService } from "./bukit/locate.ts";
+import { resolveGitPath } from "./git/run.ts";
 import { checkGit } from "./git/version.ts";
 import { createLogger } from "./log.ts";
 import { ensureAppHome, resolveAppHome } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
 import { openDatabase } from "./store/db.ts";
+import { SettingsStore } from "./store/settings.ts";
 
 const VERSION = "0.0.0";
 
@@ -55,6 +58,16 @@ const paths = ensureAppHome(resolveAppHome());
 const logger = createLogger(paths.logs);
 const db = openDatabase(paths.db);
 
+// git is resolved once; every later call uses this absolute path (plan 7.3).
+const gitPath = resolveGitPath();
+
+const settingsStore = new SettingsStore(db);
+const bukit = new BukitService({
+  home: paths.home,
+  tmpDir: paths.bukitTmp,
+  customPath: () => settingsStore.get().bukitPath,
+});
+
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
@@ -67,7 +80,9 @@ const app = createAdminApp({
   sessionValue: randomSecret(),
   db,
   webDist: !dev && fs.existsSync(path.join(webDist, "index.html")) ? webDist : null,
-  checkGit: () => checkGit(),
+  checkGit: () =>
+    gitPath ? checkGit(gitPath) : Promise.resolve({ ok: false, version: null, problem: "missing" as const }),
+  bukit,
   version: VERSION,
   logger,
 });

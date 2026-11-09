@@ -45,6 +45,9 @@ const en: Messages = {
     "request.invalid_body": "Invalid request content",
     "request.not_found": "Unknown endpoint",
     "server.internal": "Internal server error",
+    "bukit.install_running": "Bukit is already being installed",
+    "bukit.unsupported_platform":
+      "There is no official Bukit package for this platform; build Bukit yourself and set its path in Settings",
   },
 };
 

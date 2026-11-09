@@ -1,4 +1,6 @@
+import os from "node:os";
 import { createAdminApp } from "../src/app.ts";
+import { BukitService } from "../src/bukit/locate.ts";
 import type { GitHealth } from "../src/git/version.ts";
 import { type Logger, silentLogger } from "../src/log.ts";
 import { LoginToken } from "../src/security/token.ts";
@@ -11,7 +13,13 @@ export const SESSION = "test-session-0123456789abcdefghijklmn";
 export const COOKIE = `bj_session_${PORT}`;
 
 export function makeApp(
-  overrides: { allowedOrigin?: string; webDist?: string; checkGit?: () => Promise<GitHealth>; logger?: Logger } = {},
+  overrides: {
+    allowedOrigin?: string;
+    webDist?: string;
+    checkGit?: () => Promise<GitHealth>;
+    logger?: Logger;
+    bukit?: BukitService;
+  } = {},
 ) {
   const db = openDatabase(":memory:");
   const loginToken = new LoginToken(TOKEN);
@@ -23,6 +31,14 @@ export function makeApp(
     db,
     webDist: overrides.webDist ?? null,
     checkGit: overrides.checkGit ?? (async () => ({ ok: true, version: "2.45.0", problem: null })),
+    bukit:
+      overrides.bukit ??
+      new BukitService({
+        home: "/nonexistent-bukitjalil-home",
+        tmpDir: os.tmpdir(),
+        customPath: () => null,
+        envPath: "",
+      }),
     version: "test",
     logger: overrides.logger ?? silentLogger,
   });

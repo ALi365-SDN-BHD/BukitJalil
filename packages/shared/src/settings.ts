@@ -9,10 +9,12 @@ export const Settings = z.object({
   locale: Locale.nullable(),
   /** Parent directory chosen last time in the site directory picker (plan 5.2). */
   lastParentDir: z.string().nullable(),
+  /** Custom Bukit executable (plan 8.1), e.g. a self-built one on Intel Mac; null uses the app copy or PATH. */
+  bukitPath: z.string().max(4096).regex(/^\//, "must be an absolute path").nullable(),
 });
 export type Settings = z.infer<typeof Settings>;
 
 export const SettingsPatch = Settings.partial().strict();
 export type SettingsPatch = z.infer<typeof SettingsPatch>;
 
-export const defaultSettings: Settings = { locale: null, lastParentDir: null };
+export const defaultSettings: Settings = { locale: null, lastParentDir: null, bukitPath: null };

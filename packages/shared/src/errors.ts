@@ -14,6 +14,8 @@ export const errorCodes = [
   "request.invalid_body",
   "request.not_found",
   "server.internal",
+  "bukit.install_running",
+  "bukit.unsupported_platform",
 ] as const;
 
 export const ErrorCode = z.enum(errorCodes);

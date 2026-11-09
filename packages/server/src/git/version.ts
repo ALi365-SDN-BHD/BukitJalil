@@ -25,8 +25,8 @@ export function parseGitVersion(output: string): string | null {
 }
 
 /**
- * `git --version` with a minimal environment. The full hardened runner (plan 7.3) arrives in M2;
- * this call touches no repository, so it needs no repository hardening.
+ * `git --version` with a minimal environment, for /api/health. It touches no repository, so it does not
+ * go through GitRunner (git/run.ts), which every repository operation uses.
  */
 export function checkGit(gitPath = "git", envPath = process.env.PATH ?? "/usr/bin:/bin"): Promise<GitHealth> {
   return new Promise((resolve) => {
