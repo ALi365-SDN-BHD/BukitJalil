@@ -8,7 +8,7 @@ BUKIT_SRC=/path/to/Bukit/clone scripts/make-starter.sh
 
 The script copies Bukit's StarterTheme resources (MIT, `src/Bukit-Core/Bukit.Cli/Resources/StarterTheme`)
 from the tag in `BUKIT_TAG` (default `v2.0.11`), adds sample content and `site.yaml`, and records the
-source commit in `starter.source.json`. Keep `starter/` a plain Bukit project: no BukitJalil files.
+source commit and a SHA-256 per file in `starter.source.json` (a test fails when a file is edited by hand). Keep `starter/` a plain Bukit project: no BukitJalil files.
 
 After regenerating, build it with the real Bukit:
 

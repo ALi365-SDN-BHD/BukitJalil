@@ -20,7 +20,8 @@ const LANGUAGE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
 export function validateStarterValues(values: StarterValues): string | null {
   const title = values.title.trim();
   if (title.length === 0 || title.length > 200) return "title must be 1-200 characters";
-  if (/\p{Cc}/u.test(title)) return "title must not contain control characters";
+  // Control, format (bidi overrides, zero-width) and line/paragraph separator characters.
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(title)) return "title must not contain control characters";
   if (!LANGUAGE.test(values.language)) return "language must be a BCP 47 tag like zh-CN";
   return null;
 }
@@ -37,21 +38,31 @@ export function siteSlug(title: string): string {
   return slug || "site";
 }
 
-/** Copy `templateDir` into `target` (created if missing; must be empty) and fill in site.yaml. */
+/**
+ * Copy `templateDir` into `target` (created if missing; must be empty) and fill in site.yaml.
+ * On failure everything written is removed again, so the same location can be retried.
+ */
 export function copyStarter(templateDir: string, target: string, values: StarterValues): void {
   const problem = validateStarterValues(values);
   if (problem) throw new Error(problem);
-  if (fs.existsSync(target)) {
-    if (!fs.lstatSync(target).isDirectory() || fs.readdirSync(target).length > 0) {
-      throw new Error(`${target} must be an empty directory`);
-    }
-  } else {
-    fs.mkdirSync(target, { recursive: true });
+  const existed = fs.existsSync(target);
+  if (existed && (!fs.lstatSync(target).isDirectory() || fs.readdirSync(target).length > 0)) {
+    throw new Error(`${target} must be an empty directory`);
   }
-  copyTree(templateDir, target);
-
-  const sitePath = path.join(target, "site.yaml");
-  fs.writeFileSync(sitePath, fillSiteYaml(fs.readFileSync(sitePath, "utf8"), values));
+  const siteYaml = fillSiteYaml(fs.readFileSync(path.join(templateDir, "site.yaml"), "utf8"), values);
+  // Only the deepest new directory is ours to remove; parents created on the way stay (empty).
+  if (!existed) fs.mkdirSync(target, { recursive: true });
+  try {
+    copyTree(templateDir, target);
+    fs.writeFileSync(path.join(target, "site.yaml"), siteYaml);
+  } catch (err) {
+    if (existed) {
+      for (const name of fs.readdirSync(target)) fs.rmSync(path.join(target, name), { recursive: true, force: true });
+    } else {
+      fs.rmSync(target, { recursive: true, force: true });
+    }
+    throw err;
+  }
 }
 
 /** Set the form values in the template's site.yaml, keeping its layout and comments. */

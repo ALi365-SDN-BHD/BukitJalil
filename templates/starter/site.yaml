@@ -2,7 +2,6 @@ site:
   name: my-site
   title: My Site
   baseUrl: /
-  url: https://example.com
   seo:
     defaultImage: /assets/og-default.png
   language: en-US
