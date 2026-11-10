@@ -43,7 +43,12 @@ function parsePort(value: string | undefined, fallback: number, flag: string): n
   return n;
 }
 
+// pnpm forwards the "--" of `pnpm start -- --port 48000`; drop it so both spellings work.
+const argv = process.argv.slice(2);
+if (argv[0] === "--") argv.shift();
+
 const { values } = parseArgs({
+  args: argv,
   options: {
     port: { type: "string" },
     "preview-port-base": { type: "string" },
