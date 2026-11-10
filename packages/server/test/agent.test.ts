@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { AiBukit } from "../src/agent/ai-bukit.ts";
 import { assertPiEnvironment, preparePiEnvironment } from "../src/agent/env.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { type AgentEvent, AgentService } from "../src/agent/service.ts";
@@ -10,6 +11,8 @@ import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { commitAllAs, makeApp, rawGit } from "./helpers.ts";
+
+const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 
@@ -59,6 +62,8 @@ function service(opts: { model?: boolean; idleMs?: number; rgReady?: () => boole
     resolveModel: () => (opts.model === false ? undefined : (faux.getModel() as Model<Api>)),
     setupRuntime: (runtime) => runtime.registerNativeProvider(faux.provider),
     rgReady: opts.rgReady ?? (() => false),
+    bukit: new AiBukit({ git: ctx.git, paths: ctx.paths, sites: ctx.sites, bukit: ctx.bukit, locks: ctx.locks }),
+    skillsDir: SKILLS,
     idleMs: opts.idleMs,
   });
   services.push(agent);
@@ -103,14 +108,27 @@ describe("Pi environment", () => {
   });
 });
 
-/** The system messages the model received: one, with our prompt and the working directory only. */
-function systemOf(context: unknown): { preamble: string; cwd: string } {
+/** Names of BukitJalil's skills: every SKILL.md below the skills directory. */
+const skillNames = () =>
+  fs
+    .readdirSync(SKILLS, { recursive: true, encoding: "utf8" })
+    .filter((p) => path.basename(p) === "SKILL.md")
+    .map((p) => path.basename(path.dirname(p)))
+    .sort();
+
+/**
+ * The system messages the model received: one, with our prompt, the working directory and exactly
+ * BukitJalil's skills. Context files, site skills and appended prompts would add sections, skills or messages.
+ */
+function systemOf(context: unknown): { preamble: string; cwd: string; skills: string } {
   const messages = (context as { messages: { role: string; sections?: Record<string, string> }[] }).messages;
   const system = messages.filter((m) => m.role === "system");
   expect(system).toHaveLength(1);
-  // Skills, context files and appended prompts would add sections or messages.
-  expect(Object.keys(system[0]?.sections ?? {}).sort()).toEqual(["cwd", "preamble"]);
-  return system[0]?.sections as { preamble: string; cwd: string };
+  const sections = system[0]?.sections as { preamble: string; cwd: string; skills: string };
+  expect(Object.keys(sections).sort()).toEqual(["cwd", "preamble", "skills"]);
+  const listed = [...sections.skills.matchAll(/<name>([^<]+)<\/name>/g)].map((m) => m[1]).sort();
+  expect(listed).toEqual(skillNames());
+  return sections;
 }
 
 /** A faux response that waits until `release` is called. */
@@ -156,6 +174,8 @@ describe("AgentService", () => {
     expect(system.preamble).toContain("BukitJalil site assistant");
     expect(system.preamble).toContain(`"Site ${siteCount}"`);
     expect(system.cwd).toContain(path.join(ctx.paths.worktrees, s.id, "ai"));
+    expect(system.preamble).toContain("bukit_check");
+    expect(system.skills).toContain(path.join(fs.realpathSync(SKILLS), "bukitjalil", "site-editing", "SKILL.md"));
     expect(JSON.stringify(seen)).toContain("Hi");
 
     expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "site.yaml"))).toBe(true);
@@ -217,6 +237,52 @@ describe("AgentService", () => {
     expect(text(result("find")[0] as never)).toContain("site.yaml");
     const ai = path.join(ctx.paths.worktrees, s.id, "ai");
     expect(fs.readFileSync(path.join(ai, "content", "ai.md"), "utf8")).toBe("# Edited\n");
+  });
+
+  it("gives sessions the site tools and read-only skills", async () => {
+    const s = await site();
+    const { agent, events, settled } = service();
+    const session = agent.create(s.id);
+    const call = pi.ai.fauxToolCall;
+    const skill = path.join(fs.realpathSync(SKILLS), "bukitjalil", "site-editing", "SKILL.md");
+    faux.setResponses([
+      pi.ai.fauxAssistantMessage(
+        [
+          call("site_info", {}),
+          call("list_content", { collection: "page" }),
+          call("read", { path: skill }),
+          call("write", { path: skill, content: "changed" }),
+          call("ls", { path: path.dirname(skill) }),
+          call("bukit_check", {}),
+          call("summarize_changes", { summary: "Changed the title." }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      pi.ai.fauxAssistantMessage("done"),
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Look around");
+    await done;
+
+    const ends = events.flatMap((e) => (e.type === "pi" && e.event.type === "tool_execution_end" ? [e.event] : []));
+    const byName = (name: string) => ends.find((e) => e.toolName === name);
+    const text = (name: string) => JSON.stringify(byName(name)?.result);
+    for (const name of ["site_info", "list_content", "read", "summarize_changes"]) {
+      expect(byName(name)?.isError, `${name}: ${text(name)}`).toBe(false);
+    }
+    expect(text("site_info")).toContain(`Site ${siteCount}`);
+    expect(text("list_content")).toContain("content/pages/about.md");
+    expect(text("read")).toContain("Site editing in BukitJalil");
+    // Skills can be read, not written or listed.
+    expect(byName("write")?.isError).toBe(true);
+    expect(byName("ls")?.isError).toBe(true);
+    expect(fs.readFileSync(skill, "utf8")).not.toBe("changed");
+    // No Bukit in this app: the tool says so instead of failing the run.
+    expect(byName("bukit_check")?.isError).toBe(true);
+    expect(text("bukit_check")).toContain("Bukit is not installed");
+    expect(events.filter((e) => e.type === "summary")).toEqual([
+      { siteId: s.id, sessionId: session.id, type: "summary", summary: "Changed the title." },
+    ]);
   });
 
   it("lets grep run only while the rg check passes", async () => {

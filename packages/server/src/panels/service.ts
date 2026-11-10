@@ -132,7 +132,7 @@ export class PanelService {
   async config(siteId: string, ref: PanelRef): Promise<ConfigResponse> {
     return this.withVersion(siteId, ref, async (v) => {
       const { raw, config, error } = await this.siteConfig(v);
-      return { ref, commit: v.commit, raw, error, config, summary: config ? summarize(config) : null };
+      return { ref, commit: v.commit, raw, error, config, summary: config ? summarizeConfig(config) : null };
     });
   }
 
@@ -338,7 +338,8 @@ export class PanelService {
   }
 }
 
-function summarize(config: Record<string, unknown>): ConfigSummary {
+/** The structured view of site.yaml shown in the config panel and given to the AI (site_info). */
+export function summarizeConfig(config: Record<string, unknown>): ConfigSummary {
   const site = isRecord(config.site) ? config.site : {};
   const content = isRecord(config.content) ? config.content : {};
   const build = isRecord(config.build) ? config.build : {};

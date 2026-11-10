@@ -40,7 +40,22 @@ const LIST_LIMIT = 50;
 const MAX_MESSAGES = 200;
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_OUTPUT_CHARS = 8000;
-const OUTPUT_PARENT = ".bukitjalil-build";
+/** Bukit builds into a fresh directory under this one in the checkout (plan 8.4); it is a BUILD_DIR. */
+export const BUILD_OUTPUT_PARENT = ".bukitjalil-build";
+
+/** `bukit build` into BUILD_OUTPUT_PARENT/<name> for a preview served at "/" (plan 8.3). */
+export const buildArgs = (name: string) => [
+  "build",
+  "--config",
+  "site.yaml",
+  "--output",
+  `${BUILD_OUTPUT_PARENT}/${name}`,
+  "--base-url",
+  "/",
+  "--no-clean",
+  "--log-format",
+  "json",
+];
 
 /**
  * Builds and previews (plan 8.3, 8.4). A main build runs in worktrees/<siteId>/main at the default
@@ -215,24 +230,9 @@ export class BuildService {
       }
 
       const checkout = await this.opts.sites.mainCheckout(site.id, site.path, commit);
-      temp = path.join(checkout, OUTPUT_PARENT, id);
+      temp = path.join(checkout, BUILD_OUTPUT_PARENT, id);
       fs.rmSync(temp, { recursive: true, force: true });
-      const result = await runner.run(
-        "build",
-        [
-          "build",
-          "--config",
-          "site.yaml",
-          "--output",
-          `${OUTPUT_PARENT}/${id}`,
-          "--base-url",
-          "/",
-          "--no-clean",
-          "--log-format",
-          "json",
-        ],
-        { cwd: checkout, signal },
-      );
+      const result = await runner.run("build", buildArgs(id), { cwd: checkout, signal });
       const report = buildReport(result);
       const outcome = buildOutcome(result);
       if (outcome !== "ok") return finish("failed", outcome, result.exitCode, report);

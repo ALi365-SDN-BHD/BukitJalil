@@ -37,12 +37,14 @@ export interface ResourceOptions {
   piDir: string;
   settings: SettingsManager;
   systemPrompt: string;
+  /** BukitJalil's skills directory; the only skills loaded. */
+  skillsDir: string;
 }
 
 /**
- * Resources for one session (plan 6.4): our system prompt only. No context files (AGENTS.md, CLAUDE.md),
- * prompt templates, themes, discovered skills or extensions, from the site or from the user's home.
- * BukitJalil's skills and the gate extension are added in later steps.
+ * Resources for one session (plan 6.4): our system prompt and BukitJalil's skills. No context files
+ * (AGENTS.md, CLAUDE.md), prompt templates, themes, discovered skills or extensions, from the site or from
+ * the user's home. With noSkills, Pi loads only `additionalSkillPaths`.
  */
 export async function createResourceLoader({ pi }: PiModules, opts: ResourceOptions) {
   const loader = new pi.DefaultResourceLoader({
@@ -54,6 +56,7 @@ export async function createResourceLoader({ pi }: PiModules, opts: ResourceOpti
     noPromptTemplates: true,
     noThemes: true,
     noSkills: true,
+    additionalSkillPaths: [opts.skillsDir],
     noExtensions: true,
   });
   await loader.reload();
@@ -76,9 +79,15 @@ export function buildSystemPrompt(site: PromptSite): string {
     "user reviews your changes before they reach the site.",
     "",
     "Rules:",
-    "- Use only the tools you are given. You cannot run commands.",
-    "- Use paths relative to the working directory. Never read or change anything outside it.",
+    "- Use only the tools you are given. You cannot run commands: where Bukit's skills say `bukit config",
+    "  check` or `bukit doctor`, use bukit_check; for `bukit build`, use bukit_build; for `bukit config",
+    "  schema`, use bukit_schema. Previews, the dev server, deploys and plugins are handled by BukitJalil.",
+    "- Use paths relative to the working directory. Never read or change anything outside it, except",
+    "  reading the skill files listed below.",
     "- Do not touch .git, build output (dist, .bukit, .cache) or plugin files.",
+    "- Start with site_info (and list_content when you work on content). After changing files, run",
+    "  bukit_check, then bukit_build, and fix what they report. When a round of changes is done, call",
+    "  summarize_changes with a short description for the user's review.",
     "- Reply in the language the user writes in.",
   ].join("\n");
 }

@@ -4,6 +4,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/shared";
 import { serve } from "@hono/node-server";
+import { AiBukit } from "./agent/ai-bukit.ts";
 import { preparePiEnvironment } from "./agent/env.ts";
 import { RgService } from "./agent/rg.ts";
 import { AgentService } from "./agent/service.ts";
@@ -102,7 +103,21 @@ const previews = new PreviewPool(previewBase, new Set([port]), logger);
 const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
 // No model until model settings exist; sending a message answers agent.no_model.
 const rg = new RgService({ piBin: paths.piBin });
-const agent = new AgentService({ db, paths, sites, logger, resolveModel: () => undefined, rgReady: () => rg.ready() });
+// Every session gives the AI these skills and the gate reads them, so a missing directory stops startup.
+const skillsDir = path.join(repoRoot, "skills");
+if (!fs.existsSync(path.join(skillsDir, "bukitjalil", "site-editing", "SKILL.md"))) {
+  fail(`BukitJalil's AI skills are missing: ${skillsDir}`);
+}
+const agent = new AgentService({
+  db,
+  paths,
+  sites,
+  logger,
+  resolveModel: () => undefined,
+  rgReady: () => rg.ready(),
+  bukit: new AiBukit({ git, paths, sites, bukit, locks }),
+  skillsDir,
+});
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;

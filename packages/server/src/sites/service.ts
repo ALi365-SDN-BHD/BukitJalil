@@ -425,6 +425,9 @@ export class SiteService {
    */
   async remove(id: string): Promise<{ leftovers: string[] }> {
     const site = this.get(id);
+    // Stop the site's AI runs first: a check or build they started holds the site lock until it ends, and
+    // stopping makes it end. Again inside the lock, for a run that started in between.
+    for (const hook of this.removingHooks) await hook(id);
     return this.opts.locks.run(id, "remove", async () => {
       const { git } = this.opts;
       const leftovers: string[] = [];

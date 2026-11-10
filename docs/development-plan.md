@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.7（2026-11-10，写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.8（2026-11-10，写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -358,7 +358,7 @@ BukitJalil/
 
 ### 6.4 技能与提示
 
-- **Bukit 官方技能**：Bukit 仓库 `guide/skills/` 下已有 14 个面向 AI 的技能（`using-bukit`、`bukit-config`、`bukit-content`、`bukit-theme`、`bukit-templating`、`bukit-i18n`、`bukit-seo`、`bukit-geo` 等）。按 Bukit 2.0.11 对应的版本复制到 `skills/bukit/`，记录来源 commit，升级 Bukit 时同步
+- **Bukit 官方技能**：Bukit 仓库 `guide/skills/` 下已有 14 个面向 AI 的技能（`using-bukit`、`bukit-config`、`bukit-content`、`bukit-theme`、`bukit-templating`、`bukit-i18n`、`bukit-seo`、`bukit-geo` 等）。按 Bukit 2.0.11 对应的版本复制到 `skills/bukit/`，记录来源 commit，升级 Bukit 时同步（M3 第 4 层：复制了其中 11 个；`bukit-dev`、`bukit-preview`、`bukit-deploy` 讲的是 AI 不能做的事，不复制；来源和改动记在 `skills/sources.yaml`）
 - **BukitJalil 技能**（`skills/bukitjalil/`）：
   - `site-editing`：工作规则——只改网站文件；改完先 `bukit_check`，再 `bukit_build`；最后调用 `summarize_changes`。**同时说明命令和工具的对应关系**：Bukit 官方技能里写的是 `bukit config check`、`bukit doctor`、`bukit build` 等命令，而 AI 没有执行命令的工具，要改用 `bukit_check`、`bukit_build`、`bukit_schema`；官方技能里涉及 `dev`、`preview`、`deploy`、插件和 Labs 的部分由 BukitJalil 处理，AI 不要尝试
   - 复制官方技能时去掉 Labs 相关内容，并在每个技能开头加一行说明上述对应关系
@@ -973,6 +973,23 @@ M3 分层实施（每层做完先审计、修复，再提交）：
 > - API：`GET /api/rg`、`POST /api/rg/install`（见 10.x 接口表）。设置页新增"搜索工具（ripgrep）"一栏：状态、未安装时说明 AI 暂时只能用 `find` 和 `read`、安装按钮（先确认再下载）、安装进度；进度和确认的逻辑与 Bukit 一栏共用
 > - 已在本机用 4 个真实安装包核对：结构检查和两层 SHA-256 都通过，macOS arm64 上完整安装后 `rg --version` 输出 `ripgrep 15.2.0 (rev e89fff89ac)`，状态为 `ok`；在设置页确认了未安装、已安装、文件被改动三种状态的显示
 > - 测试：用手工生成的假安装包（真实目录结构，`rg` 换成输出版本号的脚本）测完整安装、压缩包摘要不对、压缩包对但 `rg` 摘要不对、多出文件 / 目录 / 链接 / `..` 条目、版本不对时删除、`rg --version` 运行失败时保留文件、原位置是目录、安装后改动文件（大小变和大小不变）/ 去掉执行权限 / 换成符号链接时状态变化、不支持的平台，以及两个接口（含 409 和 400）；会话测试里假模型调用 `grep`，确认每次都询问 rg 状态，未通过时拒绝、通过后放行；固定值测试检查 4 个平台都有完整的 64 位十六进制摘要。端到端测试检查设置页的 rg 状态和安装确认
+
+> M3 第 4 层实现说明（建站工具和技能打包）：
+> - `src/agent/site-tools.ts` 注册 6 个建站工具，`tools` 白名单 = 6 个内置工具 + 6 个建站工具。参数都是名字或短文本，不接受路径；读文件都经过闸门
+>   - `site_info`：读工作副本里的 `site.yaml`（经过闸门，指向外面的符号链接被拒绝，上限 256 KB），返回和配置面板相同的摘要（共用 `summarizeConfig`）；解析失败时返回错误说明，不中断
+>   - `list_content`：按 `content.sources` 里的 Markdown 源列出文件（可按集合过滤），给出 `title`、`slug`、`publishAt`（没有时用 `date`）、`draft` 和全部字段名；不跟随符号链接、不进 `.git`，最多 500 个文件，单个文件上限 256 KB；Notion 源只说明内容不在工作副本里
+>   - `bukit_check`：`config check` 和 `doctor` 都跑，两个都是 0 才算通过，每步带退出码和输出末尾 6000 字
+>   - `bukit_build`：构建到 `ai/` 里新的 `.bukitjalil-build/ai-<随机>/`（参数和正式构建共用 `buildArgs`），返回是否成功、页面数（输出里的 HTML 文件数）、警告和错误、输出末尾；输出用完即删，改动集预览在 M4 接入。SEO / GEO 审计摘要也在 M4（8.3）
+>   - `bukit_schema`：`bukit config schema` 的结果，按 Bukit 可执行文件的路径和版本缓存；可以只取一个顶层段落，整体超过 6 万字时截断并列出段落名。它不读网站文件，不需要构建前检查
+>   - `summarize_changes`：把 AI 写的说明作为 `summary` 事件发出（上限 2000 字），M4 存进改动集
+> - `src/agent/ai-bukit.ts`：`bukit_check` / `bukit_build` 每次调用都按顺序做：拿网站操作锁（`ai_check` / `ai_build`，拿不到立即告诉 AI 网站正忙，不排队；删除网站时先停止会话和运行、等它们结束，再拿锁，所以不会因为 AI 正在构建而返回“网站正忙”）→ 检查网站不是只读 → 快照 → 对快照提交做构建前检查（8.5）→ 有 Notion 源时拒绝（改动集不传密钥）→ 运行 Bukit，不传任何密钥。两个工具都设 `executionMode: "sequential"`
+>   - 快照：`git add -A`（用 pathspec 排除顶层的构建目录和 `node_modules`，即使 `.gitignore` 用 `!dist/` 取消忽略也不会进提交）→ `write-tree` → 和 HEAD 的树相同就直接用 HEAD，否则 `commit-tree -p HEAD`（提交者固定为 `BukitJalil <ai@bukitjalil.invalid>`，只在 BukitJalil 内部使用）→ `update-ref HEAD`。之后工作区干净，多语言构建也能在 `ai/` 里跑（7.2）。M4 的快照在这个基础上加改动集引用
+>   - 被 `.gitignore` 忽略的新文件不会进快照，构建前检查看不到，Bukit 却会读到（例如先删掉 `site.yaml`、快照、在 `.gitignore` 里忽略它、再写一个新的）。所以快照前用 `git ls-files --others --ignored --exclude-standard` 找出它们：除了构建目录和 `node_modules`，被忽略的文件直接删掉（它们本来就不会进入网站），并在工具结果里用 `removedIgnoredFiles` 告诉 AI。已跟踪的文件即使被 `.gitignore` 列出也照常进快照
+>   - 整次会话运行仍不拿锁，和第 1 层说明一致：现在 `ai/` 只被 AI 自己和它的工具使用，重置、应用等操作在 M4 加入时再让运行拿锁
+> - 技能：仓库根目录 `skills/`。`skills/bukit/` 是从本地 Bukit 仓库 `v2.0.11` 标签（`9006a2bd`）取出的 11 个官方技能，每个在开头加一段命令和工具的对应说明；`using-bukit` 去掉 Labs 的说法，预览 / 开发服务器 / 部署的路由改为 `bukit-debug`；`bukit-debug` 里指向 Bukit 文档的链接（文档不随技能复制）换成一句说明。`skills/bukitjalil/` 是新写的 `site-editing`（工具对应表、能改什么、检查 → 构建 → 总结的步骤）、`content-writing`（先看现有文件的写法、starter 的 front matter 约定、不编造联系方式价格和评价）、`multilingual`。Pi 会把技能目录根下的 `.md` 也当成技能，所以来源记录用 `skills/sources.yaml`；Biome 不检查 `skills/`，保持上游原文
+> - 会话：`DefaultResourceLoader` 仍设 `noSkills`，另传 `additionalSkillPaths: [skills/]`，Pi 只加载这里的技能；闸门的只读目录就是 `skills/`（可以 `read`，不能写，不能 `ls` / `grep` / `find`）。系统提示补充了命令和工具的对应，以及先 `site_info` 再修改、改完 `bukit_check` → `bukit_build` → `summarize_changes`
+> - 启动时检查 `skills/bukitjalil/site-editing/SKILL.md` 存在，缺少时直接退出并说明，不让每个会话都报内部错误
+> - 测试：快照（新提交、HEAD 前进、工作区干净、没变化时不建提交、提交者）；被忽略的新文件被删除并列出而已跟踪的文件照常提交、删掉再写回的 `site.yaml` 被删除、`.gitignore` 取消忽略的构建目录不进提交，`bukit_check` 结果里有 `removedIgnoredFiles`；中止工具调用会停止构建并释放锁；AI 构建期间删除网站成功；Bukit 版本变化后重新取 schema；`bukit_check` 两步都在 `ai/` 里跑、`doctor` 失败；`bukit_build` 的参数、页面数、输出删除、失败结果；构建前检查不通过（`build.output: ../outside`）和 Notion 源时 Bukit 一次都没被调用；锁被占用时立即拒绝、运行期间别的操作拿不到锁、结束后释放；没有 Bukit；`bukit_schema` 只问 Bukit 一次、取段落、截断；`site_info`（含解析失败和指向外部的符号链接）、`list_content`（集合过滤、坏的 front matter、跳过符号链接）、`summarize_changes`。会话测试里假模型调用建站工具：系统提示列出的技能正好是 `skills/` 下的 14 个，技能文件能读、不能写也不能列目录，发出 `summary` 事件，没有 Bukit 时 `bukit_check` 以工具错误返回；去掉闸门的技能只读目录后测试失败。有 `BUKIT_BIN` 时再用真实 Bukit 检查和构建 starter 网站（本机没有 Bukit，未运行）
 
 ### M4 改动审核与版本（6–8 天）
 

@@ -7,9 +7,11 @@ import type { Logger } from "../log.ts";
 import type { AppPaths } from "../paths.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteService } from "../sites/service.ts";
+import type { AiBukit } from "./ai-bukit.ts";
 import { PathGate } from "./gate.ts";
 import { loadPi, type PiModules } from "./pi.ts";
 import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
+import { createSiteTools, SITE_TOOLS } from "./site-tools.ts";
 import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./store.ts";
 import { BUILTIN_TOOLS, createGatedTools } from "./tools.ts";
 
@@ -21,6 +23,8 @@ export type SessionStatus = "idle" | "queued" | "running";
 export type AgentEvent = { siteId: string; sessionId: string } & (
   | { type: "pi"; event: AgentSessionEvent }
   | { type: "status"; status: SessionStatus; error?: string }
+  /** summarize_changes: the AI's description of its changes, for the review (kept with the change set in M4). */
+  | { type: "summary"; summary: string }
 );
 
 export interface AgentServiceOptions {
@@ -34,6 +38,10 @@ export interface AgentServiceOptions {
   setupRuntime?: (runtime: ModelRuntime, pi: PiModules) => void;
   /** BukitJalil's rg is installed and verified; grep is refused otherwise (plan 6.3). */
   rgReady: () => boolean;
+  /** Bukit for the site tools: lock, snapshot and guard before each check or build. */
+  bukit: AiBukit;
+  /** BukitJalil's skills (plan 6.4): listed in the system prompt, readable but never writable by the AI. */
+  skillsDir: string;
   /** Dispose an unused AgentSession after this long; its file stays (plan 6.2). */
   idleMs?: number;
 }
@@ -318,12 +326,15 @@ export class AgentService {
     const [modelRuntime, model] = await Promise.all([this.modelRuntime(), this.model()]);
     if (gone()) return null;
     const settingsManager = createSettings(pi);
+    // Skills are the one place outside the working copy the AI may read (plan 6.3).
+    const gate = new PathGate(cwd, [this.opts.skillsDir]);
     const piDir = this.opts.paths.pi;
     const resourceLoader = await createResourceLoader(pi, {
       cwd,
       piDir,
       settings: settingsManager,
       systemPrompt: buildSystemPrompt(site),
+      skillsDir: this.opts.skillsDir,
     });
     if (gone()) return null;
     const dir = this.sessionDir(site.id);
@@ -336,12 +347,17 @@ export class AgentService {
       modelRuntime,
       model,
       // An allowlist that the custom tools must be in too (plan 6.3).
-      tools: [...BUILTIN_TOOLS],
-      customTools: createGatedTools(pi, {
-        cwd,
-        gate: new PathGate(cwd),
-        rgReady: this.opts.rgReady,
-      }),
+      tools: [...BUILTIN_TOOLS, ...SITE_TOOLS],
+      customTools: [
+        ...createGatedTools(pi, { cwd, gate, rgReady: this.opts.rgReady }),
+        ...createSiteTools({
+          siteId: site.id,
+          cwd,
+          gate,
+          bukit: this.opts.bukit,
+          onSummary: (summary) => this.emit({ siteId: site.id, sessionId: id, type: "summary", summary }),
+        }),
+      ],
       resourceLoader,
       sessionManager,
       settingsManager,
