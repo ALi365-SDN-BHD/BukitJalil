@@ -1,3 +1,5 @@
+import type { PanelRef } from "@bukitjalil/shared";
+import { useCurrentChange, usePanelRef } from "@/features/changes/hooks";
 import { useI18n } from "@/i18n";
 
 export function PanelLoading() {
@@ -15,24 +17,30 @@ export function PanelError({ error }: { error: unknown }) {
 }
 
 /**
- * Version switch at the top of the read-only panels (plan 10.2). Only the main version exists until
- * change sets arrive in M4; the second button shows where it will be.
+ * Version switch at the top of the read-only panels (plan 10.2): the main version, or the open change
+ * set's snapshot. The choice is in the URL, so every panel shows the same version.
  */
-export function RefSwitch() {
+export function RefSwitch({ siteId }: { siteId: string }) {
   const { m } = useI18n();
+  const { change } = useCurrentChange(siteId);
+  const [ref, setRef] = usePanelRef(siteId);
+  const button = (value: PanelRef, label: string, disabled = false) => (
+    <button
+      type="button"
+      aria-pressed={ref === value}
+      disabled={disabled}
+      title={disabled ? m.files.noChange : undefined}
+      onClick={() => setRef(value)}
+      data-testid={`ref-${value}`}
+      className={`rounded px-2 py-0.5 ${ref === value ? "bg-accent font-medium" : disabled ? "cursor-not-allowed text-muted-foreground/60" : "text-muted-foreground hover:bg-accent/60"}`}
+    >
+      {label}
+    </button>
+  );
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 border-b px-2 text-xs">
-      <button type="button" className="rounded bg-accent px-2 py-0.5 font-medium" aria-pressed="true">
-        {m.files.main}
-      </button>
-      <button
-        type="button"
-        disabled
-        className="cursor-not-allowed rounded px-2 py-0.5 text-muted-foreground/60"
-        title={m.files.changeLater}
-      >
-        {m.files.change}
-      </button>
+      {button("main", m.files.main)}
+      {button("change", m.files.change, !change)}
     </div>
   );
 }

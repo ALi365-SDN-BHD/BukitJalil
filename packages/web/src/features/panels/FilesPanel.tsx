@@ -1,9 +1,10 @@
-import type { FileResponse, PanelRef, TreeEntryView } from "@bukitjalil/shared";
+import type { ChangedFileStatus, FileResponse, PanelRef, TreeEntryView } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Download, File, FileSymlink, Folder, Package } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
+import { statusTone, useCurrentChange, usePanelRef } from "@/features/changes/hooks";
 import { useI18n } from "@/i18n";
 import { api, fileUrl, keys } from "@/lib/api";
 import { formatSize, shortOid } from "@/lib/format";
@@ -17,7 +18,13 @@ export function FilesPanel({ siteId }: { siteId: string }) {
   const { m } = useI18n();
   const [params, setParams] = useSearchParams();
   const selected = params.get("file");
-  const ref: PanelRef = "main";
+  const [ref] = usePanelRef(siteId);
+  const { change } = useCurrentChange(siteId);
+  // Changed files are marked in the snapshot's tree (deleted ones are not in it).
+  const marks = useMemo(
+    () => new Map(ref === "change" && change ? change.files.map((f) => [f.path, f.status] as const) : []),
+    [ref, change],
+  );
   const select = (path: string) =>
     setParams(
       (p) => {
@@ -29,14 +36,22 @@ export function FilesPanel({ siteId }: { siteId: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <RefSwitch />
+      <RefSwitch siteId={siteId} />
       <div className="flex min-h-0 flex-1">
         <nav className="w-56 shrink-0 overflow-auto border-r py-1 text-sm" data-testid="file-tree">
-          <TreeLevel siteId={siteId} refName={ref} path="" depth={0} selected={selected} onSelect={select} />
+          <TreeLevel
+            siteId={siteId}
+            refName={ref}
+            marks={marks}
+            path=""
+            depth={0}
+            selected={selected}
+            onSelect={select}
+          />
         </nav>
         <div className="flex min-w-0 flex-1 flex-col">
           {selected ? (
-            <FileView key={selected} siteId={siteId} refName={ref} path={selected} />
+            <FileView key={`${ref}:${selected}`} siteId={siteId} refName={ref} path={selected} />
           ) : (
             <p className="p-6 text-sm text-muted-foreground">{m.files.select}</p>
           )}
@@ -49,6 +64,7 @@ export function FilesPanel({ siteId }: { siteId: string }) {
 function TreeLevel(props: {
   siteId: string;
   refName: PanelRef;
+  marks: Map<string, ChangedFileStatus>;
   path: string;
   depth: number;
   selected: string | null;
@@ -94,6 +110,7 @@ function TreeItem({
   entry: TreeEntryView;
   siteId: string;
   refName: PanelRef;
+  marks: Map<string, ChangedFileStatus>;
   depth: number;
   selected: string | null;
   onSelect: (path: string) => void;
@@ -103,6 +120,7 @@ function TreeItem({
   const isDir = entry.kind === "dir";
   const Icon = isDir ? Folder : entry.kind === "symlink" ? FileSymlink : entry.kind === "submodule" ? Package : File;
   const active = props.selected === entry.path;
+  const mark = props.marks.get(entry.path);
   return (
     <li>
       <button
@@ -122,7 +140,9 @@ function TreeItem({
           <span className="w-3 shrink-0" />
         )}
         <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="truncate">{entry.name}</span>
+        <span className={`truncate ${mark ? statusTone[mark] : ""}`} data-change={mark}>
+          {entry.name}
+        </span>
       </button>
       {isDir && open && <TreeLevel {...props} path={entry.path} depth={props.depth + 1} />}
     </li>

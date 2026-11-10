@@ -1,4 +1,3 @@
-import "./zod-config.ts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setNonce } from "get-nonce";
 import { StrictMode } from "react";

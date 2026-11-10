@@ -1,4 +1,4 @@
-import type { ServerEvent, SessionDetail, SessionInfo } from "@bukitjalil/shared";
+import type { CurrentChange, ServerEvent, SessionDetail, SessionInfo } from "@bukitjalil/shared";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { liveStore } from "@/features/chat/store";
@@ -107,5 +107,23 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
     case "build.end":
       void queryClient.invalidateQueries({ queryKey: keys.builds(event.siteId) });
       break;
+    case "change": {
+      const { siteId } = event;
+      const before = queryClient.getQueryData<CurrentChange>(keys.change(siteId))?.change;
+      const after = event.data.change;
+      queryClient.setQueryData<CurrentChange>(keys.change(siteId), event.data);
+      const ofSite = (key: readonly unknown[]) => key[0] === "panel" && key[1] === siteId;
+      if (after && before?.snapshotCommit !== after.snapshotCommit) {
+        // Panels showing the change set's snapshot (ref=change) are out of date.
+        void queryClient.invalidateQueries({ predicate: (q) => ofSite(q.queryKey) && q.queryKey[3] === "change" });
+      } else if (before && !after) {
+        // Closed: its snapshot can no longer be shown (the panels fall back to the main version), and when
+        // it was applied the main version moved.
+        queryClient.removeQueries({ predicate: (q) => ofSite(q.queryKey) && q.queryKey[3] === "change" });
+        void queryClient.invalidateQueries({ predicate: (q) => ofSite(q.queryKey) });
+        void queryClient.invalidateQueries({ queryKey: keys.site(siteId) });
+      }
+      break;
+    }
   }
 }

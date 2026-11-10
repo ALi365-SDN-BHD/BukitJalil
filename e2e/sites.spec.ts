@@ -121,7 +121,7 @@ test("a new site builds once, shows its preview and the read-only panels", async
   await page.reload();
   await expect(page.getByTestId("tab-data")).toHaveAttribute("aria-selected", "true");
   await page.getByTestId("tab-changes").click();
-  await expect(page.getByRole("tabpanel")).toContainText("M4");
+  await expect(page.getByTestId("changes-empty")).toBeVisible();
 });
 
 test("a failed build shows its outcome and report", async ({ page, server }) => {

@@ -1,14 +1,16 @@
 import type { DataSource } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
+import { usePanelRef } from "@/features/changes/hooks";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { Facts, PanelError, PanelLoading, RefSwitch, Section, Table } from "./common";
 
 /** Data panel (plan 5.3): content sources as cards; `mode: data` sources also as a table. */
 export function DataPanel({ siteId }: { siteId: string }) {
+  const [ref] = usePanelRef(siteId);
   const { m } = useI18n();
-  const data = useQuery({ queryKey: keys.panel(siteId, "data", "main"), queryFn: () => api.data(siteId, "main") });
+  const data = useQuery({ queryKey: keys.panel(siteId, "data", ref), queryFn: () => api.data(siteId, ref) });
 
   let body: React.ReactNode;
   if (data.isPending) body = <PanelLoading />;
@@ -27,7 +29,7 @@ export function DataPanel({ siteId }: { siteId: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <RefSwitch />
+      <RefSwitch siteId={siteId} />
       <div className="min-h-0 flex-1 overflow-auto" data-testid="data-panel">
         {body}
       </div>

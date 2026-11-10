@@ -273,4 +273,31 @@ describe("events and the query cache", () => {
     expect(qc.getQueryState(keys.sites)?.isInvalidated).toBe(true);
     expect(liveStore.get(S.sessionId).text).toBeNull();
   });
+  it("keeps the change set current and marks the panels it makes stale", () => {
+    const change = (snapshotCommit: string) => ({ id: "c1", siteId: S.siteId, snapshotCommit }) as never;
+    const main = keys.panel(S.siteId, "tree", "main", "");
+    const inChange = keys.panel(S.siteId, "tree", "change", "");
+    const fresh = () => {
+      qc.setQueryData(main, {});
+      qc.setQueryData(inChange, {});
+    };
+    fresh();
+    handleEvent(qc, ev({ type: "change", siteId: S.siteId, data: { change: change("a") } }));
+    expect(qc.getQueryData(keys.change(S.siteId))).toEqual({ change: change("a") });
+    expect(qc.getQueryState(inChange)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(main)?.isInvalidated).toBe(false);
+
+    // The same snapshot (e.g. only reviewable changed): nothing to refetch.
+    fresh();
+    handleEvent(qc, ev({ type: "change", siteId: S.siteId, data: { change: change("a") } }));
+    expect(qc.getQueryState(inChange)?.isInvalidated).toBe(false);
+
+    // Closed (applied or rejected): the main version may have moved.
+    fresh();
+    handleEvent(qc, ev({ type: "change", siteId: S.siteId, data: { change: null } }));
+    expect(qc.getQueryData(keys.change(S.siteId))).toEqual({ change: null });
+    expect(qc.getQueryState(main)?.isInvalidated).toBe(true);
+    // The closed snapshot is dropped, not fetched again (it would only answer change.not_found).
+    expect(qc.getQueryState(inChange)).toBeUndefined();
+  });
 });

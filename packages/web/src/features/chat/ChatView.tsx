@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ReviewCard } from "@/features/changes/ReviewCard";
 import { MarkdownView } from "@/features/panels/MarkdownView";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
@@ -86,6 +87,7 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
         error={live.error}
         summary={summary}
       />
+      <ReviewCard siteId={site.id} />
       <Composer site={site} session={session} />
     </div>
   );

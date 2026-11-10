@@ -1,6 +1,7 @@
 import type { ConfigSummary } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { usePanelRef } from "@/features/changes/hooks";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { CodeView } from "./CodeView";
@@ -8,10 +9,11 @@ import { Facts, PanelError, PanelLoading, RefSwitch, Section, Table } from "./co
 
 /** Config panel (plan 5.3): a summary of site.yaml and its source. */
 export function ConfigPanel({ siteId }: { siteId: string }) {
+  const [ref] = usePanelRef(siteId);
   const { m, t } = useI18n();
   const config = useQuery({
-    queryKey: keys.panel(siteId, "config", "main"),
-    queryFn: () => api.config(siteId, "main"),
+    queryKey: keys.panel(siteId, "config", ref),
+    queryFn: () => api.config(siteId, ref),
   });
   const [view, setView] = useState<"summary" | "raw">("summary");
 
@@ -30,7 +32,7 @@ export function ConfigPanel({ siteId }: { siteId: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <RefSwitch />
+      <RefSwitch siteId={siteId} />
       <div className="flex shrink-0 gap-1 border-b px-2 py-1 text-xs" role="tablist">
         {(["summary", "raw"] as const).map((v) => (
           <button

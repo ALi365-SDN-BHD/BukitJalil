@@ -10,6 +10,7 @@ const FilesPanel = lazy(() => import("./FilesPanel").then((x) => ({ default: x.F
 const ConfigPanel = lazy(() => import("./ConfigPanel").then((x) => ({ default: x.ConfigPanel })));
 const ThemePanel = lazy(() => import("./ThemePanel").then((x) => ({ default: x.ThemePanel })));
 const DataPanel = lazy(() => import("./DataPanel").then((x) => ({ default: x.DataPanel })));
+const ChangesPanel = lazy(() => import("@/features/changes/ChangesPanel").then((x) => ({ default: x.ChangesPanel })));
 
 const PANEL_TABS = ["preview", "changes", "files", "config", "theme", "data"] as const;
 type PanelTab = (typeof PANEL_TABS)[number];
@@ -27,6 +28,7 @@ export function RightPanel({ siteId, readOnly }: { siteId: string | null; readOn
       (p) => {
         p.set("panel", key);
         if (key !== "files") p.delete("file");
+        if (key !== "changes") p.delete("diff");
         return p;
       },
       { replace: true },
@@ -44,10 +46,7 @@ export function RightPanel({ siteId, readOnly }: { siteId: string | null; readOn
   else if (tab === "config") body = <ConfigPanel siteId={siteId} />;
   else if (tab === "theme") body = <ThemePanel siteId={siteId} />;
   else if (tab === "data") body = <DataPanel siteId={siteId} />;
-  else
-    body = (
-      <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">{m.changes.later}</div>
-    );
+  else body = <ChangesPanel siteId={siteId} />;
 
   return (
     <>
