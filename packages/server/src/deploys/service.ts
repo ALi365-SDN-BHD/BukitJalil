@@ -12,7 +12,7 @@ import type {
   Site,
 } from "@bukitjalil/shared";
 import { readPublishAudit } from "../builds/audit.ts";
-import { buildReport, findSymlink } from "../builds/service.ts";
+import { buildReport, checkoutLanguage, findSymlink, previewEntry } from "../builds/service.ts";
 import { guardCommit, isRecord } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import {
@@ -65,6 +65,26 @@ export function redact(report: DeployReport, secret: string): DeployReport {
     messages: report.messages.map((m) => ({ ...m, msg: clean(m.msg) })),
     ...(report.detail ? { detail: clean(report.detail) } : {}),
   };
+}
+
+/**
+ * A root page that sends visitors on to the language home page. Bukit's multilingual builds only write
+ * /<lang>/, so without it the site's address would answer 404 on GitHub Pages. The link is relative, so it
+ * also works for a project site served under /<repo>/; `entry` is a checked folder name (see previewEntry).
+ */
+export function rootRedirectPage(entry: string): string {
+  const to = entry.replace(/^\//, "");
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<meta http-equiv="refresh" content="0; url=${to}">
+<title>${to}</title>
+</head>
+<body><p><a href="${to}">${to}</a></p></body>
+</html>
+`;
 }
 
 /** A step's warning and error lines and the end of its text output, read as for builds. */
@@ -302,6 +322,9 @@ export class DeployService {
       const audit = await run("audit", "publish", ["publish", "audit", "--dir", rel]);
       const summary = readPublishAudit(output);
       if (!audit.ok) return failed(audit.result, summary ? { audit: summary } : {});
+      // After the audit, which checks the pages Bukit wrote, not this one.
+      const entry = previewEntry(output, checkoutLanguage(checkout));
+      if (entry) fs.writeFileSync(path.join(output, "index.html"), rootRedirectPage(entry), { flag: "wx" });
 
       const deploy = await run("deploy", "deploy", [
         "deploy",

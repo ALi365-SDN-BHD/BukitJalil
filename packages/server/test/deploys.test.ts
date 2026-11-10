@@ -104,7 +104,9 @@ case "$1" in
     out=""; prev=""
     for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
     [ "$fail" = build ] && { echo '{"ts":"t","level":"error","msg":"event=content.error file=x.md"}' >&2; exit 2; }
-    mkdir -p "$out/.bukit"; echo "<h1>site</h1>" > "$out/index.html"
+    mkdir -p "$out/.bukit"
+    if [ "$fail" = multilingual ]; then mkdir -p "$out/de-DE" "$out/en-US"; echo de > "$out/de-DE/index.html"; echo en > "$out/en-US/index.html"
+    else echo "<h1>site</h1>" > "$out/index.html"; fi
     echo '{"siteUrl":"https://someone.github.io/blog","documents":[{},{}],"issues":[{"severity":"warning","code":"publish.time_missing","route":"/a/","message":"No time."}]}' > "$out/.bukit/publish-audit-report.json"
     exit 0;;
   publish) [ "$fail" = audit ] && { echo "error publish.broken_link /a/ Broken." >&2; exit 1; }; exit 0;;
@@ -114,6 +116,7 @@ case "$1" in
     out=""; prev=""
     for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
     (cd "$out" && find . -type f | sort) > "${log}.deployed"
+    cp "$out/index.html" "${log}.root"
     echo "[info] Git push completed."; exit 0;;
 esac
 exit 1
@@ -266,6 +269,20 @@ describe("publishing (M6 layer 3)", () => {
       if (fail === "deploy") expect(d.report?.output).toContain("push rejected");
     });
   }
+
+  it("adds a root page that leads to the default language when the build has none", async () => {
+    const p = await publishable({ fail: "multilingual" });
+    expect(await p.publish()).toMatchObject({ status: "succeeded" });
+    const root = fs.readFileSync(`${p.log}.root`, "utf8");
+    expect(root).toContain('<meta http-equiv="refresh" content="0; url=en-US/">');
+    expect(root).toContain('<meta name="robots" content="noindex">');
+  });
+
+  it("leaves the root page Bukit wrote alone", async () => {
+    const p = await publishable();
+    await p.publish();
+    expect(fs.readFileSync(`${p.log}.root`, "utf8")).toBe("<h1>site</h1>\n");
+  });
 
   it("never stores the token, even when the deploy step prints it", async () => {
     const p = await publishable({ fail: "leak" });

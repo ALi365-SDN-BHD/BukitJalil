@@ -126,6 +126,8 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 
 - `publish.sitemap_missing_route`：每种语言各有一个 sitemap。让 AI 在 `site.yaml` 加 `sitemapMode: merged`，就会在根目录生成一个合并的 sitemap，这类警告消失
 - `publish.rss_missing_route`、`publish.search_missing_route`：RSS 和站内搜索索引按语言分开生成，Bukit 2.0.12 的审计只看根目录，所以会报缺少。网站本身没有问题，可以不处理
+
+**多语言网站的首页地址**：Bukit 只生成 `/zh-CN/`、`/en-US/` 这样的语言目录，根目录没有首页。发布时 BukitJalil 会在根目录补一个跳转页，打开网站地址会转到默认语言（`site.defaultLanguage`）的首页
 - `publish.time_missing`：页面模板没有显示日期的 `<time>` 元素，可以让 AI 在文章模板里加上
 
 ## 11. 右栏面板

@@ -512,7 +512,7 @@ export function siteLanguage(yaml: string): string | null {
 }
 
 /** The default language of the checkout that was just built. */
-function checkoutLanguage(checkout: string): string | null {
+export function checkoutLanguage(checkout: string): string | null {
   try {
     const file = path.join(checkout, "site.yaml");
     const stat = fs.lstatSync(file, { throwIfNoEntry: false });
