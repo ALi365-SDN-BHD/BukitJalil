@@ -123,6 +123,7 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
         queryClient.removeQueries({ queryKey: ["preview", siteId, "change"] });
         void queryClient.invalidateQueries({ predicate: (q) => ofSite(q.queryKey) });
         void queryClient.invalidateQueries({ queryKey: keys.site(siteId) });
+        void queryClient.invalidateQueries({ queryKey: keys.history(siteId) });
       }
       break;
     }

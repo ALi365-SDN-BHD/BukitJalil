@@ -13,6 +13,7 @@ export interface ChangeRecord {
   createdAt: string;
   resolvedAt: string | null;
   resultCommit: string | null;
+  restoreCommit: string | null;
 }
 
 interface ChangeRow {
@@ -26,6 +27,7 @@ interface ChangeRow {
   created_at: string;
   resolved_at: string | null;
   result_commit: string | null;
+  restore_commit: string | null;
 }
 
 const toRecord = (row: ChangeRow): ChangeRecord => ({
@@ -39,6 +41,7 @@ const toRecord = (row: ChangeRow): ChangeRecord => ({
   createdAt: row.created_at,
   resolvedAt: row.resolved_at,
   resultCommit: row.result_commit,
+  restoreCommit: row.restore_commit,
 });
 
 /** Change set ids are ref names (refs/bukitjalil/changes/<id>) and URL segments. */
@@ -61,13 +64,32 @@ export class ChangeStore {
     return row ? toRecord(row) : null;
   }
 
-  insert(change: { id: string; siteId: string; sessionId: string | null; baseCommit: string }): ChangeRecord {
+  insert(change: {
+    id: string;
+    siteId: string;
+    sessionId: string | null;
+    baseCommit: string;
+    /** Defaults to the base (nothing changed yet). */
+    snapshotCommit?: string;
+    restoreCommit?: string | null;
+    summary?: string | null;
+  }): ChangeRecord {
     const now = new Date().toISOString();
     this.db
       .prepare(
-        "INSERT INTO change_sets (id, site_id, created_by_session_id, base_commit, snapshot_commit, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)",
+        `INSERT INTO change_sets (id, site_id, created_by_session_id, base_commit, snapshot_commit, status, created_at,
+           restore_commit, summary) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
       )
-      .run(change.id, change.siteId, change.sessionId, change.baseCommit, change.baseCommit, now);
+      .run(
+        change.id,
+        change.siteId,
+        change.sessionId,
+        change.baseCommit,
+        change.snapshotCommit ?? change.baseCommit,
+        now,
+        change.restoreCommit ?? null,
+        change.summary ?? null,
+      );
     return this.get(change.id) as ChangeRecord;
   }
 

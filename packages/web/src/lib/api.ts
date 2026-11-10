@@ -18,6 +18,7 @@ import {
   type FsDirsResponse,
   type GitIdentityResponse,
   HealthResponse,
+  type HistoryResponse,
   type ImportInspection,
   type ImportSiteRequest,
   type ModelsResponse,
@@ -25,6 +26,7 @@ import {
   type PreviewResponse,
   type ProviderKey,
   type ProviderTestResult,
+  type RestoreResult,
   type RgResponse,
   type SendMessageRequest,
   type SessionDetail,
@@ -35,6 +37,7 @@ import {
   type SitePatch,
   type ThemeResponse,
   type TreeResponse,
+  type VersionDiff,
 } from "@bukitjalil/shared";
 import type { z } from "zod";
 
@@ -116,6 +119,12 @@ export const api = {
   changeDiff: (changeId: string, path: string) => request<FileDiff>(`/changes/${changeId}/diff?${query({ path })}`),
   applyChange: (changeId: string, req: ApplyRequest) => post<ApplyResult>(`/changes/${changeId}/apply`, req),
   rejectChange: (changeId: string) => post<ChangeSet>(`/changes/${changeId}/reject`),
+  history: (siteId: string, skip: number) =>
+    request<HistoryResponse>(`/sites/${siteId}/history?${query({ skip: String(skip) })}`),
+  versionDiff: (siteId: string, commit: string) => request<VersionDiff>(`/sites/${siteId}/history/${commit}/diff`),
+  versionFileDiff: (siteId: string, commit: string, path: string) =>
+    request<FileDiff>(`/sites/${siteId}/history/${commit}/diff?${query({ path })}`),
+  restore: (siteId: string, commit: string) => post<RestoreResult>(`/sites/${siteId}/history/${commit}/restore`),
 
   sessions: (siteId: string) => request<SessionInfo[]>(`/sites/${siteId}/sessions`),
   createSession: (siteId: string) => post<SessionInfo>(`/sites/${siteId}/sessions`),
@@ -155,6 +164,10 @@ export const keys = {
   change: (siteId: string) => ["change", siteId] as const,
   /** A diff never changes for one snapshot tree, so the tree is part of the key. */
   changeDiff: (changeId: string, tree: string, path: string) => ["changeDiff", changeId, tree, path] as const,
+  history: (siteId: string) => ["history", siteId] as const,
+  /** A version never changes, so its diffs are kept for as long as the page lives. */
+  versionDiff: (siteId: string, commit: string, path?: string) =>
+    ["versionDiff", siteId, commit, ...(path === undefined ? [] : [path])] as const,
   sessions: (siteId: string) => ["sessions", siteId] as const,
   session: (id: string) => ["session", id] as const,
   bukit: ["bukit"] as const,

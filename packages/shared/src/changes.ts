@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TreePath } from "./panels.ts";
+import type { SiteReason } from "./sites.ts";
 
 /** Change sets (plan 7.2): what the AI changed in its working copy, waiting for review. */
 
@@ -33,6 +34,8 @@ export interface ChangeSet {
   createdAt: string;
   resolvedAt: string | null;
   resultCommit: string | null;
+  /** A restore (plan 7.4): the default-branch commit whose content it brings back; null for AI changes. */
+  restoreOf: string | null;
 }
 
 /** A change set with its file list, as the review shows it. */
@@ -100,4 +103,52 @@ export interface ApplyResult {
   outcome: ApplyOutcome;
   change: ChangeSet;
   check: ApplyCheck | null;
+}
+
+/** One version of the site: a commit on the default branch, newest first (plan 7.4). */
+export interface HistoryEntry {
+  commit: string;
+  parents: string[];
+  subject: string;
+  /** The rest of the message, without BukitJalil's trailer lines. */
+  body: string;
+  authorName: string;
+  authorEmail: string;
+  /** Author date, ISO 8601. */
+  date: string;
+  /** Files changed against the first parent (everything, for the first commit). */
+  filesChanged: number;
+  /** Sessions the change came from (BukitJalil-Sessions trailer). */
+  sessionIds: string[];
+  /** The version it restored (BukitJalil-Restore trailer). */
+  restoreOf: string | null;
+  /** Made with BukitJalil AI (its fixed author). */
+  byAi: boolean;
+}
+
+export interface HistoryResponse {
+  entries: HistoryEntry[];
+  hasMore: boolean;
+}
+
+/** GET /api/sites/:siteId/history?skip= */
+export const HistoryQuery = z.object({ skip: z.coerce.number().int().min(0).max(1_000_000).default(0) });
+
+/** GET /api/sites/:siteId/history/:commit/diff (without `path`): what that version changed. */
+export interface VersionDiff {
+  entry: HistoryEntry;
+  files: ChangedFile[];
+  filesTruncated: boolean;
+}
+
+/** `path`: one file's diff in that version (a FileDiff) instead of the file list. */
+export const VersionDiffQuery = z.object({
+  path: TreePath.refine((p) => p !== "", { message: "must name a file" }).optional(),
+});
+
+/** POST /api/sites/:siteId/history/:commit/restore: the restore change set, and what the guard says. */
+export interface RestoreResult {
+  change: ChangeSet;
+  /** The pre-build safety check on that version (plan 8.5); applying is still allowed, building is not. */
+  guard: { ok: boolean; reasons: SiteReason[] };
 }

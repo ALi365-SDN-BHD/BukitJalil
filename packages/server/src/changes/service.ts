@@ -1,18 +1,39 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { ApplyCheck, ApplyRequest, ApplyResult, ChangeSet, ChangeView, FileDiff, Site } from "@bukitjalil/shared";
+import type {
+  ApplyCheck,
+  ApplyRequest,
+  ApplyResult,
+  ChangeSet,
+  ChangeView,
+  FileDiff,
+  HistoryResponse,
+  RestoreResult,
+  Site,
+  VersionDiff,
+} from "@bukitjalil/shared";
+import { guardCommit } from "../bukit/guard.ts";
 import { GitError, type GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
 import { changedFiles, fileDiff } from "./diff.ts";
+import {
+  AI_AUTHOR_EMAIL,
+  AI_AUTHOR_NAME,
+  emptyTree,
+  historyEntry,
+  listHistory,
+  onBranch,
+  parentsOf,
+} from "./history.ts";
 import { SNAPSHOT_IDENTITY, type Snapshot, snapshotCheckout } from "./snapshot.ts";
 import { type ChangeRecord, ChangeStore, isChangeId, newChangeId } from "./store.ts";
 
 export const changeRef = (id: string) => `refs/bukitjalil/changes/${id}`;
 
 /** Author of applied AI changes; the committer is the identity from the settings (plan 7.2). */
-const AI_AUTHOR = { "author.name": "BukitJalil AI", "author.email": "ai@bukitjalil.local" };
+const AI_AUTHOR = { "author.name": AI_AUTHOR_NAME, "author.email": AI_AUTHOR_EMAIL };
 const DEFAULT_MESSAGE = "Changes made with BukitJalil AI";
 
 export interface ChangeServiceOptions {
@@ -157,14 +178,17 @@ export class ChangeService {
       if (!check.passed && !req.force)
         return { outcome: "check_failed", change: await this.toChangeSet(change), check };
 
+      // A restore is the user's own act, so they are its author too (plan 7.4); once a conversation has
+      // added to it, the AI wrote part of it.
+      const sessions = this.store.sessions(change.id);
+      const author =
+        change.restoreCommit && sessions.length === 0
+          ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
+          : AI_AUTHOR;
       const result = (
-        await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change)], {
+        await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change, sessions)], {
           cwd: site.path,
-          config: {
-            ...AI_AUTHOR,
-            "committer.name": identity["user.name"],
-            "committer.email": identity["user.email"],
-          },
+          config: { ...author, "committer.name": identity["user.name"], "committer.email": identity["user.email"] },
         })
       ).trim();
       try {
@@ -188,6 +212,82 @@ export class ChangeService {
     return this.opts.locks.run(siteId, "reject", async () => {
       this.close(this.openChange(id), "rejected");
       return this.toChangeSet(this.get(id));
+    });
+  }
+
+  /** A page of the default branch's history (plan 7.4), newest first. */
+  async history(siteId: string, skip: number): Promise<HistoryResponse> {
+    const site = this.opts.sites.get(siteId);
+    return listHistory(this.opts.git, site.path, site.defaultBranch, { skip });
+  }
+
+  /** What a version changed against its first parent: the file list, or one file's diff with `path`. */
+  async versionDiff(siteId: string, commit: string): Promise<VersionDiff>;
+  async versionDiff(siteId: string, commit: string, path: string): Promise<FileDiff>;
+  async versionDiff(siteId: string, commit: string, path?: string): Promise<VersionDiff | FileDiff> {
+    const site = this.opts.sites.get(siteId);
+    const { git } = this.opts;
+    if (!(await onBranch(git, site.path, commit, site.defaultBranch))) throw new SiteError("history.not_found", 404);
+    if (path === undefined) {
+      const entry = await historyEntry(git, site.path, commit);
+      const parent = entry.parents[0] ?? (await emptyTree(git, site.path));
+      const { files, truncated } = await changedFiles(git, site.path, parent, commit);
+      return { entry, files, filesTruncated: truncated };
+    }
+    const parent = (await parentsOf(git, site.path, commit))[0] ?? (await emptyTree(git, site.path));
+    const { files } = await changedFiles(git, site.path, parent, commit, { path });
+    const file = files.find((f) => f.path === path);
+    if (!file) throw new SiteError("change.file_not_found", 404);
+    return fileDiff(git, site.path, parent, commit, file);
+  }
+
+  /**
+   * Restore a version (plan 7.4), under the site lock: a change set whose snapshot holds that version's
+   * tree on top of the current default branch, reviewed and applied like any other. An open change set
+   * with changes in it must be applied or rejected first; an empty one (a conversation that changed
+   * nothing) is closed instead. The pre-build guard's verdict on that version is returned; it does not
+   * stop the restore. The caller makes sure no run is active or queued.
+   */
+  async restore(siteId: string, commit: string): Promise<RestoreResult> {
+    return this.opts.locks.run(siteId, "restore", async () => {
+      const { git, sites } = this.opts;
+      const site = sites.get(siteId);
+      if (site.readOnly) throw new SiteError("site.read_only", 409);
+      const open = this.store.open(siteId);
+      if (
+        open &&
+        (await this.treeOf(site.path, open.snapshotCommit)) !== (await this.treeOf(site.path, open.baseCommit))
+      )
+        throw new SiteError("change.open_exists", 409);
+      if (!(await onBranch(git, site.path, commit, site.defaultBranch))) throw new SiteError("history.not_found", 404);
+      const main = await sites.headOf(site);
+      const tree = await this.treeOf(site.path, commit);
+      if (tree === (await this.treeOf(site.path, main))) throw new SiteError("change.same_version", 409);
+      const guard = await guardCommit(git, site.path, commit);
+      const entry = await historyEntry(git, site.path, commit);
+
+      if (open) this.close(open, "rejected");
+      const snapshot = (
+        await git.text(["commit-tree", tree, "-p", main, "-m", "BukitJalil restore snapshot"], {
+          cwd: site.path,
+          config: SNAPSHOT_IDENTITY,
+        })
+      ).trim();
+      // The AI checkout holds the restored version, so a conversation can go on from it.
+      await sites.aiWorktree(siteId, snapshot, { reset: true });
+      const id = newChangeId();
+      await git.run(["update-ref", changeRef(id), snapshot], { cwd: site.path });
+      const change = this.store.insert({
+        id,
+        siteId,
+        sessionId: null,
+        baseCommit: main,
+        snapshotCommit: snapshot,
+        restoreCommit: commit,
+        summary: `Restore to ${commit.slice(0, 7)}${entry.subject ? `: ${entry.subject}` : ""}`,
+      });
+      this.emit(siteId);
+      return { change: await this.toChangeSet(change), guard: { ok: guard.ok, reasons: guard.reasons } };
     });
   }
 
@@ -247,6 +347,7 @@ export class ChangeService {
       createdAt: change.createdAt,
       resolvedAt: change.resolvedAt,
       resultCommit: change.resultCommit,
+      restoreOf: change.restoreCommit,
     };
   }
 
@@ -288,10 +389,14 @@ export class ChangeService {
     return res.stdout.toString("utf8").split("\n")[0]?.trim() ?? null;
   }
 
-  /** The commit message: the AI's summary and the sessions it came from. */
-  private message(change: ChangeRecord): string {
-    const sessions = this.store.sessions(change.id);
-    return `${change.summary?.trim() || DEFAULT_MESSAGE}\n\nBukitJalil-Sessions: ${sessions.join(", ")}\n`;
+  /** The commit message: the summary, the sessions it came from and the version it restores. */
+  private message(change: ChangeRecord, sessions: string[]): string {
+    const trailers = [
+      ...(sessions.length > 0 ? [`BukitJalil-Sessions: ${sessions.join(", ")}`] : []),
+      ...(change.restoreCommit ? [`BukitJalil-Restore: ${change.restoreCommit}`] : []),
+    ];
+    const summary = change.summary?.trim() || DEFAULT_MESSAGE;
+    return trailers.length > 0 ? `${summary}\n\n${trailers.join("\n")}\n` : `${summary}\n`;
   }
 
   private async treeOf(cwd: string, commit: string): Promise<string> {

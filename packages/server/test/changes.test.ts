@@ -7,22 +7,25 @@ import type {
   ChangeSet,
   CurrentChange,
   FileDiff,
+  HistoryResponse,
   PreviewResponse,
+  RestoreResult,
   ServerEvent,
 } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { MAX_FILES, MAX_PATCH_BYTES } from "../src/changes/diff.ts";
+import { listHistory } from "../src/changes/history.ts";
 import { changeRef } from "../src/changes/service.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
 import { ADMIN, commitAllAs, httpGet, makeApp, rawGit, req } from "./helpers.ts";
 
-// M4 layers 1 to 3 and 5 (plan 7.2, 8.4, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
+// M4 layers 1 to 3, 5 and 6 (plan 7.2, 7.4, 8.4, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
 // works in the ai/ checkout, and its result is snapshotted into the change set; the site folder only
 // changes when a change set is applied.
 
@@ -751,5 +754,185 @@ describe("change set previews", () => {
     expect(b).toMatchObject({ ref: "change", status: "failed", outcome: "refused", hasOutput: false });
     expect(b.report?.reasons?.map((r) => r.code)).toContain("plugin_files");
     expect(ctx.sites.get(s.id).readOnly).toBeNull();
+  });
+});
+
+describe("history and restore", () => {
+  async function call<T>(method: string, url: string) {
+    const init: RequestInit =
+      method === "GET"
+        ? {}
+        : { method, body: "{}", headers: { "content-type": "application/json", "x-bukitjalil": "1", origin: ADMIN } };
+    const res = await ctx.app.request(req(url, init));
+    return { status: res.status, json: (await res.json()) as T & { code?: string } };
+  }
+
+  /** A site whose history is: init, then an applied AI change set that adds an FAQ page. */
+  async function withHistory() {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+    fs.appendFileSync(path.join(cwd, "site.yaml"), "# faq\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    ctx.changes.setSummary(s.id, "Added an FAQ page.");
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    await ctx.builds.settled();
+    return { s, session, init: s.git("rev-parse", "HEAD^"), applied: s.git("rev-parse", "HEAD") };
+  }
+
+  it("lists the default branch's versions with their trailers, newest first, a page at a time", async () => {
+    const { s, session, init, applied } = await withHistory();
+    const res = await call<HistoryResponse>("GET", `/api/sites/${s.id}/history`);
+    expect(res.status).toBe(200);
+    expect(res.json.hasMore).toBe(false);
+    expect(res.json.entries.map((e) => e.commit)).toEqual([applied, init]);
+    expect(res.json.entries[0]).toMatchObject({
+      subject: "Added an FAQ page.",
+      body: "",
+      parents: [init],
+      authorName: "BukitJalil AI",
+      byAi: true,
+      sessionIds: [session.id],
+      restoreOf: null,
+      filesChanged: 2,
+    });
+    expect(res.json.entries[1]).toMatchObject({ subject: "init", parents: [], byAi: false });
+    expect(res.json.entries[1]?.filesChanged).toBeGreaterThan(2);
+
+    const second = await call<HistoryResponse>("GET", `/api/sites/${s.id}/history?skip=1`);
+    expect(second.json.entries.map((e) => e.commit)).toEqual([init]);
+    const page = await listHistory(ctx.git, s.dir, "main", { skip: 0, limit: 1 });
+    expect(page).toMatchObject({ hasMore: true, entries: [{ commit: applied }] });
+    expect((await call("GET", `/api/sites/${s.id}/history?skip=-1`)).status).toBe(400);
+  });
+
+  it("shows what a version changed, against its parent or the empty tree", async () => {
+    const { s, init, applied } = await withHistory();
+    const diff = await call<{ files: { path: string; status: string }[] }>(
+      "GET",
+      `/api/sites/${s.id}/history/${applied}/diff`,
+    );
+    expect(diff.status).toBe(200);
+    expect(diff.json.files.map((f) => `${f.status} ${f.path}`)).toEqual([
+      "added content/pages/faq.md",
+      "modified site.yaml",
+    ]);
+    const file = await call<FileDiff>(
+      "GET",
+      `/api/sites/${s.id}/history/${applied}/diff?path=${encodeURIComponent("site.yaml")}`,
+    );
+    expect(file.json.patch).toContain("+# faq");
+
+    // The first version: every file is new.
+    const first = await call<{ files: { status: string }[] }>("GET", `/api/sites/${s.id}/history/${init}/diff`);
+    expect(first.json.files.length).toBeGreaterThan(2);
+    expect(new Set(first.json.files.map((f) => f.status))).toEqual(new Set(["added"]));
+
+    // Not a version of this site: a commit off the branch, an unknown object, a malformed id.
+    const loose = s.git("commit-tree", "HEAD^{tree}", "-m", "loose");
+    expect((await call("GET", `/api/sites/${s.id}/history/${loose}/diff`)).json.code).toBe("history.not_found");
+    expect((await call("GET", `/api/sites/${s.id}/history/${"a".repeat(40)}/diff`)).status).toBe(404);
+    expect((await call("GET", `/api/sites/${s.id}/history/HEAD/diff`)).status).toBe(400);
+    const missing = await call("GET", `/api/sites/${s.id}/history/${applied}/diff?path=nope.md`);
+    expect(missing.json.code).toBe("change.file_not_found");
+  });
+
+  it("restores a version as a change set that the user applies as its author", async () => {
+    const { s, session, init, applied } = await withHistory();
+    // A conversation that changed nothing leaves an empty change set, which gives way to the restore.
+    const empty = await ctx.changes.begin(s.id, session.id);
+    const restored = await call<RestoreResult>("POST", `/api/sites/${s.id}/history/${init}/restore`);
+    expect(ctx.changes.get(empty.change.id).status).toBe("rejected");
+    expect(restored.status).toBe(200);
+    expect(restored.json.guard).toEqual({ ok: true, reasons: [] });
+    expect(restored.json.change).toMatchObject({
+      status: "open",
+      baseCommit: applied,
+      restoreOf: init,
+      summary: `Restore to ${init.slice(0, 7)}: init`,
+    });
+    // The site folder is untouched until it is applied; the AI checkout holds the old version.
+    expect(s.git("rev-parse", "HEAD")).toBe(applied);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    expect(view.treeHash).toBe(s.git("rev-parse", `${init}^{tree}`));
+    expect(view.files.map((f) => `${f.status} ${f.path}`)).toEqual([
+      "deleted content/pages/faq.md",
+      "modified site.yaml",
+    ]);
+    expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "content/pages/faq.md"))).toBe(false);
+
+    // Only one change set at a time, and nothing to restore to the current version.
+    const again = await call("POST", `/api/sites/${s.id}/history/${init}/restore`);
+    expect([again.status, again.json.code]).toEqual([409, "change.open_exists"]);
+
+    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(result.outcome).toBe("applied");
+    expect(s.git("rev-parse", "HEAD^")).toBe(applied);
+    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(s.git("rev-parse", `${init}^{tree}`));
+    expect(s.git("log", "-1", "--format=%an <%ae>|%cn <%ce>")).toBe(
+      "Site Owner <owner@example.com>|Site Owner <owner@example.com>",
+    );
+    expect(s.git("log", "-1", "--format=%B")).toBe(
+      `Restore to ${init.slice(0, 7)}: init\n\nBukitJalil-Restore: ${init}`,
+    );
+    const history = await ctx.changes.history(s.id, 0);
+    expect(history.entries[0]).toMatchObject({ restoreOf: init, byAi: false, sessionIds: [] });
+
+    const same = await call("POST", `/api/sites/${s.id}/history/${init}/restore`);
+    expect([same.status, same.json.code]).toEqual([409, "change.same_version"]);
+    const loose = s.git("commit-tree", `${applied}^{tree}`, "-m", "loose");
+    const off = await call("POST", `/api/sites/${s.id}/history/${loose}/restore`);
+    expect([off.status, off.json.code]).toEqual([404, "history.not_found"]);
+  });
+
+  it("refuses a restore on a read-only site, while a conversation is busy and while the site is locked", async () => {
+    const { s, init } = await withHistory();
+    const url = `/api/sites/${s.id}/history/${init}/restore`;
+    const busy = vi.spyOn(ctx.agent, "busy").mockReturnValue(true);
+    try {
+      expect(await call("POST", url)).toMatchObject({ status: 409, json: { code: "site.busy" } });
+    } finally {
+      busy.mockRestore();
+    }
+    const release = ctx.locks.acquire(s.id, "build");
+    expect(await call("POST", url)).toMatchObject({ status: 409, json: { code: "site.busy" } });
+    release();
+    ctx.sites.store.setState(s.id, { readOnly: [{ code: "plugin_files" }], checkedCommit: null, configCheck: null });
+    expect(await call("POST", url)).toMatchObject({ status: 409, json: { code: "site.read_only" } });
+    expect(ctx.changes.store.open(s.id)).toBeNull();
+  });
+
+  it("keeps the AI as author once a conversation has added to a restore", async () => {
+    const { s, session, init } = await withHistory();
+    await ctx.changes.restore(s.id, init);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "extra.md"), "extra\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    expect(view.restoreOf).toBe(init);
+    await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
+    expect(s.git("log", "-1", "--format=%B")).toBe(
+      `Restore to ${init.slice(0, 7)}: init\n\nBukitJalil-Sessions: ${session.id}\nBukitJalil-Restore: ${init}`,
+    );
+  });
+
+  it("reports the pre-build guard's verdict on the restored version", async () => {
+    const s = await site();
+    fs.mkdirSync(path.join(s.dir, "plugins"));
+    fs.writeFileSync(path.join(s.dir, "plugins/x.js"), "export {};\n");
+    commitAllAs(base, s.dir, "plugins");
+    const unsafe = s.git("rev-parse", "HEAD");
+    fs.rmSync(path.join(s.dir, "plugins"), { recursive: true });
+    commitAllAs(base, s.dir, "no plugins");
+    const restored = await ctx.changes.restore(s.id, unsafe);
+    expect(restored.guard.ok).toBe(false);
+    expect(restored.guard.reasons.map((r) => r.code)).toContain("plugin_files");
+    expect(restored.change.restoreOf).toBe(unsafe);
   });
 });

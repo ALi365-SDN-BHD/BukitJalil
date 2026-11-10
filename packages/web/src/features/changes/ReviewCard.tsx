@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { ChangedFileList } from "./ChangedFileList";
 import { useCurrentChange } from "./hooks";
+import { RestoreNote } from "./RestoreNote";
 import { type Notice, NoticeView, ReviewActions } from "./ReviewActions";
 
 const LISTED = 8;
@@ -50,6 +51,7 @@ export function ReviewCard({ siteId }: { siteId: string }) {
           <FileDiff /> {m.changes.viewDiff}
         </Button>
       </div>
+      {change.restoreOf && <RestoreNote commit={change.restoreOf} />}
       <p className="whitespace-pre-wrap text-sm text-muted-foreground" data-testid="review-summary">
         {change.summary?.trim() || m.changes.noSummary}
       </p>

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { BuildButton, BuildList } from "@/features/builds/builds";
+import { HistorySection } from "@/features/changes/HistorySection";
 import { useCreateSession } from "@/features/chat/sessions";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
@@ -144,6 +145,8 @@ export function SiteHome({ site }: { site: Site }) {
         <h2 className="text-sm font-medium">{m.site.recentBuilds}</h2>
         <BuildList siteId={site.id} />
       </section>
+
+      <HistorySection site={site} />
 
       <StartConversation site={site} />
 
