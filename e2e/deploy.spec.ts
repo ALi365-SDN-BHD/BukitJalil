@@ -2,19 +2,21 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { bukitForTests } from "./fake-bukit.ts";
+import { fakeBukit } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
 import { importSite, putSettings, removeImportedSites, siteFolder } from "./site-helpers.ts";
 
 // M6 (plan 14): the Publish section shows the target from site.yaml on the default branch and whether the
-// GitHub token is set; without a target, the AI is asked to set it in a new conversation.
+// GitHub token is set; without a target, the AI is asked to set it in a new conversation. Publishing asks for
+// confirmation, shows its steps, and keeps a record with the publish audit.
 
 let work: string;
 let bukitBin: string;
 
 test.beforeAll(() => {
   work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-deploy-")));
-  bukitBin = bukitForTests(work);
+  // Always the stand-in: a real Bukit would push to GitHub.
+  bukitBin = fakeBukit(work);
 });
 
 test.afterAll(async ({ browser, server }) => {
@@ -70,4 +72,25 @@ test("the publish target comes from site.yaml, and the AI is asked to set it", a
   await expect(target).toContainText("https://someone.github.io/");
   await expect(section.getByTestId("deploy-ask-ai")).toHaveCount(0);
   await expect(section.getByTestId("deploy-open-settings")).toHaveCount(0);
+
+  // Publishing: the confirmation names the repository, branch and version.
+  const head = git(dir, "rev-parse", "--short=7", "HEAD").toString().trim();
+  await section.getByTestId("deploy-start").click();
+  const confirm = page.getByTestId("deploy-confirm");
+  await expect(confirm).toContainText("github.com/someone/someone.github.io");
+  await expect(confirm).toContainText("gh-pages");
+  await expect(confirm).toContainText(head);
+  await page.getByTestId("deploy-confirm-start").click();
+  await expect(section.getByTestId("deploy-progress")).toBeVisible();
+  await expect(section.getByTestId("deploy-start")).toBeDisabled();
+  await expect(section.getByTestId("deploy-step-deploy")).toHaveAttribute("data-state", "running");
+  await expect(section.getByTestId("deploy-progress")).toHaveCount(0, { timeout: 30_000 });
+  const record = section.getByTestId("deploy-list").getByTestId("deploy-status").first();
+  await expect(record).toHaveText(/Published|已发布/);
+
+  await record.click();
+  const report = page.getByTestId("deploy-report");
+  await expect(report.getByTestId("deploy-url")).toContainText("https://someone.github.io/");
+  await expect(report.getByTestId("deploy-audit")).toContainText("publish.time_missing");
+  await expect(report).toContainText("Git push completed");
 });

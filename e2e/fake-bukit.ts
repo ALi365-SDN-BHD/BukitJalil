@@ -4,8 +4,9 @@ import path from "node:path";
 // A stand-in Bukit for end-to-end tests (CI has no Bukit); BUKIT_BIN names a real one instead.
 
 /**
- * Writes index.html titled with site.title and SEO / GEO reports in .bukit/; a committed `fake-mode` file containing
- * "fail" fails the build.
+ * Writes index.html titled with site.title and SEO / GEO / publish reports in .bukit/; a committed `fake-mode` file
+ * containing "fail" fails the build. `publish audit` passes; `deploy` waits a second and reports a push, without
+ * any network.
  */
 export const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
@@ -26,10 +27,20 @@ case "$1" in
     mkdir -p "$out/.bukit"
     echo '{"siteUrl":null,"routes":[{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/","message":"SEO description is missing."}]}' > "$out/.bukit/seo-report.json"
     echo '{"geoScore":25,"llmsTxtGenerated":true,"llmsFullTxtGenerated":false,"geoEnhancedCount":0}' > "$out/.bukit/geo-report.json"
+    echo '{"siteUrl":null,"documents":[{}],"issues":[{"severity":"warning","code":"publish.time_missing","route":"/","message":"Dated content is missing a visible time element."}]}' > "$out/.bukit/publish-audit-report.json"
     exit 0;;
+  publish) exit 0;;
+  deploy) sleep 1; echo "[info] Git push completed. GitHub Pages publication has not been verified."; exit 0;;
 esac
 exit 1
 `;
+
+/** The stand-in, also when BUKIT_BIN is set (a real deploy would push to GitHub). */
+export function fakeBukit(dir: string): string {
+  const bin = path.join(dir, "fake-bukit");
+  fs.writeFileSync(bin, FAKE_BUKIT, { mode: 0o755 });
+  return bin;
+}
 
 /** The Bukit for a test file: BUKIT_BIN when set, else the stand-in written into `dir`. */
 export function bukitForTests(dir: string): string {

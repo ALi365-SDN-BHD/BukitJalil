@@ -1,4 +1,4 @@
-import type { CurrentChange, ServerEvent, SessionDetail, SessionInfo } from "@bukitjalil/shared";
+import type { CurrentChange, DeployListResponse, ServerEvent, SessionDetail, SessionInfo } from "@bukitjalil/shared";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { liveStore } from "@/features/chat/store";
@@ -111,6 +111,20 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
       // A build can end before the list ever showed it running, so the preview cannot wait for that.
       void queryClient.invalidateQueries({ queryKey: ["preview", event.siteId] });
       break;
+    case "deploy": {
+      const { deploy } = event.data;
+      queryClient.setQueryData<DeployListResponse>(keys.deploys(event.siteId), (list) =>
+        list ? { deploys: [deploy, ...list.deploys.filter((d) => d.id !== deploy.id)] } : list,
+      );
+      if (deploy.status !== "running") {
+        void queryClient.invalidateQueries({ queryKey: keys.deploys(event.siteId) });
+        void queryClient.invalidateQueries({ queryKey: ["deploy-report", event.siteId, deploy.id] });
+        // A refused publish marks the site read-only.
+        void queryClient.invalidateQueries({ queryKey: keys.site(event.siteId) });
+        void queryClient.invalidateQueries({ queryKey: keys.deploy(event.siteId) });
+      }
+      break;
+    }
     case "change": {
       const { siteId } = event;
       const before = queryClient.getQueryData<CurrentChange>(keys.change(siteId))?.change;

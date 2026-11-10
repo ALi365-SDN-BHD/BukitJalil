@@ -1,4 +1,4 @@
-import type { Build, BuildAudit, PanelRef } from "@bukitjalil/shared";
+import type { AuditIssueGroup, Build, BuildAudit, BuildMessage, PanelRef } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -174,38 +174,7 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
             </ul>
           )}
           {report && build.data?.status === "succeeded" && <AuditSection audit={report.audit ?? null} />}
-          {report && (
-            <section>
-              <h3 className="mb-1 font-medium">{m.build.messages}</h3>
-              {report.messages.length === 0 ? (
-                <p className="text-muted-foreground">{m.build.noMessages}</p>
-              ) : (
-                <ul className="flex flex-col gap-1 font-mono text-xs">
-                  {report.messages.map((msg, i) => (
-                    <li
-                      // biome-ignore lint/suspicious/noArrayIndexKey: log lines in order
-                      key={i}
-                      className={
-                        /error|fatal|critical/i.test(msg.level)
-                          ? "text-destructive"
-                          : "text-amber-600 dark:text-amber-400"
-                      }
-                    >
-                      [{msg.level}] {msg.msg}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
-          {report?.output && (
-            <section>
-              <h3 className="mb-1 font-medium">{m.build.output}</h3>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs">
-                {report.output}
-              </pre>
-            </section>
-          )}
+          {report && <ReportLog messages={report.messages} output={report.output} />}
         </div>
       </DialogContent>
     </Dialog>
@@ -244,41 +213,7 @@ function AuditSection({ audit }: { audit: BuildAudit | null }) {
               {t(a.siteUrl, { count: seo.siteUrlWarnings })}
             </p>
           )}
-          {seo.groups.length === 0 ? (
-            <p className="text-xs text-muted-foreground">{a.noIssues}</p>
-          ) : (
-            <ul className="flex flex-col gap-1 text-xs">
-              {seo.groups.map((g) => (
-                <li key={`${g.severity}:${g.code}`} data-testid="audit-group">
-                  <details>
-                    <summary className="cursor-pointer">
-                      <span
-                        className={
-                          g.severity === "error"
-                            ? "text-destructive"
-                            : g.severity === "warning"
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-muted-foreground"
-                        }
-                      >
-                        {a.severity[g.severity]}
-                      </span>{" "}
-                      <code>{g.code}</code>{" "}
-                      <span className="text-muted-foreground">{t(a.count, { count: g.count })}</span>
-                    </summary>
-                    <div className="mt-1 flex flex-col gap-0.5 pl-4">
-                      <span>{g.message}</span>
-                      <span className="text-muted-foreground">
-                        {g.routes.map((r) => r || a.site).join(" · ")}
-                        {(g.moreRoutes ?? g.count > g.routes.length) && " …"}
-                      </span>
-                    </div>
-                  </details>
-                </li>
-              ))}
-            </ul>
-          )}
-          {seo.groupsTruncated && <p className="text-xs text-muted-foreground">{a.more}</p>}
+          <IssueGroups groups={seo.groups} truncated={seo.groupsTruncated} />
         </div>
       )}
       {geo && (
@@ -297,5 +232,84 @@ function AuditSection({ audit }: { audit: BuildAudit | null }) {
         </div>
       )}
     </section>
+  );
+}
+
+/** Audit issues grouped by kind, each opening to its message and pages (SEO and publish audits). */
+export function IssueGroups({ groups, truncated }: { groups: AuditIssueGroup[]; truncated: boolean }) {
+  const { m, t } = useI18n();
+  const a = m.build.audit;
+  return (
+    <>
+      {groups.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{a.noIssues}</p>
+      ) : (
+        <ul className="flex flex-col gap-1 text-xs">
+          {groups.map((g) => (
+            <li key={`${g.severity}:${g.code}`} data-testid="audit-group">
+              <details>
+                <summary className="cursor-pointer">
+                  <span
+                    className={
+                      g.severity === "error"
+                        ? "text-destructive"
+                        : g.severity === "warning"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-muted-foreground"
+                    }
+                  >
+                    {a.severity[g.severity]}
+                  </span>{" "}
+                  <code>{g.code}</code> <span className="text-muted-foreground">{t(a.count, { count: g.count })}</span>
+                </summary>
+                <div className="mt-1 flex flex-col gap-0.5 pl-4">
+                  <span>{g.message}</span>
+                  <span className="text-muted-foreground">
+                    {g.routes.map((r) => r || a.site).join(" · ")}
+                    {(g.moreRoutes ?? g.count > g.routes.length) && " …"}
+                  </span>
+                </div>
+              </details>
+            </li>
+          ))}
+        </ul>
+      )}
+      {truncated && <p className="text-xs text-muted-foreground">{a.more}</p>}
+    </>
+  );
+}
+
+/** Bukit's warning and error lines, then the end of its text output. */
+export function ReportLog({ messages, output }: { messages: BuildMessage[]; output: string }) {
+  const { m } = useI18n();
+  return (
+    <>
+      <section>
+        <h3 className="mb-1 font-medium">{m.build.messages}</h3>
+        {messages.length === 0 ? (
+          <p className="text-muted-foreground">{m.build.noMessages}</p>
+        ) : (
+          <ul className="flex flex-col gap-1 font-mono text-xs">
+            {messages.map((msg, i) => (
+              <li
+                // biome-ignore lint/suspicious/noArrayIndexKey: log lines in order
+                key={i}
+                className={
+                  /error|fatal|critical/i.test(msg.level) ? "text-destructive" : "text-amber-600 dark:text-amber-400"
+                }
+              >
+                [{msg.level}] {msg.msg}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {output && (
+        <section>
+          <h3 className="mb-1 font-medium">{m.build.output}</h3>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs">{output}</pre>
+        </section>
+      )}
+    </>
   );
 }

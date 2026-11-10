@@ -422,6 +422,41 @@ const en: Messages = {
     askAi: "Ask the AI to set the target",
     askAiDraft:
       "Please set this site up to publish to GitHub Pages.\nRepository (owner/name): \nBranch: gh-pages\nCustom domain, if any: ",
+    publish: "Publish",
+    publishNow: "Publish now",
+    running: "Publishing",
+    version: "Version",
+    confirmTitle: "Publish to GitHub Pages",
+    confirmText:
+      "The default-branch version is checked, built and audited on this computer, then the result is pushed to the repository and branch below.",
+    confirmNote:
+      "The push replaces the site on the {branch} branch. GitHub Pages must be set to publish from that branch; the new content usually shows a minute or two after the push.",
+    steps: {
+      guard: "Safety check",
+      check: "Config check",
+      doctor: "Doctor",
+      build: "Build",
+      audit: "Publish audit",
+      deploy: "Push",
+    },
+    stop: "Stop",
+    status: { running: "Publishing", succeeded: "Published", failed: "Failed", stopped: "Stopped" },
+    outcome: {
+      ok: "Published",
+      refused: "Safety check failed",
+      notion: "Sites using Notion cannot be published yet",
+      step_failed: "Failed",
+      symlink: "The build output has a symbolic link",
+      stopped: "Stopped",
+      interrupted: "Interrupted by a server restart",
+      error: "Error",
+    },
+    report: "Publish record",
+    reportTarget: "{branch} branch of {repo} · version {commit}",
+    published: "Pushed. Site address:",
+    publishedNote:
+      "GitHub Pages usually takes a minute or two after a push; Bukit does not confirm the site was updated.",
+    audit: "Publish audit",
   },
   settings: {
     title: "Settings",
