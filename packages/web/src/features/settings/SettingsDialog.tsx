@@ -139,7 +139,7 @@ function BukitSection() {
       {status.customProblem && <p className="text-xs text-amber-700 dark:text-amber-400">{s.customProblem}</p>}
       <InstallControl
         progress={progress}
-        offer={status.installable && status.state !== "ok"}
+        offer={status.installable && (status.state !== "ok" || status.upgradable)}
         label={s.install}
         confirm={s.installConfirm}
         mutation={install}

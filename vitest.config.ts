@@ -7,5 +7,7 @@ export default defineConfig({
   test: {
     include: ["packages/*/test/**/*.test.ts", "packages/*/src/**/*.test.ts"],
     environment: "node",
+    // Many server tests run real git (and Bukit) several times; 5 s is too tight when all files run in parallel.
+    testTimeout: 15_000,
   },
 });

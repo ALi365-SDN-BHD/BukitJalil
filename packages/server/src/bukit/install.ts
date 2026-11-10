@@ -5,12 +5,16 @@ import zlib from "node:zlib";
 import type { InstallProgress } from "@bukitjalil/shared";
 
 /**
- * Bukit 2.0.11 install (plan 8.1): official package for this platform, SHA-256 pinned in code (the
+ * Bukit 2.0.12 install (plan 8.1): official package for this platform, SHA-256 pinned in code (the
  * downloaded checksum files are not trusted), extracted by a strict reader that accepts only the
  * expected entries, staged in a temp directory and moved into place in one rename.
  */
 
-export const BUKIT_VERSION = "2.0.11";
+export const BUKIT_VERSION = "2.0.12";
+/** The oldest Bukit that works (`deploy --token-env` and the other 2.0.11 behaviour, plan 8.1). */
+export const MIN_BUKIT_VERSION = "2.0.11";
+/** Earlier app-managed installs (~/.bukitjalil/bin/bukit-<version>), still used until an upgrade replaces them. */
+export const PREVIOUS_APP_VERSIONS: readonly string[] = ["2.0.11"];
 
 export interface BukitPackage {
   file: string;
@@ -26,13 +30,13 @@ const RELEASE_URL = `https://github.com/ALi365-SDN-BHD/Bukit/releases/download/v
 export const PACKAGES: Record<string, BukitPackage> = {
   "darwin-arm64": {
     file: `bukit-${BUKIT_VERSION}-osx-arm64.tar.gz`,
-    sha256: "1e298a2f528a85601fe526134b73db8879762f037e2c19cffc8ee2dcb774ee55",
+    sha256: "0be48b9da79569988257650028517833a73907e1cd49c76d60fbcb243621c33a",
     files: ["bukit", "libSkiaSharp.dylib"],
     executable: "bukit",
   },
   "linux-x64": {
     file: `bukit-${BUKIT_VERSION}-linux-x64.tar.gz`,
-    sha256: "05464709d776013fa2bf23f333cc2a15f671aa4ee58610e5ab4575ccda76ab1d",
+    sha256: "1dbb37c0227570c25e71fd1ff9574c95f9217ded6c681add31f19e8653479823",
     files: ["bukit", "libSkiaSharp.so"],
     executable: "bukit",
   },
@@ -186,7 +190,7 @@ export function readStrictTarGz(
 
 /**
  * Write the files into a fresh staging directory next to `target`, then replace `target` with one rename.
- * `target` is e.g. ~/.bukitjalil/bin/bukit-2.0.11.
+ * `target` is e.g. ~/.bukitjalil/bin/bukit-2.0.12.
  */
 export function installFiles(
   files: Map<string, { mode: number; data: Buffer }>,

@@ -11,7 +11,7 @@ BukitJalil 把每个网站当作一个项目来管理。你用对话告诉 AI �
 | macOS（Apple 芯片）或 Linux x64 | 暂不支持 Windows。Intel Mac 没有官方 Bukit 包，可以自己编译 Bukit 后在设置里填路径 |
 | Node 22.19 或更新（推荐 24 LTS） | 运行 BukitJalil 本身 |
 | git 2.38 或更新 | 每个网站都是一个 git 仓库，版本、差异、恢复都靠它 |
-| Bukit 2.0.11 | 构建网站。可以在 BukitJalil 的设置里一键下载安装，不用提前装 |
+| Bukit 2.0.12（最低 2.0.11） | 构建网站。可以在 BukitJalil 的设置里一键下载安装，不用提前装 |
 | 一个 AI 模型服务商的 API Key | 例如 Anthropic、OpenAI 等 Pi 支持的服务商 |
 
 ## 2. 安装和启动
@@ -39,7 +39,7 @@ pnpm start
 第一次打开时，首页会显示"开始使用"清单，按顺序检查五件事，每一步都能直接打开对应的设置：
 
 1. **git**：没有找到或版本太旧时，安装新版 git 并重启 BukitJalil
-2. **Bukit**：在设置里点"下载安装 Bukit 2.0.11"。BukitJalil 从 GitHub 下载官方安装包，用代码里固定的 SHA-256 校验后安装到应用目录。已有自己编译的 Bukit 时填"自定义 Bukit 路径"
+2. **Bukit**：在设置里点"下载安装 Bukit 2.0.12"。已经装了 2.0.11 的照常可用，设置里也可以一键升级。BukitJalil 从 GitHub 下载官方安装包，用代码里固定的 SHA-256 校验后安装到应用目录。已有自己编译的 Bukit 时填"自定义 Bukit 路径"
 3. **提交身份**：你应用改动时用的名字和邮箱，默认取全局 git 设置
 4. **AI 模型**：见下一节
 5. **第一个网站**：新建或导入，见第 5 节

@@ -3,10 +3,10 @@
 # Bukit has no "new site" command; its starter theme only exists as CLI resources (MIT).
 # Run again when Bukit is upgraded, then build the result with the real Bukit (see templates/README.md).
 #
-# Usage: BUKIT_SRC=/path/to/Bukit/clone [BUKIT_TAG=v2.0.11] scripts/make-starter.sh
+# Usage: BUKIT_SRC=/path/to/Bukit/clone [BUKIT_TAG=v2.0.12] scripts/make-starter.sh
 set -euo pipefail
 BUKIT_SRC=${BUKIT_SRC:?set BUKIT_SRC to a clone of github.com/ALi365-SDN-BHD/Bukit}
-TAG=${BUKIT_TAG:-v2.0.11}
+TAG=${BUKIT_TAG:-v2.0.12}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$ROOT/templates/starter
 RES=src/Bukit-Core/Bukit.Cli/Resources/StarterTheme

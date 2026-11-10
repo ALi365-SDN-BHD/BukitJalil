@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Page } from "@playwright/test";
+import { BUKIT_VERSION } from "../packages/server/src/bukit/install.ts";
 import { copyStarter } from "../packages/server/src/sites/template.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
@@ -238,7 +239,8 @@ test("a site can be archived, restored and removed", async ({ page, server }) =>
 test("settings show Bukit and the identity; dialogs start empty each time", async ({ page, server }) => {
   await login(page, await server.loginUrl());
   await page.getByTestId("open-settings").click();
-  await expect(page.getByTestId("bukit-state")).toContainText("2.0.11");
+  // The stand-in prints 2.0.11, a real Bukit the pinned version.
+  await expect(page.getByTestId("bukit-state")).toContainText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
   await expect(page.locator("#commit-name")).toHaveValue("E2E Tester");
   await expect(page.locator("#bukit-path")).toHaveValue(bukitBin);
   // A fresh app home has no rg yet: the dialog offers the pinned version and asks before downloading.

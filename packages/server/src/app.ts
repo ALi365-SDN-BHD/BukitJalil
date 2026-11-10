@@ -159,7 +159,7 @@ export function createAdminApp(opts: AdminAppOptions) {
     const body: BukitResponse = { status: await opts.bukit.status(), install: opts.bukit.installer.progress };
     return c.json(body);
   });
-  // Install Bukit 2.0.11 (plan 8.1) after the user confirmed in the UI. Progress is polled from GET /bukit.
+  // Install Bukit 2.0.12 (plan 8.1) after the user confirmed in the UI. Progress is polled from GET /bukit.
   api.post("/bukit/install", async (c) => {
     if (!(await opts.bukit.status()).installable) return apiError(c, 400, "bukit.unsupported_platform");
     if (!opts.bukit.install()) return apiError(c, 409, "bukit.install_running");

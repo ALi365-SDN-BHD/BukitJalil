@@ -561,12 +561,17 @@ describe("bukitInstaller", () => {
       const data = fs.readFileSync(REAL_TARBALL as string);
       const fetchImpl = (async () =>
         new Response(data, { headers: { "content-length": String(data.length) } })) as typeof fetch;
+      // An earlier app install is replaced by the upgrade.
+      const previous = appBukitDir(home, "2.0.11");
+      fs.mkdirSync(previous, { recursive: true });
+      fs.writeFileSync(path.join(previous, "bukit"), '#!/bin/sh\necho "bukit 2.0.11"\n', { mode: 0o755 });
       const inst = bukitInstaller({ home, tmpDir, fetchImpl });
       inst.start();
       await inst.wait();
       expect(inst.progress).toEqual({ state: "done" });
       const status = await locateBukit({ customPath: null, home, tmpDir, envPath: "" });
-      expect(status).toMatchObject({ source: "app", version: BUKIT_VERSION, state: "ok" });
+      expect(status).toMatchObject({ source: "app", version: BUKIT_VERSION, state: "ok", upgradable: false });
+      expect(fs.existsSync(previous)).toBe(false);
     },
     60_000,
   );
@@ -626,6 +631,30 @@ describe("locateBukit", () => {
         path: path.join(pathDir, "bukit"),
       },
     );
+  });
+
+  it("still uses an earlier app install (2.0.11) and offers the upgrade, never a downgrade", async () => {
+    const appHome3 = path.join(base, "app3");
+    const previous = appBukitDir(appHome3, "2.0.11");
+    fs.mkdirSync(previous, { recursive: true });
+    fs.writeFileSync(path.join(previous, "bukit"), '#!/bin/sh\necho "bukit 2.0.11"\n', { mode: 0o755 });
+    expect(await locateBukit({ customPath: null, home: appHome3, tmpDir, envPath: "" })).toMatchObject({
+      source: "app",
+      path: path.join(previous, "bukit"),
+      version: "2.0.11",
+      state: "ok",
+      upgradable: packageForPlatform() !== null,
+    });
+    expect(BUKIT_VERSION).toBe("2.0.12");
+    // A newer Bukit on PATH is not "upgraded" to the pinned one.
+    const newer = path.join(base, "newer-path");
+    fs.mkdirSync(newer);
+    fs.writeFileSync(path.join(newer, "bukit"), '#!/bin/sh\necho "bukit 2.0.13"\n', { mode: 0o755 });
+    expect(await locateBukit({ customPath: null, home: home(), tmpDir, envPath: newer })).toMatchObject({
+      source: "path",
+      state: "ok",
+      upgradable: false,
+    });
   });
 
   it("does not cache a failed lookup", async () => {

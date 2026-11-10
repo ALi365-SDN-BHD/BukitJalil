@@ -9,6 +9,8 @@ import {
   InstallError,
   InstallJob,
   installFiles,
+  MIN_BUKIT_VERSION,
+  PREVIOUS_APP_VERSIONS,
   packageForPlatform,
   packageUrl,
   readStrictTarGz,
@@ -18,10 +20,11 @@ import { parseBukitVersion } from "./runner.ts";
 
 /**
  * Where Bukit comes from (plan 8.1): the custom path from settings, then the app-managed copy in
- * ~/.bukitjalil/bin/bukit-2.0.11/, then `bukit` on the user's PATH.
+ * ~/.bukitjalil/bin/bukit-2.0.12/ (or an earlier app install), then `bukit` on the user's PATH.
  */
 
-export const appBukitDir = (home: string) => path.join(home, "bin", `bukit-${BUKIT_VERSION}`);
+export const appBukitDir = (home: string, version: string = BUKIT_VERSION) =>
+  path.join(home, "bin", `bukit-${version}`);
 
 function executableFile(file: string): boolean {
   try {
@@ -55,7 +58,7 @@ export async function probeBukitVersion(bukitPath: string, tmpDir: string): Prom
 
 export function versionState(version: string): "ok" | "old" | "unsupported" {
   if (!version.startsWith("2.0.")) return "unsupported";
-  return versionAtLeast(version, BUKIT_VERSION) ? "ok" : "old";
+  return versionAtLeast(version, MIN_BUKIT_VERSION) ? "ok" : "old";
 }
 
 export async function locateBukit(opts: {
@@ -68,6 +71,7 @@ export async function locateBukit(opts: {
   let customProblem: BukitStatus["customProblem"] = null;
   const candidates: [BukitSource, string | null][] = [
     ["app", path.join(appBukitDir(opts.home), "bukit")],
+    ...PREVIOUS_APP_VERSIONS.map((v): [BukitSource, string] => ["app", path.join(appBukitDir(opts.home, v), "bukit")]),
     ["path", findOnPath(opts.envPath ?? process.env.PATH ?? "")],
   ];
 
@@ -84,6 +88,8 @@ export async function locateBukit(opts: {
           state: versionState(version),
           customProblem,
           installable,
+          // A custom build is the user's own choice.
+          upgradable: false,
         };
       customProblem = "broken";
     }
@@ -93,11 +99,24 @@ export async function locateBukit(opts: {
   for (const [source, file] of candidates) {
     if (!file || !executableFile(file)) continue;
     const version = await probeBukitVersion(file, opts.tmpDir);
-    if (version) return { path: file, source, version, state: versionState(version), customProblem, installable };
+    if (version) {
+      const state = versionState(version);
+      // An older working copy may be replaced by the pinned version; a newer one is never "upgraded" down.
+      const upgradable = installable && state === "ok" && !versionAtLeast(version, BUKIT_VERSION);
+      return { path: file, source, version, state, customProblem, installable, upgradable };
+    }
     broken ??= { path: file, source };
   }
-  if (broken) return { ...broken, version: null, state: "broken", customProblem, installable };
-  return { path: null, source: null, version: null, state: "missing", customProblem, installable };
+  if (broken) return { ...broken, version: null, state: "broken", customProblem, installable, upgradable: false };
+  return {
+    path: null,
+    source: null,
+    version: null,
+    state: "missing",
+    customProblem,
+    installable,
+    upgradable: false,
+  };
 }
 
 // --- install job, polled through GET /api/bukit ---
@@ -128,6 +147,8 @@ export function bukitInstaller(opts: {
       fs.rmSync(target, { recursive: true, force: true });
       throw new InstallError("verify_failed", `bukit version printed ${version ?? "nothing"}`);
     }
+    // The upgrade replaces earlier app installs.
+    for (const v of PREVIOUS_APP_VERSIONS) fs.rmSync(appBukitDir(opts.home, v), { recursive: true, force: true });
   });
 }
 

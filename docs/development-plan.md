@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.22（2026-11-10，写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.23（2026-11-10，Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -63,7 +63,7 @@
 | Node.js | **24 LTS**（`engines: ">=22.19.0"`） | Pi SDK 要求 ≥ 22.19。开发统一用 24 LTS；Node 22 在 2027-04-30 停止维护，本机现在是 22.22.3，可以运行但建议升级 |
 | pnpm | **12.18.0** | 写进根 `package.json` 的 `packageManager` 字段，由 corepack 自动使用（本机是 10.5.0，执行 `corepack enable` 即可） |
 | TypeScript | **7.0.2** | 只用来做类型检查（`tsc --noEmit`），打包和运行由 Vite / tsx 负责。TypeScript 7 是 Go 重写的版本，部分旧 tsconfig 选项已移除。**M0 已确认**与 Vite 8、Vitest 5、Biome、shadcn 配合正常；唯一要改的是 `baseUrl` 已被移除，路径别名直接写 `paths` |
-| Bukit | **2.0.11** | .NET Native AOT 单文件程序，官方提供 osx-arm64、linux-x64、win-x64（没有 Intel Mac 版，见 8.1） |
+| Bukit | **2.0.12**（最低 2.0.11） | .NET Native AOT 单文件程序，官方提供 osx-arm64、linux-x64、win-x64（没有 Intel Mac 版，见 8.1） |
 
 ### 2.2 服务端（`packages/server`）
 
@@ -177,7 +177,7 @@ BukitJalil/
 ~/.bukitjalil/                      # 应用数据目录（可用 BUKITJALIL_HOME 覆盖）
 ├── app.db                          # SQLite：网站列表、会话索引、改动集、构建记录、设置（不含密钥）
 ├── secrets.json                    # Notion / GitHub token（权限 600；设置了对应环境变量时不使用，见 6.5）
-├── bin/bukit-2.0.11/               # 应用管理的 Bukit：bukit 和 libSkiaSharp.dylib 等随包文件
+├── bin/bukit-2.0.12/               # 应用管理的 Bukit：bukit 和 libSkiaSharp.dylib 等随包文件
 ├── empty-gitconfig                 # 空文件，git 调用的全局配置和属性文件都指向它（见 7.3）
 ├── pi/                             # 给 Pi 用的独立目录（agentDir + PI_CODING_AGENT_DIR），不读用户 ~/.pi
 │   ├── auth.json                   # 模型 API Key / OAuth（权限 600）
@@ -503,23 +503,25 @@ AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukit
 
 ### 8.1 获取 Bukit
 
-- 首次启动检查：设置里的自定义路径 → `~/.bukitjalil/bin/bukit-2.0.11/` → 系统 `PATH` 里的 `bukit`
-- 都没有时，界面提示从 Bukit GitHub Release v2.0.11 下载对应平台的包（需用户确认），解压到 `~/.bukitjalil/bin/`
-- 完整性校验：v2.0.11 的 Release 附带 `checksums.txt`、`checksums.json` 和 `release-manifest.json`（已核对）。BukitJalil 在代码里固定三个平台安装包的 SHA-256，下载后比对，不在运行时信任下载来的校验文件：
+- 首次启动检查：设置里的自定义路径 → `~/.bukitjalil/bin/bukit-2.0.12/` → 以前应用装的 `~/.bukitjalil/bin/bukit-2.0.11/` → 系统 `PATH` 里的 `bukit`
+- 都没有时，界面提示从 Bukit GitHub Release v2.0.12 下载对应平台的包（需用户确认），解压到 `~/.bukitjalil/bin/`
+- 完整性校验：v2.0.12 的 Release 附带 `checksums.txt`、`checksums.json` 和 `release-manifest.json`（已核对）。BukitJalil 在代码里固定三个平台安装包的 SHA-256，下载后比对，不在运行时信任下载来的校验文件：
 
   | 安装包 | SHA-256 |
   | --- | --- |
-  | `bukit-2.0.11-osx-arm64.tar.gz` | `1e298a2f528a85601fe526134b73db8879762f037e2c19cffc8ee2dcb774ee55` |
-  | `bukit-2.0.11-linux-x64.tar.gz` | `05464709d776013fa2bf23f333cc2a15f671aa4ee58610e5ab4575ccda76ab1d` |
-  | `bukit-2.0.11-win-x64.zip` | `c8832c75229876c1205e7f7d425af0c90c4b3238257e8735a610257570396d02` |
+  | `bukit-2.0.12-osx-arm64.tar.gz` | `0be48b9da79569988257650028517833a73907e1cd49c76d60fbcb243621c33a` |
+  | `bukit-2.0.12-linux-x64.tar.gz` | `1dbb37c0227570c25e71fd1ff9574c95f9217ded6c681add31f19e8653479823` |
+  | `bukit-2.0.12-win-x64.zip` | `5ccaac503af7c417f1e457ee4cb8631dd276644df84b88e792d4c8fc0378d0b6` |
 
-  三个安装包 M1 都已下载，SHA-256 和上表、`checksums.txt`、`checksums.json` 一致
+  上表和 GitHub 发布页给出的摘要、`checksums.txt` 一致；osx-arm64 包已下载核对（2.0.11 的三个包 M1 都下载核对过）
 
-- 解压安全：先解压到临时目录，逐个检查压缩包条目，拒绝绝对路径、含 `..` 的路径和符号链接（防止解压到目标目录外），检查通过后再整体移动到 `~/.bukitjalil/bin/bukit-2.0.11/`，并确认可执行文件存在、`bukit version` 输出 2.0.11。每个包都只有两个文件，没有子目录：`bukit` + `libSkiaSharp.dylib`（macOS）、`bukit` + `libSkiaSharp.so`（Linux）、`bukit.exe` + `libSkiaSharp.dll`（Windows）。SkiaSharp 是图片处理用的原生库，必须和 `bukit` 放在同一目录，不能只拷可执行文件。tar 包的条目名带 `./` 前缀（`./bukit`），条目检查要先规范化再比较；Linux 版是动态链接 glibc 的，Alpine 等 musl 系统跑不了
+- 解压安全：先解压到临时目录，逐个检查压缩包条目，拒绝绝对路径、含 `..` 的路径和符号链接（防止解压到目标目录外），检查通过后再整体移动到 `~/.bukitjalil/bin/bukit-2.0.12/`，并确认可执行文件存在、`bukit version` 输出 2.0.12；安装成功后删除以前应用装的 `bukit-2.0.11/`。每个包都只有两个文件，没有子目录：`bukit` + `libSkiaSharp.dylib`（macOS）、`bukit` + `libSkiaSharp.so`（Linux）、`bukit.exe` + `libSkiaSharp.dll`（Windows）。SkiaSharp 是图片处理用的原生库，必须和 `bukit` 放在同一目录，不能只拷可执行文件。tar 包的条目名带 `./` 前缀（`./bukit`），条目检查要先规范化再比较；Linux 版是动态链接 glibc 的，Alpine 等 musl 系统跑不了
 - 平台：官方只提供 osx-arm64、linux-x64、win-x64，**没有 Intel Mac（osx-x64）和 Linux ARM 版本**。这些平台的用户需要自己编译 Bukit 并在设置里指定路径，界面要给出明确提示
-- 启动时执行 `bukit version`，版本不是 2.0.x 时警告；低于 2.0.11 时提示升级（`deploy --token-env` 等行为依赖 2.0.11，见 M6）
+- 启动时执行 `bukit version`，版本不是 2.0.x 时警告；低于 2.0.11 时提示升级（`deploy --token-env` 等行为依赖 2.0.11，见 M6）；2.0.11 仍算可用，但应用装的或 PATH 里的版本低于 2.0.12 时，设置里提供升级安装（更新的版本不会被"升级"回 2.0.12）（自定义路径的 Bukit 不提示）
 
-> Bukit 官方说明常规公开二进制发布已暂停，例外发布需要管理批准；2.0.11（2026-11-09）是当前最新的公开版本。因此固定 2.0.11，同时支持用户指定自己编译的 Bukit 路径。
+> Bukit 官方说明常规公开二进制发布已暂停，例外发布需要管理批准；2.0.12（2026-11-09）是当前最新的公开版本。因此固定 2.0.12，同时支持用户指定自己编译的 Bukit 路径。
+>
+> **从 2.0.11 升到 2.0.12 的影响**（核对了两版的源码差异 `v2.0.11..v2.0.12`，3 个提交、11 个文件）：只改了路由，内容里已经百分号编码的 `url` / `aliases` 字段（例如 `/%e8%81%94/`）先解码一层再生成目录，并输出 `event=route.url.decoded` / `route.alias.decoded` 警告；含 `/`、`\`、`.`、`%`、控制字符或不可见字符的编码保持不动，路径安全检查照旧在解码之后执行。配置结构、命令参数、退出码、SEO / GEO 报告格式、starter 主题资源和 `guide/skills` 都没有变化（starter 用 `make-starter.sh` 从 v2.0.12 重新生成，文件逐字节相同，只更新来源记录；`skills/sources.yaml` 同样只改标签和提交）。用官方 osx-arm64 包重跑了全部单元测试和端到端测试
 >
 > **从 2.0.8 升到 2.0.11 的影响**（逐项核对了两版的源码差异，并用官方 2.0.11 安装包重跑了 M1 脚本）：多语言 worktree 隔离、Notion token 要求、插件宿主、各命令退出码都没有变化；`deploy` 新增了 `--token-env`（默认 `GITHUB_TOKEN`）和 `--repo`；`content.media` 新增 `downloadHosts`、`skipHosts`、`onFailure`（不是路径字段，`blockPrivateNetworks` 仍默认为 `true`）；`build` 收到 Ctrl+C（SIGINT）时会取消并回滚，而不是直接退出（见 8.2）
 
@@ -788,7 +790,7 @@ packages/web/src/
 | 单元 | Vitest | `shared` 的 schema；`server` 的路径闸门（读写工具、glob 参数）、构建前安全检查 `bukit/guard.ts`（插件、每个路径字段、网络开关、环境变量、符号链接、读 git 对象而不读工作区）、闸门在 `operations` 里检查归一化后的路径（`@`、`~`、`file://`、Unicode 空格）、预览服务拒绝符号链接和错误的 `Host`、文件接口对 SVG / HTML 的处理、git 参数校验（OID、分支名）、Pi 环境变量（`PI_CODING_AGENT_DIR`、`PI_OFFLINE`）在加载 Pi 前生效、防跨站请求中间件、密钥来源（环境变量优先、读取后从进程环境删除、子进程环境里不含密钥）、`site.yaml` 解析、差异解析、Bukit 按命令的退出码映射 |
 | 服务端集成 | Vitest + 临时目录 | 真实 git（≥ 2.38）：创建网站（`init -b main`）、分离 HEAD 的工作副本、快照、应用 / 拒绝 / 恢复；git 加固（带 `core.fsmonitor`、钩子、`filter`、`gpg.program` + 签名配置、`config.worktree` 的测试仓库，临时 `HOME` 里全局配置定义过滤器、用户全局忽略文件，都不执行任何命令、不影响差异）；正式版本前进时 `merge-tree` 成功（重新审核）和冲突（stale，工作副本没有残留状态）；`--no-overwrite-ignore` 遇到被忽略的同名文件时中止；网站操作锁（应用期间新消息排队）；超过 1 MiB 的差异；多语言 starter 网站在 `ai/` 里快照后构建成功；Bukit 用假程序（脚本模拟输出和退出码），并确认它启动的 git 拿到加固环境变量 |
 | Pi 集成 | Vitest + 假模型 | 用 Pi 的自定义提供商注册一个脚本化的假模型，按剧本返回工具调用，验证工具和闸门，不花钱、结果稳定 |
-| 真实 Bukit | Vitest 和 Playwright（设置 `BUKIT_BIN` / `BUKIT_TARBALL` 时运行，CI 的 Node 24 任务都设置，见 M5 第 4 层） | 用真实 Bukit 2.0.11 构建 starter 模板、安装官方包、走端到端流程 |
+| 真实 Bukit | Vitest 和 Playwright（设置 `BUKIT_BIN` / `BUKIT_TARBALL` 时运行，CI 的 Node 24 任务都设置，见 M5 第 4 层） | 用真实 Bukit 2.0.12 构建 starter 模板、安装官方包、走端到端流程 |
 | 端到端 | Playwright | 新建网站 → 对话（假模型）→ 审核 → 应用 → 构建 → 预览；拒绝流程；恢复流程；**安全用例**：预览页里的恶意脚本 / 自动提交表单 / 图片请求无法调用管理端 API，新标签页直接打开预览同样无效 |
 | 真实模型验收 | 手动脚本（`scripts/accept-real-model.ts`） | 每个里程碑结束跑一次，用真实模型完成一个建站任务 |
 
@@ -1150,7 +1152,7 @@ M5 分层实施（每层做完先审计、修复，再提交）：
 1. 首次启动引导：首页按顺序检查 git、Bukit、提交身份、模型、第一个网站，每一步写明状态并直接打开对应的设置或对话框；全部完成后引导收起
 2. 错误提示：Bukit 缺失或异常退出、模型报错（密钥无效、额度或频率限制、网络不通）、和服务端的连接中断、磁盘写入失败（空间不足、只读、无权限）都有明确的错误码和界面文字
 3. 外观与操作：暗色模式可在设置里选"跟随系统 / 浅色 / 深色"；窄屏时三栏改为切换显示；键盘操作（发送、停止、切换面板）并在界面里列出快捷键
-4. 真实 Bukit 构建测试：CI 按固定版本和校验和下载 Bukit 2.0.11，跑真实 Bukit 的单元测试和端到端测试
+4. 真实 Bukit 构建测试：CI 按固定版本和校验和下载 Bukit（当时 2.0.11，现为 2.0.12），跑真实 Bukit 的单元测试和端到端测试
 5. 文档：`docs/user-guide.md` 用户使用说明，README 安装步骤按新机器核对
 6. 真实模型验收：从零做一个"专业服务公司双语官网"，记录归档到 `docs/acceptance/`；需要用户的 API Key，由用户确认后进行
 
@@ -1226,7 +1228,7 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 | 风险 | 影响 | 对策 |
 | --- | --- | --- |
 | Pi SDK 版本迭代快（1.4 → 1.5 已有接口变化） | 升级时接口不兼容 | 锁定精确版本；所有 Pi 调用集中在 `agent/` 一个模块，加适配层；升级前跑全套测试 |
-| Bukit 常规公开二进制发布已暂停（例外发布需批准） | 新平台或新版本拿不到 | 固定 2.0.11，有新的公开版本时按 8.1 的方式核对源码差异并重跑 M1 脚本后再升级；支持自定义 Bukit 路径（自己编译）；Bukit 调用集中在 `bukit/` 模块 |
+| Bukit 常规公开二进制发布已暂停（例外发布需批准） | 新平台或新版本拿不到 | 固定 2.0.12，有新的公开版本时按 8.1 的方式核对源码差异并重跑 M1 脚本后再升级；支持自定义 Bukit 路径（自己编译）；Bukit 调用集中在 `bukit/` 模块 |
 | Bukit 拒绝项目外的输出目录 | 预览构建失败 | 已改为输出到项目内的新空目录再搬走（8.4）；M1 验证 |
 | 预览端口池被其他程序占用 | 预览打不开 | 端口按需分配，被占用时跳到下一个可用端口，界面始终用服务端返回的实际地址；`/api/health` 报告端口池状态 |
 | TypeScript 7 与工具链不兼容 | 类型检查或编辑器支持出问题 | M0 验证；退回 TypeScript 6 |
