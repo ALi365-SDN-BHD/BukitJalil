@@ -7,7 +7,7 @@ import type { ErrorCode, FsDirsResponse } from "@bukitjalil/shared";
 export class SiteError extends Error {
   constructor(
     readonly code: ErrorCode,
-    readonly status: 400 | 404 | 409,
+    readonly status: 400 | 404 | 409 | 503,
     readonly params: Record<string, string> = {},
   ) {
     super(code);

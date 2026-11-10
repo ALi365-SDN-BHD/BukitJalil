@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { silentLogger } from "../src/log.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
+import { httpGet } from "./helpers.ts";
 
 const BASE = 48810; // away from the defaults so a running dev server does not interfere
 const pools: PreviewPool[] = [];
@@ -21,29 +22,7 @@ function site(content: string) {
   return dir;
 }
 
-function get(port: number, opts: { host?: string; method?: string; path?: string } = {}) {
-  return new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }>((resolve, reject) => {
-    const r = http.request(
-      {
-        host: "127.0.0.1",
-        port,
-        path: opts.path ?? "/",
-        method: opts.method ?? "GET",
-        agent: false, // no keep-alive: each test reuses ports from the previous one
-        headers: { host: opts.host ?? `127.0.0.1:${port}` },
-      },
-      (res) => {
-        let body = "";
-        res.on("data", (d) => {
-          body += d;
-        });
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }));
-      },
-    );
-    r.on("error", reject);
-    r.end();
-  });
-}
+const get = httpGet;
 
 describe("PreviewPool (plan 8.4)", () => {
   it("gives each slot its own port, skips busy and reserved ports", async () => {

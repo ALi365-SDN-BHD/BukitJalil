@@ -7,6 +7,7 @@ import { readGlobalIdentity } from "../src/git/identity.ts";
 import { checkRepoConfig, isAllowedConfigKey } from "../src/git/repo-check.ts";
 import { assertOid, GitError, GitRunner, isOid, isValidBranchName, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
+import { rawGit } from "./helpers.ts";
 
 // Plan 7.3: hostile repositories must not run anything, and outside values never become options.
 
@@ -27,13 +28,7 @@ function trap(name: string): string {
 const fired = (name: string) => fs.existsSync(path.join(markers, name));
 
 /** Plain git, for building the hostile fixtures only. */
-function raw(cwd: string, ...args: string[]) {
-  return execFileSync(gitPath as string, args, {
-    cwd,
-    env: { PATH: "/usr/bin:/bin", HOME: base, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
-    encoding: "utf8",
-  });
-}
+const raw = (cwd: string, ...args: string[]) => rawGit(base, cwd, ...args);
 
 function repo(name: string): string {
   const dir = path.join(base, name);

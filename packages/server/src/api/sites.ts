@@ -7,6 +7,7 @@ import {
 } from "@bukitjalil/shared";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
+import type { BuildService } from "../builds/service.ts";
 import type { GitIdentity } from "../git/identity.ts";
 import { apiError } from "../security/guard.ts";
 import { listDirs } from "../sites/location.ts";
@@ -18,11 +19,12 @@ export function siteRoutes(
   api: Hono<AppEnv>,
   deps: {
     sites: SiteService;
+    builds: BuildService;
     readIdentity: () => Promise<GitIdentity>;
     userHome?: string;
   },
 ) {
-  const { sites } = deps;
+  const { sites, builds } = deps;
 
   api.get("/fs/dirs", (c) =>
     handle(c, () =>
@@ -81,5 +83,12 @@ export function siteRoutes(
     }),
   );
 
-  api.delete("/sites/:siteId", (c) => handle(c, async () => c.json(await sites.remove(c.req.param("siteId")))));
+  api.delete("/sites/:siteId", (c) =>
+    handle(c, async () => {
+      const id = c.req.param("siteId");
+      const result = await sites.remove(id);
+      await builds.forgetSite(id);
+      return c.json(result);
+    }),
+  );
 }

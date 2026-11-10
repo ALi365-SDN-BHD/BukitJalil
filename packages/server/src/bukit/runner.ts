@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { GitRunner } from "../git/run.ts";
+import type { BukitService } from "./locate.ts";
 
 /**
  * Bukit child processes (plan 8.2): argument array, no shell, explicit minimal environment.
@@ -150,6 +151,16 @@ export class BukitRunner {
   }
 }
 
+/** A runner for the located Bukit, or null when there is none or its version is not supported. */
+export async function usableRunner(
+  bukit: BukitService,
+  opts: { git: GitRunner; home: string; tmpDir: string },
+): Promise<BukitRunner | null> {
+  const status = await bukit.status();
+  if (!status.path || (status.state !== "ok" && status.state !== "old")) return null;
+  return new BukitRunner({ bukitPath: status.path, ...opts });
+}
+
 // --- exit codes, interpreted per command (plan 8.2; measured in M1) ---
 
 /** config check / doctor: anything but 0 means "check failed"; the output explains why. */
@@ -181,16 +192,17 @@ export function parseBukitVersion(output: string): string | null {
 
 /** `--log-format json` lines from build: [{ts, level, msg}], ignoring anything that is not JSON. */
 export function parseJsonLog(stdout: string): { level: string; msg: string }[] {
-  const out: { level: string; msg: string }[] = [];
-  for (const line of stdout.split("\n")) {
-    const t = line.trim();
-    if (!t.startsWith("{")) continue;
-    try {
-      const v = JSON.parse(t) as { level?: unknown; msg?: unknown };
-      if (typeof v.level === "string" && typeof v.msg === "string") out.push({ level: v.level, msg: v.msg });
-    } catch {
-      // not a log line
-    }
+  return stdout.split("\n").flatMap((line) => logEntry(line) ?? []);
+}
+
+/** One `--log-format json` line, or null for anything else (text, the cli-error document, blank lines). */
+export function logEntry(line: string): { level: string; msg: string } | null {
+  const t = line.trim();
+  if (!t.startsWith("{")) return null;
+  try {
+    const v = JSON.parse(t) as { level?: unknown; msg?: unknown };
+    return typeof v.level === "string" && typeof v.msg === "string" ? { level: v.level, msg: v.msg } : null;
+  } catch {
+    return null;
   }
-  return out;
 }

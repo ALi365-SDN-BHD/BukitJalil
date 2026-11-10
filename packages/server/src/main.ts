@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/shared";
 import { serve } from "@hono/node-server";
 import { createAdminApp } from "./app.ts";
+import { BuildService } from "./builds/service.ts";
 import { BukitService } from "./bukit/locate.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
 import { GitRunner, resolveGitPath } from "./git/run.ts";
@@ -81,16 +82,19 @@ const git = new GitRunner({
   hooksDir: paths.emptyHooks,
   ceilingDirs: [paths.home],
 });
+const locks = new SiteLocks();
 const sites = new SiteService({
   db,
   git,
   paths,
   settings: settingsStore,
   bukit,
-  locks: new SiteLocks(),
+  locks,
   templateDir: path.join(repoRoot, "templates", "starter"),
 });
 const panels = new PanelService({ git, sites });
+const previews = new PreviewPool(previewBase, new Set([port]), logger);
+const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
@@ -107,12 +111,11 @@ const app = createAdminApp({
   bukit,
   sites,
   panels,
+  builds,
   readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,
   logger,
 });
-
-const previews = new PreviewPool(previewBase, new Set([port]), logger);
 
 const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
 server.on("error", (err: NodeJS.ErrnoException) => {
@@ -155,6 +158,7 @@ function openBrowser(url: string) {
 }
 
 async function shutdown() {
+  await builds.shutdown();
   await previews.closeAll();
   server.close();
   db.close();

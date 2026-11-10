@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -26,7 +25,7 @@ import { appBukitDir, BukitInstaller, BukitService, locateBukit, versionState } 
 import { BukitRunner, buildOutcome, checkPassed, parseBukitVersion, parseJsonLog } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
-import { makeApp, req } from "./helpers.ts";
+import { commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
 
 // Optional real-Bukit inputs: BUKIT_TARBALL (the official package for this platform) and BUKIT_BIN.
 const REAL_TARBALL = process.env.BUKIT_TARBALL;
@@ -195,13 +194,7 @@ taxonomy:
 
 // --- guard on git objects ---
 
-function raw(cwd: string, ...args: string[]) {
-  return execFileSync(gitPath as string, args, {
-    cwd,
-    env: { PATH: "/usr/bin:/bin", HOME: base, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
-    encoding: "utf8",
-  });
-}
+const raw = (cwd: string, ...args: string[]) => rawGit(base, cwd, ...args);
 
 function siteRepo(name: string, files: Record<string, string>, symlinks: Record<string, string> = {}): string {
   const dir = path.join(base, name);
@@ -212,8 +205,7 @@ function siteRepo(name: string, files: Record<string, string>, symlinks: Record<
     fs.writeFileSync(path.join(dir, file), content);
   }
   for (const [link, target] of Object.entries(symlinks)) fs.symlinkSync(target, path.join(dir, link));
-  raw(dir, "add", "-A");
-  raw(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init");
+  commitAllAs(base, dir);
   return dir;
 }
 /** A repository whose commit is built from blobs directly, so paths may collide on this file system. */

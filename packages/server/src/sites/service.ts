@@ -14,7 +14,7 @@ import {
 import { parseDocument } from "yaml";
 import { type GuardResult, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
-import { BukitRunner, checkPassed } from "../bukit/runner.ts";
+import { checkPassed, usableRunner } from "../bukit/runner.ts";
 import { resolveBranch } from "../git/objects.ts";
 import { GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
@@ -57,6 +57,7 @@ export class SiteService {
   readonly store: SiteStore;
   /** Real paths of sites being created or imported right now; they are not in the store yet. */
   private readonly pending = new Set<string>();
+  private readonly addedHooks: ((site: Site) => Promise<void>)[] = [];
 
   constructor(private readonly opts: SiteServiceOptions) {
     this.store = new SiteStore(opts.db);
@@ -64,6 +65,26 @@ export class SiteService {
 
   list(): Site[] {
     return this.store.list();
+  }
+
+  /** Run `hook` after a site is created or imported and checked (the build service starts its first build). */
+  onAdded(hook: (site: Site) => Promise<void>): void {
+    this.addedHooks.push(hook);
+  }
+
+  private async added(site: Site): Promise<Site> {
+    for (const hook of this.addedHooks) await hook(site);
+    return site;
+  }
+
+  /**
+   * Record what a build's pre-build guard found for `commit` (plan 8.5): a refused commit makes the site
+   * read-only, a Notion source shows as configCheck "notion". The caller holds the site lock.
+   */
+  applyGuard(id: string, commit: string, guard: GuardResult): void {
+    if (!guard.ok) this.store.setState(id, { readOnly: guard.reasons, checkedCommit: commit, configCheck: null });
+    else if (guard.usesNotion)
+      this.store.setState(id, { readOnly: null, checkedCommit: commit, configCheck: "notion" });
   }
 
   get(id: string): Site {
@@ -103,7 +124,7 @@ export class SiteService {
   async create(req: CreateSiteRequest): Promise<Site> {
     const identity = this.identity();
     const real = checkSiteLocation(req.path, this.rules());
-    return this.reserved(real, async () => {
+    const site = await this.reserved(real, async () => {
       assertEmptyOrMissing(real);
       const existed = fs.existsSync(real);
       copyStarter(this.opts.templateDir, real, { title: req.name, language: req.language });
@@ -120,6 +141,7 @@ export class SiteService {
       }
       return this.register(real, req.name, "main");
     });
+    return this.added(site);
   }
 
   // --- import (plan 5.1) ---
@@ -162,7 +184,7 @@ export class SiteService {
 
   async import(req: ImportSiteRequest): Promise<Site> {
     const real = checkSiteLocation(req.path, this.rules());
-    return this.reserved(real, async () => {
+    const site = await this.reserved(real, async () => {
       const { inspection, checked } = await this.inspect(real);
       const name = req.name ?? siteTitle(real) ?? path.basename(real);
       if (inspection.kind === "git") return this.register(real, name, inspection.branch, checked);
@@ -170,6 +192,7 @@ export class SiteService {
       await this.initForImport(real, req.initGit.files, this.identity());
       return this.register(real, name, "main");
     });
+    return this.added(site);
   }
 
   /** `git init` an existing directory after the user confirmed exactly which files go into the first commit. */
@@ -281,13 +304,16 @@ export class SiteService {
     const guard = checked?.commit === commit ? checked.guard : await guardCommit(this.opts.git, site.path, commit);
     if (!guard.ok) return unusable(guard.reasons, commit);
     writeExcludeBlock(await this.commonDir(site.path));
-    const checkout = await this.ensureMainCheckout(id, site.path, commit);
+    const checkout = await this.mainCheckout(id, site.path, commit);
     const configCheck = guard.usesNotion ? "notion" : await this.configCheck(checkout);
     return { readOnly: null, checkedCommit: commit, configCheck };
   }
 
-  /** worktrees/<siteId>/main at `commit`, detached; created on first use and reset afterwards (plan 7.2). */
-  private async ensureMainCheckout(id: string, sitePath: string, commit: string): Promise<string> {
+  /**
+   * worktrees/<siteId>/main at `commit`, detached; created on first use and reset afterwards (plan 7.2).
+   * The caller holds the site lock: checks and builds both use this checkout.
+   */
+  async mainCheckout(id: string, sitePath: string, commit: string): Promise<string> {
     const { git } = this.opts;
     const dir = path.join(this.opts.paths.worktrees, id, "main");
     // A checkout left half-made, or whose registration is gone (the site repository was re-cloned), is
@@ -325,14 +351,12 @@ export class SiteService {
   }
 
   private async configCheck(checkout: string): Promise<ConfigCheck> {
-    const status = await this.opts.bukit.status();
-    if (!status.path || (status.state !== "ok" && status.state !== "old")) return "not_run";
-    const runner = new BukitRunner({
-      bukitPath: status.path,
+    const runner = await usableRunner(this.opts.bukit, {
       git: this.opts.git,
       home: this.opts.paths.home,
       tmpDir: this.opts.paths.bukitTmp,
     });
+    if (!runner) return "not_run";
     return checkPassed(await runner.run("check", ["config", "check"], { cwd: checkout })) ? "ok" : "failed";
   }
 

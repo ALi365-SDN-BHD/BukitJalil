@@ -4,8 +4,10 @@ import type { DatabaseSync } from "node:sqlite";
 import { type BukitResponse, type HealthResponse, SettingsPatch, sessionCookieName } from "@bukitjalil/shared";
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
+import { buildRoutes } from "./api/builds.ts";
 import { panelRoutes } from "./api/panels.ts";
 import { siteRoutes } from "./api/sites.ts";
+import type { BuildService } from "./builds/service.ts";
 import type { BukitService } from "./bukit/locate.ts";
 import type { GitIdentity } from "./git/identity.ts";
 import type { GitHealth } from "./git/version.ts";
@@ -33,6 +35,7 @@ export interface AdminAppOptions {
   bukit: BukitService;
   sites: SiteService;
   panels: PanelService;
+  builds: BuildService;
   readIdentity: () => Promise<GitIdentity>;
   /** Overrides the home directory used by the directory picker (tests). */
   userHome?: string;
@@ -134,8 +137,9 @@ export function createAdminApp(opts: AdminAppOptions) {
     return c.json({ install: opts.bukit.installer.progress }, 202);
   });
 
-  siteRoutes(api, { sites: opts.sites, readIdentity: opts.readIdentity, userHome: opts.userHome });
+  siteRoutes(api, { sites: opts.sites, builds: opts.builds, readIdentity: opts.readIdentity, userHome: opts.userHome });
   panelRoutes(api, opts.panels);
+  buildRoutes(api, opts.builds);
 
   api.all("*", (c) => apiError(c, 404, "request.not_found"));
   app.route("/api", api);

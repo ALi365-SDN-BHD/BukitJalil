@@ -1,13 +1,17 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createAdminApp } from "../src/app.ts";
+import { BuildService } from "../src/builds/service.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import type { GitHealth } from "../src/git/version.ts";
 import { type Logger, silentLogger } from "../src/log.ts";
 import { PanelService } from "../src/panels/service.ts";
 import { ensureAppHome } from "../src/paths.ts";
+import { PreviewPool } from "../src/preview/pool.ts";
 import { LoginToken } from "../src/security/token.ts";
 import { SiteLocks } from "../src/sites/locks.ts";
 import { SiteService } from "../src/sites/service.ts";
@@ -31,6 +35,8 @@ export function makeApp(
     appHome?: string;
     /** Home directory for the directory picker and location rules. */
     userHome?: string;
+    /** First preview port; tests that open previews pick their own range. */
+    previewBase?: number;
   } = {},
 ) {
   const db = openDatabase(":memory:");
@@ -50,16 +56,20 @@ export function makeApp(
     hooksDir: paths.emptyHooks,
     ceilingDirs: [paths.home],
   });
+  const locks = new SiteLocks();
+  const logger = overrides.logger ?? silentLogger;
   const sites = new SiteService({
     db,
     git,
     paths,
     settings: new SettingsStore(db),
     bukit,
-    locks: new SiteLocks(),
+    locks,
     templateDir: path.resolve(import.meta.dirname, "../../../templates/starter"),
     userHome: overrides.userHome,
   });
+  const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);
+  const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
   const loginToken = new LoginToken(TOKEN);
   const app = createAdminApp({
     port: PORT,
@@ -72,12 +82,13 @@ export function makeApp(
     bukit,
     sites,
     panels: new PanelService({ git, sites }),
+    builds,
     readIdentity: async () => ({ name: "Global Name", email: "global@example.com" }),
     userHome: overrides.userHome,
     version: "test",
-    logger: overrides.logger ?? silentLogger,
+    logger,
   });
-  return { app, db, loginToken, sites, paths, git };
+  return { app, db, loginToken, sites, paths, git, builds, previews };
 }
 
 /** Build a request as the browser would send it to the admin port. */
@@ -93,3 +104,43 @@ export const jsonPut = (body: unknown, extra: Record<string, string> = {}) => ({
   body: JSON.stringify(body),
   headers: { "content-type": "application/json", "x-bukitjalil": "1", origin: ADMIN, ...extra },
 });
+
+/** The system git with a fixed, minimal environment, for test fixtures (never the code under test). */
+export function rawGit(home: string, cwd: string, ...args: string[]): string {
+  return execFileSync(resolveGitPath() as string, args, {
+    cwd,
+    env: { PATH: "/usr/bin:/bin", HOME: home, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
+    encoding: "utf8",
+  });
+}
+
+/** `git add -A` and commit as a fixed test identity. */
+export function commitAllAs(home: string, dir: string, message = "init"): void {
+  rawGit(home, dir, "add", "-A");
+  rawGit(home, dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", message);
+}
+
+/** A plain HTTP request to a preview port, without keep-alive (tests reuse ports). */
+export function httpGet(port: number, opts: { host?: string; method?: string; path?: string } = {}) {
+  return new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }>((resolve, reject) => {
+    const r = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: opts.path ?? "/",
+        method: opts.method ?? "GET",
+        agent: false,
+        headers: { host: opts.host ?? `127.0.0.1:${port}` },
+      },
+      (res) => {
+        let body = "";
+        res.on("data", (d) => {
+          body += d;
+        });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }));
+      },
+    );
+    r.on("error", reject);
+    r.end();
+  });
+}

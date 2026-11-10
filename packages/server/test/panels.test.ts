@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,10 +7,10 @@ import { resolveGitPath } from "../src/git/run.ts";
 import { decodeText, imageMime } from "../src/panels/service.ts";
 import { parseFrontMatter } from "../src/panels/yaml.ts";
 import { copyStarter } from "../src/sites/template.ts";
-import { makeApp, req } from "./helpers.ts";
+import { commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
-const gitPath = resolveGitPath() as string;
+const _gitPath = resolveGitPath() as string;
 const PNG = Buffer.from(
   "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4b00000000049454e44ae426082",
   "hex",
@@ -27,13 +26,7 @@ beforeAll(() => {
 });
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
 
-function raw(cwd: string, ...args: string[]): string {
-  return execFileSync(gitPath, args, {
-    cwd,
-    env: { PATH: "/usr/bin:/bin", HOME: base, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
-    encoding: "utf8",
-  });
-}
+const raw = (cwd: string, ...args: string[]) => rawGit(base, cwd, ...args);
 
 /** A starter site with a few extra files of every kind, committed on main and imported. */
 async function siteWithFiles(name: string) {
@@ -56,8 +49,7 @@ async function siteWithFiles(name: string) {
   fs.writeFileSync(path.join(dir, "content", "posts", "broken.md"), "---\ntitle: [unclosed\n---\nbody\n");
   fs.symlinkSync("../site.yaml", path.join(dir, "static", "link"));
   raw(dir, "init", "-q", "-b", "main");
-  raw(dir, "add", "-A");
-  raw(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init");
+  commitAllAs(base, dir);
   const get = async <T>(url: string) => {
     const res = await ctx.app.fetch(req(url));
     const type = res.headers.get("content-type") ?? "";

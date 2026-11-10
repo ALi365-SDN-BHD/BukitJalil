@@ -250,7 +250,7 @@ BukitJalil/
 2. 服务端把 `templates/starter/` 复制到目标目录（包含 `site.yaml`、`content/`、`themes/starter/`）。Bukit 没有"生成初始网站"的命令，官方 starter 主题只以资源文件形式嵌在 CLI 源码里（`src/Bukit-Core/Bukit.Cli/Resources/StarterTheme/`，MIT 协议）。BukitJalil 从 v2.0.11 复制这些模板，补上 `theme.yaml` 和最小内容，作为自己维护的模板，并记录来源 commit。M1 的 `make-starter.sh` 是这一步的草稿，已用真实 Bukit 构建通过。注意：模板里的占位符是 `{{-- bukit:name --}}`；不能照搬 Bukit Labs 的博客模板——它和 Core 2.0.11 有出入（`archive` 必须是布尔值，发布时间读 `publishAt` 而不是 `date`）；starter 的标签索引页用了 `{{ term.url }}` 这类手写根路径，配合 8.4 的 `--base-url /` 才正确。M2 已实现：`scripts/make-starter.sh` 生成 `templates/starter/`，来源记录在 `templates/starter.source.json`；草稿里文章和页面共用一个数据源，源级别的 `collection: post` 会把页面也当成文章，正式模板拆成 `content/posts`、`content/pages` 两个源；分享图改为 1200×630 的 PNG；页头的站名占位符留空（草稿填了固定的 "starter"），主题里输出站名、标题的地方由脚本加上 `html.escape`；示例文章用相对链接，部署到 GitHub Pages 项目地址也能用；模板不写 `site.url`，避免每个网站都把 canonical、站点地图指向占位域名——Bukit 会提示"需要 site.url"，由用户在设置或发布前填写。`starter.source.json` 记录每个文件的 SHA-256，测试发现手改模板就失败。真实 Bukit 2.0.11 下 check、doctor、build 都通过
 3. 用表单值替换 `site.name`、`site.title`、`site.language`
 4. `git init -b main`（git 不读全局配置后，`init.defaultBranch` 不生效，不写 `-b` 会得到 `master`）、写入排除规则、首次提交 "Initial site from BukitJalil starter"；提交需要设置页里的身份（7.2），没有填写时先引导填写
-5. 对首次提交跑构建前安全检查（8.5），再创建 `worktrees/<siteId>/main/` 检出并执行 `bukit config check` 和预览构建（8.3），确认可以构建；不在用户的网站目录里调用 Bukit，网站目录不会出现 `dist/`。M2 第 4 层已实现到 `config check`，预览构建随第 6 层（构建与预览托管）接入；结果存在 `sites` 表（迁移 002：`read_only_reasons`、`checked_commit`、`config_check`，后者为 `ok` / `failed` / `not_run`（找不到可用的 Bukit）/ `notion`）。新建和导入失败时撤销已做的步骤（删除复制的文件或新建的 `.git`）。提交身份存在设置的 `commitName` / `commitEmail`，界面可用 `GET /api/git/identity` 读到的全局 git 身份预填
+5. 对首次提交跑构建前安全检查（8.5），再创建 `worktrees/<siteId>/main/` 检出并执行 `bukit config check` 和预览构建（8.3），确认可以构建；不在用户的网站目录里调用 Bukit，网站目录不会出现 `dist/`。M2 第 4 层实现了 `config check`，第 6 层接上了预览构建：新建或导入的网站可用且 `config check` 通过时，接口返回前就启动第一次正式版本构建，构建在后台进行；结果存在 `sites` 表（迁移 002：`read_only_reasons`、`checked_commit`、`config_check`，后者为 `ok` / `failed` / `not_run`（找不到可用的 Bukit）/ `notion`）。新建和导入失败时撤销已做的步骤（删除复制的文件或新建的 `.git`）。提交身份存在设置的 `commitName` / `commitEmail`，界面可用 `GET /api/git/identity` 读到的全局 git 身份预填
 6. 如果填写了描述，自动打开第一个会话，把描述作为第一条消息发给 AI
 
 ### 5.3 面板数据来源
@@ -630,6 +630,12 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 >   - 主题目录取 `themes/<theme.name>`，`theme.layouts`、`theme.assets`、`theme.static` 按相对主题目录的路径列文件，每类最多 2000 个。
 >   - 数据面板按 `markdown.dir` 列 `.md` 文件，统计 front matter 字段，`mode: data` 源再给出每个文件的 front matter，最多 500 条，超出时 `itemsTruncated` 为 true。每次请求最多读 2000 个文件、共 32 MB，单个文件上限 256 KB，超出时 `truncated` 为 true。目录写成 `content/posts/`、`./data` 或 `.` 都按同一个目录处理。`includePaths` 和 `includeGlobs` 暂未处理。
 > - 仓库配置不安全时，返回 409 `site.repo_unsafe`；网站文件夹已不是 git 仓库时，返回 409 `site.not_repo`；默认分支不存在时，返回 409 `site.branch_missing`。`panel.too_large` 的 `max` 是实际碰到的上限。
+
+> M2 第 6 层实现说明（构建与预览托管）：
+> - `POST /builds` 先检查网站可用（否则 409 `site.read_only`）、能找到受支持的 Bukit（否则 409 `build.bukit_missing`），再拿网站操作锁（构建中其他操作返回 409 `site.busy`），记下默认分支的提交后返回 202 和 `running` 状态的记录。构建在后台进行，界面轮询 `GET /builds`（列表不含报告，报告用 `GET /builds/:buildId` 取）；服务正在关闭时返回 503 `server.shutting_down`；`build.start` / `build.end` 事件随 SSE 一起接入。`ref=change` 返回 404 `change.not_found`，随 M4 接入。
+> - 构建步骤：对该提交跑构建前检查（不通过时结果为 `refused`，带原因，网站同时变成只读）；使用 Notion 源时结果为 `notion`，网站的 `config_check` 同时记为 `notion`（token 从 M6 开始保存）。新建或导入后的第一次构建由 `SiteService` 在网站加入后触发，不论从哪里加入，它构建的正是刚检查过的提交，所以不重复检查；在 `worktrees/<siteId>/main/` 检出该提交，执行 8.3 的构建命令；成功且输出里没有符号链接时，把输出搬到 `previews/<siteId>/<buildId>/`。
+> - 结果字段 `outcome`：`ok`、`config_or_content_error`、`render_error`、`stopped`、`failed` 来自 Bukit 的退出码；另有 `refused`、`notion`、`symlink`、`interrupted`（服务重启时还在运行的构建）、`error`（BukitJalil 自己出错）。报告里有 JSON 日志中的警告和错误，以及 stderr 的末尾。
+> - 已打开的预览在新构建成功后立即切换过去；打开预览期间刚好有构建完成时，打开后再切到最新的一次。最新的输出被外部删掉时，退回到更早一份还在的输出。每个网站保留最近 10 份构建输出，最新的正式版本和改动集构建、以及预览正在显示的那份始终保留；构建记录最多保留 50 条。预览端口空闲 30 分钟后释放（只有被接受的请求才算使用，Host 不对的请求不算），移除网站时一并释放。服务关闭时，正在运行的构建会收到 SIGINT。
 | GET | `/api/sites/:siteId/sessions` | 会话列表 |
 | POST | `/api/sites/:siteId/sessions` | 新建会话 |
 | GET | `/api/sessions/:sessionId` | 会话消息（从 Pi 会话文件还原） |
@@ -645,7 +651,9 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | GET | `/api/sites/:siteId/history/:commit/diff` | 某个版本的差异；`:commit` 用 zod 校验为完整的十六进制 OID（40 或 64 位），见 7.3 |
 | POST | `/api/sites/:siteId/history/:commit/restore` | 恢复到某个版本：生成一个恢复改动集供审核（7.4）；`:commit` 校验同上 |
 | POST | `/api/sites/:siteId/builds` | 触发构建（`ref`: `main` / `change`） |
-| GET | `/api/sites/:siteId/builds` | 构建记录 |
+| GET | `/api/sites/:siteId/builds` | 构建记录（最近 50 条，不含报告） |
+| GET | `/api/sites/:siteId/builds/:buildId` | 单次构建，含报告 |
+| POST | `/api/sites/:siteId/preview` | 打开预览（`ref`: `main` / `change`）：把该网站的预览端口指向最新一次保留了输出的构建，返回 `url`、`port`、`buildId`、`commit`；还没有成功的构建时返回 404 `preview.not_built`。会占用端口，所以用 POST |
 | GET | `/api/settings` / PUT `/api/settings` | 全局设置（含界面语言、上次选择的目录） |
 | GET | `/api/fs/dirs?path=` | 目录选择器：列出 `path` 下一层的子目录名（只有目录，不跟随符号链接），`path` 缺省为主目录；用于新建和导入网站（5.2） |
 | GET | `/api/git/identity` | 全局 git 的 `user.name` / `user.email`，只用来预填设置里的提交身份 |
@@ -867,7 +875,7 @@ packages/web/src/
 | 文件树（按目录懒加载，读 git 对象）和文件预览（Shiki、Markdown、位图；SVG / HTML / PDF 通过预览端口或下载，见 9.1） | 文件面板 |
 | 配置面板（结构化 + 原文）。目录树、文件、配置、主题、数据五个接口已在第 5 层实现（见 9.1 的说明），界面在第 7 层 | 配置面板 |
 | 主题面板、数据面板（Markdown 集合、data 源、Notion 源只显示配置） | 主题、数据面板 |
-| 构建（main）与预览托管（独立预览端口 + CSP sandbox） | 预览面板 |
+| 构建（main）与预览托管（独立预览端口 + CSP sandbox）。服务端已在第 6 层实现（见 9.1 的说明），界面在第 7 层 | 预览面板 |
 
 **验收**：能新建一个网站并构建预览；能导入一个已有 Bukit 网站；六个面板中除"改动"外都能正常显示；全程没有编辑入口。
 

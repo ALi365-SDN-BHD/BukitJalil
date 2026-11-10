@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,11 +9,11 @@ import { withBlock } from "../src/sites/exclude.ts";
 import { checkSiteLocation, listDirs, realPathOf, SiteError } from "../src/sites/location.ts";
 import { SiteLocks } from "../src/sites/locks.ts";
 import { copyStarter } from "../src/sites/template.ts";
-import { ADMIN, makeApp, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const REAL_BIN = process.env.BUKIT_BIN;
-const gitPath = resolveGitPath() as string;
+const _gitPath = resolveGitPath() as string;
 
 let base: string;
 let userHome: string;
@@ -30,17 +29,8 @@ afterAll(() => {
 });
 
 /** Plain git for fixtures only. */
-function raw(cwd: string, ...args: string[]): string {
-  return execFileSync(gitPath, args, {
-    cwd,
-    env: { PATH: "/usr/bin:/bin", HOME: base, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
-    encoding: "utf8",
-  });
-}
-const commitAll = (dir: string, msg = "init") => {
-  raw(dir, "add", "-A");
-  raw(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg);
-};
+const raw = (cwd: string, ...args: string[]) => rawGit(base, cwd, ...args);
+const commitAll = (dir: string, msg = "init") => commitAllAs(base, dir, msg);
 
 /** A git repository holding the starter site, on branch `branch`. */
 function starterRepo(name: string, branch = "main"): string {
