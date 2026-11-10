@@ -46,7 +46,11 @@ export function makeApp(
     /** First preview port; tests that open previews pick their own range. */
     previewBase?: number;
     /** Agent options; without a model, sending a message answers agent.no_model. */
-    agent?: Partial<Pick<AgentServiceOptions, "resolveModel" | "setupRuntime" | "idleMs" | "rgReady">>;
+    agent?: Partial<
+      Pick<AgentServiceOptions, "resolveModel" | "setupRuntime" | "idleMs" | "rgReady" | "thinkingLevel">
+    >;
+    /** How long a connection test waits for the model. */
+    modelTestTimeoutMs?: number;
     /** Replay buffer size of the event hub. */
     replayBytes?: number;
     eventStream?: EventStreamOptions;
@@ -114,6 +118,7 @@ export function makeApp(
     agent,
     events,
     eventStream: overrides.eventStream,
+    modelTestTimeoutMs: overrides.modelTestTimeoutMs,
     readIdentity: async () => ({ name: "Global Name", email: "global@example.com" }),
     userHome: overrides.userHome,
     version: "test",

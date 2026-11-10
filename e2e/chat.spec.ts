@@ -1,49 +1,21 @@
-import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import type { Page } from "@playwright/test";
-import { copyStarter } from "../packages/server/src/sites/template.ts";
 import { expect, test } from "./fixtures.ts";
+import { importSite, removeImportedSites } from "./site-helpers.ts";
 
 // M3 layer 6 (plan 10.1, 10.2): conversations in the sidebar and the chat view, kept in step across tabs by
-// the event stream. No model is set up in end-to-end runs, so sending a message shows agent.no_model.
+// the event stream. No model is chosen here, so sending a message shows agent.no_model.
 
-const STARTER = path.resolve(import.meta.dirname, "../templates/starter");
-let work: string;
-let counter = 0;
-
-test.beforeAll(() => {
-  work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-chat-")));
-});
-test.afterAll(() => fs.rmSync(work, { recursive: true, force: true }));
-
-/** A committed starter site, imported through the API; returns its id. */
-async function importSite(page: Page): Promise<string> {
-  const dir = path.join(work, `site${++counter}`);
-  copyStarter(STARTER, dir, { title: `Chat ${counter}`, language: "en-US" });
-  const git = (...args: string[]) =>
-    execFileSync("git", ["-c", "user.name=E2E", "-c", "user.email=e2e@example.com", ...args], {
-      cwd: dir,
-      stdio: "pipe",
-      env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" },
-    });
-  git("init", "-q", "-b", "main");
-  git("add", "-A");
-  git("commit", "-q", "-m", "init");
-  return page.evaluate(async (p) => {
-    const res = await fetch("/api/sites/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
-      body: JSON.stringify({ path: p }),
-    });
-    if (!res.ok) throw new Error(`import: ${res.status}`);
-    return ((await res.json()) as { id: string }).id;
-  }, dir);
-}
+test.afterAll(removeImportedSites);
 
 test("conversations: start, send, rename and delete, with a second tab kept in step", async ({ page, server }) => {
   await page.goto(await server.loginUrl());
+  // The server is shared by the project's tests; another one may have chosen a model.
+  await page.evaluate(() =>
+    fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
+      body: JSON.stringify({ model: null }),
+    }),
+  );
   const siteId = await importSite(page);
   await page.goto(`/sites/${siteId}`);
   await page.getByTestId("start-conversation").click();

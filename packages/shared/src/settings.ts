@@ -4,6 +4,17 @@ import { SUPPORTED_LOCALES } from "./constants.ts";
 export const Locale = z.enum(SUPPORTED_LOCALES);
 export type Locale = z.infer<typeof Locale>;
 
+/** Pi's thinking levels (Pi SDK 1.5.1); Pi clamps the level to what the model supports. */
+export const ThinkingLevel = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+export type ThinkingLevel = z.infer<typeof ThinkingLevel>;
+
+/** A model of Pi's catalog, by provider id and model id (plan 6.5). */
+export const ModelRef = z.object({
+  provider: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+  id: z.string().min(1).max(200),
+});
+export type ModelRef = z.infer<typeof ModelRef>;
+
 export const Settings = z.object({
   /** null until the user picks one; the UI then follows the browser language. */
   locale: Locale.nullable(),
@@ -25,6 +36,9 @@ export const Settings = z.object({
     .max(254)
     .regex(/^[^\s<>@]+@[^\s<>@]+$/, "must be an email address")
     .nullable(),
+  /** The model conversations use; null until the user picks one. */
+  model: ModelRef.nullable(),
+  thinkingLevel: ThinkingLevel,
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -37,4 +51,6 @@ export const defaultSettings: Settings = {
   bukitPath: null,
   commitName: null,
   commitEmail: null,
+  model: null,
+  thinkingLevel: "medium",
 };

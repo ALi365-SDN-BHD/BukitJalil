@@ -6,6 +6,8 @@ import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/share
 import { serve } from "@hono/node-server";
 import { AiBukit } from "./agent/ai-bukit.ts";
 import { preparePiEnvironment } from "./agent/env.ts";
+import { registerFakeModel } from "./agent/fake-model.ts";
+import { settingsModel } from "./agent/models.ts";
 import { RgService } from "./agent/rg.ts";
 import { AgentService } from "./agent/service.ts";
 import { createAdminApp } from "./app.ts";
@@ -103,7 +105,6 @@ const sites = new SiteService({
 const panels = new PanelService({ git, sites });
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
 const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
-// No model until model settings exist; sending a message answers agent.no_model.
 const rg = new RgService({ piBin: paths.piBin });
 // Every session gives the AI these skills and the gate reads them, so a missing directory stops startup.
 const skillsDir = path.join(repoRoot, "skills");
@@ -115,7 +116,11 @@ const agent = new AgentService({
   paths,
   sites,
   logger,
-  resolveModel: () => undefined,
+  // The model chosen in the settings (plan 6.5), looked up again before every run.
+  resolveModel: settingsModel(settingsStore),
+  thinkingLevel: () => settingsStore.get().thinkingLevel,
+  // A scripted model for end-to-end tests (agent/fake-model.ts); never set in normal use.
+  setupRuntime: process.env.BUKITJALIL_FAKE_MODEL === "1" ? registerFakeModel : undefined,
   rgReady: () => rg.ready(),
   bukit: new AiBukit({ git, paths, sites, bukit, locks }),
   skillsDir,

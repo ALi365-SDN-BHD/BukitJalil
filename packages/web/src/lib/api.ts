@@ -15,8 +15,11 @@ import {
   HealthResponse,
   type ImportInspection,
   type ImportSiteRequest,
+  type ModelsResponse,
   type PanelRef,
   type PreviewResponse,
+  type ProviderKey,
+  type ProviderTestResult,
   type RgResponse,
   type SendMessageRequest,
   type SessionDetail,
@@ -114,6 +117,17 @@ export const api = {
     post<SessionInfo>(`/sessions/${id}/messages`, req),
   abortSession: (id: string) => post<SessionInfo>(`/sessions/${id}/abort`),
   forkSession: (id: string, entryId: string) => post<SessionInfo>(`/sessions/${id}/fork`, { entryId }),
+
+  models: () => request<ModelsResponse>("/models"),
+  setProviderKey: (provider: string, apiKey: string) =>
+    request<ProviderKey>(`/providers/${encodeURIComponent(provider)}/key`, {
+      method: "PUT",
+      body: JSON.stringify({ apiKey }),
+    }),
+  removeProviderKey: (provider: string) =>
+    request<ProviderKey>(`/providers/${encodeURIComponent(provider)}/key`, { method: "DELETE" }),
+  testProvider: (provider: string, model: string) =>
+    post<ProviderTestResult>(`/providers/${encodeURIComponent(provider)}/test`, { model }),
 };
 
 /** Address of a file as bytes: `raw` for verified bitmaps (an <img> source), `download` for any file. */
@@ -131,5 +145,6 @@ export const keys = {
   sessions: (siteId: string) => ["sessions", siteId] as const,
   session: (id: string) => ["session", id] as const,
   bukit: ["bukit"] as const,
+  models: ["models"] as const,
   rg: ["rg"] as const,
 };

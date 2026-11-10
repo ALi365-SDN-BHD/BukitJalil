@@ -33,7 +33,12 @@ export const test = base.extend<object, { server: Server }>({
           "--preview-port-base",
           String(E2E_PREVIEW_BASE),
         ],
-        { cwd: root, env: { ...process.env, BUKITJALIL_HOME: home }, stdio: ["pipe", "pipe", "pipe"] },
+        // The scripted model (packages/server/src/agent/fake-model.ts) lets conversations run without a key.
+        {
+          cwd: root,
+          env: { ...process.env, BUKITJALIL_HOME: home, BUKITJALIL_FAKE_MODEL: "1" },
+          stdio: ["pipe", "pipe", "pipe"],
+        },
       );
 
       let out = "";

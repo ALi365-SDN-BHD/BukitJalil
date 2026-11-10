@@ -3,6 +3,7 @@ export * from "./bukit.ts";
 export * from "./constants.ts";
 export * from "./errors.ts";
 export * from "./health.ts";
+export * from "./models.ts";
 export * from "./panels.ts";
 export * from "./rg.ts";
 export * from "./sessions.ts";

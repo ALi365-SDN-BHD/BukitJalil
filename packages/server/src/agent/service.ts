@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type { SessionInfo, SessionMessage, SessionStatus } from "@bukitjalil/shared";
+import type { SessionInfo, SessionMessage, SessionStatus, ThinkingLevel } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Logger } from "../log.ts";
@@ -10,6 +10,7 @@ import { SiteError } from "../sites/location.ts";
 import type { SiteService } from "../sites/service.ts";
 import type { AiBukit } from "./ai-bukit.ts";
 import { PathGate } from "./gate.ts";
+import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
 import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
 import { createSiteTools, SITE_TOOLS } from "./site-tools.ts";
@@ -36,8 +37,13 @@ export interface AgentServiceOptions {
   paths: AppPaths;
   sites: SiteService;
   logger: Logger;
-  /** The model to use, or undefined when none is set up (model settings come in a later step). */
+  /**
+   * The model to use, or undefined when none is chosen; read before every run, so a change in the settings
+   * applies to the next message. Throws agent.model_not_found when the chosen model is gone.
+   */
   resolveModel: (runtime: ModelRuntime, pi: PiModules) => Model<Api> | undefined;
+  /** Thinking level for every run; Pi clamps it to the model. */
+  thinkingLevel?: () => ThinkingLevel;
   /** Called once on the new model runtime (tests register a fake provider). */
   setupRuntime?: (runtime: ModelRuntime, pi: PiModules) => void;
   /** BukitJalil's rg is installed and verified; grep is refused otherwise (plan 6.3). */
@@ -91,6 +97,21 @@ export class AgentService {
   constructor(private readonly opts: AgentServiceOptions) {
     this.store = new SessionStore(opts.db);
     opts.sites.onRemoving((siteId) => this.closeSite(siteId));
+  }
+
+  /** Pi's own directory (auth.json, models.json). */
+  get piDir(): string {
+    return this.opts.paths.pi;
+  }
+
+  /** Pi's modules, loaded on first use. */
+  piModules(): Promise<PiModules> {
+    return this.pi();
+  }
+
+  /** The one model runtime (catalog and keys) every session and the model settings use. */
+  models(): Promise<ModelRuntime> {
+    return this.modelRuntime();
   }
 
   /** Listen to every session's events; returns the function that stops listening. */
@@ -339,7 +360,19 @@ export class AgentService {
     const [pi, runtime] = await Promise.all([this.pi(), this.modelRuntime()]);
     const model = this.opts.resolveModel(runtime, pi);
     if (!model) throw new SiteError("agent.no_model", 409);
+    if (!(await hasAuth(runtime, model.provider))) {
+      throw new SiteError("agent.no_api_key", 409, { provider: model.provider });
+    }
     return model;
+  }
+
+  /** Use the model and thinking level of the settings, which may have changed since the session opened. */
+  private async applyModel(session: AgentSession): Promise<void> {
+    const model = await this.model();
+    const current = session.model;
+    if (current?.provider !== model.provider || current.id !== model.id) await session.setModel(model);
+    const level = this.opts.thinkingLevel?.();
+    if (level && session.thinkingLevel !== level) session.setThinkingLevel(level);
   }
 
   /** Start the next waiting session of a site, if none runs there. */
@@ -363,10 +396,13 @@ export class AgentService {
     const id = run.sessionId;
     let live: Live | null = null;
     try {
+      // A session opened now already has the current model; one kept open may have an older one.
+      const wasOpen = this.live.has(id);
       live = await this.open(run);
       if (!live) return undefined;
       if (live.idleTimer) clearTimeout(live.idleTimer);
       live.idleTimer = null;
+      if (wasOpen) await this.applyModel(live.session);
       this.store.touch(id);
       let prompt: string | undefined = text;
       while (prompt !== undefined && !run.cancelled) {
@@ -428,6 +464,7 @@ export class AgentService {
       agentDir: piDir,
       modelRuntime,
       model,
+      thinkingLevel: this.opts.thinkingLevel?.(),
       // An allowlist that the custom tools must be in too (plan 6.3).
       tools: [...BUILTIN_TOOLS, ...SITE_TOOLS],
       customTools: [

@@ -54,6 +54,8 @@ describe("SQLite store (plan 4.2)", () => {
       bukitPath: null,
       commitName: null,
       commitEmail: null,
+      model: null,
+      thinkingLevel: "medium",
     });
     db.prepare("INSERT INTO settings (key, value_json) VALUES ('locale', '\"fr\"'), ('junk', '1')").run();
     expect(store.get()).toEqual({
@@ -62,6 +64,8 @@ describe("SQLite store (plan 4.2)", () => {
       bukitPath: null,
       commitName: null,
       commitEmail: null,
+      model: null,
+      thinkingLevel: "medium",
     });
     expect(store.update({ locale: "en", lastParentDir: "/Users/x/Sites" })).toEqual({
       locale: "en",
@@ -69,6 +73,8 @@ describe("SQLite store (plan 4.2)", () => {
       bukitPath: null,
       commitName: null,
       commitEmail: null,
+      model: null,
+      thinkingLevel: "medium",
     });
   });
 });

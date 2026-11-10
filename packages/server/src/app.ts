@@ -10,10 +10,12 @@ import {
 } from "@bukitjalil/shared";
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
+import { ModelService } from "./agent/models.ts";
 import type { RgService } from "./agent/rg.ts";
 import type { AgentService } from "./agent/service.ts";
 import { buildRoutes } from "./api/builds.ts";
 import { type EventStreamOptions, eventRoutes } from "./api/events.ts";
+import { modelRoutes } from "./api/models.ts";
 import { panelRoutes } from "./api/panels.ts";
 import { sessionRoutes } from "./api/sessions.ts";
 import { siteRoutes } from "./api/sites.ts";
@@ -49,6 +51,8 @@ export interface AdminAppOptions {
   panels: PanelService;
   builds: BuildService;
   agent: AgentService;
+  /** How long a connection test waits for the model. */
+  modelTestTimeoutMs?: number;
   events: EventHub;
   /** Ping interval and queue limit of the event stream (tests). */
   eventStream?: EventStreamOptions;
@@ -168,6 +172,16 @@ export function createAdminApp(opts: AdminAppOptions) {
   panelRoutes(api, opts.panels);
   buildRoutes(api, opts.builds);
   sessionRoutes(api, opts.agent);
+  modelRoutes(
+    api,
+    new ModelService({
+      runtime: () => opts.agent.models(),
+      pi: () => opts.agent.piModules(),
+      settings,
+      piDir: opts.agent.piDir,
+      testTimeoutMs: opts.modelTestTimeoutMs,
+    }),
+  );
   eventRoutes(api, opts.events, opts.eventStream);
 
   api.all("*", (c) => apiError(c, 404, "request.not_found"));

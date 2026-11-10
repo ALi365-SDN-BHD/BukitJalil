@@ -55,6 +55,13 @@ export const errorCodes = [
   "session.entry_not_found",
   "session.unreadable",
   "agent.no_model",
+  "agent.model_not_found",
+  "agent.no_api_key",
+  "model.provider_not_found",
+  "model.not_found",
+  "model.key_unsupported",
+  "model.key_from_environment",
+  "model.no_key",
   "rg.install_running",
   "rg.unsupported_platform",
 ] as const;
