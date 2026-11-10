@@ -1,21 +1,34 @@
 import { type Locale, SUPPORTED_LOCALES } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Globe, MessageSquare, PanelRight, Plus, Server } from "lucide-react";
+import { Globe, MessageSquare, Server, Settings as SettingsIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
+import { Link, Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
+import { BuildBadge, useBuilds } from "@/features/builds/builds";
+import { RightPanel } from "@/features/panels/RightPanel";
+import { SettingsDialog } from "@/features/settings/SettingsDialog";
+import { SiteHome } from "@/features/sites/SiteHome";
+import { SiteList } from "@/features/sites/SiteList";
 import { detectLocale, I18nProvider, localeNames, useI18n } from "@/i18n";
-import { ApiRequestError, api } from "@/lib/api";
-
-const PANEL_TABS = ["preview", "changes", "files", "config", "theme", "data"] as const;
-type PanelTab = (typeof PANEL_TABS)[number];
+import { api, keys } from "@/lib/api";
 
 export function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Root />} />
+      <Route path="/sites/:siteId" element={<Root />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+function Root() {
   const queryClient = useQueryClient();
-  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings, retry: false });
+  const settings = useQuery({ queryKey: keys.settings, queryFn: api.settings, retry: false });
   const save = useMutation({
     mutationFn: api.updateSettings,
-    onSuccess: (data) => queryClient.setQueryData(["settings"], data),
+    onSuccess: (data) => queryClient.setQueryData(keys.settings, data),
   });
   const locale: Locale = settings.data?.locale ?? detectLocale(navigator.languages);
 
@@ -39,20 +52,39 @@ function Shell({
   onLocaleChange: (l: Locale) => void;
   saveError: Error | null;
 }) {
-  const { m, t, errorText } = useI18n();
+  const { m, t, errorOf } = useI18n();
   const layout = useDefaultLayout({ id: "bj-main", storage: safeLocalStorage() });
+  const { siteId = null } = useParams();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const site = useQuery({
+    queryKey: keys.site(siteId ?? ""),
+    queryFn: () => api.site(siteId ?? ""),
+    enabled: siteId !== null,
+    retry: false,
+  });
+
+  // Record the visit so the sidebar lists recently opened sites first (plan 10.1).
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!siteId) return;
+    api.openSite(siteId).then(
+      () => queryClient.invalidateQueries({ queryKey: keys.sites }),
+      () => {},
+    );
+  }, [siteId, queryClient]);
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b px-3">
-        <span className="font-semibold">{m.app.name}</span>
+        <Link to="/" className="font-semibold">
+          {m.app.name}
+        </Link>
+        {site.data && <SiteHeader siteId={site.data.id} name={site.data.name} />}
         <HealthBadge />
         <div className="ml-auto flex items-center gap-2 text-sm">
           {saveError && (
             <span role="alert" data-testid="save-error" className="text-xs text-destructive">
-              {t(m.settings.saveFailed, {
-                reason: saveError instanceof ApiRequestError ? errorText(saveError.code) : m.status.unreachable,
-              })}
+              {t(m.settings.saveFailed, { reason: errorOf(saveError) })}
             </span>
           )}
           <Globe className="size-4 text-muted-foreground" aria-hidden />
@@ -72,8 +104,19 @@ function Shell({
               </option>
             ))}
           </select>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={m.settings.open}
+            title={m.settings.open}
+            data-testid="open-settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <SettingsIcon />
+          </Button>
         </div>
       </header>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
       <Group
         orientation="horizontal"
@@ -83,70 +126,72 @@ function Shell({
       >
         <Panel id="sites" defaultSize="18" minSize="12" className="flex flex-col border-r">
           <SectionTitle icon={<Server className="size-4" />} title={m.sidebar.title} />
-          <div className="flex flex-col gap-2 p-3 text-sm">
-            <p className="text-muted-foreground">{m.sidebar.empty}</p>
-            <Button size="sm" variant="outline" disabled>
-              <Plus /> {m.sidebar.newSite}
-            </Button>
-            <Button size="sm" variant="ghost" disabled>
-              {m.sidebar.importSite}
-            </Button>
-          </div>
+          <SiteList />
         </Panel>
         <Separator className="w-1 bg-border transition-colors hover:bg-primary/40" />
         <Panel id="conversation" defaultSize="47" minSize="25" className="flex flex-col">
           <SectionTitle icon={<MessageSquare className="size-4" />} title={m.conversation.title} />
-          <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-            {m.conversation.placeholder}
+          <div className="min-h-0 flex-1 overflow-auto">
+            {siteId === null ? (
+              <Welcome />
+            ) : site.isPending ? (
+              <p className="p-6 text-sm text-muted-foreground">{m.common.loading}</p>
+            ) : site.error ? (
+              <p role="alert" className="p-6 text-sm text-destructive">
+                {errorOf(site.error)}
+              </p>
+            ) : (
+              <SiteHome site={site.data} />
+            )}
           </div>
         </Panel>
         <Separator className="w-1 bg-border transition-colors hover:bg-primary/40" />
         <Panel id="panels" defaultSize="35" minSize="20" className="flex flex-col border-l">
-          <RightPanel />
+          <RightPanel key={siteId ?? ""} siteId={site.data?.id ?? null} readOnly={!!site.data?.readOnly} />
         </Panel>
       </Group>
     </div>
   );
 }
 
-function RightPanel() {
-  const { m, t } = useI18n();
-  const [tab, setTab] = useState<PanelTab>("preview");
+/** Site name and the state of its newest build, next to the app name. */
+function SiteHeader({ siteId, name }: { siteId: string; name: string }) {
+  const builds = useBuilds(siteId);
   return (
-    <>
-      <div
-        className="flex items-center gap-1 overflow-x-auto border-b px-2 py-1.5"
-        role="tablist"
-        aria-label={m.panel.title}
-      >
-        <PanelRight className="mr-1 size-4 shrink-0 text-muted-foreground" aria-hidden />
-        {PANEL_TABS.map((key) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            onClick={() => setTab(key)}
-            className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-sm ${tab === key ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/60"}`}
-          >
-            {m.panel[key]}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-        {t(m.panel.empty, { panel: m.panel[tab] })}
-      </div>
-    </>
+    <div className="flex min-w-0 items-center gap-2 text-sm">
+      <span className="text-muted-foreground">/</span>
+      <span className="truncate font-medium" data-testid="header-site-title">
+        {name}
+      </span>
+      {builds.latest && <BuildBadge build={builds.latest} />}
+    </div>
+  );
+}
+
+/** Home page: what to do first, and notices handed over by navigation (e.g. after removing a site). */
+function Welcome() {
+  const { m } = useI18n();
+  const location = useLocation();
+  const notice = (location.state as { notice?: string } | null)?.notice;
+  return (
+    <div className="flex flex-col gap-4 p-6 text-sm">
+      {notice && (
+        <p role="status" className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3" data-testid="notice">
+          {notice}
+        </p>
+      )}
+      <p className="text-muted-foreground">{m.conversation.placeholder}</p>
+    </div>
   );
 }
 
 function HealthBadge() {
-  const { m, t, errorText } = useI18n();
+  const { m, t, errorOf } = useI18n();
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, retry: false });
   let text = m.status.checking;
   let tone = "text-muted-foreground";
   if (health.error) {
-    text = health.error instanceof ApiRequestError ? errorText(health.error.code) : m.status.unreachable;
+    text = errorOf(health.error);
     tone = "text-destructive";
   } else if (health.data) {
     const { git } = health.data;

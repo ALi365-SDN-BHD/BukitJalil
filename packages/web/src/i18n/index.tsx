@@ -1,5 +1,6 @@
 import { DEFAULT_LOCALE, type ErrorCode, type Locale, SUPPORTED_LOCALES } from "@bukitjalil/shared";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
+import { ApiRequestError } from "@/lib/api";
 import en from "./en.ts";
 import zhCN, { type Messages } from "./zh-CN.ts";
 
@@ -27,7 +28,10 @@ interface I18n {
   locale: Locale;
   m: Messages;
   t: (template: string, params?: Record<string, string | number>) => string;
-  errorText: (code: ErrorCode) => string;
+  /** An API error code (with its params) in the current language. */
+  errorText: (code: ErrorCode, params?: Record<string, string | number | boolean>) => string;
+  /** Any thrown value as text: API errors are translated, anything else means the server is unreachable. */
+  errorOf: (err: unknown) => string;
 }
 
 const I18nContext = createContext<I18n | null>(null);
@@ -35,7 +39,16 @@ const I18nContext = createContext<I18n | null>(null);
 export function I18nProvider({ locale, children }: { locale: Locale; children: ReactNode }) {
   const value = useMemo<I18n>(() => {
     const m = catalogs[locale];
-    return { locale, m, t: format, errorText: (code) => m.errors[code] };
+    const errorText: I18n["errorText"] = (code, params = {}) =>
+      format(m.errors[code], Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])));
+    // fetch rejects with a TypeError only when the server cannot be reached; anything else is a client-side
+    // failure (an unexpected response shape, a bug) and says so.
+    const errorOf = (err: unknown) => {
+      if (err instanceof ApiRequestError) return errorText(err.code, err.params);
+      if (err instanceof TypeError && /fetch|network|load failed/i.test(err.message)) return m.status.unreachable;
+      return format(m.status.failed, { message: err instanceof Error ? err.message : String(err) });
+    };
+    return { locale, m, t: format, errorText, errorOf };
   }, [locale]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

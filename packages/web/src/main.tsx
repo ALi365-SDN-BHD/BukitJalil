@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setNonce } from "get-nonce";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router";
 import { App } from "./App.tsx";
 import "./index.css";
 
@@ -23,7 +24,9 @@ if (!root) throw new Error("missing #root");
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={new QueryClient()}>
-      <App />
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,
 );

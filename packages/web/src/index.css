@@ -122,3 +122,69 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Rendered Markdown in the file panel: plain typographic defaults (Tailwind resets them). */
+.markdown-body h1 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+}
+.markdown-body h2 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+}
+.markdown-body h3 {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+}
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body pre,
+.markdown-body blockquote {
+  margin: 0.6em 0;
+}
+.markdown-body ul {
+  list-style: disc;
+  padding-left: 1.5em;
+}
+.markdown-body ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+.markdown-body a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.markdown-body code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+  background: var(--muted);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+.markdown-body pre {
+  background: var(--muted);
+  padding: 0.75em;
+  border-radius: 6px;
+  overflow: auto;
+}
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 0.8em;
+  color: var(--muted-foreground);
+}
+.markdown-body table {
+  border-collapse: collapse;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border);
+  padding: 0.25em 0.5em;
+}
