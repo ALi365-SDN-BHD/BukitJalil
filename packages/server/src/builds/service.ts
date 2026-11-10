@@ -86,6 +86,8 @@ export class BuildService {
   /** Set by shutdown(): no new build may start once running builds are being stopped. */
   private closing = false;
   private readonly listeners = new Set<(event: BuildEvent) => void>();
+  /** Default language of old builds (no BuildReport.entry), read once from their commit. */
+  private readonly languages = new Map<string, string | null>();
 
   constructor(private readonly opts: BuildServiceOptions) {
     this.store = new BuildStore(opts.db);
@@ -198,29 +200,27 @@ export class BuildService {
   async openPreview(siteId: string, ref: PanelRef): Promise<PreviewResponse> {
     const site = this.opts.sites.get(siteId);
     if (ref === "change" && !this.opts.changes.store.open(siteId)) throw new SiteError("change.not_found", 404);
-    // Builds from before BuildReport.entry existed: work the entry out from the site.yaml of the built commit.
-    // An output with a root home page needs no entry, so git is only asked when it would matter.
-    const entryOf = async (b: BuildRecord & { outputDir: string }) => {
-      if (b.report?.entry) return b.report.entry;
-      if (fs.lstatSync(path.join(b.outputDir, "index.html"), { throwIfNoEntry: false })) return undefined;
-      return previewEntry(b.outputDir, await this.languageAt(site.path, b.commit));
-    };
     const key = PreviewPool.key(siteId, ref);
     let build = this.newestOutput(siteId, ref);
     if (!build) throw new SiteError("preview.not_built", 404);
     let port: number;
     let url: string;
     try {
-      ({ port, url } = await this.opts.previews.open(key, build.outputDir, await entryOf(build)));
+      ({ port, url } = await this.opts.previews.open(key, build.outputDir, await this.entryOf(site.path, build)));
     } catch (err) {
       if (err instanceof NoPreviewPortError) throw new SiteError("preview.no_port", 503);
       throw err;
     }
-    // A build that succeeded while the port was being bound could not re-point the slot yet.
-    const newest = this.newestOutput(siteId, ref);
-    if (newest && newest.id !== build.id) {
-      this.opts.previews.repoint(key, newest.outputDir, await entryOf(newest));
-      build = newest;
+    // A build that succeeded while the port was being bound (or the entry looked up) could not re-point the
+    // slot yet. Re-point only if it is still the newest after the lookup, so an older build never wins.
+    for (let newest = this.newestOutput(siteId, ref); newest && newest.id !== build.id; ) {
+      const entry = await this.entryOf(site.path, newest);
+      const now = this.newestOutput(siteId, ref);
+      if (now?.id === newest.id) {
+        this.opts.previews.repoint(key, newest.outputDir, entry);
+        build = newest;
+      }
+      newest = now;
     }
     return { ref, url, port, buildId: build.id, commit: build.commit };
   }
@@ -346,6 +346,23 @@ export class BuildService {
     }
   }
 
+  /**
+   * Where the preview of `build` opens. Builds from before BuildReport.entry existed work it out from the
+   * site.yaml of the built commit; git is asked only when the output has no root home page, once per build.
+   */
+  private async entryOf(repo: string, build: BuildRecord & { outputDir: string }): Promise<string | undefined> {
+    if (build.report?.entry) return build.report.entry;
+    const homes = homePages(build.outputDir);
+    if (homes.length === 0) return undefined;
+    let lang = this.languages.get(build.id);
+    if (lang === undefined) {
+      lang = await this.languageAt(repo, build.commit);
+      if (this.languages.size >= MAX_CACHED_LANGUAGES) this.languages.clear();
+      this.languages.set(build.id, lang);
+    }
+    return pickEntry(homes, lang);
+  }
+
   /** The default language in site.yaml at `commit`, or null when it cannot be read. */
   private async languageAt(repo: string, commit: string): Promise<string | null> {
     try {
@@ -454,6 +471,8 @@ export function limitMessages(messages: BuildReport["messages"], max: number): B
 
 const HOME_DIR = /^[A-Za-z0-9][A-Za-z0-9_-]{0,34}$/;
 const MAX_SITE_YAML = 1024 * 1024;
+/** Old builds whose default language was read from git; cleared when full. */
+const MAX_CACHED_LANGUAGES = 200;
 
 /**
  * Where a preview opens when the output has no index.html at its root. Bukit 2.0.12 writes a multilingual
@@ -461,19 +480,27 @@ const MAX_SITE_YAML = 1024 * 1024;
  * language), else to the first folder with a home page. Never fails a build.
  */
 export function previewEntry(outputDir: string, lang: string | null): string | undefined {
+  return pickEntry(homePages(outputDir), lang);
+}
+
+/** The language folders with a home page, sorted; none when the output has its own root home page or cannot be read. */
+function homePages(outputDir: string): string[] {
   try {
-    if (fs.lstatSync(path.join(outputDir, "index.html"), { throwIfNoEntry: false })) return undefined;
-    const homes = fs
+    if (fs.lstatSync(path.join(outputDir, "index.html"), { throwIfNoEntry: false })) return [];
+    return fs
       .readdirSync(outputDir, { withFileTypes: true })
       .filter((d) => d.isDirectory() && HOME_DIR.test(d.name))
       .filter((d) => fs.lstatSync(path.join(outputDir, d.name, "index.html"), { throwIfNoEntry: false })?.isFile())
       .map((d) => d.name)
       .sort();
-    if (homes.length === 0) return undefined;
-    return `/${lang && homes.includes(lang) ? lang : homes[0]}/`;
   } catch {
-    return undefined;
+    return [];
   }
+}
+
+function pickEntry(homes: string[], lang: string | null): string | undefined {
+  if (homes.length === 0) return undefined;
+  return `/${lang && homes.includes(lang) ? lang : homes[0]}/`;
 }
 
 /** site.defaultLanguage, else site.language, from site.yaml text; null when neither is a string. */

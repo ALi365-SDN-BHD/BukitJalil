@@ -44,8 +44,8 @@ export interface AuditIssueGroup {
   message: string;
   /** Up to AUDIT_ROUTES_PER_GROUP pages; "" stands for the site as a whole. */
   routes: string[];
-  /** More pages have this issue than `routes` lists. */
-  moreRoutes: boolean;
+  /** More pages have this issue than `routes` lists; missing in reports saved before it existed. */
+  moreRoutes?: boolean;
 }
 
 /**

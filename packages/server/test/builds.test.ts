@@ -20,7 +20,7 @@ const _gitPath = resolveGitPath() as string;
 /**
  * Stand-in for bukit. `build` reads the committed file fake-mode: "" writes index.html with the
  * committed marker, "fail" exits 2, "full" fails as on a full disk, "symlink" puts a link in the output,
- * "slow" waits for SIGINT.
+ * "multi" writes only /en-US/ and /zh-CN/ like a multilingual site, "slow" waits for SIGINT.
  */
 const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
@@ -43,6 +43,7 @@ case "$1" in
         echo '{"ts":"t","level":"Warn","msg":"event=content.slow file=a.md"}' >&2
         echo '{"siteUrl":null,"routes":[{},{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/a/","message":"SEO description is missing."},{"severity":"error","code":"seo.title_missing","route":"/b/","message":"Title is missing."}]}' > "$out/.bukit/seo-report.json"
         echo '{"geoScore":25,"llmsTxtGenerated":true,"llmsFullTxtGenerated":false,"geoEnhancedCount":0}' > "$out/.bukit/geo-report.json";;
+      multi) for l in en-US zh-CN; do mkdir -p "$out/$l"; echo "<h1>$l</h1>" > "$out/$l/index.html"; done;;
       slow) trap 'exit 130' INT; while true; do sleep 0.05; done;;
       *) mkdir -p "$out"; echo "<h1>$(cat marker 2>/dev/null)</h1>" > "$out/index.html";;
     esac
@@ -339,6 +340,28 @@ describe("main builds (plan 8.3, 8.4)", () => {
     const s = await setup("closing");
     await s.builds.shutdown();
     expect((await s.call("POST", s.api("/builds"), {})).json).toEqual({ code: "server.shutting_down" });
+  });
+
+  it("opens an old multilingual build at the default language of its own commit", async () => {
+    const s = await setup("old-entry", { mode: "multi" });
+    const yaml = path.join(s.dir, "site.yaml");
+    const original = fs.readFileSync(yaml, "utf8");
+    fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: zh-CN\n"));
+    commitAll(s.dir, "default zh-CN");
+    const b = await s.build();
+    expect(b.report?.entry).toBe("/zh-CN/");
+    // A build from before BuildReport.entry existed, and a later commit that is not built yet.
+    const row = s.db.prepare("SELECT report_json FROM builds WHERE id = ?").get(b.id) as { report_json: string };
+    const { entry: _entry, ...report } = JSON.parse(row.report_json);
+    s.db.prepare("UPDATE builds SET report_json = ? WHERE id = ?").run(JSON.stringify(report), b.id);
+    fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: en-US\n"));
+    commitAll(s.dir, "default en-US");
+
+    const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
+    expect(opened.json.buildId).toBe(b.id);
+    const res = await fetchPreview(opened.json.port);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("/zh-CN/");
   });
 
   it("gives back preview ports when the site is removed", async () => {
