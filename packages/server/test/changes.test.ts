@@ -19,7 +19,7 @@ import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { MAX_FILES, MAX_PATCH_BYTES } from "../src/changes/diff.ts";
 import { listHistory } from "../src/changes/history.ts";
-import { changeRef } from "../src/changes/service.ts";
+import { changeRef, commitText } from "../src/changes/service.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
@@ -934,5 +934,20 @@ describe("history and restore", () => {
     expect(restored.guard.ok).toBe(false);
     expect(restored.guard.reasons.map((r) => r.code)).toContain("plugin_files");
     expect(restored.change.restoreOf).toBe(unsafe);
+  });
+});
+
+describe("commitText", () => {
+  it("keeps a short first line and gives a long paragraph a subject from its first sentence", () => {
+    expect(commitText("Add FAQ page")).toBe("Add FAQ page");
+    expect(commitText("Title\n\nbody")).toBe("Title\n\nbody");
+    const zh =
+      "已把网站做成中英双语官网（中文默认 zh-CN）。页面：首页、服务、关于我们、联系我们和常见问题，中英文各一套，并加了 GEO 信息和网址。示例文章已设为草稿，示例特色模块已停用，导航栏按语言显示菜单。";
+    expect(commitText(zh)).toBe(`已把网站做成中英双语官网（中文默认 zh-CN）\n\n${zh}`);
+    const en = `Made the site bilingual (see https://example.com/a.b). ${"More words follow here. ".repeat(4)}`;
+    expect(commitText(en).split("\n")[0]).toBe("Made the site bilingual (see https://example.com/a.b).");
+    const long = commitText("x".repeat(100)).split("\n")[0] ?? "";
+    expect([...long]).toHaveLength(72);
+    expect(long.endsWith("…")).toBe(true);
   });
 });

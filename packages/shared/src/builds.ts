@@ -88,6 +88,11 @@ export interface BuildReport {
   problem?: "fs.disk_full" | "fs.read_only" | "fs.permission_denied";
   /** SEO / GEO summary of a successful build (plan M4 layer 7); absent when Bukit wrote no reports. */
   audit?: BuildAudit;
+  /**
+   * Where the preview opens when the output has no index.html at its root (a multilingual Bukit site writes
+   * each language under /<lang>/): the default language's home, such as "/zh-CN/".
+   */
+  entry?: string;
 }
 
 export interface Build {

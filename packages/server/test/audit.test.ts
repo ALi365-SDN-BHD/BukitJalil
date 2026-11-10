@@ -4,7 +4,7 @@ import path from "node:path";
 import { AUDIT_MAX_GROUPS, AUDIT_ROUTES_PER_GROUP } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { auditText, readAudit, SITE_URL_CODES, summarizeGeo, summarizeSeo } from "../src/builds/audit.ts";
-import { buildReport } from "../src/builds/service.ts";
+import { buildReport, previewEntry } from "../src/builds/service.ts";
 
 // M4 layer 7: the SEO / GEO summary of a build, from the reports Bukit writes into .bukit/.
 
@@ -151,5 +151,41 @@ describe("buildReport", () => {
       { level: "Error", msg: "seo.audit severity=error code=seo.x route=/ message=m" },
     ]);
     expect(report.output).toBe("plain stderr\nplain stdout");
+  });
+});
+
+describe("previewEntry", () => {
+  const output = (name: string, homes: string[], root = false) => {
+    const dir = path.join(base, name);
+    for (const h of homes) {
+      fs.mkdirSync(path.join(dir, h), { recursive: true });
+      fs.writeFileSync(path.join(dir, h, "index.html"), h);
+    }
+    fs.mkdirSync(path.join(dir, "assets"), { recursive: true });
+    if (root) fs.writeFileSync(path.join(dir, "index.html"), "root");
+    return dir;
+  };
+  const checkout = (name: string, yaml: string) => {
+    const dir = path.join(base, name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "site.yaml"), yaml);
+    return dir;
+  };
+
+  it("sends a multilingual output to the default language's home", () => {
+    const co = checkout("co-default", "site:\n  language: en-US\n  defaultLanguage: zh-CN\n");
+    expect(previewEntry(co, output("multi", ["en-US", "zh-CN"]))).toBe("/zh-CN/");
+    const lang = checkout("co-lang", "site:\n  language: zh-CN\n");
+    expect(previewEntry(lang, output("multi-lang", ["en-US", "zh-CN"]))).toBe("/zh-CN/");
+    // An unknown or missing language falls back to the first home in order.
+    const none = checkout("co-none", "site: [\n");
+    expect(previewEntry(none, output("multi-none", ["zh-CN", "en-US"]))).toBe("/en-US/");
+  });
+
+  it("leaves an output with a root home page, or without any home, alone", () => {
+    const co = checkout("co-plain", "site:\n  language: zh-CN\n");
+    expect(previewEntry(co, output("plain", ["zh-CN"], true))).toBeUndefined();
+    expect(previewEntry(co, output("empty", []))).toBeUndefined();
+    expect(previewEntry(co, path.join(base, "no-such-output"))).toBeUndefined();
   });
 });

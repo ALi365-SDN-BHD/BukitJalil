@@ -11,12 +11,13 @@ import type {
   PreviewResponse,
   Site,
 } from "@bukitjalil/shared";
-import { guardCommit } from "../bukit/guard.ts";
+import { guardCommit, isRecord } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, logEntry, usableRunner } from "../bukit/runner.ts";
 import type { ChangeService } from "../changes/service.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
+import { parseYaml } from "../panels/yaml.ts";
 import type { AppPaths } from "../paths.ts";
 import { NoPreviewPortError, PreviewPool } from "../preview/pool.ts";
 import { SiteError } from "../sites/location.ts";
@@ -194,15 +195,17 @@ export class BuildService {
 
   /** Open (or re-point) the site's preview port at its newest kept build. */
   async openPreview(siteId: string, ref: PanelRef): Promise<PreviewResponse> {
-    this.opts.sites.get(siteId);
+    const site = this.opts.sites.get(siteId);
     if (ref === "change" && !this.opts.changes.store.open(siteId)) throw new SiteError("change.not_found", 404);
+    // Builds from before BuildReport.entry existed: work the entry out from the site folder's site.yaml.
+    const entryOf = (b: BuildRecord & { outputDir: string }) => b.report?.entry ?? previewEntry(site.path, b.outputDir);
     const key = PreviewPool.key(siteId, ref);
     let build = this.newestOutput(siteId, ref);
     if (!build) throw new SiteError("preview.not_built", 404);
     let port: number;
     let url: string;
     try {
-      ({ port, url } = await this.opts.previews.open(key, build.outputDir));
+      ({ port, url } = await this.opts.previews.open(key, build.outputDir, entryOf(build)));
     } catch (err) {
       if (err instanceof NoPreviewPortError) throw new SiteError("preview.no_port", 503);
       throw err;
@@ -210,7 +213,7 @@ export class BuildService {
     // A build that succeeded while the port was being bound could not re-point the slot yet.
     const newest = this.newestOutput(siteId, ref);
     if (newest && newest.id !== build.id) {
-      this.opts.previews.repoint(key, newest.outputDir);
+      this.opts.previews.repoint(key, newest.outputDir, entryOf(newest));
       build = newest;
     }
     return { ref, url, port, buildId: build.id, commit: build.commit };
@@ -313,10 +316,17 @@ export class BuildService {
       moveDir(temp, dest);
       temp = null;
       const audit = this.audit(site.id, id, dest);
-      finish("succeeded", "ok", result.exitCode, audit ? { ...report, audit } : report, dest);
+      const entry = previewEntry(checkout, dest);
+      finish(
+        "succeeded",
+        "ok",
+        result.exitCode,
+        { ...report, ...(audit ? { audit } : {}), ...(entry ? { entry } : {}) },
+        dest,
+      );
       // An open preview switches to the new build at once (a change preview: while its change set is open).
       if (target.ref === "main" || this.opts.changes.store.open(site.id)?.id === target.changeSetId) {
-        this.opts.previews.repoint(PreviewPool.key(site.id, target.ref), dest);
+        this.opts.previews.repoint(PreviewPool.key(site.id, target.ref), dest, entry);
       }
     } catch (err) {
       const problem = storageErrorCode(err) ?? undefined;
@@ -408,6 +418,41 @@ export function buildReport(result: BukitRunResult): BuildReport {
     }
   }
   return { messages, output: other.join("\n").slice(-MAX_OUTPUT_CHARS) };
+}
+
+const HOME_DIR = /^[A-Za-z0-9][A-Za-z0-9_-]{0,34}$/;
+const MAX_SITE_YAML = 1024 * 1024;
+
+/**
+ * Where a preview opens when the output has no index.html at its root. Bukit 2.0.12 writes a multilingual
+ * site under /<lang>/ only, so "/" would be a blank 404; it goes to the default language's home instead
+ * (site.defaultLanguage, else site.language, else the first folder with a home page). Never fails a build.
+ */
+export function previewEntry(checkout: string, outputDir: string): string | undefined {
+  try {
+    if (fs.lstatSync(path.join(outputDir, "index.html"), { throwIfNoEntry: false })) return undefined;
+    const homes = fs
+      .readdirSync(outputDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && HOME_DIR.test(d.name))
+      .filter((d) => fs.lstatSync(path.join(outputDir, d.name, "index.html"), { throwIfNoEntry: false })?.isFile())
+      .map((d) => d.name)
+      .sort();
+    if (homes.length === 0) return undefined;
+    const lang = defaultLanguage(checkout);
+    return `/${lang && homes.includes(lang) ? lang : homes[0]}/`;
+  } catch {
+    return undefined;
+  }
+}
+
+function defaultLanguage(checkout: string): string | null {
+  const file = path.join(checkout, "site.yaml");
+  const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+  if (!stat?.isFile() || stat.size > MAX_SITE_YAML) return null;
+  const { value } = parseYaml(fs.readFileSync(file, "utf8"));
+  const site = isRecord(value) && isRecord(value.site) ? value.site : null;
+  const lang = site?.defaultLanguage ?? site?.language;
+  return typeof lang === "string" ? lang : null;
 }
 
 /** The first symbolic link under `dir`, relative to it, or null. */

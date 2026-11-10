@@ -48,6 +48,22 @@ describe("PreviewPool (plan 8.4)", () => {
     expect((await get(first.port)).body).toBe("v2");
   });
 
+  it("redirects / to the entry of a build without a root home page, and stops when re-pointed", async () => {
+    const pool = new PreviewPool(BASE, new Set(), silentLogger);
+    pools.push(pool);
+    const multi = fs.mkdtempSync(path.join(os.tmpdir(), "bj-preview-"));
+    fs.mkdirSync(path.join(multi, "zh-CN"));
+    fs.writeFileSync(path.join(multi, "zh-CN", "index.html"), "zh");
+    const { port } = await pool.open("s:main", multi, "/zh-CN/");
+    const home = await get(port, { path: "/?x=1" });
+    expect(home.status).toBe(302);
+    expect(home.headers.location).toBe("/zh-CN/");
+    expect(home.headers["content-security-policy"]).toContain("sandbox");
+    expect((await get(port, { path: "/zh-CN/" })).body).toBe("zh");
+    pool.repoint("s:main", site("plain"));
+    expect((await get(port)).body).toBe("plain");
+  });
+
   it("sends sandbox CSP, no-store and nosniff", async () => {
     const pool = new PreviewPool(BASE, new Set(), silentLogger);
     pools.push(pool);

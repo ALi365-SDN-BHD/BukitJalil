@@ -35,6 +35,27 @@ export const changeRef = (id: string) => `refs/bukitjalil/changes/${id}`;
 /** Author of applied AI changes; the committer is the identity from the settings (plan 7.2). */
 const AI_AUTHOR = { "author.name": AI_AUTHOR_NAME, "author.email": AI_AUTHOR_EMAIL };
 const DEFAULT_MESSAGE = "Changes made with BukitJalil AI";
+const MAX_SUBJECT = 72;
+
+/**
+ * A summary as a commit message with a short subject line. Real models often write one long paragraph,
+ * which made the history unreadable: when the first line is too long, its first sentence (cut to
+ * MAX_SUBJECT characters) becomes the subject and the whole summary the body.
+ */
+export function commitText(summary: string): string {
+  const first = summary.split("\n", 1)[0]?.trim() ?? "";
+  if ([...first].length <= MAX_SUBJECT) return summary;
+  const sentence = /^.+?(?:[。！？；]|[.!?;](?=\s|$))/u.exec(first)?.[0] ?? first;
+  const chars = [...sentence.replace(/[。；;,，:：]$/u, "")];
+  const subject =
+    chars.length <= MAX_SUBJECT
+      ? chars.join("")
+      : `${chars
+          .slice(0, MAX_SUBJECT - 1)
+          .join("")
+          .trimEnd()}…`;
+  return `${subject}\n\n${summary}`;
+}
 
 export interface ChangeServiceOptions {
   db: DatabaseSync;
@@ -395,7 +416,7 @@ export class ChangeService {
       ...(sessions.length > 0 ? [`BukitJalil-Sessions: ${sessions.join(", ")}`] : []),
       ...(change.restoreCommit ? [`BukitJalil-Restore: ${change.restoreCommit}`] : []),
     ];
-    const summary = change.summary?.trim() || DEFAULT_MESSAGE;
+    const summary = commitText(change.summary?.trim() || DEFAULT_MESSAGE);
     return trailers.length > 0 ? `${summary}\n\n${trailers.join("\n")}\n` : `${summary}\n`;
   }
 

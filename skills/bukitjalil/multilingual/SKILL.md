@@ -21,6 +21,13 @@ section to see the exact language fields of this Bukit version.
   and sitemaps line up.
 - Translate meaning, not word by word. Keep names, addresses, prices and
   product names as the user wrote them; ask when unsure.
+- Each language is built under its own folder (for example `/zh-CN/`,
+  `/en-US/`). Language switch links must be site paths such as
+  `/en-US/about/`, not `page.seo.alternates[].href`: with `site.url` set those
+  are absolute addresses and leave BukitJalil's preview. Take the path part of
+  the alternate address, or build it from the language and the page's slug.
+- Localize the shared parts too: the page title in `<title>`, the brand, the
+  navigation and the footer text should follow the page's language.
 - Do not machine-translate legal text (terms, privacy policy); add the page
   and ask the user to provide or approve the text.
 

@@ -123,7 +123,7 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       name: "summarize_changes",
       label: "Summarize changes",
       description:
-        "When you have finished a round of changes, describe them for the user's review in a few sentences: what changed and why.",
+        "When you have finished a round of changes, describe them for the user's review: a short title line (at most 72 characters), a blank line, then a few sentences on what changed and why. It becomes the commit message when the user applies the changes.",
       parameters: object(
         {
           summary: { type: "string", minLength: 1, maxLength: MAX_SUMMARY_CHARS, description: "What changed and why" },

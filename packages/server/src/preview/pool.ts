@@ -9,6 +9,8 @@ interface Slot {
   key: string;
   port: number;
   root: string;
+  /** Where "/" redirects when the build has no index.html at its root (BuildReport.entry). */
+  entry: string | undefined;
   server: http.Server;
   /** Last open or request, for the idle release. */
   usedAt: number;
@@ -46,10 +48,12 @@ export class PreviewPool {
   }
 
   /** Open (or re-point) the slot `key` at `root`; returns its URL. */
-  async open(key: string, root: string): Promise<{ port: number; url: string }> {
+  async open(key: string, root: string, entry?: string): Promise<{ port: number; url: string }> {
     const existing = this.slots.get(key);
     if (existing) {
-      existing.root = root; // atomic switch to the new build
+      // atomic switch to the new build
+      existing.root = root;
+      existing.entry = entry;
       existing.usedAt = Date.now();
       return { port: existing.port, url: `http://127.0.0.1:${existing.port}/` };
     }
@@ -57,19 +61,21 @@ export class PreviewPool {
     if (pending) {
       const opened = await pending;
       const slot = this.slots.get(key);
-      if (slot) slot.root = root; // the later call wins, as with an existing slot
+      // The later call wins, as with an existing slot.
+      if (slot) Object.assign(slot, { root, entry });
       return opened;
     }
-    const opening = this.bind(key, root).finally(() => this.opening.delete(key));
+    const opening = this.bind(key, root, entry).finally(() => this.opening.delete(key));
     this.opening.set(key, opening);
     return opening;
   }
 
   /** Point an open slot at a new build; false when the slot is not open (nothing is bound). */
-  repoint(key: string, root: string): boolean {
+  repoint(key: string, root: string, entry?: string): boolean {
     const slot = this.slots.get(key);
     if (!slot) return false;
     slot.root = root;
+    slot.entry = entry;
     return true;
   }
 
@@ -93,11 +99,11 @@ export class PreviewPool {
     this.sweeper.unref();
   }
 
-  private async bind(key: string, root: string): Promise<{ port: number; url: string }> {
+  private async bind(key: string, root: string, entry: string | undefined): Promise<{ port: number; url: string }> {
     for (let port = this.base, attempts = 0; attempts < MAX_PORT_ATTEMPTS; port++) {
       if (this.reserved.has(port) || [...this.slots.values()].some((s) => s.port === port)) continue;
       attempts++;
-      const slot: Slot = { key, port, root, server: http.createServer(), usedAt: Date.now() };
+      const slot: Slot = { key, port, root, entry, server: http.createServer(), usedAt: Date.now() };
       slot.server.on("request", (req, res) => this.handle(slot, req, res));
       const bound = await listen(slot.server, port);
       if (!bound) continue;
@@ -141,6 +147,10 @@ export class PreviewPool {
     slot.usedAt = Date.now();
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, { ...previewHeaders, Allow: "GET, HEAD" }).end();
+      return;
+    }
+    if (slot.entry && (req.url ?? "/").split("?")[0] === "/") {
+      res.writeHead(302, { ...previewHeaders, Location: slot.entry }).end();
       return;
     }
     const resolved = resolveStaticFile(slot.root, req.url ?? "/");
