@@ -128,6 +128,7 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
         void queryClient.invalidateQueries({ predicate: (q) => ofSite(q.queryKey) });
         void queryClient.invalidateQueries({ queryKey: keys.site(siteId) });
         void queryClient.invalidateQueries({ queryKey: keys.history(siteId) });
+        void queryClient.invalidateQueries({ queryKey: keys.deploy(siteId) });
       }
       break;
     }

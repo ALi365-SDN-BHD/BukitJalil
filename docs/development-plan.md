@@ -1251,6 +1251,13 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > - Notion token 只做读取和从环境删除，界面和 Notion 构建之后再做
 > - 测试：新增 `secrets.test.ts`（环境变量优先并被删除、600 文件、链接 / 损坏 / 过大的文件、接口不返回 token、环境变量来源 409）；`e2e/sites.spec.ts` 补保存、显示末四位、删除
 
+> M6 第 2 层实现说明（发布目标）：
+> - `deploys/target.ts` 从正式版本的 `site.yaml`（复用配置面板读取正式分支的方法，不看网站目录里未提交的修改）取 `deploy`：`repo` 按 Bukit 2.0.12 schema 的格式校验，`branch` 默认 `gh-pages` 并校验成合法、不以 `-` 开头的分支名，`cname` 只接受主机名；问题分 `no_config`、`not_configured`、`bad_provider`、`bad_repo`、`bad_branch`。网站地址：有 `cname` 用它，仓库名是 `owner.github.io` 时是用户站点 `https://owner.github.io/`，否则是项目站点 `https://owner.github.io/name/`
+> - 接口 `GET /api/sites/:id/deploy` 返回读取的提交、目标、token 是否设置、能否发布（目标有效、有 token、网站不是只读）
+> - 网站首页新增"发布"一节（`features/deploys/DeploySection.tsx`）：显示仓库、分支、网站地址或问题说明，token 状态，没有 token 时可直接打开设置；没有设置目标时"让 AI 设置发布目标"新建对话，并把预填的说明（仓库、分支、域名待填）放进输入框，由用户补全后发送，改动照常审核。应用改动后、修改 token 后刷新
+> - 新技能 `skills/bukitjalil/publishing`：`deploy` 是顶层段、`repo` 必须问用户、分支默认 `gh-pages` 并提醒用户在 GitHub 的 Pages 设置里选这个分支、`cname` 的写法、不在 `site.yaml` 里放 token；按仓库类型设置 `site.url` 和 `site.baseUrl`
+> - 测试：新增 `deploys.test.ts`（目标解析和各种错误、用户 / 项目站点地址、接口只看正式分支）、`e2e/deploy.spec.ts`（没有目标时让 AI 设置，输入框有预填说明；提交目标并设置 token 后显示目标）
+
 ### M7 桌面版（4–5 天，MVP 之后）
 
 - Electron 45 壳：主进程启动 server，窗口加载本地页面

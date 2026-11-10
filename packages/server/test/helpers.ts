@@ -11,6 +11,7 @@ import { createAdminApp } from "../src/app.ts";
 import { BuildService } from "../src/builds/service.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { ChangeService } from "../src/changes/service.ts";
+import { DeployService } from "../src/deploys/service.ts";
 import { connectEvents } from "../src/events/bridge.ts";
 import { EventHub } from "../src/events/hub.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
@@ -119,6 +120,8 @@ export function makeApp(
   const events = new EventHub(overrides.replayBytes);
   connectEvents(events, { agent, builds, changes, logger });
   const loginToken = new LoginToken(TOKEN);
+  const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
+  const deploys = new DeployService({ sites, panels, secrets });
   const app = createAdminApp({
     port: PORT,
     allowedOrigin: overrides.allowedOrigin ?? ADMIN,
@@ -130,11 +133,12 @@ export function makeApp(
     bukit,
     rg,
     sites,
-    panels: new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) }),
+    panels,
     builds,
     agent,
     changes,
     secrets,
+    deploys,
     events,
     eventStream: overrides.eventStream,
     modelTestTimeoutMs: overrides.modelTestTimeoutMs,

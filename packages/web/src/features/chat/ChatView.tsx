@@ -11,6 +11,7 @@ import { ReviewCard } from "@/features/changes/ReviewCard";
 import { MarkdownView } from "@/features/panels/MarkdownView";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { takeComposerDraft } from "./drafts";
 import { type PendingMessage, unseen } from "./live";
 import { type ChatItem, chatItems, latestSummary, mergeMessages, modelErrorKind, tailSignature } from "./model";
 import { StatusDot, sessionPath } from "./sessions";
@@ -398,7 +399,7 @@ function AssistantMessage({ item }: { item: Extract<ChatItem, { kind: "assistant
  */
 function Composer({ site, session }: { site: Site; session: SessionInfo }) {
   const { m, errorOf } = useI18n();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => takeComposerDraft(session.id) ?? "");
   const running = session.status === "running";
   // The message leaves the box at once and shows as waiting until the session takes it in (the events
   // remove it); on failure it comes back to the box, unless something new was typed meanwhile.

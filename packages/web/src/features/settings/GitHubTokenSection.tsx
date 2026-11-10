@@ -17,6 +17,8 @@ export function GitHubTokenSection() {
     setValue("");
     setEditing(false);
     queryClient.setQueryData(keys.secrets, data);
+    // Whether a site can be published depends on the token.
+    void queryClient.invalidateQueries({ queryKey: ["deploy"] });
   };
   const save = useMutation({ mutationFn: () => api.setSecret("github", value.trim()), onSuccess: done });
   const remove = useMutation({ mutationFn: () => api.removeSecret("github"), onSuccess: done });

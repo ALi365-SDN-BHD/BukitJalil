@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { BuildButton, BuildList } from "@/features/builds/builds";
 import { HistorySection } from "@/features/changes/HistorySection";
 import { useCreateSession } from "@/features/chat/sessions";
+import { DeploySection } from "@/features/deploys/DeploySection";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { ReasonList } from "./ReasonList";
@@ -45,7 +46,7 @@ function StartConversation({ site }: { site: Site }) {
 }
 
 /** Site home in the middle column (plan 10.2): overview, builds, and where a conversation starts. */
-export function SiteHome({ site }: { site: Site }) {
+export function SiteHome({ site, onOpenSettings }: { site: Site; onOpenSettings: () => void }) {
   const { m, t, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -145,6 +146,8 @@ export function SiteHome({ site }: { site: Site }) {
         <h2 className="text-sm font-medium">{m.site.recentBuilds}</h2>
         <BuildList siteId={site.id} />
       </section>
+
+      <DeploySection site={site} onOpenSettings={onOpenSettings} />
 
       <HistorySection site={site} />
 

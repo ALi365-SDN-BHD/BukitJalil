@@ -15,6 +15,7 @@ import type { RgService } from "./agent/rg.ts";
 import type { AgentService } from "./agent/service.ts";
 import { buildRoutes } from "./api/builds.ts";
 import { changeRoutes } from "./api/changes.ts";
+import { deployRoutes } from "./api/deploys.ts";
 import { type EventStreamOptions, eventRoutes } from "./api/events.ts";
 import { modelRoutes } from "./api/models.ts";
 import { panelRoutes } from "./api/panels.ts";
@@ -24,6 +25,7 @@ import { siteRoutes } from "./api/sites.ts";
 import type { BuildService } from "./builds/service.ts";
 import type { BukitService } from "./bukit/locate.ts";
 import type { ChangeService } from "./changes/service.ts";
+import type { DeployService } from "./deploys/service.ts";
 import type { EventHub } from "./events/hub.ts";
 import type { GitIdentity } from "./git/identity.ts";
 import type { GitHealth } from "./git/version.ts";
@@ -58,6 +60,7 @@ export interface AdminAppOptions {
   agent: AgentService;
   changes: ChangeService;
   secrets: SecretStore;
+  deploys: DeployService;
   /** How long a connection test waits for the model. */
   modelTestTimeoutMs?: number;
   events: EventHub;
@@ -184,6 +187,7 @@ export function createAdminApp(opts: AdminAppOptions) {
   panelRoutes(api, opts.panels);
   buildRoutes(api, opts.builds);
   secretRoutes(api, opts.secrets);
+  deployRoutes(api, opts.deploys);
   sessionRoutes(api, opts.agent);
   changeRoutes(api, { changes: opts.changes, agent: opts.agent, builds: opts.builds, logger: opts.logger });
   modelRoutes(

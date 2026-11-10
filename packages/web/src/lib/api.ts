@@ -12,6 +12,7 @@ import {
   CSRF_HEADER_VALUE,
   type CurrentChange,
   type DataResponse,
+  type DeployStatusResponse,
   type ErrorCode,
   type FileDiff,
   type FileResponse,
@@ -130,6 +131,7 @@ export const api = {
 
   sessions: (siteId: string) => request<SessionInfo[]>(`/sites/${siteId}/sessions`),
   createSession: (siteId: string) => post<SessionInfo>(`/sites/${siteId}/sessions`),
+  deployStatus: (siteId: string) => request<DeployStatusResponse>(`/sites/${siteId}/deploy`),
   session: (id: string) => request<SessionDetail>(`/sessions/${id}`),
   renameSession: (id: string, title: string | null) =>
     request<SessionInfo>(`/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
@@ -165,6 +167,7 @@ export const keys = {
   settings: ["settings"] as const,
   sites: ["sites"] as const,
   site: (id: string) => ["site", id] as const,
+  deploy: (siteId: string) => ["deploy", siteId] as const,
   panel: (id: string, panel: string, ...rest: string[]) => ["panel", id, panel, ...rest] as const,
   builds: (id: string) => ["builds", id] as const,
   change: (siteId: string) => ["change", siteId] as const,

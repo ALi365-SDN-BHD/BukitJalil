@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { NavLink, useNavigate } from "react-router";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { setComposerDraft } from "./drafts";
 
 export const sessionPath = (siteId: string, sessionId: string) => `/sites/${siteId}/sessions/${sessionId}`;
 
@@ -16,8 +17,10 @@ export function useCreateSession(siteId: string) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   return useMutation({
-    mutationFn: () => api.createSession(siteId),
-    onSuccess: (session) => {
+    /** `draft`: text to put in the new conversation's input, for the user to read, change and send. */
+    mutationFn: (_draft?: string) => api.createSession(siteId),
+    onSuccess: (session, draft) => {
+      if (draft) setComposerDraft(session.id, draft);
       queryClient.setQueryData<SessionInfo[]>(keys.sessions(siteId), (list) =>
         list ? [session, ...list.filter((s) => s.id !== session.id)] : [session],
       );

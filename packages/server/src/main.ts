@@ -14,6 +14,7 @@ import { createAdminApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
 import { BukitService } from "./bukit/locate.ts";
 import { ChangeService } from "./changes/service.ts";
+import { DeployService } from "./deploys/service.ts";
 import { connectEvents } from "./events/bridge.ts";
 import { EventHub } from "./events/hub.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
@@ -146,6 +147,7 @@ const agent = new AgentService({
   skillsDir,
 });
 const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
+const deploys = new DeployService({ sites, panels, secrets });
 const events = new EventHub();
 connectEvents(events, { agent, builds, changes, logger });
 const webDist = path.join(repoRoot, "packages/web/dist");
@@ -169,6 +171,7 @@ const app = createAdminApp({
   agent,
   changes,
   secrets,
+  deploys,
   events,
   readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,

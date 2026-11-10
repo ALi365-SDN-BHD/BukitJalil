@@ -403,6 +403,26 @@ const en: Messages = {
     help: "Show this list",
     mac: "On a Mac, Alt is the Option (⌥) key.",
   },
+  deploy: {
+    title: "Publish",
+    repo: "Repository",
+    branch: "Branch",
+    url: "Site address",
+    problems: {
+      no_config: "site.yaml on the default branch cannot be read; fix it before setting up publishing",
+      not_configured:
+        "No publish target yet. It goes in the deploy section of site.yaml; the AI can set it, and you review the change as usual",
+      bad_provider: "deploy.provider in site.yaml is not github-pages; BukitJalil can only publish to GitHub Pages",
+      bad_repo: "deploy.repo in site.yaml is not in owner/name form",
+      bad_branch: "deploy.branch in site.yaml is not a valid branch name",
+    },
+    tokenSet: "GitHub token set",
+    tokenMissing: "No GitHub token yet",
+    openSettings: "Open settings",
+    askAi: "Ask the AI to set the target",
+    askAiDraft:
+      "Please set this site up to publish to GitHub Pages.\nRepository (owner/name): \nBranch: gh-pages\nCustom domain, if any: ",
+  },
   settings: {
     title: "Settings",
     open: "Settings",

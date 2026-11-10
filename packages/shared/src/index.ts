@@ -2,6 +2,7 @@ export * from "./builds.ts";
 export * from "./bukit.ts";
 export * from "./changes.ts";
 export * from "./constants.ts";
+export * from "./deploys.ts";
 export * from "./errors.ts";
 export * from "./health.ts";
 export * from "./models.ts";

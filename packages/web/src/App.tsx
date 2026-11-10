@@ -122,7 +122,7 @@ function Shell({
         ) : sessionId ? (
           <ChatView key={sessionId} site={site.data} sessionId={sessionId} />
         ) : (
-          <SiteHome site={site.data} />
+          <SiteHome site={site.data} onOpenSettings={() => setSettingsOpen(true)} />
         )}
       </div>
     </>
