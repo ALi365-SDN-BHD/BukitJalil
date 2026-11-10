@@ -107,7 +107,7 @@ function systemOf(context: unknown): { preamble: string; cwd: string } {
   const messages = (context as { messages: { role: string; sections?: Record<string, string> }[] }).messages;
   const system = messages.filter((m) => m.role === "system");
   expect(system).toHaveLength(1);
-  // Tools, skills and context files would add sections or messages.
+  // Skills, context files and appended prompts would add sections or messages.
   expect(Object.keys(system[0]?.sections ?? {}).sort()).toEqual(["cwd", "preamble"]);
   return system[0]?.sections as { preamble: string; cwd: string };
 }
@@ -166,6 +166,56 @@ describe("AgentService", () => {
     for (const name of fs.readdirSync(ctx.paths.pi)) expect(["auth.json", "bin", "models-store.json"]).toContain(name);
     const auth = path.join(ctx.paths.pi, "auth.json");
     if (fs.existsSync(auth)) expect(fs.statSync(auth).mode & 0o777).toBe(0o600);
+  });
+
+  it("gives sessions the six gated tools and no bash", async () => {
+    const s = await site();
+    const { agent, events, settled } = service();
+    const session = agent.create(s.id);
+    const call = pi.ai.fauxToolCall;
+    faux.setResponses([
+      pi.ai.fauxAssistantMessage(
+        [
+          call("write", { path: "content/ai.md", content: "# From AI\n" }),
+          call("read", { path: "~/.bukitjalil/pi/auth.json" }),
+          call("read", { path: "../../../pi/auth.json" }),
+          call("ls", {}),
+          call("find", { pattern: "*.yaml" }),
+          call("grep", { pattern: "title" }),
+          call("bash", { command: "echo hi" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      pi.ai.fauxAssistantMessage(
+        [call("edit", { path: "content/ai.md", edits: [{ oldText: "From AI", newText: "Edited" }] })],
+        {
+          stopReason: "toolUse",
+        },
+      ),
+      pi.ai.fauxAssistantMessage("done"),
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Make a page");
+    await done;
+
+    const ends = events.flatMap((e) => (e.type === "pi" && e.event.type === "tool_execution_end" ? [e.event] : []));
+    const result = (name: string) => ends.filter((e) => e.toolName === name);
+    const text = (e: (typeof ends)[number]) => JSON.stringify(e.result);
+    for (const name of ["write", "ls", "find", "edit"]) {
+      expect(result(name)).toHaveLength(1);
+      expect(result(name)[0]?.isError, `${name}: ${text(result(name)[0] as never)}`).toBe(false);
+    }
+    expect(result("read").map((e) => e.isError)).toEqual([true, true]);
+    expect(result("grep")[0]).toMatchObject({ isError: true });
+    expect(text(result("grep")[0] as never)).toContain("rg");
+    expect(result("bash")[0]).toMatchObject({ isError: true });
+    expect(text(result("ls")[0] as never)).toContain("site.yaml");
+    const listing = result("ls")[0]?.result as { content: { text: string }[] } | undefined;
+    const entries = listing?.content[0]?.text.split("\n");
+    expect(entries).not.toContain(".git");
+    expect(text(result("find")[0] as never)).toContain("site.yaml");
+    const ai = path.join(ctx.paths.worktrees, s.id, "ai");
+    expect(fs.readFileSync(path.join(ai, "content", "ai.md"), "utf8")).toBe("# Edited\n");
   });
 
   it("ignores Pi and agent files committed in the site", async () => {

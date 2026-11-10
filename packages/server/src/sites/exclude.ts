@@ -7,7 +7,9 @@ import path from "node:path";
  */
 const BEGIN = "# BukitJalil begin";
 const END = "# BukitJalil end";
-export const EXCLUDE_PATTERNS = ["dist/", ".bukit/", ".cache/", ".bukitjalil-build/"];
+/** Build output and caches at the top of a checkout: ignored by git, never written by the AI (plan 6.3). */
+export const BUILD_DIRS = ["dist", ".bukit", ".cache", ".bukitjalil-build"] as const;
+export const EXCLUDE_PATTERNS = BUILD_DIRS.map((dir) => `${dir}/`);
 /** Extra patterns for a directory that was not a git repository before import (plan 5.1). */
 export const IMPORT_INIT_PATTERNS = [".env*", "node_modules/"];
 

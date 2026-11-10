@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.5（2026-11-10，Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.6（2026-11-10，写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -326,7 +326,7 @@ BukitJalil/
   | `ripgrep-15.2.0-aarch64-pc-windows-msvc.zip` | `e4abca10c3a64ebea742667dd7009449d49403db5460dd6873e389fa2945360f` |
 
   安装包本身在 M3 实现安装时下载、解压后再核对一次。安装复用 Bukit 的安装模块（8.1，同样需要用户确认、同样检查压缩包条目）安装到 `~/.bukitjalil/pi/bin/`；`PI_OFFLINE=1` 保证 Pi 不再下载
-- 因为 Pi 会退回系统 `PATH`，`tool_call` 处理器在 `~/.bukitjalil/pi/bin/rg` 不存在或校验不通过时**直接阻止 `grep`**，返回"搜索工具未安装"，不让 Pi 去用系统里的 rg
+- 因为 Pi 会退回系统 `PATH`，`grep` 工具（M3 第 2 层起由 BukitJalil 包装的 `execute`，见下）在 `~/.bukitjalil/pi/bin/rg` 不存在或校验不通过时**直接阻止 `grep`**，返回"搜索工具未安装"，不让 Pi 去用系统里的 rg
 - **`grep` 结果过滤 `.git`**（M1 实测）：Pi 调用 rg 时固定带 `--hidden`，会搜索工作副本根目录的 `.git` 文件（内容是 `gitdir: <网站仓库>/.git/worktrees/ai`）和任何嵌套的 `.git` 目录，参数由 Pi 写死，`operations` 管不到 rg 本身。所以 `grep` 工具定义再包一层：执行后丢掉路径里含 `.git` 段（不分大小写）的匹配行。rg 默认不跟随符号链接，搜索根目录又先经过闸门（`isDirectory`），工作副本外的文件读不到（已实测）
 
 **自定义工具**（通过 `customTools` / 内联扩展注册）：
@@ -344,7 +344,7 @@ BukitJalil/
 
 - **为什么不能只看参数**：已核对 SDK 1.5.0 源码（`dist/utils/paths.js` 的 `normalizePath`），Pi 的工具在 `tool_call` 之后还会改写路径：去掉开头的 `@`、把 `~` / `~/` 展开成用户主目录、把 `file://` 地址转成路径、把几种 Unicode 空格换成普通空格；`read` 找不到文件时还会再试 NFD、弯引号等变体。所以 `~/.bukitjalil/pi/auth.json`、`@/etc/passwd`、`file:///etc/passwd` 按"相对工作副本"解析会被判定在工作副本内，Pi 实际打开的却是外面的文件
 - **做法**：用 Pi 的 `createReadToolDefinition` / `createWriteToolDefinition` / `createEditToolDefinition` / `createLsToolDefinition` / `createGrepToolDefinition` / `createFindToolDefinition` 生成同名工具，传入自己的 `operations`（`readFile`、`writeFile`、`mkdir`、`access`、`stat`、`exists`、`isDirectory`、`glob` 等），通过 `customTools` 注册（同名会替换内置工具）。Pi 调用 `operations` 时传的是**最终的绝对路径**，`edit` / `write` 传的是**最终写入的内容**，闸门在这里检查，不需要复刻 Pi 的路径改写和 `edit` 的匹配逻辑
-- `tool_call` 处理器只做第一层快速拒绝：路径以 `@`、`~`、`file:` 开头，或含 Unicode 空格，直接阻止并告诉 AI 用相对路径
+- 第一层快速拒绝（M1 原型放在 `tool_call` 处理器里，M3 第 2 层改为包装每个工具定义的 `execute`：工具定义本来就由 BukitJalil 生成，不需要再加扩展）：路径以 `@`、`~`、`file:` 开头，或含 Unicode 空格，直接阻止并告诉 AI 用相对路径
 - **所有带路径的操作**都必须落在工作副本内；读也要限制：否则 AI 可以读到 `~/.bukitjalil/pi/auth.json`（模型密钥）、`~/.ssh` 等，再借提示词注入写进网站文件带出去
 - **唯一的例外：技能文件只读**。Pi 只在系统提示里给出技能文件的绝对路径，让模型用 `read` 去加载（已核对 `dist/core/skills.js`），所以 `readFile` / `access` 允许读取应用自带的 `skills/` 目录（取 `realpath` 后比较），不允许写，也不允许 `ls` / `grep` / `find` 它之外的目录
 - 路径检查：对已存在的路径取 `realpath.native`（macOS 上会返回磁盘上的真实大小写）；不存在的路径（新建文件）逐级找到最近的已存在上级目录取 `realpath.native`，再拼回剩余部分；最终结果必须以工作副本的 `realpath` 加路径分隔符开头（防符号链接和 `..` 逃逸）
@@ -952,6 +952,17 @@ M3 分层实施（每层做完先审计、修复，再提交）：
 > - 第一次检出 `ai/` 时要拿网站操作锁（和构建、移除一样在网站仓库里执行 git）；拿不到时这次运行以 `site.busy` 结束。整次会话运行暂不拿锁：现在 AI 只动 `ai/`，而用到 `ai/` 的构建、重置、快照分别在第 4 层和 M4 加入，届时一起接入（操作锁现在是"忙就立即失败"，排队等待要在那时设计）
 > - 删除会话、移除网站、关闭服务时，先停止相关运行（包括还在打开的），并等它结束，再删除文件或关闭数据库；被丢弃的排队会话收到 `idle` 状态
 > - 单元测试用 Pi 的 faux 假模型：环境变量缺失时拒绝加载、会话在 `ai/` 里运行且没有工具、不联网、Pi 只写自己的目录、网站里的 Pi 和 agent 文件不生效、从文件恢复历史、排队顺序、打开中追加消息、打开中停止和删除、停止排队、无模型和只读时拒绝、拿不到锁、重命名和删除、移除网站和关闭服务时等待运行结束、只读网站不能建会话
+
+> M3 第 2 层实现说明（权限闸门和 6 个内置工具）：
+> - `src/agent/gate.ts` 的 `PathGate`：路径先取真实路径（已存在的部分用 `realpath.native`，不存在的部分拼回去；途中遇到悬空的符号链接直接拒绝，否则写入会跟着链接落到外面），再按三种用途检查。比较文件名时一律转小写，并去掉 NTFS 流后缀（`:…`）和末尾的点、空格（Windows 会把 `.git.` 存成 `.git`），各平台规则相同。`read` 必须在工作副本里，或在只读目录（技能，第 4 层接入）里；`list`（`ls` / `grep` / `find` 的目录）只能在工作副本里；`write` 在工作副本里，并且不在受保护的路径上。任何一级是 `.git`（不分大小写）都拒绝
+> - 受保护、不能写的路径：顶层的 `dist`、`.bukit`、`.cache`、`.bukitjalil-build`、`plugins`，任何一级的 `node_modules`，任何位置名为 `plugin.yaml` / `plugin.json` 或以 `.env` 开头的文件，都不区分大小写；写入内容上限 1 MB，含 NUL 字节视为二进制并拒绝；写文件时带 `O_NOFOLLOW`（平台支持时），最后一级是符号链接就失败。构建目录清单和 `.git/info/exclude` 共用 `sites/exclude.ts` 的 `BUILD_DIRS`。`edit` 读文件也按 `write` 检查，受保护的文件一开始就改不了
+> - `src/agent/tools.ts` 用 Pi 的 `create*ToolDefinition` 生成 6 个同名工具，传入带闸门的 `operations`，通过 `customTools` 注册，`tools` 白名单就是这 6 个名字，没有 `bash`
+>   - `read` 不提供 `createReadStream` 和 `detectImageMimeType`：已核对 1.5.1 源码，传入 `operations` 后 Pi 只用传入的函数，没有回退到本地文件系统
+>   - `ls` 隐藏 `.git`；指向工作副本外的符号链接在 `stat` 时被闸门拒绝，Pi 会跳过这一项
+>   - `find` 用 Node 实现：从根目录逐级遍历，不进入 `.git`、`node_modules`、顶层的构建目录，不跟随符号链接，最多看 2 万项，停下时在结果末尾说明结果不完整；返回的路径以 Pi 解析出的搜索路径为前缀（应用目录路径里有符号链接时也能得到相对路径）；模式里有 `/` 时按相对路径匹配，否则按文件名匹配（和 fd 的 `--glob` 一致），用 `path.posix.matchesGlob`。不读 `.gitignore`；`*` 不匹配以点开头的文件
+>   - `grep`：BukitJalil 的 `pi/bin/rg` 不存在或不是可执行文件时直接拒绝（校验 SHA-256 在第 3 层）；没有传 `glob` 时补上 `!.[gG][iI][tT]`，让 rg 搜索时就跳过 `.git`，不占匹配数上限；结果里路径含 `.git` 段的匹配行和上下文行仍然去掉（AI 自带 `glob` 时靠这一步；1.5.1 的上下文行也由 rg 输出）。CI 安装 rg，真实 `grep` 的测试在 CI 里不会被跳过
+> - 每个工具的 `execute` 先检查 `path` 参数：以 `@`、`~`、`file:` 开头或含 Unicode 空格时拒绝，提示用相对路径。被拒绝的操作以工具错误返回给模型，不中断运行
+> - 测试：闸门单元测试（相对路径、绝对路径、`..`、指向外部的符号链接文件和目录、悬空的符号链接、Windows 的 `.git.` / `::$INDEX_ALLOCATION` 写法、任意层级和大小写的 `.git`、受保护路径、新建深层目录、技能只读、1 MB 和二进制）；6 个工具直接执行的测试（含 `~`、`@`、`file://`、Unicode 空格；本机有 rg 时还跑真实的 `grep`，确认 `.git` 里的内容搜不到）；会话测试里假模型调用 6 个工具和 `bash`，6 个工具按规则执行，`bash` 不存在，越界读取 `auth.json` 被拒绝。故意去掉闸门的 `.git` 检查或工作副本检查后，相应测试都会失败
 
 ### M4 改动审核与版本（6–8 天）
 

@@ -45,6 +45,11 @@ jobs:
           key: pnpm-${{ runner.os }}-node${{ matrix.node }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pnpm-${{ runner.os }}-node${{ matrix.node }}-
       - run: pnpm install --frozen-lockfile
+      # The gate tests run the grep tool against a real rg when one is on PATH, and require it under CI.
+      - name: Install ripgrep
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ripgrep; else sudo apt-get update && sudo apt-get install -y ripgrep; fi
+          rg --version
       - run: pnpm exec biome check .
       - run: pnpm typecheck
       - run: pnpm test

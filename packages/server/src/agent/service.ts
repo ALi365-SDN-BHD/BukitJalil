@@ -7,12 +7,11 @@ import type { Logger } from "../log.ts";
 import type { AppPaths } from "../paths.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteService } from "../sites/service.ts";
+import { PathGate } from "./gate.ts";
 import { loadPi, type PiModules } from "./pi.ts";
 import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
 import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./store.ts";
-
-/** Pi's built-in tools the AI may use (plan 6.3); empty until the permission gate wraps them. */
-export const AGENT_TOOLS: readonly string[] = [];
+import { BUILTIN_TOOLS, createGatedTools } from "./tools.ts";
 
 const IDLE_MS = 10 * 60_000;
 
@@ -334,7 +333,13 @@ export class AgentService {
       agentDir: piDir,
       modelRuntime,
       model,
-      tools: [...AGENT_TOOLS],
+      // An allowlist that the custom tools must be in too (plan 6.3).
+      tools: [...BUILTIN_TOOLS],
+      customTools: createGatedTools(pi, {
+        cwd,
+        gate: new PathGate(cwd),
+        rgPath: path.join(this.opts.paths.piBin, process.platform === "win32" ? "rg.exe" : "rg"),
+      }),
       resourceLoader,
       sessionManager,
       settingsManager,
