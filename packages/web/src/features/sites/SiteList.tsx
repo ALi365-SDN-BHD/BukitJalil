@@ -2,24 +2,21 @@ import type { Site } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, FolderInput, Lock, Plus } from "lucide-react";
 import { useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router";
+import { NavLink, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { SessionList } from "@/features/chat/sessions";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
-import { ImportDialog } from "./ImportDialog";
-import { NewSiteDialog } from "./NewSiteDialog";
+import { type SiteDialog, SiteDialogs } from "./SiteDialogs";
 
 /** Sidebar (plan 10.1): sites, newest opened first, archived ones folded away. */
 export function SiteList() {
   const { m, t, errorOf } = useI18n();
-  const navigate = useNavigate();
   const sites = useQuery({ queryKey: keys.sites, queryFn: api.sites });
-  const [dialog, setDialog] = useState<"new" | "import" | null>(null);
+  const [dialog, setDialog] = useState<SiteDialog>(null);
   const [showArchived, setShowArchived] = useState(false);
   const active = sites.data?.filter((s) => !s.archived) ?? [];
   const archived = sites.data?.filter((s) => s.archived) ?? [];
-  const goTo = (site: Site) => navigate(`/sites/${site.id}`);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -65,9 +62,7 @@ export function SiteList() {
           </div>
         )}
       </nav>
-      {/* Mounted only while open, so each opening starts empty. */}
-      {dialog === "new" && <NewSiteDialog open onOpenChange={(o) => !o && setDialog(null)} onCreated={goTo} />}
-      {dialog === "import" && <ImportDialog open onOpenChange={(o) => !o && setDialog(null)} onImported={goTo} />}
+      <SiteDialogs dialog={dialog} onClose={() => setDialog(null)} />
     </div>
   );
 }

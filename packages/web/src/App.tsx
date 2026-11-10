@@ -9,6 +9,7 @@ import { BuildBadge, useBuilds } from "@/features/builds/builds";
 import { ChatView } from "@/features/chat/ChatView";
 import { RightPanel } from "@/features/panels/RightPanel";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
+import { SetupGuide } from "@/features/sites/SetupGuide";
 import { SiteHome } from "@/features/sites/SiteHome";
 import { SiteList } from "@/features/sites/SiteList";
 import { detectLocale, I18nProvider, localeNames, useI18n } from "@/i18n";
@@ -137,7 +138,7 @@ function Shell({
           <SectionTitle icon={<MessageSquare className="size-4" />} title={m.conversation.title} />
           <div className={`min-h-0 flex-1 ${sessionId ? "overflow-hidden" : "overflow-auto"}`}>
             {siteId === null ? (
-              <Welcome />
+              <Welcome onOpenSettings={() => setSettingsOpen(true)} />
             ) : site.isPending ? (
               <p className="p-6 text-sm text-muted-foreground">{m.common.loading}</p>
             ) : site.error ? (
@@ -174,8 +175,8 @@ function SiteHeader({ siteId, name }: { siteId: string; name: string }) {
   );
 }
 
-/** Home page: what to do first, and notices handed over by navigation (e.g. after removing a site). */
-function Welcome() {
+/** Home page: the first-run guide, what to do first, and notices handed over by navigation (e.g. after removing a site). */
+function Welcome({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { m } = useI18n();
   const location = useLocation();
   const notice = (location.state as { notice?: string } | null)?.notice;
@@ -186,7 +187,10 @@ function Welcome() {
           {notice}
         </p>
       )}
-      <p className="text-muted-foreground">{m.conversation.placeholder}</p>
+      <SetupGuide onOpenSettings={onOpenSettings} />
+      <p className="text-muted-foreground" data-testid="conversation-placeholder">
+        {m.conversation.placeholder}
+      </p>
     </div>
   );
 }
