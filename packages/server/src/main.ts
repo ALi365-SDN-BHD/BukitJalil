@@ -15,14 +15,16 @@ import { BuildService } from "./builds/service.ts";
 import { BukitService } from "./bukit/locate.ts";
 import { ChangeService } from "./changes/service.ts";
 import { DeployService } from "./deploys/service.ts";
+import { type DesktopChannel, desktopChannel } from "./desktop.ts";
 import { connectEvents } from "./events/bridge.ts";
 import { EventHub } from "./events/hub.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
 import { GitRunner, resolveGitPath } from "./git/run.ts";
 import { checkGit } from "./git/version.ts";
+import { acquireHomeLock, HomeInUseError } from "./lock.ts";
 import { createLogger } from "./log.ts";
 import { PanelService } from "./panels/service.ts";
-import { ensureAppHome, resolveAppHome } from "./paths.ts";
+import { ensureAppHome, resolveAppHome, resolveResources } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
 import { SecretStore } from "./settings/secrets.ts";
@@ -33,8 +35,12 @@ import { SettingsStore } from "./store/settings.ts";
 
 const VERSION = "0.0.0";
 
-function fail(message: string): never {
+/** Set with --desktop: the desktop app's main process started this server (plan M7). */
+let desktop: DesktopChannel | null = null;
+
+function fail(message: string, code: "port_in_use" | "home_in_use" | "start_failed" = "start_failed"): never {
   process.stderr.write(`${message}\n`);
+  desktop?.send({ type: "error", code, message });
   process.exit(1);
 }
 
@@ -56,9 +62,15 @@ const { values } = parseArgs({
     "preview-port-base": { type: "string" },
     "dev-origin": { type: "string" },
     "no-open": { type: "boolean", default: false },
+    desktop: { type: "boolean", default: false },
   },
   strict: true,
 });
+
+if (values.desktop) {
+  desktop = desktopChannel();
+  if (!desktop) fail("--desktop is only for the desktop app");
+}
 
 const port = parsePort(values.port, DEFAULT_ADMIN_PORT, "--port");
 const previewBase = parsePort(values["preview-port-base"], DEFAULT_PREVIEW_PORT_BASE, "--preview-port-base");
@@ -76,6 +88,15 @@ if (values["dev-origin"] !== undefined) {
 }
 
 const paths = ensureAppHome(resolveAppHome());
+// Before the database opens: one server per data directory (plan M7).
+let releaseLock: () => void;
+try {
+  releaseLock = acquireHomeLock(paths.lock);
+} catch (err) {
+  if (err instanceof HomeInUseError) fail(err.message, "home_in_use");
+  throw err;
+}
+process.on("exit", () => releaseLock());
 // Before anything starts a child process: the token variables leave process.env here (plan 6.5).
 const secrets = new SecretStore(paths.secrets);
 // Before anything can load Pi: it reads these when its modules load (plan 6.1).
@@ -94,6 +115,7 @@ const bukit = new BukitService({
 });
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
+const resources = resolveResources(repoRoot);
 // Without git, site operations fail when they run git; /api/health tells the user git is missing.
 const git = new GitRunner({
   gitPath: gitPath ?? "/nonexistent/git",
@@ -110,13 +132,13 @@ const sites = new SiteService({
   settings: settingsStore,
   bukit,
   locks,
-  templateDir: path.join(repoRoot, "templates", "starter"),
+  templateDir: resources.starter,
 });
 
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
 const rg = new RgService({ piBin: paths.piBin });
 // Every session gives the AI these skills and the gate reads them, so a missing directory stops startup.
-const skillsDir = path.join(repoRoot, "skills");
+const skillsDir = resources.skills;
 if (!fs.existsSync(path.join(skillsDir, "bukitjalil", "site-editing", "SKILL.md"))) {
   fail(`BukitJalil's AI skills are missing: ${skillsDir}`);
 }
@@ -150,7 +172,7 @@ const panels = new PanelService({ git, sites, changeCommit: (id) => changes.open
 const deploys = new DeployService({ sites, panels, secrets, git, bukit, locks, paths, logger, db });
 const events = new EventHub();
 connectEvents(events, { agent, builds, changes, deploys, logger });
-const webDist = path.join(repoRoot, "packages/web/dist");
+const webDist = resources.web;
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
 
@@ -180,7 +202,7 @@ const app = createAdminApp({
 
 const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
 server.on("error", (err: NodeJS.ErrnoException) => {
-  if (err.code === "EADDRINUSE") fail(`Port ${port} is in use. Start with --port <another port>.`);
+  if (err.code === "EADDRINUSE") fail(`Port ${port} is in use. Start with --port <another port>.`, "port_in_use");
   fail(`Cannot start server: ${err.message}`);
 });
 
@@ -194,7 +216,18 @@ function printLoginUrl(): string {
 }
 
 server.on("listening", () => {
-  logger.log("info", "server.listening", { port, previewBase, dev });
+  logger.log("info", "server.listening", { port, previewBase, dev, desktop: !!desktop });
+  if (desktop) {
+    // The desktop window asks for a login link whenever it needs one; nothing is printed or opened.
+    const channel = desktop;
+    channel.onMessage((message) => {
+      if (message.type === "login") channel.send({ type: "login", url: `${openOrigin}/?token=${loginToken.issue()}` });
+      else void shutdown();
+    });
+    channel.onClose(() => void shutdown());
+    channel.send({ type: "ready", port });
+    return;
+  }
   const url = printLoginUrl();
   if (!values["no-open"]) openBrowser(url);
   if (!dev) {
@@ -218,7 +251,10 @@ function openBrowser(url: string) {
   child.unref();
 }
 
+let closing = false;
 async function shutdown() {
+  if (closing) return;
+  closing = true;
   events.closeAll();
   await agent.shutdown();
   await builds.shutdown();
@@ -226,6 +262,7 @@ async function shutdown() {
   await previews.closeAll();
   server.close();
   db.close();
+  releaseLock();
   process.exit(0);
 }
 process.on("SIGINT", shutdown);

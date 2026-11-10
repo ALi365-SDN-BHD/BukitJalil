@@ -8,6 +8,34 @@ export function resolveAppHome(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(override && override.length > 0 ? override : path.join(os.homedir(), ".bukitjalil"));
 }
 
+/** Files the server ships with: the AI skills, the starter template and the built web pages. */
+export interface ResourcePaths {
+  skills: string;
+  starter: string;
+  web: string;
+}
+
+/**
+ * Where those files are (plan M7): BUKITJALIL_RESOURCES names the desktop app's resources folder
+ * (skills/, templates/starter/, web/); without it they are read from the repository.
+ */
+export function resolveResources(repoRoot: string, env: NodeJS.ProcessEnv = process.env): ResourcePaths {
+  const root = env.BUKITJALIL_RESOURCES;
+  if (root && root.length > 0) {
+    const dir = path.resolve(root);
+    return {
+      skills: path.join(dir, "skills"),
+      starter: path.join(dir, "templates", "starter"),
+      web: path.join(dir, "web"),
+    };
+  }
+  return {
+    skills: path.join(repoRoot, "skills"),
+    starter: path.join(repoRoot, "templates", "starter"),
+    web: path.join(repoRoot, "packages", "web", "dist"),
+  };
+}
+
 export interface AppPaths {
   home: string;
   db: string;
@@ -30,6 +58,8 @@ export interface AppPaths {
   tmp: string;
   /** Deploy tokens set in the UI (plan 6.5), 0600. */
   secrets: string;
+  /** Pid of the server using this directory (plan M7). */
+  lock: string;
 }
 
 export function ensureAppHome(home: string): AppPaths {
@@ -47,6 +77,7 @@ export function ensureAppHome(home: string): AppPaths {
     piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
     secrets: path.join(home, "secrets.json"),
+    lock: path.join(home, "server.lock"),
   };
   // mkdir's mode only applies to new directories, so existing ones are tightened as well. The database
   // is created empty with 0600 before SQLite opens it; SQLite gives -wal / -shm the same mode.

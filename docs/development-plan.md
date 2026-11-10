@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.27（2026-11-11，M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.28（2026-11-11，M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -1288,9 +1288,38 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 
 ### M7 桌面版（4–5 天，MVP 之后）
 
-- Electron 45 壳：主进程启动 server，窗口加载本地页面
-- 应用数据目录、Bukit 程序随包或首启下载
-- macOS 签名与公证、自动更新（视需要）
+目标：在 macOS（Apple Silicon）上双击打开就能用，不需要终端，代码和网页版完全相同。Linux / Windows 安装包和签名不在本里程碑内。
+
+**设计**
+
+- **包**：新增 `packages/desktop`（Electron 45.2.3）。主进程和预加载脚本用 TypeScript 写，用 esbuild 打包；依赖方向不变：desktop 只启动 server、加载 web，不引用它们的代码
+- **server 进程**：主进程用 `utilityProcess.fork` 启动 server（Electron 自带的 Node），不在主进程里运行，server 崩溃不会带走窗口。开发时经 tsx 的加载器运行 `packages/server/src/main.ts`；安装包里运行 esbuild 打包的 `server.mjs`。前提是 Electron 45 的 Node 有 `node:sqlite`（第 1 层先核对）
+- **桌面模式 `--desktop`**：server 不打印登录链接、不读标准输入、不打开浏览器。监听成功后经 `process.parentPort` 发 `{type: "ready", port}`；收到 `{type: "login"}` 回一个新的一次性登录链接；收到 `{type: "shutdown"}` 走现有的关闭流程。端口被占用时回 `{type: "error", code: "port_in_use"}`，主进程换下一个端口重试（最多 10 次，预览端口段跟着移）
+- **资源目录**：server 现在按仓库目录找 `skills/`、`templates/starter`、`packages/web/dist`；加 `BUKITJALIL_RESOURCES` 指向安装包里的同名目录，没有时保持现状
+- **一个数据目录只能有一个 server**：桌面版和 `pnpm start` 默认都用 `~/.bukitjalil`，同时运行会争用 `app.db` 和工作副本。server 启动时在数据目录建 `server.lock`（写入 pid，用 `wx` 创建），已有锁且那个 pid 还活着就拒绝启动并说明；锁的 pid 已不存在时接管。桌面版把这个错误显示在窗口里
+- **窗口安全**：`contextIsolation`、`sandbox` 打开，`nodeIntegration` 关闭；只允许在管理端口的地址内导航；`window.open` 和外部链接只把 http(s) 地址交给系统浏览器（预览的"在新标签页打开"也是）；拒绝所有权限请求（摄像头、通知等）；不开 `webview`
+- **预加载桥**：只暴露 `window.bukitjalil = { desktop: true, pickFolder() }`。`pickFolder` 打开系统文件夹选择框，返回路径或 null；新建网站和导入网站在桌面版用它代替网页里的目录选择器（10.1 原定）。路径照旧交给 server，位置规则仍由 server 检查
+- **单实例和退出**：`requestSingleInstanceLock`，第二次打开只把已有窗口调到前面。退出时发 `shutdown`，最多等 10 秒，超时结束 server 进程。关闭最后一个窗口时 macOS 上不退出（Dock 点图标重新打开窗口），其他平台退出
+- **server 异常退出**：窗口显示一个本地错误页（原因、日志目录、"重新启动"按钮），不自动反复重启
+- **菜单**：标准的应用 / 编辑（复制粘贴需要它）/ 视图 / 窗口菜单；帮助菜单里"打开日志目录""打开数据目录"
+- **环境**：从 Finder 打开的应用读不到 shell 的环境变量，PATH 只有系统目录。git 用 `/usr/bin/git`（没有装命令行工具时 macOS 会提示安装，健康检查已有说明）；token 只能在设置里填（6.5 已支持）
+- **Bukit**：不随包，第一次打开时用设置里已有的"下载安装"（带校验）。安装包更小，也不用跟着 Bukit 升级重新出包
+- **打包**：用 `@electron/packager` 生成 arm64 的 `.app` 并压成 zip，包里有 `server.mjs`、`web/`、`skills/`、`templates/`。不签名、不公证（需要 Apple 开发者账号），使用说明写明第一次打开时右键 → 打开。自动更新依赖签名，不做
+
+**分层**
+
+1. server 桌面模式：核对 Electron 45 的 Node（`node:sqlite`、版本），`--desktop` 握手、`BUKITJALIL_RESOURCES`、`server.lock`，单元测试
+2. 桌面壳（开发运行）：`packages/desktop` 主进程、预加载、窗口安全、单实例、退出、错误页、菜单，`pnpm desktop` 启动；Playwright 的 Electron 测试
+3. 系统集成：系统文件夹选择框、外部链接和预览在系统浏览器打开
+4. 打包：esbuild 打包 server、`@electron/packager` 出 `.app`，打包后的应用自测
+5. 使用说明、README，从 Finder 打开安装包的验收记录
+
+> M7 第 1 层实现说明（server 桌面模式，Electron 部分待安装后核对）：
+> - `--desktop`：`src/desktop.ts` 的通道优先用 Electron 的 `process.parentPort`，没有时用 Node 子进程的 IPC（测试用）；没有任何通道时拒绝启动。监听成功发 `ready`，`login` 回新的一次性链接，`shutdown` 或通道断开都走关闭流程；登录链接不打印
+> - 启动失败发 `{type: "error", code}`：`port_in_use`（端口被占）、`home_in_use`（数据目录被占）、`start_failed`
+> - `src/lock.ts`：`server.lock` 用 `wx` 创建并写 pid；锁的进程还在（`kill(pid, 0)` 成功或 EPERM）就拒绝，进程已不在或内容读不出时接管；释放时只删自己的锁。`pnpm start` 同样拿锁，进程退出（包括启动失败）时释放
+> - `resolveResources`：`BUKITJALIL_RESOURCES` 下的 `skills/`、`templates/starter/`、`web/`；没有设置时仍从仓库读
+> - 测试 `desktop.test.ts` 用 tsx 真实启动 `main.ts`：握手、登录链接能换到会话 cookie、关闭后锁被删除、父进程断开时关闭、第二个 server 被拒、端口被占
 
 ### 里程碑总览
 
