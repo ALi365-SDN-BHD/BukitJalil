@@ -14,6 +14,20 @@ describe("StreamCapture", () => {
     expect(c.text()).toBe("ab\ncd\n");
   });
 
+  it("adds no gap marker when nothing was left out, and never splits a line across the gap", () => {
+    const c = new StreamCapture(10, 100);
+    for (const chunk of ["aaaa\nbb", "bb\ncccc", "\ndddd\n"]) c.push(chunk);
+    expect(c.text()).toBe("aaaa\nbbbb\ncccc\ndddd\n");
+
+    const d = new StreamCapture(10, 12);
+    for (const chunk of ["aaaa\nbb", "bb\nccccccc", "c\n", "dddddd\neeeeee\nffff\n"]) d.push(chunk);
+    const text = d.text();
+    expect(text.startsWith("aaaa\nbbbb\n")).toBe(true);
+    expect(text).toContain(CAPTURE_GAP);
+    expect(text.endsWith("eeeeee\nffff\n")).toBe(true);
+    for (const line of text.split("\n").filter((l) => l && l !== CAPTURE_GAP)) expect(line).toMatch(/^(\w)\1*$/);
+  });
+
   it("keeps whole lines of the start and the end, with a gap marker between", () => {
     const c = new StreamCapture(8, 16);
     for (let i = 0; i < 50; i++) c.push(`line${String(i).padStart(2, "0")}\n`);

@@ -60,7 +60,10 @@ export const CAPTURE_GAP = "[... output in the middle left out ...]";
 export class StreamCapture {
   private head = "";
   private tail = "";
-  private dropped = false;
+  /** The head is full: further text goes to the tail. */
+  private full = false;
+  /** The tail was trimmed: something between head and tail is gone. */
+  private omitted = false;
 
   constructor(
     private readonly headMax = CAPTURE_HEAD,
@@ -68,35 +71,37 @@ export class StreamCapture {
   ) {}
 
   push(chunk: string): void {
-    if (!this.dropped && this.head.length + chunk.length <= this.headMax) {
+    if (this.full) {
+      this.tail += chunk;
+      if (this.tail.length > this.tailMax * 2) this.trim();
+      return;
+    }
+    if (this.head.length + chunk.length <= this.headMax) {
       this.head += chunk;
       return;
     }
-    if (!this.dropped) {
-      // Keep whole lines in the head; the rest starts the tail.
-      const room = this.headMax - this.head.length;
-      const cut = chunk.lastIndexOf("\n", room - 1);
-      if (cut >= 0) {
-        this.head += chunk.slice(0, cut + 1);
-        chunk = chunk.slice(cut + 1);
-      }
-      this.dropped = true;
-    }
-    this.tail += chunk;
+    // The head keeps whole lines only; the line that does not fit, partly in the head so far, starts the tail.
+    const all = this.head + chunk;
+    const cut = all.lastIndexOf("\n", this.headMax - 1);
+    this.head = all.slice(0, cut + 1);
+    this.tail = all.slice(cut + 1);
+    this.full = true;
     if (this.tail.length > this.tailMax * 2) this.trim();
   }
 
   text(): string {
     this.trim();
-    if (!this.dropped) return this.head;
-    return `${this.head}${this.head.endsWith("\n") || this.head === "" ? "" : "\n"}${CAPTURE_GAP}\n${this.tail}`;
+    if (!this.omitted) return this.head + this.tail;
+    return `${this.head}${CAPTURE_GAP}\n${this.tail}`;
   }
 
   private trim(): void {
     if (this.tail.length <= this.tailMax) return;
-    const rest = this.tail.slice(-this.tailMax);
-    const nl = rest.indexOf("\n");
-    this.tail = nl >= 0 ? rest.slice(nl + 1) : rest;
+    const start = this.tail.length - this.tailMax;
+    // Start at a line boundary: right here if a line begins at `start`, else after the next newline.
+    const nl = this.tail[start - 1] === "\n" ? start - 1 : this.tail.indexOf("\n", start);
+    this.tail = nl >= 0 ? this.tail.slice(nl + 1) : this.tail.slice(start);
+    this.omitted = true;
   }
 }
 const KILL_GRACE_MS = 10_000;
