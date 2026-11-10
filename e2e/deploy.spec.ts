@@ -24,7 +24,12 @@ test.afterAll(async ({ browser, server }) => {
   await page.goto(await server.loginUrl());
   await putSettings(page, { bukitPath: null, commitName: null, commitEmail: null });
   await page.evaluate(() =>
-    fetch("/api/secrets/github", { method: "DELETE", headers: { "X-BukitJalil": "1" } }).then(() => undefined),
+    fetch("/api/secrets/github", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
+    }).then((res) => {
+      if (!res.ok) throw new Error(`remove token: ${res.status}`);
+    }),
   );
   await page.close();
   removeImportedSites();

@@ -26,6 +26,9 @@ section to see the exact language fields of this Bukit version.
   `/en-US/about/`, not `page.seo.alternates[].href`: with `site.url` set those
   are absolute addresses and leave BukitJalil's preview. Take the path part of
   the alternate address, or build it from the language and the page's slug.
+- Set `site.sitemapMode: merged` so one sitemap at the root lists every
+  language; with the default `split` each language has its own and the
+  publish audit reports pages as missing from the sitemap.
 - Localize the shared parts too: the page title in `<title>`, the brand, the
   navigation and the footer text should follow the page's language.
 - Do not machine-translate legal text (terms, privacy policy); add the page

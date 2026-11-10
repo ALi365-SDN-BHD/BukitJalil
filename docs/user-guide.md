@@ -108,7 +108,27 @@ AI 的改动先留在工作副本里，不会直接进入你的网站。对话�
 
 AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有关或你要求的问题，不会为了消除所有警告乱改网站。
 
-## 10. 右栏面板
+## 10. 发布到 GitHub Pages
+
+网站主页的"发布"一节把**正式版本**（默认分支上最新的已审核版本）发布到 GitHub Pages。
+
+**准备一次**：
+
+1. 在 GitHub 上建好仓库。仓库名是 `用户名.github.io` 时网站在 `https://用户名.github.io/`，其他仓库名在 `https://用户名.github.io/仓库名/`
+2. 建一个 token：GitHub 的 Settings → Developer settings → Personal access tokens。推荐 fine-grained token，只选这个仓库，权限 Contents 设为 Read and write
+3. 在 BukitJalil 的设置里找到"GitHub token（发布用）"填进去。token 保存在本机 `~/.bukitjalil/secrets.json`（权限 600），界面只显示末四位，只在你点"发布"时交给 Bukit。也可以用环境变量 `BUKITJALIL_GITHUB_TOKEN` 提供，这时界面里不能修改
+4. 设置发布目标：点"让 AI 设置发布目标"，会新开一个对话并填好说明，补上仓库（`owner/name`）后发送。AI 改 `site.yaml` 的 `deploy` 段，并按仓库设置网站网址，改动照常审核、应用
+5. 在 GitHub 仓库的 Settings → Pages 里，把 Build and deployment 设为 Deploy from a branch，分支选 `gh-pages`（或你设置的分支）。第一次发布后这个分支才会出现
+
+**发布**：点"发布"，确认对话框会写明仓库、分支和要发布的版本。确认后 BukitJalil 在本机依次做安全检查、配置检查、诊断、构建、发布审计，全部通过才推送；任何一步失败都不会推送，发布记录里写明是哪一步和原因。推送会覆盖目标分支上的网站内容，GitHub Pages 通常要一两分钟才显示新内容。
+
+**发布审计的警告**：发布记录里有"发布审计"摘要。警告不会阻止发布。多语言网站常见三类警告：
+
+- `publish.sitemap_missing_route`：每种语言各有一个 sitemap。让 AI 在 `site.yaml` 加 `sitemapMode: merged`，就会在根目录生成一个合并的 sitemap，这类警告消失
+- `publish.rss_missing_route`、`publish.search_missing_route`：RSS 和站内搜索索引按语言分开生成，Bukit 2.0.12 的审计只看根目录，所以会报缺少。网站本身没有问题，可以不处理
+- `publish.time_missing`：页面模板没有显示日期的 `<time>` 元素，可以让 AI 在文章模板里加上
+
+## 11. 右栏面板
 
 | 面板 | 看什么 |
 | --- | --- |
@@ -121,7 +141,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 
 文件、配置、主题、数据面板也能切到"改动中"，看 AI 修改后的样子。
 
-## 11. 外观和操作
+## 12. 外观和操作
 
 - **界面语言**：顶栏的语言选择，简体中文或 English
 - **外观**：顶栏的外观选择，跟随系统、浅色或深色
@@ -136,7 +156,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 | Alt+1 … Alt+6 | 切换右栏面板：预览、改动、文件、配置、主题、数据（在文本框以外；Mac 上 Alt 是 Option 键） |
 | ? | 显示快捷键列表（在文本框以外） |
 
-## 12. 常见问题
+## 13. 常见问题
 
 **提示"登录已失效"**：在运行 BukitJalil 的终端里按回车，打开新打印的地址。
 
@@ -148,13 +168,15 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 
 **网站显示"只读"**：导入时没通过安全规则，原因写在网站主页。在网站文件夹里自己修正（例如删除外部插件目录、去掉不允许的 git 设置）后点"重新检查"。
 
-**网站使用 Notion 内容源**：MVP 不连接 Notion，AI 不能检查和构建这类网站的改动。
+**网站使用 Notion 内容源**：MVP 不连接 Notion，AI 不能检查和构建这类网站的改动，也不能发布。
+
+**发布失败**：在"发布"一节点开发布记录。推送这一步失败多半是 token 的问题：没有这个仓库的 Contents 写权限、已过期，或者仓库名写错了；在设置里换一个 token 或让 AI 改 `deploy.repo` 后重试。推送成功但网站没更新时，检查 GitHub 仓库的 Pages 设置是否从对应分支发布。
 
 **应用时提示网站文件夹有未提交的改动或不在正式分支上**：你在 BukitJalil 之外改过网站文件夹。先在那里提交或撤销、切回正式分支，再应用。
 
-## 13. 目前的限制
+## 14. 目前的限制
 
 - 只支持 macOS（Apple 芯片）和 Linux x64；没有 Windows 版和桌面应用（以后用 Electron 提供）
-- 发布到 GitHub Pages 还没有做（M6），目前可以把构建结果自己拿去部署
+- 只能发布到 GitHub Pages；Cloudflare Pages 和自己的服务器以后再做
 - 不支持 Bukit 的外部插件，只允许内置插件
 - 不连接 Notion 数据源

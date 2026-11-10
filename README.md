@@ -2,7 +2,7 @@
 
 把**网站当作项目**来管理的系统。每个网站的配置、主题、文件、数据都在这里统一管理；建站和修改都通过和 AI 对话完成，用户不直接改代码。
 
-> 状态：M0 工程骨架、M1 技术验证、M2 网站与只读面板、M3 AI 会话已完成；M4 审核与版本、M5 MVP 打磨已完成（真实模型验收见 [docs/acceptance](docs/acceptance/m5-real-model.md)）；下一步是 M6 发布到 GitHub Pages。旧的 Electron + Codex 实现仍保留在 `main` 分支上。
+> 状态：M0 工程骨架、M1 技术验证、M2 网站与只读面板、M3 AI 会话已完成；M4 审核与版本、M5 MVP 打磨已完成（真实模型验收见 [docs/acceptance](docs/acceptance/m5-real-model.md)）；M6 发布到 GitHub Pages 正在收尾（真实发布验收待做）。旧的 Electron + Codex 实现仍保留在 `main` 分支上。
 >
 > 使用方法见 [使用说明](docs/user-guide.md)。
 
@@ -157,7 +157,7 @@ pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
 
 端到端测试默认用一个替身 Bukit；设置 `BUKIT_BIN=/path/to/bukit` 时改用真实 Bukit 构建（单元测试里的真实 Bukit 用例同样读 `BUKIT_BIN`，下载安装的用例另外读 `BUKIT_TARBALL`，即本平台的官方安装包）。这两个文件可以用 `pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts <目录>` 下载（固定版本和校验和），它会输出两个变量的值；CI 就是这样做的。
 
-### 现在能做什么（M5）
+### 现在能做什么（M6）
 
 1. 打开设置（顶栏齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）；没有 Bukit 或版本较旧时可以确认后下载安装官方 2.0.12（macOS arm64、Linux x64），其他平台填自建 Bukit 的路径。
 2. 在设置的"AI 模型"里选服务商和模型，填 API Key（只保存在本机 `~/.bukitjalil/pi/auth.json`，界面只显示末四位；也可以用服务商的环境变量），点"测试连接"确认可用，再点"使用这个模型"。
@@ -169,7 +169,8 @@ pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
 8. 右侧面板查看预览、改动、文件、配置、主题、数据，文件类面板也能切到"改动中"；中栏可以重新构建、查看构建报告、重新检查、归档、移除网站。
 9. 构建报告里有 SEO / GEO 摘要：问题按种类分组，缺网站网址时合成一条提示，并给出 GEO 得分；AI 每次构建也会拿到这份摘要。
 10. 首页的"开始使用"清单按顺序检查 git、Bukit、提交身份、模型和第一个网站；模型、构建、磁盘出错时界面写明是哪类问题和怎么处理。
-11. 顶栏可以切换界面语言和外观（跟随系统 / 浅色 / 深色）；窄屏时三栏改为一次一栏；Enter 发送、Esc 停止、Alt+1…6 切换面板，按 ? 查看全部快捷键。
+11. 发布到 GitHub Pages：在设置里填 GitHub token（只保存在本机 `~/.bukitjalil/secrets.json`，也可以用环境变量 `BUKITJALIL_GITHUB_TOKEN`），让 AI 在 `site.yaml` 设置发布目标并审核应用；网站主页点"发布"，确认仓库、分支和版本后，BukitJalil 依次做安全检查、配置检查、诊断、构建、发布审计，全部通过才推送，发布记录里有每一步的结果和发布审计摘要。
+12. 顶栏可以切换界面语言和外观（跟随系统 / 浅色 / 深色）；窄屏时三栏改为一次一栏；Enter 发送、Esc 停止、Alt+1…6 切换面板，按 ? 查看全部快捷键。
 
 不想用真实模型时，用 `BUKITJALIL_FAKE_MODEL=1 pnpm dev` 启动，设置里会多出一个脚本化的假模型 `bukitjalil-fake`，不联网，端到端测试也用它。平常的消息它只查看网站；消息里带 `#faq` 时会真的在 AI 工作副本里改标题、加 FAQ 页面（`#auth`、`#plugin` 用来演示被拒绝的读取和构建）。
 
