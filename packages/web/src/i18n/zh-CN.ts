@@ -26,6 +26,7 @@ const zhCN = {
     readOnly: "只读",
   },
   dirPicker: {
+    choose: "选择文件夹…",
     path: "文件夹路径，按回车前往",
     up: "上一级",
     showHidden: "显示隐藏文件夹",

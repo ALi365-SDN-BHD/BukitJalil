@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUp, Folder } from "lucide-react";
+import { ArrowUp, Folder, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
+import { desktopBridge } from "@/lib/desktop";
 
 /**
  * Directory picker (plan 5.2): lists one level of subfolders through GET /api/fs/dirs. `value` is the
- * folder currently chosen; clicking a subfolder goes into it.
+ * folder currently chosen; clicking a subfolder goes into it. In the desktop app (plan M7) the system
+ * folder dialog takes the place of the list.
  */
 export function DirPicker({
   id,
@@ -28,6 +30,34 @@ export function DirPicker({
   useEffect(() => {
     if (value === null && dirs.data) onChange(dirs.data.path);
   }, [value, dirs.data, onChange]);
+
+  const desktop = desktopBridge();
+  if (desktop) {
+    return (
+      <div className="flex flex-col gap-2" data-testid="dir-picker">
+        <div className="flex items-center gap-2">
+          <PathInput id={id} current={current} onSubmit={onChange} />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            data-testid="dir-choose"
+            onClick={async () => {
+              const path = await desktop.pickFolder(current ?? undefined);
+              if (path) onChange(path);
+            }}
+          >
+            <FolderOpen /> {m.dirPicker.choose}
+          </Button>
+        </div>
+        {dirs.error && (
+          <p className="text-xs text-destructive" role="alert">
+            {errorOf(dirs.error)}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2 rounded-md border p-2" data-testid="dir-picker">

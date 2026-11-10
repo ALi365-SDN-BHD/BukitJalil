@@ -27,6 +27,7 @@ const en: Messages = {
     readOnly: "Read-only",
   },
   dirPicker: {
+    choose: "Choose Folder…",
     path: "Folder path; press Enter to go there",
     up: "Up",
     showHidden: "Show hidden folders",

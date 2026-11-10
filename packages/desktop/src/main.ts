@@ -158,9 +158,14 @@ function lockDown() {
     });
     contents.on("will-attach-webview", (event) => event.preventDefault());
   });
-  ipcMain.handle("desktop:pick-folder", async (event) => {
+  ipcMain.handle("desktop:pick-folder", async (event, start: unknown) => {
     if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`) || !win) return null;
-    const result = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
+    // Only where the dialog opens; the server checks the folder that comes back like any other path.
+    const defaultPath = typeof start === "string" && path.isAbsolute(start) && start.length < 4096 ? start : undefined;
+    const result = await dialog.showOpenDialog(win, {
+      properties: ["openDirectory", "createDirectory"],
+      ...(defaultPath ? { defaultPath } : {}),
+    });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
   ipcMain.handle("desktop:restart", async (event) => {

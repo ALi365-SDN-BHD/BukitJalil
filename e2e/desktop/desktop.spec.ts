@@ -126,3 +126,30 @@ test("says when another BukitJalil holds the data directory", async () => {
   await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
   await app.close();
 });
+
+test("chooses folders with the system dialog, opened where the field points", async () => {
+  const { app, page, home } = await launch();
+  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  const chosen = fs.mkdtempSync(path.join(home, "chosen-"));
+  await app.evaluate(({ dialog }, folder) => {
+    const calls: unknown[] = [];
+    (globalThis as { dialogCalls?: unknown[] }).dialogCalls = calls;
+    dialog.showOpenDialog = (async (_win: unknown, options: unknown) => {
+      calls.push(options);
+      return { canceled: false, filePaths: [folder] };
+    }) as typeof dialog.showOpenDialog;
+  }, chosen);
+  await page.getByTestId("new-site").click();
+  const field = page.getByTestId("dir-current");
+  await expect(field).not.toHaveValue("");
+  const before = await field.inputValue();
+  // No folder list in the desktop app: the system dialog replaces it.
+  await expect(page.getByRole("list", { name: /Folders|文件夹/ })).toHaveCount(0);
+  await page.getByTestId("dir-choose").click();
+  // The server answers with the folder's real path (on macOS /var is /private/var).
+  await expect(field).toHaveValue(fs.realpathSync(chosen));
+  expect(await app.evaluate(() => (globalThis as { dialogCalls?: unknown[] }).dialogCalls)).toEqual([
+    { properties: ["openDirectory", "createDirectory"], defaultPath: before },
+  ]);
+  await app.close();
+});

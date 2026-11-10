@@ -6,6 +6,6 @@ import { contextBridge, ipcRenderer } from "electron";
  */
 contextBridge.exposeInMainWorld("bukitjalil", {
   desktop: true,
-  pickFolder: (): Promise<string | null> => ipcRenderer.invoke("desktop:pick-folder"),
+  pickFolder: (start?: string): Promise<string | null> => ipcRenderer.invoke("desktop:pick-folder", start),
   restart: (): Promise<void> => ipcRenderer.invoke("desktop:restart"),
 });
