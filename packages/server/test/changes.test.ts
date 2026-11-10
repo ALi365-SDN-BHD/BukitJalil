@@ -832,7 +832,7 @@ describe("history and restore", () => {
     expect(new Set(first.json.files.map((f) => f.status))).toEqual(new Set(["added"]));
 
     // Not a version of this site: a commit off the branch, an unknown object, a malformed id.
-    const loose = s.git("commit-tree", "HEAD^{tree}", "-m", "loose");
+    const loose = s.git("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", "HEAD^{tree}", "-m", "loose");
     expect((await call("GET", `/api/sites/${s.id}/history/${loose}/diff`)).json.code).toBe("history.not_found");
     expect((await call("GET", `/api/sites/${s.id}/history/${"a".repeat(40)}/diff`)).status).toBe(404);
     expect((await call("GET", `/api/sites/${s.id}/history/HEAD/diff`)).status).toBe(400);
@@ -884,7 +884,7 @@ describe("history and restore", () => {
 
     const same = await call("POST", `/api/sites/${s.id}/history/${init}/restore`);
     expect([same.status, same.json.code]).toEqual([409, "change.same_version"]);
-    const loose = s.git("commit-tree", `${applied}^{tree}`, "-m", "loose");
+    const loose = s.git("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", `${applied}^{tree}`, "-m", "loose");
     const off = await call("POST", `/api/sites/${s.id}/history/${loose}/restore`);
     expect([off.status, off.json.code]).toEqual([404, "history.not_found"]);
   });
