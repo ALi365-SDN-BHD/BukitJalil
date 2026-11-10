@@ -176,6 +176,7 @@ const en: Messages = {
       error: "BukitJalil error",
     },
     commit: "Commit {commit}",
+    changeBuild: "Change preview",
     report: "Build report",
     messages: "Warnings and errors",
     output: "Other output",
@@ -189,6 +190,10 @@ const en: Messages = {
     showing: "Build {build} · commit {commit}",
     frameTitle: "Site preview",
     newer: "A newer build is ready; reload to see it",
+    changeNotBuilt: "The changes have not been built yet. Build them to preview the site with the AI's edits.",
+    buildChange: "Build the changes",
+    changeOutdated: "The AI changed more since this build.",
+    rebuild: "Build again",
   },
   files: {
     main: "Main version",

@@ -23,6 +23,8 @@ interface StoredReport extends BuildReport {
 export interface BuildRecord extends Build {
   /** previews/<siteId>/<buildId>, while the output is kept. */
   outputDir: string | null;
+  /** The change set a change build previews; null for main builds. */
+  changeSetId: string | null;
 }
 
 function toBuild(row: BuildRow): BuildRecord {
@@ -48,6 +50,7 @@ function toBuild(row: BuildRow): BuildRecord {
     hasOutput: row.output_dir !== null,
     report: stored ? (report as BuildReport) : null,
     outputDir: row.output_dir,
+    changeSetId: row.change_set_id,
   };
 }
 
@@ -58,12 +61,12 @@ export const newBuildId = () => crypto.randomBytes(8).toString("hex");
 export class BuildStore {
   constructor(private readonly db: DatabaseSync) {}
 
-  insert(build: { id: string; siteId: string; commit: string }): void {
+  insert(build: { id: string; siteId: string; commit: string; changeSetId?: string | null }): void {
     this.db
       .prepare(
-        `INSERT INTO builds (id, site_id, "commit", kind, status, started_at) VALUES (?, ?, ?, 'build', 'running', ?)`,
+        `INSERT INTO builds (id, site_id, change_set_id, "commit", kind, status, started_at) VALUES (?, ?, ?, ?, 'build', 'running', ?)`,
       )
-      .run(build.id, build.siteId, build.commit, new Date().toISOString());
+      .run(build.id, build.siteId, build.changeSetId ?? null, build.commit, new Date().toISOString());
   }
 
   finish(

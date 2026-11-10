@@ -1,4 +1,4 @@
-import type { Build } from "@bukitjalil/shared";
+import type { Build, PanelRef } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -30,21 +30,33 @@ export function useBuilds(siteId: string) {
     }
     wasRunning.current = running;
   }, [running, siteId, queryClient]);
-  return { ...builds, running, latest: builds.data?.builds[0] ?? null };
+  // The site's state is its main version: a change set's preview build does not speak for it.
+  const latest = builds.data?.builds.find((b) => b.ref === "main") ?? null;
+  return { ...builds, running, latest };
 }
 
-export function useStartBuild(siteId: string) {
+export function useStartBuild(siteId: string, ref: PanelRef = "main") {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.startBuild(siteId),
+    mutationFn: () => api.startBuild(siteId, ref),
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.builds(siteId) }),
   });
 }
 
-export function BuildButton({ siteId, disabled }: { siteId: string; disabled?: boolean }) {
+export function BuildButton({
+  siteId,
+  disabled,
+  refName = "main",
+  label,
+}: {
+  siteId: string;
+  disabled?: boolean;
+  refName?: PanelRef;
+  label?: string;
+}) {
   const { m, errorOf } = useI18n();
   const builds = useBuilds(siteId);
-  const start = useStartBuild(siteId);
+  const start = useStartBuild(siteId, refName);
   return (
     <div className="flex items-center gap-2">
       <Button
@@ -54,7 +66,7 @@ export function BuildButton({ siteId, disabled }: { siteId: string; disabled?: b
         onClick={() => start.mutate()}
       >
         {builds.running || start.isPending ? <Loader2 className="animate-spin" /> : <Hammer />}
-        {builds.running ? m.build.status.running : start.isPending ? m.build.starting : m.build.start}
+        {builds.running ? m.build.status.running : start.isPending ? m.build.starting : (label ?? m.build.start)}
       </Button>
       {start.error && (
         <span role="alert" className="text-xs text-destructive">
@@ -97,6 +109,11 @@ export function BuildList({ siteId, limit = 5 }: { siteId: string; limit?: numbe
               onClick={() => setOpen(b.id)}
             >
               <BuildBadge build={b} />
+              {b.ref === "change" && (
+                <Badge tone="neutral" data-testid="build-ref">
+                  {m.build.changeBuild}
+                </Badge>
+              )}
               <span className="text-muted-foreground">{t(m.build.commit, { commit: shortOid(b.commit) })}</span>
               <span className="ml-auto text-xs text-muted-foreground">
                 {formatTime(b.startedAt, locale)}

@@ -1,7 +1,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ApplyResult, ChangeSet, CurrentChange, FileDiff, ServerEvent } from "@bukitjalil/shared";
+import type {
+  ApplyResult,
+  Build,
+  ChangeSet,
+  CurrentChange,
+  FileDiff,
+  PreviewResponse,
+  ServerEvent,
+} from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
@@ -9,11 +17,12 @@ import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { MAX_FILES, MAX_PATCH_BYTES } from "../src/changes/diff.ts";
 import { changeRef } from "../src/changes/service.ts";
+import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
-import { ADMIN, commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, httpGet, makeApp, rawGit, req } from "./helpers.ts";
 
-// M4 layers 1 to 3 (plan 7.2, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
+// M4 layers 1 to 3 and 5 (plan 7.2, 8.4, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
 // works in the ai/ checkout, and its result is snapshotted into the change set; the site folder only
 // changes when a change set is applied.
 
@@ -26,7 +35,10 @@ let faux: ReturnType<PiModules["ai"]["fauxProvider"]>;
 let n = 0;
 let settings: SettingsStore;
 
-/** Stand-in Bukit: checks pass unless the checkout has a file named fake-doctor; builds write a page. */
+/**
+ * Stand-in Bukit: checks pass unless the checkout has a file named fake-doctor; builds write a page that
+ * shows the checkout's `marker` file.
+ */
 const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
   version) echo "bukit 2.0.11+fake"; exit 0;;
@@ -35,7 +47,7 @@ case "$1" in
   build)
     out=""; prev=""
     for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
-    mkdir -p "$out"; echo "<h1>home</h1>" > "$out/index.html"; exit 0;;
+    mkdir -p "$out"; echo "<h1>home $(cat marker 2>/dev/null)</h1>" > "$out/index.html"; exit 0;;
 esac
 exit 1
 `;
@@ -681,5 +693,63 @@ describe("the change set API and events", () => {
       code: "change.not_open",
       params: { status: "rejected" },
     });
+  });
+});
+
+describe("change set previews", () => {
+  async function build(siteId: string, ref: "main" | "change"): Promise<Build> {
+    const started = await ctx.builds.start(siteId, ref);
+    await ctx.builds.settled();
+    return ctx.builds.get(siteId, started.id);
+  }
+
+  it("builds the open change set in the AI checkout and previews only that change set", async () => {
+    const s = await site();
+    await expect(ctx.builds.start(s.id, "change")).rejects.toMatchObject({ code: "change.not_found" });
+    await expect(ctx.builds.openPreview(s.id, "change")).rejects.toMatchObject({ code: "change.not_found" });
+
+    const session = ctx.agent.create(s.id);
+    const { cwd, change } = await ctx.changes.begin(s.id, session.id);
+    await expect(ctx.builds.openPreview(s.id, "change")).rejects.toMatchObject({ code: "preview.not_built" });
+    // Edited outside a run: the build snapshots the checkout first and builds exactly that commit.
+    fs.writeFileSync(path.join(cwd, "marker"), "from-the-ai");
+    const b = await build(s.id, "change");
+    const snapshot = ctx.changes.store.get(change.id)?.snapshotCommit;
+    expect(b).toMatchObject({ ref: "change", status: "succeeded", hasOutput: true, commit: snapshot });
+    expect(snapshot).not.toBe(change.baseCommit);
+    // Nothing was written in the site folder, and the build directory left the checkout.
+    expect(fs.existsSync(path.join(s.dir, "marker"))).toBe(false);
+    expect(s.git("status", "--porcelain")).toBe("");
+    expect(fs.existsSync(path.join(cwd, ".bukitjalil-build", b.id))).toBe(false);
+
+    const opened = (await ctx.builds.openPreview(s.id, "change")) as PreviewResponse;
+    expect(opened).toMatchObject({ ref: "change", buildId: b.id, commit: snapshot });
+    expect((await httpGet(opened.port)).body).toContain("from-the-ai");
+    // The main preview is its own build of the default branch.
+    const mainPreview = await ctx.builds.openPreview(s.id, "main");
+    expect(mainPreview.port).not.toBe(opened.port);
+    expect((await httpGet(mainPreview.port)).body).not.toContain("from-the-ai");
+
+    // Once the change set is closed, its preview port goes and its builds are not offered again.
+    await ctx.changes.reject(change.id);
+    for (let i = 0; i < 100 && ctx.previews.rootOf(PreviewPool.key(s.id, "change")) !== null; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(ctx.previews.rootOf(PreviewPool.key(s.id, "change"))).toBeNull();
+    const next = await ctx.changes.begin(s.id, session.id);
+    expect(next.change.id).not.toBe(change.id);
+    await expect(ctx.builds.openPreview(s.id, "change")).rejects.toMatchObject({ code: "preview.not_built" });
+  });
+
+  it("refuses an unsafe change without marking the site read-only", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.mkdirSync(path.join(cwd, "plugins"));
+    fs.writeFileSync(path.join(cwd, "plugins/x.js"), "export {};\n");
+    const b = await build(s.id, "change");
+    expect(b).toMatchObject({ ref: "change", status: "failed", outcome: "refused", hasOutput: false });
+    expect(b.report?.reasons?.map((r) => r.code)).toContain("plugin_files");
+    expect(ctx.sites.get(s.id).readOnly).toBeNull();
   });
 });

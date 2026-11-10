@@ -120,6 +120,7 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
         // Closed: its snapshot can no longer be shown (the panels fall back to the main version), and when
         // it was applied the main version moved.
         queryClient.removeQueries({ predicate: (q) => ofSite(q.queryKey) && q.queryKey[3] === "change" });
+        queryClient.removeQueries({ queryKey: ["preview", siteId, "change"] });
         void queryClient.invalidateQueries({ predicate: (q) => ofSite(q.queryKey) });
         void queryClient.invalidateQueries({ queryKey: keys.site(siteId) });
       }

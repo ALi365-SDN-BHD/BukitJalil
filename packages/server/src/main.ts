@@ -105,7 +105,6 @@ const sites = new SiteService({
 });
 
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
-const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
 const rg = new RgService({ piBin: paths.piBin });
 // Every session gives the AI these skills and the gate reads them, so a missing directory stops startup.
 const skillsDir = path.join(repoRoot, "skills");
@@ -121,6 +120,7 @@ const changes = new ChangeService({
   logger,
 });
 const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
+const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, changes, logger });
 const agent = new AgentService({
   db,
   paths,

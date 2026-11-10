@@ -173,6 +173,7 @@ const zhCN = {
       error: "BukitJalil 出错",
     },
     commit: "提交 {commit}",
+    changeBuild: "改动预览",
     report: "构建报告",
     messages: "警告和错误",
     output: "其他输出",
@@ -186,6 +187,10 @@ const zhCN = {
     showing: "构建 {build} · 提交 {commit}",
     frameTitle: "网站预览",
     newer: "有更新的构建，点刷新查看",
+    changeNotBuilt: "改动还没有构建。构建后可以预览 AI 修改后的网站。",
+    buildChange: "构建改动",
+    changeOutdated: "这次构建之后 AI 又有新的改动。",
+    rebuild: "重新构建",
   },
   files: {
     main: "正式版本",

@@ -13,6 +13,7 @@ import type {
 import { guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, logEntry, usableRunner } from "../bukit/runner.ts";
+import type { ChangeService } from "../changes/service.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
 import type { AppPaths } from "../paths.ts";
@@ -30,6 +31,7 @@ export interface BuildServiceOptions {
   bukit: BukitService;
   locks: SiteLocks;
   previews: PreviewPool;
+  changes: ChangeService;
   logger: Logger;
 }
 
@@ -68,6 +70,10 @@ export interface BuildEvent {
  * branch head, never in the site directory: the commit passes the pre-build guard, Bukit writes into a
  * fresh .bukitjalil-build/<buildId>/ with --no-clean, and a successful output without symlinks moves to
  * previews/<siteId>/<buildId>/. The site lock is held for the whole build.
+ *
+ * A change build previews the site's open change set (plan 8.4): it runs in worktrees/<siteId>/ai at a
+ * fresh snapshot, always passes the guard first and never gets secrets (plan 8.5). Its preview only ever
+ * shows builds of the open change set; once that closes, its preview port is let go.
  */
 export class BuildService {
   readonly store: BuildStore;
@@ -82,6 +88,12 @@ export class BuildService {
     if (interrupted > 0) opts.logger.log("warn", "build.interrupted", { count: interrupted });
     // The first preview build of a new or imported site (plan 5.2 step 5), whoever adds the site.
     opts.sites.onAdded((site) => this.startAfterAdd(site));
+    opts.changes.subscribe((siteId) => {
+      if (opts.changes.store.open(siteId)) return;
+      opts.previews
+        .close(PreviewPool.key(siteId, "change"))
+        .catch((err) => opts.logger.log("warn", "build.preview_close_failed", { siteId, error: String(err) }));
+    });
   }
 
   /** Listen to build starts and ends (for the event stream); returns the function that stops listening. */
@@ -124,21 +136,30 @@ export class BuildService {
   async start(siteId: string, ref: PanelRef, opts: { guardedCommit?: string } = {}): Promise<Build> {
     this.assertOpen();
     const site = this.opts.sites.get(siteId);
-    // Change set builds run in the ai/ checkout and arrive with change sets in M4.
-    if (ref === "change") throw new SiteError("change.not_found", 404);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
+    if (ref === "change" && !this.opts.changes.store.open(siteId)) throw new SiteError("change.not_found", 404);
     const runner = await usableRunner(this.opts.bukit, this.runnerOpts());
     if (!runner) throw new SiteError("build.bukit_missing", 409);
 
     const release = this.opts.locks.acquire(siteId, "build");
     try {
-      const commit = await this.opts.sites.headOf(site);
+      let target: Target;
+      if (ref === "change") {
+        // Under the lock: the change set may have closed, and the checkout is snapshotted as it is.
+        const change = this.opts.changes.store.open(siteId);
+        if (!change) throw new SiteError("change.not_found", 404);
+        const cwd = await this.opts.sites.aiWorktree(siteId, change.snapshotCommit, { reset: false });
+        const { commit } = await this.opts.changes.snapshot(siteId, cwd);
+        target = { ref, commit, cwd, changeSetId: change.id };
+      } else {
+        target = { ref, commit: await this.opts.sites.headOf(site), cwd: null, changeSetId: null };
+      }
       this.assertOpen(); // shutdown may have begun while the branch was resolved
       const id = newBuildId();
-      this.store.insert({ id, siteId, commit });
+      this.store.insert({ id, siteId, commit: target.commit, changeSetId: target.changeSetId });
       const abort = new AbortController();
-      const guarded = opts.guardedCommit === commit;
-      const promise = this.execute(site, id, commit, runner, abort.signal, guarded)
+      const guarded = ref === "main" && opts.guardedCommit === target.commit;
+      const promise = this.execute(site, id, target, runner, abort.signal, guarded)
         .catch((err) => this.opts.logger.log("error", "build.crashed", { id, error: String(err) }))
         .finally(() => {
           this.running.delete(id);
@@ -171,7 +192,7 @@ export class BuildService {
   /** Open (or re-point) the site's preview port at its newest kept build. */
   async openPreview(siteId: string, ref: PanelRef): Promise<PreviewResponse> {
     this.opts.sites.get(siteId);
-    if (ref === "change") throw new SiteError("change.not_found", 404);
+    if (ref === "change" && !this.opts.changes.store.open(siteId)) throw new SiteError("change.not_found", 404);
     const key = PreviewPool.key(siteId, ref);
     let build = this.newestOutput(siteId, ref);
     if (!build) throw new SiteError("preview.not_built", 404);
@@ -192,10 +213,16 @@ export class BuildService {
     return { ref, url, port, buildId: build.id, commit: build.commit };
   }
 
-  /** The newest kept output of `ref` that is still on disk; outputs deleted from outside are forgotten. */
+  /**
+   * The newest kept output of `ref` that is still on disk; outputs deleted from outside are forgotten.
+   * For `change`, only builds of the open change set count.
+   */
   private newestOutput(siteId: string, ref: PanelRef): (BuildRecord & { outputDir: string }) | null {
+    const changeSetId = ref === "change" ? (this.opts.changes.store.open(siteId)?.id ?? null) : null;
+    if (ref === "change" && changeSetId === null) return null;
     for (const build of this.store.withOutput(siteId)) {
       if (build.ref !== ref || !build.outputDir) continue;
+      if (ref === "change" && build.changeSetId !== changeSetId) continue;
       if (fs.existsSync(build.outputDir)) return { ...build, outputDir: build.outputDir };
       this.store.dropOutput(build.id);
     }
@@ -232,11 +259,12 @@ export class BuildService {
   private async execute(
     site: Site,
     id: string,
-    commit: string,
+    target: Target,
     runner: BukitRunner,
     signal: AbortSignal,
     guarded: boolean,
   ) {
+    const { commit } = target;
     const finish = (
       status: Exclude<BuildStatus, "running">,
       outcome: BuildOutcome,
@@ -250,14 +278,17 @@ export class BuildService {
       // The guard reads the commit's git objects, so it judges exactly what the checkout will hold.
       if (!guarded) {
         const guard = await guardCommit(this.opts.git, site.path, commit);
-        // The site's state follows what the guard just found, so the UI stops offering builds.
-        if (!guard.ok || guard.usesNotion) this.opts.sites.applyGuard(site.id, commit, guard);
+        // The site's state follows what the guard found on the default branch, so the UI stops offering
+        // builds; what the AI changed only fails its own build (the review shows why).
+        if (target.ref === "main" && (!guard.ok || guard.usesNotion))
+          this.opts.sites.applyGuard(site.id, commit, guard);
         if (!guard.ok) return finish("failed", "refused", null, { reasons: guard.reasons });
-        // A main build may pass NOTION_TOKEN (plan 8.5), but tokens are only stored from M6.
+        // A main build may pass NOTION_TOKEN (plan 8.5), but tokens are only stored from M6; a change build
+        // never gets one.
         if (guard.usesNotion) return finish("failed", "notion", null, {});
       }
 
-      const checkout = await this.opts.sites.mainCheckout(site.id, site.path, commit);
+      const checkout = target.cwd ?? (await this.opts.sites.mainCheckout(site.id, site.path, commit));
       temp = path.join(checkout, BUILD_OUTPUT_PARENT, id);
       fs.rmSync(temp, { recursive: true, force: true });
       const result = await runner.run("build", buildArgs(id), { cwd: checkout, signal });
@@ -276,8 +307,10 @@ export class BuildService {
       moveDir(temp, dest);
       temp = null;
       finish("succeeded", "ok", result.exitCode, report, dest);
-      // An open preview switches to the new build at once.
-      this.opts.previews.repoint(PreviewPool.key(site.id, "main"), dest);
+      // An open preview switches to the new build at once (a change preview: while its change set is open).
+      if (target.ref === "main" || this.opts.changes.store.open(site.id)?.id === target.changeSetId) {
+        this.opts.previews.repoint(PreviewPool.key(site.id, target.ref), dest);
+      }
     } catch (err) {
       finish("failed", "error", null, { detail: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     } finally {
@@ -315,8 +348,13 @@ export class BuildService {
   }
 }
 
+/** What a build runs on: the default branch head in main/, or a change set's snapshot in ai/. */
+type Target =
+  | { ref: "main"; commit: string; cwd: null; changeSetId: null }
+  | { ref: "change"; commit: string; cwd: string; changeSetId: string };
+
 function publicBuild(record: BuildRecord): Build {
-  const { outputDir: _, ...build } = record;
+  const { outputDir: _, changeSetId: __, ...build } = record;
   return build;
 }
 

@@ -89,7 +89,6 @@ export function makeApp(
     userHome: overrides.userHome,
   });
   const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);
-  const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
   const changes = new ChangeService({
     db,
     git,
@@ -99,6 +98,7 @@ export function makeApp(
     logger,
   });
   const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
+  const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, changes, logger });
   const agent = new AgentService({
     db,
     paths,
