@@ -14,11 +14,13 @@ jobs:
       fail-fast: false
       matrix:
         # Node 24 is the development version on both MVP platforms; 22.19.0 is the declared minimum (plan 2.1).
+        # The Node 24 jobs build with the real Bukit; the minimum-Node job keeps the stand-in, whose scripted
+        # failures some tests need.
         include:
-          - { os: ubuntu-latest, node: "24" }
-          - { os: macos-latest, node: "24" }
-          - { os: ubuntu-latest, node: "22.19.0" }
-    name: ${{ matrix.os }} / node ${{ matrix.node }}
+          - { os: ubuntu-latest, node: "24", bukit: real }
+          - { os: macos-latest, node: "24", bukit: real }
+          - { os: ubuntu-latest, node: "22.19.0", bukit: stand-in }
+    name: ${{ matrix.os }} / node ${{ matrix.node }} / ${{ matrix.bukit }} bukit
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -50,6 +52,18 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then brew install ripgrep; else sudo apt-get update && sudo apt-get install -y ripgrep; fi
           rg --version
+      # Real Bukit 2.0.11 (plan M5 layer 4), fetched with the app's installer code (pinned SHA-256, strict
+      # unpacking). With BUKIT_BIN and BUKIT_TARBALL set, the real-Bukit unit tests and the e2e tests use it.
+      - name: Fetch Bukit
+        if: matrix.bukit == 'real'
+        run: |
+          pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts "$RUNNER_TEMP/bukit" >> "$GITHUB_ENV"
+      - name: Check Bukit
+        if: matrix.bukit == 'real'
+        run: |
+          out="$("$BUKIT_BIN" version)"
+          echo "$out"
+          echo "$out" | grep -F "2.0.11"
       - run: pnpm exec biome check .
       - run: pnpm typecheck
       - run: pnpm test

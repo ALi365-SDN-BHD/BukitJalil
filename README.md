@@ -153,7 +153,7 @@ pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
 
 `pnpm build && pnpm start` 运行构建好的版本。登录地址只能用一次，需要新地址（换浏览器、会话失效）时在终端按回车。
 
-端到端测试默认用一个替身 Bukit；设置 `BUKIT_BIN=/path/to/bukit` 时改用真实 Bukit 构建（单元测试里的真实 Bukit 用例同样读 `BUKIT_BIN`，下载安装的用例另外读 `BUKIT_TARBALL`，即本平台的官方安装包）。
+端到端测试默认用一个替身 Bukit；设置 `BUKIT_BIN=/path/to/bukit` 时改用真实 Bukit 构建（单元测试里的真实 Bukit 用例同样读 `BUKIT_BIN`，下载安装的用例另外读 `BUKIT_TARBALL`，即本平台的官方安装包）。这两个文件可以用 `pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts <目录>` 下载（固定版本和校验和），它会输出两个变量的值；CI 就是这样做的。
 
 ### 现在能做什么（M4）
 
