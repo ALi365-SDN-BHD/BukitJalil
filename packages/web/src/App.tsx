@@ -6,18 +6,21 @@ import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panel
 import { Link, Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { BuildBadge, useBuilds } from "@/features/builds/builds";
+import { ChatView } from "@/features/chat/ChatView";
 import { RightPanel } from "@/features/panels/RightPanel";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { SiteHome } from "@/features/sites/SiteHome";
 import { SiteList } from "@/features/sites/SiteList";
 import { detectLocale, I18nProvider, localeNames, useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { useConnection } from "@/lib/events";
 
 export function App() {
   return (
     <Routes>
       <Route path="/" element={<Root />} />
       <Route path="/sites/:siteId" element={<Root />} />
+      <Route path="/sites/:siteId/sessions/:sessionId" element={<Root />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -54,7 +57,7 @@ function Shell({
 }) {
   const { m, t, errorOf } = useI18n();
   const layout = useDefaultLayout({ id: "bj-main", storage: safeLocalStorage() });
-  const { siteId = null } = useParams();
+  const { siteId = null, sessionId = null } = useParams();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const site = useQuery({
     queryKey: keys.site(siteId ?? ""),
@@ -81,6 +84,7 @@ function Shell({
         </Link>
         {site.data && <SiteHeader siteId={site.data.id} name={site.data.name} />}
         <HealthBadge />
+        <ConnectionNotice />
         <div className="ml-auto flex items-center gap-2 text-sm">
           {saveError && (
             <span role="alert" data-testid="save-error" className="text-xs text-destructive">
@@ -131,7 +135,7 @@ function Shell({
         <Separator className="w-1 bg-border transition-colors hover:bg-primary/40" />
         <Panel id="conversation" defaultSize="47" minSize="25" className="flex flex-col">
           <SectionTitle icon={<MessageSquare className="size-4" />} title={m.conversation.title} />
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className={`min-h-0 flex-1 ${sessionId ? "overflow-hidden" : "overflow-auto"}`}>
             {siteId === null ? (
               <Welcome />
             ) : site.isPending ? (
@@ -140,6 +144,8 @@ function Shell({
               <p role="alert" className="p-6 text-sm text-destructive">
                 {errorOf(site.error)}
               </p>
+            ) : sessionId ? (
+              <ChatView key={sessionId} site={site.data} sessionId={sessionId} />
             ) : (
               <SiteHome site={site.data} />
             )}
@@ -182,6 +188,18 @@ function Welcome() {
       )}
       <p className="text-muted-foreground">{m.conversation.placeholder}</p>
     </div>
+  );
+}
+
+/** Shown only while the event stream is down: conversations and builds stop updating then. */
+function ConnectionNotice() {
+  const { m } = useI18n();
+  const connection = useConnection();
+  if (connection !== "lost") return null;
+  return (
+    <span role="status" data-testid="connection-lost" className="text-xs text-destructive">
+      {m.chat.connection.lost}
+    </span>
   );
 }
 

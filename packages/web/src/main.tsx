@@ -5,6 +5,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App } from "./App.tsx";
+import { EventsProvider } from "./lib/events.tsx";
 import "./index.css";
 
 // Light / dark follows the system (plan 10.1). Done here because the CSP forbids inline scripts.
@@ -24,9 +25,11 @@ if (!root) throw new Error("missing #root");
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={new QueryClient()}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <EventsProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </EventsProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

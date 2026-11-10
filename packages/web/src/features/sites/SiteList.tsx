@@ -2,8 +2,9 @@ import type { Site } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, FolderInput, Lock, Plus } from "lucide-react";
 import { useState } from "react";
-import { NavLink, useNavigate } from "react-router";
+import { NavLink, useNavigate, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
+import { SessionList } from "@/features/chat/sessions";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { ImportDialog } from "./ImportDialog";
@@ -73,12 +74,13 @@ export function SiteList() {
 
 function SiteItem({ site }: { site: Site }) {
   const { m } = useI18n();
+  const { siteId } = useParams();
   return (
     <li>
       <NavLink
         to={`/sites/${site.id}`}
         className={({ isActive }) =>
-          `flex items-center gap-2 rounded-md px-2 py-1.5 ${isActive ? "bg-accent font-medium" : "hover:bg-accent/60"}`
+          `flex items-center gap-2 rounded-md px-2 py-1.5 ${isActive && siteId === site.id ? "bg-accent font-medium" : "hover:bg-accent/60"}`
         }
         title={site.path}
       >
@@ -87,6 +89,7 @@ function SiteItem({ site }: { site: Site }) {
           <Lock className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-label={m.sidebar.readOnly} />
         )}
       </NavLink>
+      {siteId === site.id && <SessionList siteId={site.id} readOnly={!!site.readOnly} />}
     </li>
   );
 }

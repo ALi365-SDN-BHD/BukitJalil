@@ -18,6 +18,9 @@ import {
   type PanelRef,
   type PreviewResponse,
   type RgResponse,
+  type SendMessageRequest,
+  type SessionDetail,
+  type SessionInfo,
   Settings,
   type SettingsPatch,
   type Site,
@@ -100,6 +103,17 @@ export const api = {
   build: (id: string, buildId: string) => request<Build>(`/sites/${id}/builds/${buildId}`),
   startBuild: (id: string, ref: PanelRef = "main") => post<Build>(`/sites/${id}/builds`, { ref }),
   openPreview: (id: string, ref: PanelRef = "main") => post<PreviewResponse>(`/sites/${id}/preview`, { ref }),
+
+  sessions: (siteId: string) => request<SessionInfo[]>(`/sites/${siteId}/sessions`),
+  createSession: (siteId: string) => post<SessionInfo>(`/sites/${siteId}/sessions`),
+  session: (id: string) => request<SessionDetail>(`/sessions/${id}`),
+  renameSession: (id: string, title: string | null) =>
+    request<SessionInfo>(`/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  deleteSession: (id: string) => request<null>(`/sessions/${id}`, { method: "DELETE" }),
+  sendMessage: (id: string, req: z.input<typeof SendMessageRequest>) =>
+    post<SessionInfo>(`/sessions/${id}/messages`, req),
+  abortSession: (id: string) => post<SessionInfo>(`/sessions/${id}/abort`),
+  forkSession: (id: string, entryId: string) => post<SessionInfo>(`/sessions/${id}/fork`, { entryId }),
 };
 
 /** Address of a file as bytes: `raw` for verified bitmaps (an <img> source), `download` for any file. */
@@ -114,6 +128,8 @@ export const keys = {
   site: (id: string) => ["site", id] as const,
   panel: (id: string, panel: string, ...rest: string[]) => ["panel", id, panel, ...rest] as const,
   builds: (id: string) => ["builds", id] as const,
+  sessions: (siteId: string) => ["sessions", siteId] as const,
+  session: (id: string) => ["session", id] as const,
   bukit: ["bukit"] as const,
   rg: ["rg"] as const,
 };

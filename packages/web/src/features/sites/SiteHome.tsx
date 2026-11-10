@@ -7,11 +7,43 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { BuildButton, BuildList } from "@/features/builds/builds";
+import { useCreateSession } from "@/features/chat/sessions";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { ReasonList } from "./ReasonList";
 
-/** Site home in the middle column (plan 10.2) until conversations arrive in M3. */
+/** "Start a new conversation" (plan 10.2), or why there can be none. */
+function StartConversation({ site }: { site: Site }) {
+  const { m, errorOf } = useI18n();
+  const create = useCreateSession(site.id);
+  return (
+    <section className="flex items-start gap-3 rounded-md border border-dashed p-4 text-sm">
+      <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+      {site.readOnly ? (
+        <p className="text-muted-foreground">{m.conversation.readOnlyHint}</p>
+      ) : (
+        <div className="flex flex-col items-start gap-2">
+          <p className="text-muted-foreground">{m.conversation.startHint}</p>
+          <Button
+            size="sm"
+            data-testid="start-conversation"
+            disabled={create.isPending}
+            onClick={() => create.mutate()}
+          >
+            {m.conversation.start}
+          </Button>
+          {create.error && (
+            <p role="alert" className="text-xs text-destructive">
+              {errorOf(create.error)}
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Site home in the middle column (plan 10.2): overview, builds, and where a conversation starts. */
 export function SiteHome({ site }: { site: Site }) {
   const { m, t, errorOf } = useI18n();
   const queryClient = useQueryClient();
@@ -113,10 +145,7 @@ export function SiteHome({ site }: { site: Site }) {
         <BuildList siteId={site.id} />
       </section>
 
-      <section className="flex items-start gap-3 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-        <MessageSquare className="mt-0.5 size-4 shrink-0" aria-hidden />
-        <p>{m.conversation.comingSoon}</p>
-      </section>
+      <StartConversation site={site} />
 
       <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}>
         <DialogContent closeLabel={m.common.close}>

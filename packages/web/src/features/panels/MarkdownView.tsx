@@ -13,9 +13,9 @@ export function splitFrontMatter(text: string): { frontMatter: string | null; bo
  * dropped). Images are shown as their alt text: they point at the site's own paths, which only the preview
  * port serves, and loading them here would only produce errors.
  */
-export function MarkdownView({ body }: { body: string }) {
+export function MarkdownView({ body, className = "p-4" }: { body: string; className?: string }) {
   return (
-    <div className="markdown-body max-w-none p-4 text-sm leading-6" data-testid="markdown-view">
+    <div className={`markdown-body max-w-none text-sm leading-6 ${className}`} data-testid="markdown-view">
       <Markdown
         remarkPlugins={[remarkGfm]}
         components={{
