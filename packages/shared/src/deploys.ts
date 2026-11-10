@@ -11,7 +11,7 @@ export interface DeployTarget {
   /** Where GitHub Pages should serve the site, when it can be told. */
   url: string | null;
   /** Why the site cannot be published to this target yet. */
-  problem: "no_config" | "not_configured" | "bad_provider" | "bad_repo" | "bad_branch" | null;
+  problem: "no_config" | "not_configured" | "bad_provider" | "bad_repo" | "bad_branch" | "bad_cname" | null;
 }
 
 /** GET /api/sites/:id/deploy. */

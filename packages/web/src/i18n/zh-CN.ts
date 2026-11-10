@@ -407,6 +407,7 @@ const zhCN = {
       bad_provider: "site.yaml 的 deploy.provider 不是 github-pages，BukitJalil 只能发布到 GitHub Pages",
       bad_repo: "site.yaml 的 deploy.repo 不是 owner/name 格式",
       bad_branch: "site.yaml 的 deploy.branch 不是有效的分支名",
+      bad_cname: "site.yaml 的 deploy.cname 不是域名（例如 www.example.com，不带 https://）",
     },
     tokenSet: "GitHub token 已设置",
     tokenMissing: "还没有 GitHub token",

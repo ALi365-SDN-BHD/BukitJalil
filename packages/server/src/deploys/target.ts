@@ -17,10 +17,15 @@ export function deployTarget(config: Record<string, unknown> | null): DeployTarg
   if (!isRecord(deploy) || deploy.repo === undefined) return { ...empty, problem: "not_configured" };
   if (deploy.provider !== undefined && deploy.provider !== "github-pages") return { ...empty, problem: "bad_provider" };
   const branch = deploy.branch === undefined ? DEFAULT_DEPLOY_BRANCH : deploy.branch;
-  const cname = typeof deploy.cname === "string" && HOST.test(deploy.cname) ? deploy.cname.toLowerCase() : null;
-  if (typeof deploy.repo !== "string" || !REPO.test(deploy.repo)) return { ...empty, cname, problem: "bad_repo" };
+  if (typeof deploy.repo !== "string" || !REPO.test(deploy.repo)) return { ...empty, problem: "bad_repo" };
   const repo = deploy.repo;
-  if (typeof branch !== "string" || !BRANCH.test(branch)) return { ...empty, repo, cname, problem: "bad_branch" };
+  if (typeof branch !== "string" || !BRANCH.test(branch)) return { ...empty, repo, problem: "bad_branch" };
+  // Bukit writes deploy.cname into the CNAME file as it is, so a value that is not a host name is refused
+  // rather than hidden (the address shown would not be where the site ends up).
+  if (deploy.cname != null && (typeof deploy.cname !== "string" || !HOST.test(deploy.cname))) {
+    return { ...empty, repo, branch, problem: "bad_cname" };
+  }
+  const cname = typeof deploy.cname === "string" ? deploy.cname.toLowerCase() : null;
   return { repo, branch, cname, url: pagesUrl(repo, cname), problem: null };
 }
 

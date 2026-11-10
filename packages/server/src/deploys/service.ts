@@ -55,6 +55,18 @@ const LIST_LIMIT = 20;
 const KEEP_RECORDS = 50;
 const MAX_SITE_YAML = 1024 * 1024;
 
+/** The report with every copy of `secret` replaced (a token shorter than 8 characters is not looked for). */
+export function redact(report: DeployReport, secret: string): DeployReport {
+  if (secret.length < 8) return report;
+  const clean = (text: string) => text.split(secret).join("[token]");
+  return {
+    ...report,
+    output: clean(report.output),
+    messages: report.messages.map((m) => ({ ...m, msg: clean(m.msg) })),
+    ...(report.detail ? { detail: clean(report.detail) } : {}),
+  };
+}
+
 /** A step's warning and error lines and the end of its text output, read as for builds. */
 function logOf(result: BukitRunResult): Pick<DeployReport, "messages" | "output"> {
   const { messages, output } = buildReport(result);
@@ -213,7 +225,9 @@ export class DeployService {
     const steps: DeployStepResult[] = [];
     const finish = (outcome: DeployOutcome, report: Partial<DeployReport> = {}) => {
       const status = outcome === "ok" ? "succeeded" : outcome === "stopped" ? "stopped" : "failed";
-      this.store.finish(id, status, outcome, { messages: [], output: "", ...report, steps });
+      // Nothing Bukit or its git printed may carry the token into app.db or the UI.
+      const full = redact({ messages: [], output: "", ...report, steps }, env.token);
+      this.store.finish(id, status, outcome, full);
     };
     const begin = (step: DeployStep) => {
       this.store.setStep(id, step);

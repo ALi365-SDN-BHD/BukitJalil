@@ -415,6 +415,7 @@ const en: Messages = {
       bad_provider: "deploy.provider in site.yaml is not github-pages; BukitJalil can only publish to GitHub Pages",
       bad_repo: "deploy.repo in site.yaml is not in owner/name form",
       bad_branch: "deploy.branch in site.yaml is not a valid branch name",
+      bad_cname: "deploy.cname in site.yaml is not a host name (such as www.example.com, without https://)",
     },
     tokenSet: "GitHub token set",
     tokenMissing: "No GitHub token yet",

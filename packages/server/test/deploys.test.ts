@@ -44,8 +44,13 @@ describe("deployTarget", () => {
     for (const branch of ["-f", "a..b", "a b", "x.lock", "a/", "", 1]) {
       expect(deployTarget({ deploy: { repo: "a/b", branch } })).toMatchObject({ repo: "a/b", problem: "bad_branch" });
     }
-    // A cname that is not a host name is left out, not passed on.
-    expect(deployTarget({ deploy: { repo: "a/b", cname: "http://x" } })).toMatchObject({ cname: null, problem: null });
+    // Bukit would write a bad cname into CNAME as it is: refused, not hidden.
+    expect(deployTarget({ deploy: { repo: "a/b", cname: "https://www.example.com" } })).toMatchObject({
+      repo: "a/b",
+      problem: "bad_cname",
+    });
+    expect(deployTarget({ deploy: { repo: "a/b", cname: 3 } }).problem).toBe("bad_cname");
+    expect(deployTarget({ deploy: { repo: "a/b", cname: null } })).toMatchObject({ cname: null, problem: null });
   });
 
   it("knows user and project sites", () => {
@@ -105,6 +110,7 @@ case "$1" in
   publish) [ "$fail" = audit ] && { echo "error publish.broken_link /a/ Broken." >&2; exit 1; }; exit 0;;
   deploy)
     [ "$fail" = deploy ] && { echo "[error] Deployment failed: push rejected" >&2; exit 1; }
+    [ "$fail" = leak ] && { echo "fatal: https://x-access-token:$BUKIT_DEPLOY_TOKEN@github.com/someone/blog.git rejected" >&2; echo "{\\"ts\\":\\"t\\",\\"level\\":\\"error\\",\\"msg\\":\\"token $BUKIT_DEPLOY_TOKEN\\"}" >&2; exit 1; }
     out=""; prev=""
     for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
     (cd "$out" && find . -type f | sort) > "${log}.deployed"
@@ -260,6 +266,16 @@ describe("publishing (M6 layer 3)", () => {
       if (fail === "deploy") expect(d.report?.output).toContain("push rejected");
     });
   }
+
+  it("never stores the token, even when the deploy step prints it", async () => {
+    const p = await publishable({ fail: "leak" });
+    const d = await p.publish();
+    expect(d).toMatchObject({ status: "failed", step: "deploy" });
+    const stored = JSON.stringify(p.ctx.db.prepare("SELECT report_json FROM deploys WHERE id = ?").get(d.id));
+    expect(stored).not.toContain("ghp_deploytokendeploytoken");
+    expect(d.report?.output).toContain("x-access-token:[token]@github.com");
+    expect(d.report?.messages.some((m) => m.msg === "token [token]")).toBe(true);
+  });
 
   it("refuses what the user did not confirm, a missing token, target or identity", async () => {
     const p = await publishable();

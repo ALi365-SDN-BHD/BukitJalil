@@ -1277,6 +1277,10 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > - **多语言网站的 `publish.*_missing_route` 警告**（M5 验收记录）：用 M5 的双语网站和真实 Bukit 2.0.12 实测，默认 `sitemapMode: split` 时 sitemap / RSS / 搜索索引各 8 条；改成 `merged` 后根目录生成合并的 `sitemap.xml`，sitemap 的 8 条消失；`index` 模式没有变化。RSS 和搜索索引按语言输出在 `/<lang>/` 下，Bukit 的发布审计只看根目录，所以这 16 条仍在，网站本身没有问题。都是警告，不阻止发布。结论：`multilingual` 技能要求多语言网站设 `site.sitemapMode: merged`；RSS / 搜索的警告在使用说明里说明可以不处理
 > - `docs/user-guide.md` 新增"发布到 GitHub Pages"一节（建仓库、fine-grained token 只给这个仓库的 Contents 读写、填 token、让 AI 设置目标、GitHub 的 Pages 设置、发布过程、发布审计警告），常见问题补发布失败；README 状态和"现在能做什么"补发布
 
+> M6 审计修复：
+> - 发布记录里的 token：Bukit 或它调用的 git 出错时可能把带 token 的远程地址打印出来。发布结束写入 `app.db` 前，报告的输出、消息和说明里出现的 token 都换成 `[token]`（8 个字符以下的 token 不查找）；测试用会打印 token 的假 Bukit 验证库里没有 token
+> - `deploy.cname` 不是合法域名时（例如带 `https://`，或不是字符串），以前界面当作没有自定义域名，Bukit 却照原样写进 CNAME 文件。现在报"自定义域名不正确"，不能发布；`cname` 为空（YAML 里留空）仍当作没有自定义域名
+
 ### M7 桌面版（4–5 天，MVP 之后）
 
 - Electron 45 壳：主进程启动 server，窗口加载本地页面
