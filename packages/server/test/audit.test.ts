@@ -4,7 +4,7 @@ import path from "node:path";
 import { AUDIT_MAX_GROUPS, AUDIT_ROUTES_PER_GROUP } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { auditText, readAudit, SITE_URL_CODES, summarizeGeo, summarizeSeo } from "../src/builds/audit.ts";
-import { buildReport, previewEntry } from "../src/builds/service.ts";
+import { buildReport, previewEntry, siteLanguage } from "../src/builds/service.ts";
 
 // M4 layer 7: the SEO / GEO summary of a build, from the reports Bukit writes into .bukit/.
 
@@ -25,6 +25,9 @@ describe("summarizeSeo", () => {
     // An error is never folded away.
     const error = summarizeSeo({ issues: [issue("seo.canonical_not_absolute", "/", "Error")] });
     expect(error).toMatchObject({ errors: 1, siteUrlWarnings: 0, groups: [{ severity: "error" }] });
+    // Nor is an info: the hint counts warnings only.
+    const info = summarizeSeo({ issues: [issue("seo.canonical_not_absolute", "/", "info")] });
+    expect(info).toMatchObject({ warnings: 0, siteUrlWarnings: 0, groups: [{ severity: "info" }] });
   });
 
   it("sorts errors first, then by count, keeps a few distinct routes and caps the kinds", () => {
@@ -43,7 +46,14 @@ describe("summarizeSeo", () => {
     expect(group?.count).toBe(AUDIT_ROUTES_PER_GROUP + 3);
     expect(group?.routes).toHaveLength(AUDIT_ROUTES_PER_GROUP);
     expect(new Set(group?.routes).size).toBe(AUDIT_ROUTES_PER_GROUP);
-    expect(s?.groups[0]?.routes).toEqual([""]);
+    expect(group?.moreRoutes).toBe(true);
+    expect(s?.groups[0]).toMatchObject({ routes: [""], moreRoutes: false });
+
+    // Many issues on the listed pages only: nothing more to show.
+    const same = Array.from({ length: 12 }, (_, i) => issue("e.same", `/q${i % AUDIT_ROUTES_PER_GROUP}/`));
+    const full = summarizeSeo({ siteUrl: "https://x.test", issues: same });
+    expect(full?.groups[0]).toMatchObject({ count: 12, moreRoutes: false });
+    expect(full?.groups[0]?.routes).toHaveLength(AUDIT_ROUTES_PER_GROUP);
 
     const kinds = summarizeSeo({
       siteUrl: "https://x.test",
@@ -165,27 +175,24 @@ describe("previewEntry", () => {
     if (root) fs.writeFileSync(path.join(dir, "index.html"), "root");
     return dir;
   };
-  const checkout = (name: string, yaml: string) => {
-    const dir = path.join(base, name);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "site.yaml"), yaml);
-    return dir;
-  };
-
   it("sends a multilingual output to the default language's home", () => {
-    const co = checkout("co-default", "site:\n  language: en-US\n  defaultLanguage: zh-CN\n");
-    expect(previewEntry(co, output("multi", ["en-US", "zh-CN"]))).toBe("/zh-CN/");
-    const lang = checkout("co-lang", "site:\n  language: zh-CN\n");
-    expect(previewEntry(lang, output("multi-lang", ["en-US", "zh-CN"]))).toBe("/zh-CN/");
+    expect(previewEntry(output("multi", ["en-US", "zh-CN"]), "zh-CN")).toBe("/zh-CN/");
     // An unknown or missing language falls back to the first home in order.
-    const none = checkout("co-none", "site: [\n");
-    expect(previewEntry(none, output("multi-none", ["zh-CN", "en-US"]))).toBe("/en-US/");
+    expect(previewEntry(output("multi-other", ["zh-CN", "en-US"]), "ms-MY")).toBe("/en-US/");
+    expect(previewEntry(output("multi-none", ["zh-CN", "en-US"]), null)).toBe("/en-US/");
+  });
+
+  it("reads the default language from site.yaml text", () => {
+    expect(siteLanguage("site:\n  language: en-US\n  defaultLanguage: zh-CN\n")).toBe("zh-CN");
+    expect(siteLanguage("site:\n  language: zh-CN\n")).toBe("zh-CN");
+    expect(siteLanguage("site:\n  language: 3\n")).toBeNull();
+    expect(siteLanguage("site: [\n")).toBeNull();
+    expect(siteLanguage("")).toBeNull();
   });
 
   it("leaves an output with a root home page, or without any home, alone", () => {
-    const co = checkout("co-plain", "site:\n  language: zh-CN\n");
-    expect(previewEntry(co, output("plain", ["zh-CN"], true))).toBeUndefined();
-    expect(previewEntry(co, output("empty", []))).toBeUndefined();
-    expect(previewEntry(co, path.join(base, "no-such-output"))).toBeUndefined();
+    expect(previewEntry(output("plain", ["zh-CN"], true), "zh-CN")).toBeUndefined();
+    expect(previewEntry(output("empty", []), "zh-CN")).toBeUndefined();
+    expect(previewEntry(path.join(base, "no-such-output"), "zh-CN")).toBeUndefined();
   });
 });

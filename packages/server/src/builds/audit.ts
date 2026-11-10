@@ -16,7 +16,8 @@ const MAX_TEXT = 300;
 
 /**
  * Issues Bukit 2.0.12 raises only because site.yaml has no site.url (a starter site goes from 81 warnings to 2
- * once it is set). While site.url is missing they are folded into one hint instead of listed one by one.
+ * once it is set). While site.url is missing, the warnings among them are folded into one hint instead of listed
+ * one by one; errors and infos stay in the list.
  */
 export const SITE_URL_CODES: ReadonlySet<string> = new Set([
   "seo.canonical_not_absolute",
@@ -89,7 +90,7 @@ export function summarizeSeo(raw: unknown): BuildAudit["seo"] {
     const severity = severityOf(issue.severity);
     if (severity === "error") errors++;
     else if (severity === "warning") warnings++;
-    if (siteUrlMissing && severity !== "error" && SITE_URL_CODES.has(issue.code)) {
+    if (siteUrlMissing && severity === "warning" && SITE_URL_CODES.has(issue.code)) {
       siteUrlWarnings++;
       continue;
     }
@@ -97,12 +98,22 @@ export function summarizeSeo(raw: unknown): BuildAudit["seo"] {
     const key = `${severity}:${code}`;
     let group = groups.get(key);
     if (!group) {
-      group = { code, severity, count: 0, message: (issue.message ?? "").slice(0, MAX_TEXT), routes: [] };
+      group = {
+        code,
+        severity,
+        count: 0,
+        message: (issue.message ?? "").slice(0, MAX_TEXT),
+        routes: [],
+        moreRoutes: false,
+      };
       groups.set(key, group);
     }
     group.count++;
     const route = (issue.route ?? "").slice(0, MAX_TEXT);
-    if (group.routes.length < AUDIT_ROUTES_PER_GROUP && !group.routes.includes(route)) group.routes.push(route);
+    if (!group.routes.includes(route)) {
+      if (group.routes.length < AUDIT_ROUTES_PER_GROUP) group.routes.push(route);
+      else group.moreRoutes = true;
+    }
   }
   const sorted = [...groups.values()].sort(
     (a, b) => RANK[a.severity] - RANK[b.severity] || b.count - a.count || a.code.localeCompare(b.code),
@@ -151,7 +162,9 @@ export function auditText(audit: BuildAudit | null): string | null {
       );
     for (const g of s.groups.slice(0, 10)) {
       const where = g.routes.map((r) => r || "(site)").join(", ");
-      lines.push(`- ${g.severity} ${g.code} ×${g.count}: ${g.message}${where ? ` [${where}]` : ""}`);
+      lines.push(
+        `- ${g.severity} ${g.code} ×${g.count}: ${g.message}${where ? ` [${where}${g.moreRoutes ? ", …" : ""}]` : ""}`,
+      );
     }
     if (s.groups.length > 10 || s.groupsTruncated) lines.push("- (more issue kinds not listed)");
   }

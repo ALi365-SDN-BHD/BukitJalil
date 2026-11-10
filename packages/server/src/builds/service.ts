@@ -15,6 +15,7 @@ import { guardCommit, isRecord } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, logEntry, usableRunner } from "../bukit/runner.ts";
 import type { ChangeService } from "../changes/service.ts";
+import { readBlobAt } from "../git/objects.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
 import { parseYaml } from "../panels/yaml.ts";
@@ -197,15 +198,20 @@ export class BuildService {
   async openPreview(siteId: string, ref: PanelRef): Promise<PreviewResponse> {
     const site = this.opts.sites.get(siteId);
     if (ref === "change" && !this.opts.changes.store.open(siteId)) throw new SiteError("change.not_found", 404);
-    // Builds from before BuildReport.entry existed: work the entry out from the site folder's site.yaml.
-    const entryOf = (b: BuildRecord & { outputDir: string }) => b.report?.entry ?? previewEntry(site.path, b.outputDir);
+    // Builds from before BuildReport.entry existed: work the entry out from the site.yaml of the built commit.
+    // An output with a root home page needs no entry, so git is only asked when it would matter.
+    const entryOf = async (b: BuildRecord & { outputDir: string }) => {
+      if (b.report?.entry) return b.report.entry;
+      if (fs.lstatSync(path.join(b.outputDir, "index.html"), { throwIfNoEntry: false })) return undefined;
+      return previewEntry(b.outputDir, await this.languageAt(site.path, b.commit));
+    };
     const key = PreviewPool.key(siteId, ref);
     let build = this.newestOutput(siteId, ref);
     if (!build) throw new SiteError("preview.not_built", 404);
     let port: number;
     let url: string;
     try {
-      ({ port, url } = await this.opts.previews.open(key, build.outputDir, entryOf(build)));
+      ({ port, url } = await this.opts.previews.open(key, build.outputDir, await entryOf(build)));
     } catch (err) {
       if (err instanceof NoPreviewPortError) throw new SiteError("preview.no_port", 503);
       throw err;
@@ -213,7 +219,7 @@ export class BuildService {
     // A build that succeeded while the port was being bound could not re-point the slot yet.
     const newest = this.newestOutput(siteId, ref);
     if (newest && newest.id !== build.id) {
-      this.opts.previews.repoint(key, newest.outputDir, entryOf(newest));
+      this.opts.previews.repoint(key, newest.outputDir, await entryOf(newest));
       build = newest;
     }
     return { ref, url, port, buildId: build.id, commit: build.commit };
@@ -316,7 +322,7 @@ export class BuildService {
       moveDir(temp, dest);
       temp = null;
       const audit = this.audit(site.id, id, dest);
-      const entry = previewEntry(checkout, dest);
+      const entry = previewEntry(dest, checkoutLanguage(checkout));
       finish(
         "succeeded",
         "ok",
@@ -337,6 +343,16 @@ export class BuildService {
     } finally {
       if (temp) fs.rmSync(temp, { recursive: true, force: true });
       this.prune(site.id);
+    }
+  }
+
+  /** The default language in site.yaml at `commit`, or null when it cannot be read. */
+  private async languageAt(repo: string, commit: string): Promise<string | null> {
+    try {
+      const text = await readBlobAt(this.opts.git, repo, commit, "site.yaml", MAX_SITE_YAML);
+      return text ? siteLanguage(text.toString("utf8")) : null;
+    } catch {
+      return null;
     }
   }
 
@@ -441,10 +457,10 @@ const MAX_SITE_YAML = 1024 * 1024;
 
 /**
  * Where a preview opens when the output has no index.html at its root. Bukit 2.0.12 writes a multilingual
- * site under /<lang>/ only, so "/" would be a blank 404; it goes to the default language's home instead
- * (site.defaultLanguage, else site.language, else the first folder with a home page). Never fails a build.
+ * site under /<lang>/ only, so "/" would be a blank 404; it goes to `lang`'s home (the site's default
+ * language), else to the first folder with a home page. Never fails a build.
  */
-export function previewEntry(checkout: string, outputDir: string): string | undefined {
+export function previewEntry(outputDir: string, lang: string | null): string | undefined {
   try {
     if (fs.lstatSync(path.join(outputDir, "index.html"), { throwIfNoEntry: false })) return undefined;
     const homes = fs
@@ -454,21 +470,30 @@ export function previewEntry(checkout: string, outputDir: string): string | unde
       .map((d) => d.name)
       .sort();
     if (homes.length === 0) return undefined;
-    const lang = defaultLanguage(checkout);
     return `/${lang && homes.includes(lang) ? lang : homes[0]}/`;
   } catch {
     return undefined;
   }
 }
 
-function defaultLanguage(checkout: string): string | null {
-  const file = path.join(checkout, "site.yaml");
-  const stat = fs.lstatSync(file, { throwIfNoEntry: false });
-  if (!stat?.isFile() || stat.size > MAX_SITE_YAML) return null;
-  const { value } = parseYaml(fs.readFileSync(file, "utf8"));
+/** site.defaultLanguage, else site.language, from site.yaml text; null when neither is a string. */
+export function siteLanguage(yaml: string): string | null {
+  const { value } = parseYaml(yaml);
   const site = isRecord(value) && isRecord(value.site) ? value.site : null;
   const lang = site?.defaultLanguage ?? site?.language;
   return typeof lang === "string" ? lang : null;
+}
+
+/** The default language of the checkout that was just built. */
+function checkoutLanguage(checkout: string): string | null {
+  try {
+    const file = path.join(checkout, "site.yaml");
+    const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+    if (!stat?.isFile() || stat.size > MAX_SITE_YAML) return null;
+    return siteLanguage(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 /** The first symbolic link under `dir`, relative to it, or null. */

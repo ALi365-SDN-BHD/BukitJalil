@@ -233,13 +233,21 @@ describe("main builds (plan 8.3, 8.4)", () => {
         siteUrlMissing: true,
         siteUrlWarnings: 1,
         groups: [
-          { code: "seo.title_missing", severity: "error", count: 1, message: "Title is missing.", routes: ["/b/"] },
+          {
+            code: "seo.title_missing",
+            severity: "error",
+            count: 1,
+            message: "Title is missing.",
+            routes: ["/b/"],
+            moreRoutes: false,
+          },
           {
             code: "seo.description_missing",
             severity: "warning",
             count: 1,
             message: "SEO description is missing.",
             routes: ["/a/"],
+            moreRoutes: false,
           },
         ],
         groupsTruncated: false,

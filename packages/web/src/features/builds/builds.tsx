@@ -270,7 +270,7 @@ function AuditSection({ audit }: { audit: BuildAudit | null }) {
                       <span>{g.message}</span>
                       <span className="text-muted-foreground">
                         {g.routes.map((r) => r || a.site).join(" · ")}
-                        {g.count > g.routes.length && " …"}
+                        {g.moreRoutes && " …"}
                       </span>
                     </div>
                   </details>
