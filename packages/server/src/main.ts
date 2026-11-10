@@ -103,7 +103,7 @@ const sites = new SiteService({
   locks,
   templateDir: path.join(repoRoot, "templates", "starter"),
 });
-const panels = new PanelService({ git, sites });
+
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
 const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
 const rg = new RgService({ piBin: paths.piBin });
@@ -137,8 +137,9 @@ const agent = new AgentService({
   bukit: aiBukit,
   skillsDir,
 });
+const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
 const events = new EventHub();
-connectEvents(events, agent, builds);
+connectEvents(events, { agent, builds, changes, logger });
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
@@ -158,6 +159,7 @@ const app = createAdminApp({
   panels,
   builds,
   agent,
+  changes,
   events,
   readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,

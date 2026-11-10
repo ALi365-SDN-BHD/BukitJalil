@@ -1,18 +1,71 @@
 import type { ChatMessage, ServerEventInput } from "@bukitjalil/shared";
 import type { AgentEvent, AgentService } from "../agent/service.ts";
 import type { BuildService } from "../builds/service.ts";
+import type { ChangeService } from "../changes/service.ts";
+import type { Logger } from "../log.ts";
+import { SiteError } from "../sites/location.ts";
 import type { EventHub } from "./hub.ts";
 
-/** Send session and build events to the hub (plan 9.2); returns the function that disconnects them. */
-export function connectEvents(hub: EventHub, agent: AgentService, builds: BuildService): () => void {
+export interface EventSources {
+  agent: AgentService;
+  builds: BuildService;
+  changes: ChangeService;
+  logger: Logger;
+}
+
+/** Send session, build and change set events to the hub (plan 9.2); returns the function that disconnects them. */
+export function connectEvents(hub: EventHub, { agent, builds, changes, logger }: EventSources): () => void {
   const translate = agentEventTranslator();
+  const refresh = changeRefresher(hub, agent, changes, logger);
   const stopAgent = agent.subscribe((event) => {
     for (const e of translate(event)) hub.publish(e);
+    // Whether the change set can be reviewed depends on the site's sessions.
+    if (event.type === "status") refresh(event.siteId);
   });
   const stopBuilds = builds.onEvent(({ type, build }) => hub.publish({ type, siteId: build.siteId, data: { build } }));
+  const stopChanges = changes.subscribe(refresh);
   return () => {
     stopAgent();
     stopBuilds();
+    stopChanges();
+  };
+}
+
+/**
+ * `change` events: the site's whole change set state, read again after each change. One read per site at a
+ * time, so events never arrive out of order; changes during a read cause one more read. An event equal to
+ * the site's last one is not sent again.
+ */
+export function changeRefresher(
+  hub: EventHub,
+  agent: Pick<AgentService, "busy">,
+  changes: Pick<ChangeService, "current">,
+  logger: Logger,
+): (siteId: string) => void {
+  /** siteId -> whether another read is due once the current one ends. */
+  const reading = new Map<string, boolean>();
+  const last = new Map<string, string>();
+  const read = async (siteId: string) => {
+    do {
+      reading.set(siteId, false);
+      try {
+        const change = await changes.current(siteId, agent.busy(siteId));
+        const json = JSON.stringify(change);
+        if (last.get(siteId) !== json) {
+          last.set(siteId, json);
+          hub.publish({ type: "change", siteId, data: { change } });
+        }
+      } catch (err) {
+        // The site was removed meanwhile, or its repository can no longer be read.
+        last.delete(siteId);
+        if (!(err instanceof SiteError)) logger.log("error", "events.change_failed", { siteId, error: String(err) });
+      }
+    } while (reading.get(siteId));
+    reading.delete(siteId);
+  };
+  return (siteId) => {
+    if (reading.has(siteId)) reading.set(siteId, true);
+    else void read(siteId);
   };
 }
 

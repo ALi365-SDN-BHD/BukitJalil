@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { TreePath } from "./panels.ts";
+
 /** Change sets (plan 7.2): what the AI changed in its working copy, waiting for review. */
 
 export type ChangeStatus = "open" | "applied" | "rejected" | "stale";
@@ -71,11 +74,26 @@ export interface ApplyCheck {
  */
 export type ApplyOutcome = "applied" | "rebased" | "stale" | "check_failed";
 
-export interface ApplyRequest {
-  /** The review fingerprint the user saw (ChangeSet.treeHash). */
-  treeHash: string;
-  /** Apply although the check failed. */
-  force?: boolean;
+/** A full tree or commit id (SHA-1 or SHA-256). */
+export const ObjectId = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
+
+/** POST /api/changes/:changeId/apply. */
+export const ApplyRequest = z
+  .object({
+    /** The review fingerprint the user saw (ChangeSet.treeHash). */
+    treeHash: ObjectId,
+    /** Apply although the check failed. */
+    force: z.boolean().optional(),
+  })
+  .strict();
+export type ApplyRequest = z.infer<typeof ApplyRequest>;
+
+/** GET /api/changes/:changeId/diff?path= */
+export const ChangeDiffQuery = z.object({ path: TreePath.refine((p) => p !== "", { message: "must name a file" }) });
+
+/** GET /api/sites/:siteId/changes/current, and the `change` event: the site's open change set, or null. */
+export interface CurrentChange {
+  change: ChangeView | null;
 }
 
 export interface ApplyResult {

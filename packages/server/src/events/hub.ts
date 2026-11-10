@@ -35,7 +35,8 @@ export interface Subscriber {
  * current message are kept as one entry with the text so far (sent as offset 0 with the newest delta's
  * id), and dropped once the message ends, since `message.end` carries the whole message. When an event
  * the client missed has left the buffer, or the id is unknown, the client gets `resync` and refetches
- * what it shows. A new connection gets the text of replies in progress, which no API returns.
+ * what it shows. A new connection gets the text of replies in progress, which no API returns. `change`
+ * events carry a site's whole change set state, so only each site's newest one is kept.
  */
 export class EventHub {
   private readonly epoch = crypto.randomBytes(4).toString("hex");
@@ -157,6 +158,14 @@ export class EventHub {
     if (event.type === "message.end") {
       const d = this.deltas.get(event.sessionId);
       if (d) this.dropDelta(d);
+    }
+    if (event.type === "change") {
+      // Each one is the site's whole change set state, so only the newest is worth replaying.
+      const i = this.buffer.findIndex((b) => b.event.type === "change" && b.event.siteId === event.siteId);
+      if (i >= 0) {
+        this.bytes -= this.buffer[i]?.bytes ?? 0;
+        this.buffer.splice(i, 1);
+      }
     }
     const bytes = Buffer.byteLength(JSON.stringify(event));
     this.buffer.push({ seq, event, bytes });

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { ApplyResult, ChangeSet, CurrentChange, FileDiff, ServerEvent } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
@@ -10,9 +11,9 @@ import { MAX_FILES, MAX_PATCH_BYTES } from "../src/changes/diff.ts";
 import { changeRef } from "../src/changes/service.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
-import { commitAllAs, makeApp, rawGit } from "./helpers.ts";
+import { ADMIN, commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
 
-// M4 layers 1 and 2 (plan 7.2): change sets. A run opens the site's change set (or joins the open one),
+// M4 layers 1 to 3 (plan 7.2, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
 // works in the ai/ checkout, and its result is snapshotted into the change set; the site folder only
 // changes when a change set is applied.
 
@@ -566,5 +567,119 @@ describe("applying and rejecting", () => {
     expect(failed.check?.problem).toContain("plugin");
     const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
     expect(forced.outcome).toBe("applied");
+  });
+});
+
+describe("the change set API and events", () => {
+  async function call<T>(method: string, url: string, body?: unknown) {
+    const init: RequestInit =
+      method === "GET"
+        ? {}
+        : {
+            method,
+            body: JSON.stringify(body ?? {}),
+            headers: { "content-type": "application/json", "x-bukitjalil": "1", origin: ADMIN },
+          };
+    const res = await ctx.app.request(req(url, init));
+    return { status: res.status, json: (await res.json()) as T };
+  }
+
+  /** `change` events of one site, as the stream sends them. */
+  function changeEvents(siteId: string) {
+    const got: (CurrentChange["change"] | undefined)[] = [];
+    const sub = ctx.events.subscribe(
+      undefined,
+      (e: ServerEvent) => {
+        if (e.type === "change" && e.siteId === siteId) got.push(e.data.change);
+      },
+      () => {},
+    );
+    return { got, close: sub.close };
+  }
+
+  async function until(cond: () => boolean) {
+    for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(cond()).toBe(true);
+  }
+
+  it("shows the open change set, its files and diffs, and the snapshot through ref=change", async () => {
+    const s = await site();
+    const api = (p: string) => `/api/sites/${s.id}${p}`;
+    expect(await call("GET", api("/changes/current"))).toEqual({ status: 200, json: { change: null } });
+    expect((await call("GET", api("/tree?ref=change"))).json).toEqual({ code: "change.not_found" });
+
+    const events = changeEvents(s.id);
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+    await ctx.changes.snapshot(s.id, cwd);
+
+    const current = await call<CurrentChange>("GET", api("/changes/current"));
+    const change = current.json.change;
+    expect(change).toMatchObject({ status: "open", reviewable: true, files: [{ path: "content/pages/faq.md" }] });
+    // The stream ends on the same state the API returns.
+    await until(() => JSON.stringify(events.got.at(-1)) === JSON.stringify(change));
+    events.close();
+
+    const tree = await call<{ entries: { name: string }[] }>("GET", api("/tree?ref=change&path=content/pages"));
+    expect(tree.json.entries.map((e) => e.name)).toContain("faq.md");
+    const mainTree = await call<{ entries: { name: string }[] }>("GET", api("/tree?path=content/pages"));
+    expect(mainTree.json.entries.map((e) => e.name)).not.toContain("faq.md");
+    expect((await call("GET", api("/file?ref=change&path=content/pages/faq.md"))).json).toMatchObject({
+      ref: "change",
+      commit: change?.snapshotCommit,
+      kind: "text",
+    });
+
+    const diff = await call<FileDiff>("GET", `/api/changes/${change?.id}/diff?path=content/pages/faq.md`);
+    expect(diff.json.patch).toContain("+title: FAQ");
+    expect((await call("GET", `/api/changes/${change?.id}/diff?path=site.yaml`)).json).toEqual({
+      code: "change.file_not_found",
+    });
+    expect((await call("GET", `/api/changes/${change?.id}/diff?path=../x`)).status).toBe(400);
+    expect((await call("GET", `/api/changes/${change?.id}/diff`)).status).toBe(400);
+    expect((await call("GET", "/api/changes/nope/diff?path=a")).json).toEqual({ code: "change.not_found" });
+  });
+
+  it("applies with the fingerprint, rebuilds the main preview, and rejects", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    const change = (await ctx.changes.current(s.id, false)) as ChangeSet;
+    const events = changeEvents(s.id);
+
+    for (const bad of [
+      {},
+      { treeHash: "abc" },
+      { treeHash: change.treeHash, extra: 1 },
+      { treeHash: change.treeHash, force: "yes" },
+    ]) {
+      expect((await call("POST", `/api/changes/${change.id}/apply`, bad)).json).toEqual({
+        code: "request.invalid_body",
+      });
+    }
+    expect((await call("POST", `/api/changes/${change.id}/apply`, { treeHash: "0".repeat(40) })).json).toEqual({
+      code: "change.fingerprint_mismatch",
+    });
+
+    const buildsBefore = ctx.builds.list(s.id).length;
+    const applied = await call<ApplyResult>("POST", `/api/changes/${change.id}/apply`, { treeHash: change.treeHash });
+    expect(applied.status).toBe(200);
+    expect(applied.json).toMatchObject({ outcome: "applied", change: { status: "applied" } });
+    await until(() => ctx.builds.list(s.id).length > buildsBefore);
+    await ctx.builds.settled();
+    expect(ctx.builds.list(s.id)[0]).toMatchObject({ ref: "main", commit: applied.json.change.resultCommit });
+    // Once nothing is open, the stream says so.
+    await until(() => events.got.at(-1) === null);
+    events.close();
+
+    const next = await ctx.changes.begin(s.id, session.id);
+    expect((await call("POST", `/api/changes/${next.change.id}/reject`)).json).toMatchObject({ status: "rejected" });
+    expect((await call("POST", `/api/changes/${next.change.id}/reject`)).json).toEqual({
+      code: "change.not_open",
+      params: { status: "rejected" },
+    });
   });
 });

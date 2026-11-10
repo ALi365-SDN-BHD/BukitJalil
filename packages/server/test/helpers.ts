@@ -113,7 +113,7 @@ export function makeApp(
     ...overrides.agent,
   });
   const events = new EventHub(overrides.replayBytes);
-  connectEvents(events, agent, builds);
+  connectEvents(events, { agent, builds, changes, logger });
   const loginToken = new LoginToken(TOKEN);
   const app = createAdminApp({
     port: PORT,
@@ -126,9 +126,10 @@ export function makeApp(
     bukit,
     rg,
     sites,
-    panels: new PanelService({ git, sites }),
+    panels: new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) }),
     builds,
     agent,
+    changes,
     events,
     eventStream: overrides.eventStream,
     modelTestTimeoutMs: overrides.modelTestTimeoutMs,

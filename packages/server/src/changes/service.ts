@@ -191,6 +191,11 @@ export class ChangeService {
     });
   }
 
+  /** The snapshot commit of the site's open change set (what ref=change shows), or null. */
+  openSnapshot(siteId: string): string | null {
+    return this.store.open(siteId)?.snapshotCommit ?? null;
+  }
+
   get(id: string): ChangeRecord {
     const change = isChangeId(id) ? this.store.get(id) : null;
     if (!change) throw new SiteError("change.not_found", 404);

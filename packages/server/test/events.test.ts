@@ -1,9 +1,11 @@
-import type { ServerEvent } from "@bukitjalil/shared";
+import type { ChangeView, ServerEvent } from "@bukitjalil/shared";
 import { describe, expect, it } from "vitest";
 import type { AgentEvent, AgentService } from "../src/agent/service.ts";
 import type { BuildEvent, BuildService } from "../src/builds/service.ts";
-import { agentEventTranslator, connectEvents } from "../src/events/bridge.ts";
+import type { ChangeService } from "../src/changes/service.ts";
+import { agentEventTranslator, changeRefresher, connectEvents } from "../src/events/bridge.ts";
 import { EventHub } from "../src/events/hub.ts";
+import { silentLogger } from "../src/log.ts";
 
 const S = { siteId: "site1", sessionId: "aaaaaaaaaaaaaaaa" };
 const status = (s: "idle" | "running") => ({ ...S, type: "session.status", data: { status: s } }) as const;
@@ -238,6 +240,7 @@ describe("agent events on the stream", () => {
         agentListener = l;
         return () => {};
       },
+      busy: () => false,
     };
     const builds = {
       onEvent: (l: (e: BuildEvent) => void) => {
@@ -245,7 +248,13 @@ describe("agent events on the stream", () => {
         return () => {};
       },
     };
-    connectEvents(hub, agent as unknown as AgentService, builds as unknown as BuildService);
+    const changes = { subscribe: () => () => {}, current: async () => null };
+    connectEvents(hub, {
+      agent: agent as unknown as AgentService,
+      builds: builds as unknown as BuildService,
+      changes: changes as unknown as ChangeService,
+      logger: silentLogger,
+    });
     const build = { id: "b1", siteId: "site9" } as BuildEvent["build"];
     buildListener?.({ type: "build.start", build });
     agentListener?.({ ...S, type: "status", status: "running" });
@@ -253,5 +262,58 @@ describe("agent events on the stream", () => {
       { type: "build.start", siteId: "site9", data: { build } },
       { ...S, type: "session.status", data: { status: "running" } },
     ]);
+  });
+});
+
+describe("change set events", () => {
+  const view = (id: string) => ({ id }) as ChangeView;
+
+  it("keeps only each site's newest change event for reconnects", () => {
+    const hub = new EventHub();
+    const first = hub.publish({ type: "change", siteId: "a", data: { change: view("1") } });
+    hub.publish({ type: "change", siteId: "b", data: { change: view("2") } });
+    hub.publish({ type: "change", siteId: "a", data: { change: null } });
+    const replay = listen(hub, first.id).sub.backlog.map((e) =>
+      e.type === "change" ? [e.siteId, e.data.change] : e.type,
+    );
+    expect(replay).toEqual([
+      ["b", { id: "2" }],
+      ["a", null],
+    ]);
+    // Superseded events are not "missed": a client that saw the first one gets no resync.
+    expect(listen(hub, first.id).sub.backlog.some((e) => e.type === "resync")).toBe(false);
+  });
+
+  it("reads one site at a time, in order, and skips states already sent", async () => {
+    const hub = new EventHub();
+    const { got } = listen(hub);
+    let state: ChangeView | null = view("1");
+    const gates: (() => void)[] = [];
+    let reads = 0;
+    const changes = {
+      current: async () => {
+        reads++;
+        const seen = state;
+        await new Promise<void>((resolve) => gates.push(resolve));
+        return seen;
+      },
+    };
+    const refresh = changeRefresher(hub, { busy: () => false }, changes, silentLogger);
+    refresh("a");
+    // Changes during a read cause one more read, not one per change.
+    state = view("2");
+    refresh("a");
+    refresh("a");
+    expect(reads).toBe(1);
+    gates.shift()?.();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reads).toBe(2);
+    gates.shift()?.();
+    await new Promise((r) => setTimeout(r, 0));
+    refresh("a");
+    gates.shift()?.();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reads).toBe(3);
+    expect(got.map((e) => (e.type === "change" ? e.data.change?.id : e.type))).toEqual(["1", "2"]);
   });
 });

@@ -154,6 +154,11 @@ export class AgentService {
     return this.list(siteId).map((s) => this.toInfo(s));
   }
 
+  /** A session of the site is running or has messages waiting: its change set is about to change. */
+  busy(siteId: string): boolean {
+    return this.running.has(siteId) || (this.pending.get(siteId)?.length ?? 0) > 0;
+  }
+
   private toInfo({ file: _, ...record }: SessionRecord): SessionInfo {
     const run = this.running.get(record.siteId);
     const queued = this.pending.get(record.siteId)?.some((p) => p.sessionId === record.id);

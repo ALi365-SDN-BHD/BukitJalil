@@ -62,7 +62,14 @@ interface Version {
  * site's working directory, so untracked or ignored files (.env) never show up.
  */
 export class PanelService {
-  constructor(private readonly opts: { git: GitRunner; sites: SiteService }) {}
+  constructor(
+    private readonly opts: {
+      git: GitRunner;
+      sites: SiteService;
+      /** The snapshot of the site's open change set (ref=change), or null when none is open. */
+      changeCommit: (siteId: string) => string | null;
+    },
+  ) {}
 
   // --- files ---
 
@@ -281,11 +288,13 @@ export class PanelService {
   /** Resolve the version and turn git failures about the repository into API errors. */
   private async withVersion<T>(siteId: string, ref: PanelRef, fn: (v: Version) => Promise<T>): Promise<T> {
     const site = this.opts.sites.get(siteId);
-    // The open change set's snapshot comes with change sets in M4.
-    if (ref === "change") throw new SiteError("change.not_found", 404);
+    const changeCommit = ref === "change" ? this.opts.changeCommit(siteId) : null;
+    if (ref === "change" && changeCommit === null) throw new SiteError("change.not_found", 404);
     if (!fs.existsSync(site.path)) throw new SiteError("fs.not_found", 404);
     if (!fs.existsSync(path.join(site.path, ".git"))) throw new SiteError("site.not_repo", 409);
     try {
+      // The snapshot is pinned by refs/bukitjalil/changes/<id>, so it is always there.
+      if (changeCommit !== null) return await fn({ repo: site.path, ref, commit: changeCommit });
       let commit: string;
       try {
         commit = await resolveBranch(this.opts.git, site.path, site.defaultBranch);
