@@ -13,6 +13,26 @@
   },
   "overrides": [
     {
+      "includes": ["packages/server/src/**", "!packages/server/src/agent/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@earendil-works/*", "@earendil-works/**"],
+                    "message": "Pi is used only in src/agent/, which loads it after setting its environment (plan 6.1)"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["packages/web/src/**"],
       "linter": {
         "rules": {

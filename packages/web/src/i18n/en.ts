@@ -317,6 +317,8 @@ const en: Messages = {
     "panel.not_directory": "This is not a folder",
     "panel.not_file": "This is not a file",
     "panel.too_large": "The file is too large (limit {max} bytes)",
+    "session.not_found": "The conversation does not exist",
+    "agent.no_model": "No AI model is set up yet. Choose a model and enter an API key in Settings first",
   },
 };
 

@@ -13,8 +13,7 @@ import type {
 import { guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, logEntry, usableRunner } from "../bukit/runner.ts";
-import { resolveBranch } from "../git/objects.ts";
-import { GitError, type GitRunner } from "../git/run.ts";
+import type { GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
 import type { AppPaths } from "../paths.ts";
 import { NoPreviewPortError, PreviewPool } from "../preview/pool.ts";
@@ -92,7 +91,7 @@ export class BuildService {
 
     const release = this.opts.locks.acquire(siteId, "build");
     try {
-      const commit = await this.headOf(site);
+      const commit = await this.opts.sites.headOf(site);
       this.assertOpen(); // shutdown may have begun while the branch was resolved
       const id = newBuildId();
       this.store.insert({ id, siteId, commit });
@@ -185,20 +184,6 @@ export class BuildService {
 
   private runnerOpts() {
     return { git: this.opts.git, home: this.opts.paths.home, tmpDir: this.opts.paths.bukitTmp };
-  }
-
-  private async headOf(site: Site): Promise<string> {
-    try {
-      return await resolveBranch(this.opts.git, site.path, site.defaultBranch);
-    } catch (err) {
-      if (err instanceof GitError && (err.kind === "unsafe_repo" || err.kind === "dubious_ownership")) {
-        throw new SiteError("site.repo_unsafe", 409);
-      }
-      if (err instanceof GitError && err.kind === "failed") {
-        throw new SiteError("site.branch_missing", 409, { branch: site.defaultBranch });
-      }
-      throw err;
-    }
   }
 
   private async execute(

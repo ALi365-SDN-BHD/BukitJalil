@@ -1,0 +1,360 @@
+import fs from "node:fs";
+import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { AgentSession, AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { Logger } from "../log.ts";
+import type { AppPaths } from "../paths.ts";
+import { SiteError } from "../sites/location.ts";
+import type { SiteService } from "../sites/service.ts";
+import { loadPi, type PiModules } from "./pi.ts";
+import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
+import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./store.ts";
+
+/** Pi's built-in tools the AI may use (plan 6.3); empty until the permission gate wraps them. */
+export const AGENT_TOOLS: readonly string[] = [];
+
+const IDLE_MS = 10 * 60_000;
+
+export type SessionStatus = "idle" | "queued" | "running";
+
+/** What a session does, for the event stream: Pi's own events, and status changes. */
+export type AgentEvent = { siteId: string; sessionId: string } & (
+  | { type: "pi"; event: AgentSessionEvent }
+  | { type: "status"; status: SessionStatus; error?: string }
+);
+
+export interface AgentServiceOptions {
+  db: DatabaseSync;
+  paths: AppPaths;
+  sites: SiteService;
+  logger: Logger;
+  /** The model to use, or undefined when none is set up (model settings come in a later step). */
+  resolveModel: (runtime: ModelRuntime, pi: PiModules) => Model<Api> | undefined;
+  /** Called once on the new model runtime (tests register a fake provider). */
+  setupRuntime?: (runtime: ModelRuntime, pi: PiModules) => void;
+  /** Dispose an unused AgentSession after this long; its file stays (plan 6.2). */
+  idleMs?: number;
+}
+
+interface Live {
+  siteId: string;
+  session: AgentSession;
+  unsubscribe: () => void;
+  idleTimer: NodeJS.Timeout | null;
+}
+
+interface Pending {
+  sessionId: string;
+  texts: string[];
+}
+
+/** The run of one session; at most one per site. */
+interface Run {
+  sessionId: string;
+  /** Set by stop, delete, site removal or shutdown: no further prompt is sent. */
+  cancelled: boolean;
+  /** Messages that arrived while the session was not streaming (opening, or between prompts). */
+  extra: string[];
+  /** Settles when the run has ended and touched nothing more. */
+  done: Promise<void>;
+}
+
+/**
+ * AI sessions (plan 6.2). A session is a row in `sessions` and a Pi session file; its AgentSession is made
+ * when a message arrives and disposed after a while unused. One session per site runs at a time: messages
+ * for other sessions of that site wait in order.
+ */
+export class AgentService {
+  readonly store: SessionStore;
+  private readonly live = new Map<string, Live>();
+  private readonly pending = new Map<string, Pending[]>();
+  /** siteId -> the run there. */
+  private readonly running = new Map<string, Run>();
+  private readonly listeners = new Set<(event: AgentEvent) => void>();
+  private runtime: Promise<ModelRuntime> | null = null;
+  private closing = false;
+
+  constructor(private readonly opts: AgentServiceOptions) {
+    this.store = new SessionStore(opts.db);
+    opts.sites.onRemoving((siteId) => this.closeSite(siteId));
+  }
+
+  /** Listen to every session's events; returns the function that stops listening. */
+  subscribe(listener: (event: AgentEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  list(siteId: string): SessionRecord[] {
+    this.opts.sites.get(siteId);
+    return this.store.list(siteId);
+  }
+
+  get(id: string): SessionRecord {
+    const session = isSessionId(id) ? this.store.get(id) : null;
+    if (!session) throw new SiteError("session.not_found", 404);
+    return session;
+  }
+
+  status(id: string): SessionStatus {
+    const session = this.get(id);
+    if (this.running.get(session.siteId)?.sessionId === id) return "running";
+    return this.pending.get(session.siteId)?.some((p) => p.sessionId === id) ? "queued" : "idle";
+  }
+
+  /** Record a new session; its AgentSession and file are made with the first message. */
+  create(siteId: string): SessionRecord {
+    this.assertOpen();
+    const site = this.opts.sites.get(siteId);
+    if (site.readOnly) throw new SiteError("site.read_only", 409);
+    const id = newSessionId();
+    return this.store.insert({ id, siteId, file: path.join(this.sessionDir(siteId), `${id}.jsonl`) });
+  }
+
+  rename(id: string, title: string | null): SessionRecord {
+    this.get(id);
+    this.store.rename(id, title);
+    return this.get(id);
+  }
+
+  /** Stop the session and wait for its run to end, then delete its record and file. */
+  async delete(id: string): Promise<void> {
+    const session = this.get(id);
+    await this.stop(id);
+    const run = this.running.get(session.siteId);
+    if (run?.sessionId === id) await run.done;
+    this.dispose(id);
+    this.store.delete(id);
+    fs.rmSync(session.file, { force: true });
+  }
+
+  /**
+   * Send a message (plan 6.2). A running session gets it as a steering message, or after the current run
+   * with `followUp`; if it is still opening, the message is sent once the current prompt ends. Otherwise
+   * it waits for the site's running session, if any, then starts a run; messages sent while waiting are
+   * joined into one. Resolves once the message is accepted.
+   */
+  async send(id: string, text: string, opts: { followUp?: boolean } = {}): Promise<void> {
+    this.assertOpen();
+    const session = this.get(id);
+    if (this.opts.sites.get(session.siteId).readOnly) throw new SiteError("site.read_only", 409);
+    const run = this.running.get(session.siteId);
+    if (run?.sessionId === id && !run.cancelled) {
+      const live = this.live.get(id);
+      if (live?.session.isStreaming) await (opts.followUp ? live.session.followUp(text) : live.session.steer(text));
+      else run.extra.push(text);
+      return;
+    }
+    // Fail now, not inside the queued run, when no model is set up.
+    await this.model();
+    this.assertOpen();
+    const queue = this.pending.get(session.siteId) ?? [];
+    this.pending.set(session.siteId, queue);
+    const waiting = queue.find((p) => p.sessionId === id);
+    if (waiting) waiting.texts.push(text);
+    else queue.push({ sessionId: id, texts: [text] });
+    if (this.running.has(session.siteId))
+      this.emit({ siteId: session.siteId, sessionId: id, type: "status", status: "queued" });
+    this.pump(session.siteId);
+  }
+
+  /** Stop a running session (plan 6.2), even one still opening, or drop its waiting messages. */
+  async stop(id: string): Promise<void> {
+    const session = this.get(id);
+    this.dropPending(session.siteId, (p) => p.sessionId === id);
+    const run = this.running.get(session.siteId);
+    if (run?.sessionId === id) await this.cancel(run);
+  }
+
+  /** Stop every session of a site and wait for its run to end, before the site is removed. */
+  async closeSite(siteId: string): Promise<void> {
+    this.dropPending(siteId, () => true);
+    const run = this.running.get(siteId);
+    if (run) {
+      await this.cancel(run);
+      await run.done;
+    }
+    for (const [id, live] of [...this.live]) if (live.siteId === siteId) this.dispose(id);
+  }
+
+  /** Stop all sessions, wait for their runs to end and dispose them (server shutdown). */
+  async shutdown(): Promise<void> {
+    this.closing = true;
+    this.pending.clear();
+    const runs = [...this.running.values()];
+    await Promise.all(runs.map((run) => this.cancel(run)));
+    await Promise.all(runs.map((run) => run.done));
+    for (const id of [...this.live.keys()]) this.dispose(id);
+  }
+
+  // --- internals ---
+
+  private assertOpen(): void {
+    if (this.closing) throw new SiteError("server.shutting_down", 503);
+  }
+
+  private sessionDir(siteId: string): string {
+    return path.join(this.opts.paths.sessions, siteId);
+  }
+
+  private emit(event: AgentEvent): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch (err) {
+        this.opts.logger.log("error", "agent.listener_failed", { error: String(err) });
+      }
+    }
+  }
+
+  /** Remove waiting sessions of a site; each gets an idle status. */
+  private dropPending(siteId: string, match: (p: Pending) => boolean): void {
+    const queue = this.pending.get(siteId) ?? [];
+    for (const p of queue.filter(match)) this.emit({ siteId, sessionId: p.sessionId, type: "status", status: "idle" });
+    this.pending.set(
+      siteId,
+      queue.filter((p) => !match(p)),
+    );
+  }
+
+  /** Mark the run cancelled and abort its prompt if one is streaming. */
+  private async cancel(run: Run): Promise<void> {
+    run.cancelled = true;
+    run.extra = [];
+    await this.live.get(run.sessionId)?.session.abort();
+  }
+
+  private pi(): Promise<PiModules> {
+    return loadPi(this.opts.paths.pi);
+  }
+
+  private modelRuntime(): Promise<ModelRuntime> {
+    if (!this.runtime) {
+      const runtime = this.pi().then(async (pi) => {
+        const created = await createModelRuntime(pi, this.opts.paths.pi);
+        this.opts.setupRuntime?.(created, pi);
+        return created;
+      });
+      runtime.catch(() => {
+        if (this.runtime === runtime) this.runtime = null;
+      });
+      this.runtime = runtime;
+    }
+    return this.runtime;
+  }
+
+  private async model(): Promise<Model<Api>> {
+    const [pi, runtime] = await Promise.all([this.pi(), this.modelRuntime()]);
+    const model = this.opts.resolveModel(runtime, pi);
+    if (!model) throw new SiteError("agent.no_model", 409);
+    return model;
+  }
+
+  /** Start the next waiting session of a site, if none runs there. */
+  private pump(siteId: string): void {
+    if (this.running.has(siteId) || this.closing) return;
+    const next = this.pending.get(siteId)?.shift();
+    if (!next) return;
+    const run: Run = { sessionId: next.sessionId, cancelled: false, extra: [], done: Promise.resolve() };
+    this.running.set(siteId, run);
+    const base = { siteId, sessionId: next.sessionId, type: "status" } as const;
+    this.emit({ ...base, status: "running" });
+    run.done = this.execute(run, next.texts.join("\n\n")).then((error) => {
+      this.running.delete(siteId);
+      this.emit(error ? { ...base, status: "idle", error } : { ...base, status: "idle" });
+      this.pump(siteId);
+    });
+  }
+
+  /** Run a session's prompts; resolves to an error code, never rejects. */
+  private async execute(run: Run, text: string): Promise<string | undefined> {
+    const id = run.sessionId;
+    let live: Live | null = null;
+    try {
+      live = await this.open(run);
+      if (!live) return undefined;
+      if (live.idleTimer) clearTimeout(live.idleTimer);
+      live.idleTimer = null;
+      this.store.touch(id);
+      let prompt: string | undefined = text;
+      while (prompt !== undefined && !run.cancelled) {
+        await live.session.prompt(prompt);
+        await live.session.waitForIdle();
+        prompt = run.extra.length > 0 ? run.extra.splice(0).join("\n\n") : undefined;
+      }
+      return undefined;
+    } catch (err) {
+      this.opts.logger.log("error", "agent.run_failed", { sessionId: id, error: String(err) });
+      return err instanceof SiteError ? err.code : "server.internal";
+    } finally {
+      if (live && this.live.get(id) === live) {
+        if (this.store.get(id) && !this.closing) {
+          this.store.touch(id);
+          live.idleTimer = setTimeout(() => this.dispose(id), this.opts.idleMs ?? IDLE_MS);
+          live.idleTimer.unref();
+        } else {
+          this.dispose(id);
+        }
+      }
+    }
+  }
+
+  /**
+   * The session's AgentSession, made from its file when not in memory (plan 6.2); null when the run was
+   * cancelled or the session deleted meanwhile, so nothing is written for it.
+   */
+  private async open(run: Run): Promise<Live | null> {
+    const id = run.sessionId;
+    const gone = () => run.cancelled || this.closing || !this.store.get(id);
+    if (gone()) return null;
+    const existing = this.live.get(id);
+    if (existing) return existing;
+    const record = this.get(id);
+    const site = this.opts.sites.get(record.siteId);
+    const cwd = await this.opts.sites.aiCheckout(site.id);
+    const pi = await this.pi();
+    const [modelRuntime, model] = await Promise.all([this.modelRuntime(), this.model()]);
+    if (gone()) return null;
+    const settingsManager = createSettings(pi);
+    const piDir = this.opts.paths.pi;
+    const resourceLoader = await createResourceLoader(pi, {
+      cwd,
+      piDir,
+      settings: settingsManager,
+      systemPrompt: buildSystemPrompt(site),
+    });
+    if (gone()) return null;
+    const dir = this.sessionDir(site.id);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // open() starts a new session when the file does not exist yet, and keeps this path.
+    const sessionManager = pi.pi.SessionManager.open(record.file, dir, cwd);
+    const { session } = await pi.pi.createAgentSession({
+      cwd,
+      agentDir: piDir,
+      modelRuntime,
+      model,
+      tools: [...AGENT_TOOLS],
+      resourceLoader,
+      sessionManager,
+      settingsManager,
+    });
+    const unsubscribe = session.subscribe((event) => this.emit({ siteId: site.id, sessionId: id, type: "pi", event }));
+    const live: Live = { siteId: site.id, session, unsubscribe, idleTimer: null };
+    this.live.set(id, live);
+    if (gone()) {
+      this.dispose(id);
+      return null;
+    }
+    return live;
+  }
+
+  private dispose(id: string): void {
+    const live = this.live.get(id);
+    if (!live) return;
+    this.live.delete(id);
+    if (live.idleTimer) clearTimeout(live.idleTimer);
+    live.unsubscribe();
+    live.session.dispose();
+  }
+}

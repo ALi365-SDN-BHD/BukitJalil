@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.4（2026-11-10，M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.5（2026-11-10，Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -69,9 +69,9 @@
 
 | 包 | 版本 | 用途 |
 | --- | --- | --- |
-| `@earendil-works/pi-coding-agent` | 1.5.0 | Pi SDK：会话、工具、技能、模型 |
-| `@earendil-works/pi-ai` | 1.5.0 | 模型目录与提供商（随 SDK） |
-| `@earendil-works/pi-agent-core` | 1.5.0 | Agent 核心（随 SDK） |
+| `@earendil-works/pi-coding-agent` | 1.5.1 | Pi SDK：会话、工具、技能、模型（M3 开始时从 1.5.0 升级，差异见 6.1 末尾） |
+| `@earendil-works/pi-ai` | 1.5.1 | 模型目录与提供商（随 SDK） |
+| `@earendil-works/pi-agent-core` | 1.5.1 | Agent 核心（随 SDK，不直接依赖） |
 | `hono` | 4.13.17 | HTTP 路由、SSE |
 | `@hono/node-server` | 2.1.6 | Node 运行 Hono、静态文件 |
 | `zod` | 4.6.7 | 请求、配置、事件的校验和类型 |
@@ -279,6 +279,14 @@ BukitJalil/
 - 同一个网站**同一时间只有一个会话在运行**：另一个会话在运行时，新消息进入排队，界面显示"另一个对话正在修改这个网站"，可以选择等待或停止对方
 - AI 只能用白名单里的工具；读写路径都由权限闸门在文件操作这一层检查（6.3）
 - 同一个网站的会话运行、改动集重置、快照、应用、拒绝、恢复、`ai/` 或 `main/` 里的任何构建和检查，都要先拿到这个网站的**操作锁**（7.2），同一时间只做一件
+
+> **Pi SDK 1.5.1 核对结果**（M3 开始时升级。6.6 里不联网、工具白名单、系统提示和会话文件的结论已在 1.5.1 上重跑通过；闸门和工具相关的结论在 M3 第 2 层实现时重跑。下面列出有变化或新发现的地方）：
+> - **项目信任**：`SettingsManager.inMemory()` 默认把项目当作受信任。受信任的项目会加载网站里的 `.pi/extensions`（会执行代码）、`.pi/SYSTEM.md`、`.pi/APPEND_SYSTEM.md`、`.pi/skills`、`.agents/skills` 和 `.pi/settings.json`。所以必须传 `{ projectTrusted: false }`；`DefaultResourceLoader` 另外传 `noExtensions`、`noSkills`、`noContextFiles`、`noPromptTemplates`、`noThemes`，用户主目录的 `~/.agents/skills` 也不会被读。单元测试在网站里提交这些文件，确认都没有生效
+> - **内置扩展**：1.5.1 新增内置扩展（如 `mcp`），只有调用方通过 `extensionFactories` 传入时才会加载，BukitJalil 不传
+> - **`cacheWarming` 默认 `"idle"`**：会在两次运行之间向模型发请求（产生费用），设为 `"off"`；`enableInstallTelemetry` 默认 `true`，设为 `false`。另外设置环境变量 `PI_TELEMETRY=0`、`PI_SKIP_VERSION_CHECK=1`
+> - **`models-store.json`**：`ModelRuntime` 会在 `models.json` 旁边写一个模型列表缓存，也在 `~/.bukitjalil/pi/` 里
+> - **codemode**：`codemode.mode` 只能是 `"on"` 或 `"only"`，但传了 `tools` 白名单时 codemode 工具不会出现，不需要额外处理
+> - **留给后续层核对**：`ReadOperations` 新增可选的 `createReadStream`，闸门实现时要确认它不会绕过检查（不提供时 Pi 的回退路径也要核对）；`grep` 的上下文行改由 rg 输出，不再调用 `GrepOperations.readFile`，所以过滤 `.git` 时上下文行也要处理
 
 ### 6.2 会话生命周期
 
@@ -921,6 +929,29 @@ packages/web/src/
 | 设置：模型选择、API Key、测试连接 | 设置页 |
 
 **验收**：用真实模型说"把首页标题改成 X，并加一个 FAQ 页面"，AI 只在工作副本里修改并通过检查；尝试让 AI 读或改工作副本以外的文件（包括 `~/.bukitjalil/pi/auth.json`）会被阻止；在 `site.yaml` 里加入非内置插件后 AI 的构建会被拒绝；刷新页面后会话可以恢复。
+
+M3 分层实施（每层做完先审计、修复，再提交）：
+
+1. agent 核心：Pi 环境变量、延迟加载 Pi、模型运行时、内存设置、ResourceLoader、系统提示、会话记录、会话服务（排队、空闲释放、停止、删除），先不开放任何工具
+2. 权限闸门 + 6 个内置工具（`find` 用 Node 实现），`tool_call` 快速拒绝
+3. rg 安装（固定版本、校验、设置页显示状态）
+4. 建站工具和技能打包；`bukit_check` / `bukit_build` 接入构建前检查和网站操作锁
+5. 会话 API 和 SSE 事件流
+6. 对话界面
+7. 模型设置（提供商、模型、API Key、测试连接）
+8. 端到端测试和文档
+
+> M3 第 1 层实现说明（agent 核心）：
+> - 只有 `src/agent/` 能引用 Pi（Biome 规则检查）。`src/agent/pi.ts` 用动态 `import()` 加载 Pi，加载前检查 `PI_CODING_AGENT_DIR`、`PI_OFFLINE`、`PI_TELEMETRY`、`PI_SKIP_VERSION_CHECK` 已设置；加载后不接受另一个目录。`main.ts` 在创建应用目录后立即设置这些变量
+> - 新增应用目录 `~/.bukitjalil/pi/`（权限 700）和 `pi/bin/`
+> - 会话记录在 `sessions` 表，会话文件固定为 `sessions/<siteId>/<sessionId>.jsonl`，创建会话时只写记录，第一条消息时才建 `AgentSession`；文件不存在时 `SessionManager.open` 会新建会话并保留这个路径
+> - AI 工作副本 `worktrees/<siteId>/ai/` 在第一次运行时从默认分支最新提交检出；已有的工作副本不重置（重置属于 M4 的改动集）。只读网站不能创建会话
+> - 同一网站同一时间只运行一个会话，其他会话的消息按顺序排队，排队中再发的消息合并成一次运行；正在运行的会话收到新消息时用 `steer`（或 `followUp`），会话还在打开、尚未开始输出时，消息在当前这次提问结束后接着发，不另排一次。停止会话会中断运行或取消排队；会话还在打开时停止，就不再向模型提问，也不写会话文件。空闲 10 分钟释放 `AgentSession`，下次发消息时从会话文件恢复。网站后来变成只读时，发消息直接返回 409 `site.read_only`
+> - 事件：转发 Pi 的会话事件，另有状态事件 `queued` / `running` / `idle`（运行失败时带错误码）。SSE 在第 5 层接入
+> - 还没有模型设置，发消息返回 409 `agent.no_model`；会话不存在返回 404 `session.not_found`
+> - 第一次检出 `ai/` 时要拿网站操作锁（和构建、移除一样在网站仓库里执行 git）；拿不到时这次运行以 `site.busy` 结束。整次会话运行暂不拿锁：现在 AI 只动 `ai/`，而用到 `ai/` 的构建、重置、快照分别在第 4 层和 M4 加入，届时一起接入（操作锁现在是"忙就立即失败"，排队等待要在那时设计）
+> - 删除会话、移除网站、关闭服务时，先停止相关运行（包括还在打开的），并等它结束，再删除文件或关闭数据库；被丢弃的排队会话收到 `idle` 状态
+> - 单元测试用 Pi 的 faux 假模型：环境变量缺失时拒绝加载、会话在 `ai/` 里运行且没有工具、不联网、Pi 只写自己的目录、网站里的 Pi 和 agent 文件不生效、从文件恢复历史、排队顺序、打开中追加消息、打开中停止和删除、停止排队、无模型和只读时拒绝、拿不到锁、重命名和删除、移除网站和关闭服务时等待运行结束、只读网站不能建会话
 
 ### M4 改动审核与版本（6–8 天）
 

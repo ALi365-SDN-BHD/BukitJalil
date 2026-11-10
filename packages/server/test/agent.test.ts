@@ -1,0 +1,432 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { assertPiEnvironment, preparePiEnvironment } from "../src/agent/env.ts";
+import { loadPi, type PiModules } from "../src/agent/pi.ts";
+import { type AgentEvent, AgentService } from "../src/agent/service.ts";
+import { silentLogger } from "../src/log.ts";
+import { SiteError } from "../src/sites/location.ts";
+import { copyStarter } from "../src/sites/template.ts";
+import { commitAllAs, makeApp, rawGit } from "./helpers.ts";
+
+const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
+
+// Pi keeps the directory it saw when it loaded, so this file uses one app home (vitest runs each test
+// file in its own module graph).
+let base: string;
+let ctx: ReturnType<typeof makeApp>;
+let pi: PiModules;
+let faux: ReturnType<PiModules["ai"]["fauxProvider"]>;
+let fetchSpy: ReturnType<typeof vi.spyOn>;
+const services: AgentService[] = [];
+
+beforeAll(async () => {
+  base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bj-agent-")));
+  fs.mkdirSync(path.join(base, "home"));
+  ctx = makeApp({ userHome: path.join(base, "home"), appHome: path.join(base, "app") });
+  fetchSpy = vi.spyOn(globalThis, "fetch");
+});
+afterEach(async () => {
+  await Promise.all(services.splice(0).map((s) => s.shutdown()));
+});
+afterAll(() => {
+  fetchSpy.mockRestore();
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+let siteCount = 0;
+/** A committed starter site, imported (no Bukit, so no first build); `files` are committed with it. */
+async function site(files: Record<string, string> = {}) {
+  const dir = path.join(base, "home", `site${++siteCount}`);
+  copyStarter(STARTER, dir, { title: `Site ${siteCount}`, language: "en-US" });
+  for (const [name, content] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+    fs.writeFileSync(path.join(dir, name), content);
+  }
+  rawGit(base, dir, "init", "-q", "-b", "main");
+  commitAllAs(base, dir);
+  return ctx.sites.import({ path: dir });
+}
+
+function service(opts: { model?: boolean; idleMs?: number } = {}) {
+  const agent = new AgentService({
+    db: ctx.db,
+    paths: ctx.paths,
+    sites: ctx.sites,
+    logger: silentLogger,
+    resolveModel: () => (opts.model === false ? undefined : (faux.getModel() as Model<Api>)),
+    setupRuntime: (runtime) => runtime.registerNativeProvider(faux.provider),
+    idleMs: opts.idleMs,
+  });
+  services.push(agent);
+  const events: AgentEvent[] = [];
+  agent.subscribe((e) => events.push(e));
+  const statuses = (sessionId: string) =>
+    events.filter((e) => e.sessionId === sessionId && e.type === "status").map((e) => e.type === "status" && e.status);
+  /** Resolves when the session's run ends. */
+  const settled = (sessionId: string) =>
+    new Promise<AgentEvent>((resolve) => {
+      const stop = agent.subscribe((e) => {
+        if (e.sessionId === sessionId && e.type === "status" && e.status === "idle") {
+          stop();
+          resolve(e);
+        }
+      });
+    });
+  return { agent, events, settled, statuses };
+}
+
+describe("Pi environment", () => {
+  it("refuses to load Pi before its environment is set", () => {
+    const piDir = ctx.paths.pi;
+    expect(() => assertPiEnvironment(piDir)).toThrow(/PI_CODING_AGENT_DIR/);
+    expect(() => loadPi(piDir)).toThrow(/PI_CODING_AGENT_DIR/);
+  });
+
+  it("loads Pi once the environment is set, for that directory only", async () => {
+    preparePiEnvironment(ctx.paths.pi);
+    expect(process.env.PI_CODING_AGENT_DIR).toBe(ctx.paths.pi);
+    expect(process.env.PI_OFFLINE).toBe("1");
+    pi = await loadPi(ctx.paths.pi);
+    expect(typeof pi.pi.createAgentSession).toBe("function");
+    expect(await loadPi(ctx.paths.pi)).toBe(pi);
+    expect(() => loadPi(path.join(base, "other"))).toThrow();
+    faux = pi.ai.fauxProvider({ provider: "faux", models: [{ id: "faux-1", name: "Faux" }] });
+  });
+
+  it("keeps the app's Pi directory private", () => {
+    expect(fs.statSync(ctx.paths.pi).mode & 0o777).toBe(0o700);
+    expect(fs.existsSync(ctx.paths.piBin)).toBe(true);
+  });
+});
+
+/** The system messages the model received: one, with our prompt and the working directory only. */
+function systemOf(context: unknown): { preamble: string; cwd: string } {
+  const messages = (context as { messages: { role: string; sections?: Record<string, string> }[] }).messages;
+  const system = messages.filter((m) => m.role === "system");
+  expect(system).toHaveLength(1);
+  // Tools, skills and context files would add sections or messages.
+  expect(Object.keys(system[0]?.sections ?? {}).sort()).toEqual(["cwd", "preamble"]);
+  return system[0]?.sections as { preamble: string; cwd: string };
+}
+
+/** A faux response that waits until `release` is called. */
+function gated(text: string) {
+  let release!: () => void;
+  let markStarted!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  /** Resolves when the model has been called. */
+  const started = new Promise<void>((r) => {
+    markStarted = r;
+  });
+  const step = async () => {
+    markStarted();
+    await gate;
+    return pi.ai.fauxAssistantMessage(text);
+  };
+  return { step, release, started };
+}
+
+describe("AgentService", () => {
+  it("creates an AgentSession in the AI checkout with no tools, offline", async () => {
+    const s = await site();
+    const { agent, events, settled, statuses } = service();
+    const session = agent.create(s.id);
+    expect(session.file).toBe(path.join(ctx.paths.sessions, s.id, `${session.id}.jsonl`));
+    expect(fs.existsSync(session.file)).toBe(false);
+
+    let seen: unknown;
+    faux.setResponses([
+      (context) => {
+        seen = context;
+        return pi.ai.fauxAssistantMessage("Hello from faux");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Hi");
+    const end = await done;
+    expect(end.type === "status" && end.error).toBeFalsy();
+
+    const system = systemOf(seen);
+    expect(system.preamble).toContain("BukitJalil site assistant");
+    expect(system.preamble).toContain(`"Site ${siteCount}"`);
+    expect(system.cwd).toContain(path.join(ctx.paths.worktrees, s.id, "ai"));
+    expect(JSON.stringify(seen)).toContain("Hi");
+
+    expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "site.yaml"))).toBe(true);
+    expect(fs.readFileSync(session.file, "utf8")).toContain("Hello from faux");
+    expect(statuses(session.id)).toEqual(["running", "idle"]);
+    expect(events.some((e) => e.type === "pi" && e.event.type === "agent_end")).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Pi writes only into the app's Pi directory: keys, and its cache of model lists.
+    for (const name of fs.readdirSync(ctx.paths.pi)) expect(["auth.json", "bin", "models-store.json"]).toContain(name);
+    const auth = path.join(ctx.paths.pi, "auth.json");
+    if (fs.existsSync(auth)) expect(fs.statSync(auth).mode & 0o777).toBe(0o600);
+  });
+
+  it("ignores Pi and agent files committed in the site", async () => {
+    const marker = path.join(base, "extension-ran");
+    const s = await site({
+      "AGENTS.md": "AGENTS-MARKER",
+      "CLAUDE.md": "CLAUDE-MARKER",
+      ".pi/SYSTEM.md": "SYSTEM-MARKER",
+      ".pi/APPEND_SYSTEM.md": "APPEND-MARKER",
+      ".pi/extensions/evil.js": `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x"); module.exports = () => {};`,
+      ".pi/skills/evil/SKILL.md": "---\nname: evil\ndescription: SKILL-MARKER\n---\nbody\n",
+      ".agents/skills/evil2/SKILL.md": "---\nname: evil2\ndescription: AGENTS-SKILL-MARKER\n---\nbody\n",
+      ".pi/settings.json": JSON.stringify({ cacheWarming: "idle" }),
+    });
+    const { agent, settled } = service();
+    const session = agent.create(s.id);
+    let seen: unknown;
+    faux.setResponses([
+      (context) => {
+        seen = context;
+        return pi.ai.fauxAssistantMessage("ok");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Hi");
+    await done;
+    const system = systemOf(seen);
+    expect(system.preamble).toContain("BukitJalil site assistant");
+    const all = JSON.stringify(seen);
+    for (const m of ["AGENTS-MARKER", "CLAUDE-MARKER", "SYSTEM-MARKER", "APPEND-MARKER", "SKILL-MARKER"]) {
+      expect(all).not.toContain(m);
+    }
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it("reopens a session from its file with the earlier messages", async () => {
+    const s = await site();
+    const first = service({ idleMs: 10 });
+    const session = first.agent.create(s.id);
+    faux.setResponses([pi.ai.fauxAssistantMessage("FIRST-ANSWER")]);
+    let done = first.settled(session.id);
+    await first.agent.send(session.id, "first");
+    await done;
+    await first.agent.shutdown();
+
+    // A new service has nothing in memory, as after the idle timeout or a restart.
+    const second = service();
+    let seen = "";
+    faux.setResponses([
+      (context) => {
+        seen = JSON.stringify(context);
+        return pi.ai.fauxAssistantMessage("second answer");
+      },
+    ]);
+    done = second.settled(session.id);
+    await second.agent.send(session.id, "second");
+    await done;
+    expect(seen).toContain("first");
+    expect(seen).toContain("FIRST-ANSWER");
+    expect(seen).toContain("second");
+  });
+
+  it("runs one session per site at a time and queues the others", async () => {
+    const s = await site();
+    const { agent, events, settled } = service();
+    const a = agent.create(s.id);
+    const b = agent.create(s.id);
+    const slow = gated("a done");
+    faux.setResponses([slow.step, pi.ai.fauxAssistantMessage("b done")]);
+    const doneA = settled(a.id);
+    const doneB = settled(b.id);
+    await agent.send(a.id, "from a");
+    await agent.send(b.id, "from b");
+    await agent.send(b.id, "more from b");
+    expect(agent.status(a.id)).toBe("running");
+    expect(agent.status(b.id)).toBe("queued");
+    slow.release();
+    await Promise.all([doneA, doneB]);
+    const order = events
+      .filter((e) => e.type === "status")
+      .map((e) => `${e.sessionId === a.id ? "a" : "b"}:${e.type === "status" && e.status}`);
+    expect(order).toEqual(["a:running", "b:queued", "b:queued", "a:idle", "b:running", "b:idle"]);
+    // Messages sent while waiting are joined into one run.
+    const file = fs.readFileSync(b.file, "utf8");
+    expect(file).toContain("from b");
+    expect(file).toContain("more from b");
+  });
+
+  it("adds a message for a session that is still opening to its current run", async () => {
+    const s = await site();
+    const { agent, settled, statuses } = service();
+    const session = agent.create(s.id);
+    const contexts: string[] = [];
+    faux.setResponses([
+      (context) => {
+        contexts.push(JSON.stringify(context));
+        return pi.ai.fauxAssistantMessage("one done");
+      },
+      (context) => {
+        contexts.push(JSON.stringify(context));
+        return pi.ai.fauxAssistantMessage("two done");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "one");
+    await agent.send(session.id, "two");
+    await done;
+    expect(statuses(session.id)).toEqual(["running", "idle"]);
+    expect(contexts).toHaveLength(2);
+    expect(contexts[1]).toContain("one done");
+    expect(contexts[1]).toContain("two");
+  });
+
+  it("stops a session that is still opening before it prompts", async () => {
+    const s = await site();
+    const { agent, settled, statuses } = service();
+    const session = agent.create(s.id);
+    let called = false;
+    faux.setResponses([
+      () => {
+        called = true;
+        return pi.ai.fauxAssistantMessage("should not run");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Hi");
+    await agent.stop(session.id);
+    await done;
+    expect(called).toBe(false);
+    expect(fs.existsSync(session.file)).toBe(false);
+    expect(statuses(session.id)).toEqual(["running", "idle"]);
+  });
+
+  it("stops a waiting session without running it", async () => {
+    const s = await site();
+    const { agent, settled, statuses } = service();
+    const a = agent.create(s.id);
+    const b = agent.create(s.id);
+    const slow = gated("a done");
+    faux.setResponses([slow.step]);
+    const doneA = settled(a.id);
+    await agent.send(a.id, "from a");
+    await agent.send(b.id, "from b");
+    await agent.stop(b.id);
+    expect(agent.status(b.id)).toBe("idle");
+    expect(statuses(b.id)).toEqual(["queued", "idle"]);
+    slow.release();
+    await doneA;
+    expect(fs.existsSync(b.file)).toBe(false);
+  });
+
+  it("refuses to send without a model or to a read-only site", async () => {
+    const s = await site();
+    const noModel = service({ model: false });
+    const session = noModel.agent.create(s.id);
+    await expect(noModel.agent.send(session.id, "Hi")).rejects.toMatchObject({ code: "agent.no_model" });
+    expect(noModel.agent.status(session.id)).toBe("idle");
+
+    const { agent } = service();
+    ctx.sites.store.setState(s.id, { readOnly: [{ code: "plugin_files" }], checkedCommit: null, configCheck: null });
+    await expect(agent.send(session.id, "Hi")).rejects.toMatchObject({ code: "site.read_only" });
+  });
+
+  it("reports site.busy when the AI checkout cannot take the site lock", async () => {
+    const s = await site();
+    const { agent, settled } = service();
+    const session = agent.create(s.id);
+    const release = ctx.locks.acquire(s.id, "build");
+    try {
+      const done = settled(session.id);
+      await agent.send(session.id, "Hi");
+      expect(await done).toMatchObject({ status: "idle", error: "site.busy" });
+      expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai"))).toBe(false);
+    } finally {
+      release();
+    }
+  });
+
+  it("lists, renames and deletes sessions", async () => {
+    const s = await site();
+    const { agent, settled } = service();
+    const one = agent.create(s.id);
+    const two = agent.create(s.id);
+    expect(
+      agent
+        .list(s.id)
+        .map((x) => x.id)
+        .sort(),
+    ).toEqual([one.id, two.id].sort());
+    expect(agent.rename(one.id, "Homepage").title).toBe("Homepage");
+
+    faux.setResponses([pi.ai.fauxAssistantMessage("ok")]);
+    const done = settled(one.id);
+    await agent.send(one.id, "Hi");
+    await done;
+    expect(fs.existsSync(one.file)).toBe(true);
+    await agent.delete(one.id);
+    expect(fs.existsSync(one.file)).toBe(false);
+    expect(() => agent.get(one.id)).toThrow(SiteError);
+    expect(() => agent.get("../../etc")).toThrow(SiteError);
+    expect(agent.list(s.id).map((x) => x.id)).toEqual([two.id]);
+  });
+
+  it("deletes a session that is still opening without writing its file", async () => {
+    const s = await site();
+    const { agent, settled } = service();
+    const session = agent.create(s.id);
+    let called = false;
+    faux.setResponses([
+      () => {
+        called = true;
+        return pi.ai.fauxAssistantMessage("should not run");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Hi");
+    await agent.delete(session.id);
+    await done;
+    expect(called).toBe(false);
+    expect(fs.existsSync(session.file)).toBe(false);
+  });
+
+  it("stops a site's sessions and waits for them when the site is removed", async () => {
+    const s = await site();
+    const { agent, statuses } = service();
+    const a = agent.create(s.id);
+    const b = agent.create(s.id);
+    const slow = gated("a done");
+    faux.setResponses([slow.step]);
+    await agent.send(a.id, "from a");
+    await slow.started;
+    await agent.send(b.id, "from b");
+    const removing = ctx.sites.remove(s.id);
+    slow.release();
+    await removing;
+    expect(statuses(a.id).at(-1)).toBe("idle");
+    expect(statuses(b.id)).toEqual(["queued", "idle"]);
+    expect(() => agent.get(a.id)).toThrow(SiteError);
+    expect(fs.existsSync(path.join(ctx.paths.sessions, s.id))).toBe(false);
+    expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id))).toBe(false);
+  });
+
+  it("waits for running sessions on shutdown", async () => {
+    const s = await site();
+    const { agent, statuses } = service();
+    const session = agent.create(s.id);
+    const slow = gated("done");
+    faux.setResponses([slow.step]);
+    await agent.send(session.id, "Hi");
+    await slow.started;
+    const closing = agent.shutdown();
+    slow.release();
+    await closing;
+    expect(statuses(session.id)).toEqual(["running", "idle"]);
+    await expect(agent.send(session.id, "again")).rejects.toMatchObject({ code: "server.shutting_down" });
+  });
+
+  it("gives read-only sites no sessions", async () => {
+    const s = await site({ "plugins/x/plugin.yaml": "id: x\n" });
+    expect(s.readOnly).not.toBeNull();
+    const { agent } = service();
+    expect(() => agent.create(s.id)).toThrow(expect.objectContaining({ code: "site.read_only" }));
+  });
+});

@@ -311,6 +311,8 @@ const zhCN = {
     "panel.not_directory": "这不是一个文件夹",
     "panel.not_file": "这不是一个文件",
     "panel.too_large": "文件太大（上限 {max} 字节）",
+    "session.not_found": "对话不存在",
+    "agent.no_model": "还没有设置 AI 模型，请先在设置里选择模型并填写 API Key",
   },
 };
 

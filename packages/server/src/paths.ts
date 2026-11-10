@@ -19,8 +19,13 @@ export interface AppPaths {
   bukitTmp: string;
   /** worktrees/<siteId>/{ai,main} (plan 4.1). */
   worktrees: string;
+  /** Pi session files, sessions/<siteId>/<sessionId>.jsonl (plan 4.1). */
   sessions: string;
   previews: string;
+  /** Pi's agentDir and PI_CODING_AGENT_DIR: auth.json, models.json (plan 6.1). */
+  pi: string;
+  /** rg installed and checked by BukitJalil (plan 6.3). */
+  piBin: string;
   /** Scratch space for git work that must not touch a user's directory. */
   tmp: string;
 }
@@ -36,6 +41,8 @@ export function ensureAppHome(home: string): AppPaths {
     worktrees: path.join(home, "worktrees"),
     sessions: path.join(home, "sessions"),
     previews: path.join(home, "previews"),
+    pi: path.join(home, "pi"),
+    piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
   };
   // mkdir's mode only applies to new directories, so existing ones are tightened as well. The database
@@ -43,11 +50,13 @@ export function ensureAppHome(home: string): AppPaths {
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   fs.mkdirSync(paths.logs, { recursive: true, mode: 0o700 });
   fs.mkdirSync(paths.emptyHooks, { recursive: true, mode: 0o700 });
-  for (const dir of [paths.bukitTmp, paths.worktrees, paths.sessions, paths.previews]) {
+  for (const dir of [paths.bukitTmp, paths.worktrees, paths.sessions, paths.previews, paths.piBin]) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   fs.chmodSync(home, 0o700);
   fs.chmodSync(paths.logs, 0o700);
+  // Holds model keys (auth.json).
+  fs.chmodSync(paths.pi, 0o700);
   for (const file of [paths.db, paths.emptyGitConfig]) {
     if (!fs.existsSync(file)) fs.writeFileSync(file, "", { mode: 0o600 });
   }

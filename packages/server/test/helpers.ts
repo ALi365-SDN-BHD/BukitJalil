@@ -88,7 +88,7 @@ export function makeApp(
     version: "test",
     logger,
   });
-  return { app, db, loginToken, sites, paths, git, builds, previews };
+  return { app, db, loginToken, sites, paths, git, builds, previews, locks };
 }
 
 /** Build a request as the browser would send it to the admin port. */

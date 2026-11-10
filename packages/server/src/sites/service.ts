@@ -58,6 +58,7 @@ export class SiteService {
   /** Real paths of sites being created or imported right now; they are not in the store yet. */
   private readonly pending = new Set<string>();
   private readonly addedHooks: ((site: Site) => Promise<void>)[] = [];
+  private readonly removingHooks: ((siteId: string) => Promise<void>)[] = [];
 
   constructor(private readonly opts: SiteServiceOptions) {
     this.store = new SiteStore(opts.db);
@@ -70,6 +71,11 @@ export class SiteService {
   /** Run `hook` after a site is created or imported and checked (the build service starts its first build). */
   onAdded(hook: (site: Site) => Promise<void>): void {
     this.addedHooks.push(hook);
+  }
+
+  /** Run `hook` before a site's files are removed (the agent service stops and closes its sessions). */
+  onRemoving(hook: (siteId: string) => Promise<void>): void {
+    this.removingHooks.push(hook);
   }
 
   private async added(site: Site): Promise<Site> {
@@ -313,9 +319,48 @@ export class SiteService {
    * worktrees/<siteId>/main at `commit`, detached; created on first use and reset afterwards (plan 7.2).
    * The caller holds the site lock: checks and builds both use this checkout.
    */
-  async mainCheckout(id: string, sitePath: string, commit: string): Promise<string> {
+  mainCheckout(id: string, sitePath: string, commit: string): Promise<string> {
+    return this.checkout(id, sitePath, "main", commit);
+  }
+
+  /**
+   * worktrees/<siteId>/ai, the AI's working copy (plan 6.1). Its path never changes, so a session can keep
+   * using it. Made at the head of the default branch when missing; an existing copy is left as it is
+   * (resetting it belongs to change sets, plan 7.2). Read-only sites get none. Making it runs git in the
+   * site repository, so it takes the site lock like builds and removal do (site.busy while they run).
+   */
+  async aiCheckout(id: string): Promise<string> {
+    const site = this.get(id);
+    if (site.readOnly) throw new SiteError("site.read_only", 409);
+    const dir = path.join(this.opts.paths.worktrees, id, "ai");
+    if (fs.existsSync(dir) && (await this.isCheckoutOf(dir, site.path))) return dir;
+    return this.opts.locks.run(id, "ai_checkout", async () => {
+      // The site may have been removed or become read-only while the lock was free.
+      const current = this.get(id);
+      if (current.readOnly) throw new SiteError("site.read_only", 409);
+      return this.checkout(id, current.path, "ai", await this.headOf(current));
+    });
+  }
+
+  /** Commit at the head of the site's default branch, with API errors for the ways that fails. */
+  async headOf(site: Site): Promise<string> {
+    try {
+      return await resolveBranch(this.opts.git, site.path, site.defaultBranch);
+    } catch (err) {
+      if (err instanceof GitError && (err.kind === "unsafe_repo" || err.kind === "dubious_ownership")) {
+        throw new SiteError("site.repo_unsafe", 409);
+      }
+      if (err instanceof GitError && err.kind === "failed") {
+        throw new SiteError("site.branch_missing", 409, { branch: site.defaultBranch });
+      }
+      throw err;
+    }
+  }
+
+  /** worktrees/<siteId>/<name> at `commit`, detached: made when missing or broken, otherwise reset. */
+  private async checkout(id: string, sitePath: string, name: "ai" | "main", commit: string): Promise<string> {
     const { git } = this.opts;
-    const dir = path.join(this.opts.paths.worktrees, id, "main");
+    const dir = path.join(this.opts.paths.worktrees, id, name);
     // A checkout left half-made, or whose registration is gone (the site repository was re-cloned), is
     // made again instead of failing every check from now on.
     if (fs.existsSync(dir) && !(await this.isCheckoutOf(dir, sitePath)))
@@ -383,6 +428,7 @@ export class SiteService {
     return this.opts.locks.run(id, "remove", async () => {
       const { git } = this.opts;
       const leftovers: string[] = [];
+      for (const hook of this.removingHooks) await hook(id);
       fs.rmSync(path.join(this.opts.paths.worktrees, id), { recursive: true, force: true });
       const repoOk = fs.existsSync(site.path) && (await this.repoReasons(site.path)).length === 0;
       if (repoOk) {

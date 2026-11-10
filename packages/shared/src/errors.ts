@@ -51,6 +51,8 @@ export const errorCodes = [
   "panel.not_directory",
   "panel.not_file",
   "panel.too_large",
+  "session.not_found",
+  "agent.no_model",
 ] as const;
 
 export const ErrorCode = z.enum(errorCodes);

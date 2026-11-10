@@ -4,6 +4,8 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/shared";
 import { serve } from "@hono/node-server";
+import { preparePiEnvironment } from "./agent/env.ts";
+import { AgentService } from "./agent/service.ts";
 import { createAdminApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
 import { BukitService } from "./bukit/locate.ts";
@@ -60,6 +62,8 @@ if (values["dev-origin"] !== undefined) {
 }
 
 const paths = ensureAppHome(resolveAppHome());
+// Before anything can load Pi: it reads these when its modules load (plan 6.1).
+preparePiEnvironment(paths.pi);
 const logger = createLogger(paths.logs);
 const db = openDatabase(paths.db);
 
@@ -95,6 +99,8 @@ const sites = new SiteService({
 const panels = new PanelService({ git, sites });
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
 const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
+// No model until model settings exist; sending a message answers agent.no_model.
+const agent = new AgentService({ db, paths, sites, logger, resolveModel: () => undefined });
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
@@ -158,6 +164,7 @@ function openBrowser(url: string) {
 }
 
 async function shutdown() {
+  await agent.shutdown();
   await builds.shutdown();
   await previews.closeAll();
   server.close();
