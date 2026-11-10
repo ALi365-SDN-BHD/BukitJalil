@@ -1,4 +1,4 @@
-import type { Build, PanelRef } from "@bukitjalil/shared";
+import type { Build, BuildAudit, PanelRef } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -173,6 +173,7 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
               ))}
             </ul>
           )}
+          {report && build.data?.status === "succeeded" && <AuditSection audit={report.audit ?? null} />}
           {report && (
             <section>
               <h3 className="mb-1 font-medium">{m.build.messages}</h3>
@@ -208,5 +209,93 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The SEO / GEO summary of a successful build (plan M4 layer 7). */
+function AuditSection({ audit }: { audit: BuildAudit | null }) {
+  const { m, t } = useI18n();
+  const a = m.build.audit;
+  if (!audit) {
+    return (
+      <section data-testid="build-audit">
+        <h3 className="mb-1 font-medium">{a.title}</h3>
+        <p className="text-muted-foreground">{a.none}</p>
+      </section>
+    );
+  }
+  const { seo, geo } = audit;
+  return (
+    <section className="flex flex-col gap-2" data-testid="build-audit">
+      <h3 className="font-medium">{a.title}</h3>
+      {seo && (
+        <div className="flex flex-col gap-1.5" data-testid="audit-seo">
+          <p>
+            <span className="font-medium">{a.seo}</span>{" "}
+            <span className="text-muted-foreground">
+              {t(a.seoSummary, { routes: seo.routes, errors: seo.errors, warnings: seo.warnings })}
+            </span>
+          </p>
+          {seo.siteUrlMissing && seo.siteUrlWarnings > 0 && (
+            <p
+              className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs"
+              data-testid="audit-site-url"
+            >
+              {t(a.siteUrl, { count: seo.siteUrlWarnings })}
+            </p>
+          )}
+          {seo.groups.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{a.noIssues}</p>
+          ) : (
+            <ul className="flex flex-col gap-1 text-xs">
+              {seo.groups.map((g) => (
+                <li key={`${g.severity}:${g.code}`} data-testid="audit-group">
+                  <details>
+                    <summary className="cursor-pointer">
+                      <span
+                        className={
+                          g.severity === "error"
+                            ? "text-destructive"
+                            : g.severity === "warning"
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-muted-foreground"
+                        }
+                      >
+                        {a.severity[g.severity]}
+                      </span>{" "}
+                      <code>{g.code}</code>{" "}
+                      <span className="text-muted-foreground">{t(a.count, { count: g.count })}</span>
+                    </summary>
+                    <div className="mt-1 flex flex-col gap-0.5 pl-4">
+                      <span>{g.message}</span>
+                      <span className="text-muted-foreground">
+                        {g.routes.map((r) => r || a.site).join(" · ")}
+                        {g.count > g.routes.length && " …"}
+                      </span>
+                    </div>
+                  </details>
+                </li>
+              ))}
+            </ul>
+          )}
+          {seo.groupsTruncated && <p className="text-xs text-muted-foreground">{a.more}</p>}
+        </div>
+      )}
+      {geo && (
+        <div className="flex flex-col gap-1" data-testid="audit-geo">
+          <p>
+            <span className="font-medium">{a.geo}</span>{" "}
+            <span className="text-muted-foreground" data-testid="audit-geo-score">
+              {t(a.geoScore, { score: geo.score })}
+            </span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {a.llmsTxt} {geo.llmsTxt ? a.yes : a.no} · {a.llmsFullTxt} {geo.llmsFullTxt ? a.yes : a.no} ·{" "}
+            {t(a.enhanced, { count: geo.enhancedRoutes })}
+          </p>
+          {geo.enhancedRoutes === 0 && <p className="text-xs text-muted-foreground">{a.geoHint}</p>}
+        </div>
+      )}
+    </section>
   );
 }

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { auditText } from "../builds/audit.ts";
 import { isRecord, pathProblem } from "../bukit/guard.ts";
 import { summarizeConfig } from "../panels/service.ts";
 import { parseFrontMatter, parseYaml } from "../panels/yaml.ts";
@@ -100,7 +101,7 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       name: "bukit_build",
       label: "Bukit build",
       description:
-        "Build the site like `bukit build` into a temporary folder and report success, page count and errors. Run it after bukit_check passes.",
+        "Build the site like `bukit build` into a temporary folder and report success, page count, errors and an SEO / GEO summary (seoGeo) from Bukit's reports. Run it after bukit_check passes.",
       parameters: object({}),
       executionMode: "sequential",
       async execute(_id, _params, signal) {
@@ -168,6 +169,7 @@ function formatBuild(r: BuildResult) {
     pages: r.pages,
     messages: r.messages,
     output: r.output,
+    ...(r.audit ? { seoGeo: auditText(r.audit) } : {}),
     ...removedNote(r.removed),
   };
 }

@@ -36,6 +36,13 @@ case "$1" in
       full) echo "write index.html: no space left on device" >&2; exit 1;;
       fulljson) echo '{"ts":"t","level":"error","msg":"event=output.failed error=no space left on device"}'; exit 3;;
       symlink) mkdir -p "$out"; echo hi > "$out/index.html"; ln -s /etc/hosts "$out/leak";;
+      audit)
+        # Like Bukit 2.0.x: the JSON log on stderr, the SEO / GEO reports in .bukit/.
+        mkdir -p "$out/.bukit"; echo "<h1>a</h1>" > "$out/index.html"
+        echo '{"ts":"t","level":"Warn","msg":"seo.audit severity=warning code=seo.canonical_not_absolute route=/ message=x"}' >&2
+        echo '{"ts":"t","level":"Warn","msg":"event=content.slow file=a.md"}' >&2
+        echo '{"siteUrl":null,"routes":[{},{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/a/","message":"SEO description is missing."},{"severity":"error","code":"seo.title_missing","route":"/b/","message":"Title is missing."}]}' > "$out/.bukit/seo-report.json"
+        echo '{"geoScore":25,"llmsTxtGenerated":true,"llmsFullTxtGenerated":false,"geoEnhancedCount":0}' > "$out/.bukit/geo-report.json";;
       slow) trap 'exit 130' INT; while true; do sleep 0.05; done;;
       *) mkdir -p "$out"; echo "<h1>$(cat marker 2>/dev/null)</h1>" > "$out/index.html";;
     esac
@@ -215,6 +222,37 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect(plain.report?.problem).toBeUndefined();
   });
 
+  it("summarizes the SEO / GEO reports and reads the JSON log from stderr (M4 layer 7)", async () => {
+    const b = await (await setup("audit", { mode: "audit" })).build();
+    expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
+    expect(b.report?.audit).toEqual({
+      seo: {
+        routes: 2,
+        errors: 1,
+        warnings: 2,
+        siteUrlMissing: true,
+        siteUrlWarnings: 1,
+        groups: [
+          { code: "seo.title_missing", severity: "error", count: 1, message: "Title is missing.", routes: ["/b/"] },
+          {
+            code: "seo.description_missing",
+            severity: "warning",
+            count: 1,
+            message: "SEO description is missing.",
+            routes: ["/a/"],
+          },
+        ],
+        groupsTruncated: false,
+      },
+      geo: { score: 25, llmsTxt: true, llmsFullTxt: false, enhancedRoutes: 0 },
+    });
+    // Warnings come from stderr; the per-issue audit lines are left to the summary.
+    expect(b.report?.messages.map((m) => m.msg)).toEqual(["event=content.slow file=a.md", "event=theme.warning x=1"]);
+    expect(b.report?.output).not.toContain('"level"');
+    // A build without reports has no audit.
+    expect((await (await setup("noaudit")).build()).report?.audit).toBeUndefined();
+  });
+
   it("does not keep an output that contains a symbolic link", async () => {
     const s = await setup("symlink-out", { mode: "symlink" });
     const b = await s.build();
@@ -378,6 +416,15 @@ describe.skipIf(!REAL_BIN)("real Bukit", () => {
     const s = await setup("real", { bin: REAL_BIN as string });
     const b = await s.build();
     expect(b).toMatchObject({ status: "succeeded", outcome: "ok", exitCode: 0 });
+    // The SEO / GEO summary (M4 layer 7): the starter has no site.url, so most warnings fold into that hint.
+    const report = (await s.call<Build>("GET", s.api(`/builds/${b.id}`))).json.report;
+    expect(report?.audit?.seo).toMatchObject({ errors: 0, siteUrlMissing: true });
+    expect(report?.audit?.seo?.routes).toBeGreaterThan(5);
+    expect(report?.audit?.seo?.siteUrlWarnings).toBeGreaterThan(report?.audit?.seo?.groups.length ?? 0);
+    expect(report?.audit?.geo).toMatchObject({ llmsTxt: true });
+    // Bukit's JSON log (stderr) is parsed, not left in the output; its per-issue audit lines are not messages.
+    expect(report?.output).not.toContain('"level"');
+    expect(report?.messages.some((m) => m.msg.includes(".audit severity="))).toBe(false);
     const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
     const page = await fetchPreview(opened.json.port);
     expect(page.status).toBe(200);

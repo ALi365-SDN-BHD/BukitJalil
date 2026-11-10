@@ -3,7 +3,10 @@ import path from "node:path";
 
 // A stand-in Bukit for end-to-end tests (CI has no Bukit); BUKIT_BIN names a real one instead.
 
-/** Writes index.html titled with site.title; a committed `fake-mode` file containing "fail" fails the build. */
+/**
+ * Writes index.html titled with site.title and SEO / GEO reports in .bukit/; a committed `fake-mode` file containing
+ * "fail" fails the build.
+ */
 export const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
   version) echo "bukit 2.0.11+e2e"; exit 0;;
@@ -19,6 +22,10 @@ case "$1" in
     title=$(grep -m1 '^  title:' site.yaml | sed 's/^  title: *//')
     mkdir -p "$out"
     echo "<!doctype html><meta charset=utf-8><title>$title</title><h1>$title</h1>" > "$out/index.html"
+    # The SEO / GEO reports real Bukit writes with every build (a site without site.url).
+    mkdir -p "$out/.bukit"
+    echo '{"siteUrl":null,"routes":[{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/","message":"SEO description is missing."}]}' > "$out/.bukit/seo-report.json"
+    echo '{"geoScore":25,"llmsTxtGenerated":true,"llmsFullTxtGenerated":false,"geoEnhancedCount":0}' > "$out/.bukit/geo-report.json"
     exit 0;;
 esac
 exit 1

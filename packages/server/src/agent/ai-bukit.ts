@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { ApplyCheck } from "@bukitjalil/shared";
+import type { ApplyCheck, BuildAudit } from "@bukitjalil/shared";
+import { readAudit } from "../builds/audit.ts";
 import { BUILD_OUTPUT_PARENT, buildArgs, buildReport } from "../builds/service.ts";
 import { type GuardReason, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
@@ -60,6 +61,8 @@ export interface BuildResult {
   pages: number;
   messages: { level: string; msg: string }[];
   output: string;
+  /** SEO / GEO summary of a successful build (M4 layer 7), read before the output is deleted. */
+  audit: BuildAudit | null;
 }
 
 export interface AiBukitOptions {
@@ -132,7 +135,7 @@ export class AiBukit {
     }
   }
 
-  /** Build into a fresh .bukitjalil-build/ai-<id>/ and report; the output is deleted (previews come in M4). */
+  /** Build into a fresh .bukitjalil-build/ai-<id>/ and report, with its SEO / GEO summary; the output is deleted. */
   build(siteId: string, cwd: string, signal?: AbortSignal): Promise<BuildResult> {
     return this.guarded(siteId, cwd, async (runner, { commit, removed }) => {
       const name = `ai-${crypto.randomBytes(6).toString("hex")}`;
@@ -149,6 +152,7 @@ export class AiBukit {
           pages: outcome === "ok" ? countPages(out) : 0,
           messages: report.messages.slice(0, 50),
           output: tail(report.output, MAX_STEP_OUTPUT),
+          audit: outcome === "ok" ? readAuditQuietly(out) : null,
         };
       } finally {
         fs.rmSync(out, { recursive: true, force: true });
@@ -249,6 +253,15 @@ export class AiBukit {
 
 export function describeReason(r: GuardReason): string {
   return [r.code, r.where, r.detail].filter(Boolean).join(" ");
+}
+
+/** The audit summary, or null when the reports are missing or cannot be read; never fails the build. */
+function readAuditQuietly(out: string): BuildAudit | null {
+  try {
+    return readAudit(out);
+  } catch {
+    return null;
+  }
 }
 
 /** HTML pages in a build output (without following links). */

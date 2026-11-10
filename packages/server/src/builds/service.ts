@@ -3,6 +3,7 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type {
   Build,
+  BuildAudit,
   BuildOutcome,
   BuildReport,
   BuildStatus,
@@ -22,6 +23,7 @@ import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
+import { readAudit } from "./audit.ts";
 import { type BuildRecord, BuildStore, newBuildId } from "./store.ts";
 
 export interface BuildServiceOptions {
@@ -310,7 +312,8 @@ export class BuildService {
       fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
       moveDir(temp, dest);
       temp = null;
-      finish("succeeded", "ok", result.exitCode, report, dest);
+      const audit = this.audit(site.id, id, dest);
+      finish("succeeded", "ok", result.exitCode, audit ? { ...report, audit } : report, dest);
       // An open preview switches to the new build at once (a change preview: while its change set is open).
       if (target.ref === "main" || this.opts.changes.store.open(site.id)?.id === target.changeSetId) {
         this.opts.previews.repoint(PreviewPool.key(site.id, target.ref), dest);
@@ -324,6 +327,16 @@ export class BuildService {
     } finally {
       if (temp) fs.rmSync(temp, { recursive: true, force: true });
       this.prune(site.id);
+    }
+  }
+
+  /** The SEO / GEO summary of a kept output (M4 layer 7); a report that cannot be read never fails the build. */
+  private audit(siteId: string, buildId: string, outputDir: string): BuildAudit | null {
+    try {
+      return readAudit(outputDir);
+    } catch (err) {
+      this.opts.logger.log("warn", "build.audit_unreadable", { siteId, buildId, error: String(err) });
+      return null;
     }
   }
 
@@ -366,24 +379,35 @@ function publicBuild(record: BuildRecord): Build {
   return build;
 }
 
-const MESSAGE_LEVELS = new Set(["warn", "warning", "error", "fatal", "critical"]);
+const ERROR_LEVELS = new Set(["error", "fatal", "critical"]);
+const MESSAGE_LEVELS = new Set(["warn", "warning", ...ERROR_LEVELS]);
+/**
+ * Log lines that repeat the SEO / GEO reports, shown in the audit summary instead: one per issue
+ * ("seo.audit severity=warning code=…"), the per-kind counts ("event=diagnostics.summary kind=seo.audit:…")
+ * and the missing site.url note.
+ */
+const AUDIT_LOG_LINE =
+  /^(?:(?:seo|publish|geo)\.audit severity=|event=diagnostics\.summary kind=(?:seo|publish|geo)\.audit:|seo\.site_url_missing\b)/;
 
-/** Warnings and errors from the JSON log, and the end of everything else Bukit printed. */
+/** Warnings and errors from the JSON log (stderr or stdout), and the end of everything else Bukit printed. */
 export function buildReport(result: BukitRunResult): BuildReport {
   const messages: BuildReport["messages"] = [];
   const other: string[] = [];
-  for (const line of result.stdout.split("\n")) {
+  // Bukit 2.0.x writes its JSON log to stderr (stdout stays empty); read both, log lines first from stderr.
+  for (const line of `${result.stderr}\n${result.stdout}`.split("\n")) {
     const entry = logEntry(line);
     if (!entry) {
       if (line.trim() !== "") other.push(line);
       continue;
     }
+    // Every SEO issue is also logged as a warning; the audit summary lists them grouped (M4 layer 7).
+    // Errors stay: the summary is read only for a succeeded build, so a failed one must still show them.
+    if (AUDIT_LOG_LINE.test(entry.msg) && !ERROR_LEVELS.has(entry.level.toLowerCase())) continue;
     if (MESSAGE_LEVELS.has(entry.level.toLowerCase()) && messages.length < MAX_MESSAGES) {
       messages.push({ level: entry.level, msg: entry.msg.slice(0, MAX_MESSAGE_CHARS) });
     }
   }
-  const output = [result.stderr.trimEnd(), other.join("\n")].filter((s) => s !== "").join("\n");
-  return { messages, output: output.slice(-MAX_OUTPUT_CHARS) };
+  return { messages, output: other.join("\n").slice(-MAX_OUTPUT_CHARS) };
 }
 
 /** The first symbolic link under `dir`, relative to it, or null. */

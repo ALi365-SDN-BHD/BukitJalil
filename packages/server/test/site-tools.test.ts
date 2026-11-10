@@ -407,5 +407,9 @@ describe.skipIf(!REAL_BIN)("real Bukit", () => {
     const build = await call(tools.bukit_build);
     expect(build.value, build.text).toMatchObject({ succeeded: true });
     expect(build.value?.pages).toBeGreaterThan(3);
+    // The SEO / GEO summary from Bukit's reports (M4 layer 7).
+    expect(build.value?.seoGeo).toMatch(/^SEO: \d+ pages, 0 errors/);
+    expect(build.value?.seoGeo).toContain("site.url is not set");
+    expect(build.value?.seoGeo).toMatch(/GEO: score \d+\/100/);
   }, 120_000);
 });

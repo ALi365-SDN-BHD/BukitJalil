@@ -125,6 +125,21 @@ test("a new site builds once, shows its preview and the read-only panels", async
   await expect(page.getByTestId("changes-empty")).toBeVisible();
 });
 
+test("a build report shows the SEO / GEO summary", async ({ page, server }) => {
+  await login(page, await server.loginUrl());
+  const { name, parent } = fresh("Seo");
+  await createSite(page, name, parent);
+  await expect(headerBuild(page)).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
+  await page.getByTestId("build-list").getByRole("button").first().click();
+  const audit = page.getByTestId("build-audit");
+  await expect(audit.getByTestId("audit-seo")).toBeVisible();
+  // A new site has no site.url: those warnings are one hint, not a list.
+  await expect(audit.getByTestId("audit-site-url")).toContainText("site.url");
+  await expect(audit.getByTestId("audit-group").filter({ hasText: "seo.canonical_not_absolute" })).toHaveCount(0);
+  await expect(audit.getByTestId("audit-geo-score")).toContainText(/\d+\/100/);
+  await page.keyboard.press("Escape");
+});
+
 test("a failed build shows its outcome and report", async ({ page, server }) => {
   test.skip(!!REAL_BUKIT, "the failure comes from the stand-in Bukit");
   await login(page, await server.loginUrl());

@@ -35,6 +35,48 @@ export interface BuildMessage {
   msg: string;
 }
 
+/** One kind of SEO issue in a build (plan M4 layer 7): Bukit's code, how often, and a few pages. */
+export interface AuditIssueGroup {
+  code: string;
+  severity: "error" | "warning" | "info";
+  count: number;
+  /** Bukit's text for the first occurrence (English, as Bukit writes it). */
+  message: string;
+  /** Up to AUDIT_ROUTES_PER_GROUP pages; "" stands for the site as a whole. */
+  routes: string[];
+}
+
+/**
+ * Summary of the SEO and GEO reports Bukit writes with every build (`.bukit/seo-report.json`,
+ * `.bukit/geo-report.json`; the same data `bukit seo audit` / `bukit geo audit` read).
+ */
+export interface BuildAudit {
+  seo: {
+    routes: number;
+    errors: number;
+    warnings: number;
+    /** site.yaml has no site.url: canonical links, images and structured data cannot be absolute. */
+    siteUrlMissing: boolean;
+    /** Warnings that only exist because site.url is missing (folded into one hint), counted. */
+    siteUrlWarnings: number;
+    /** The other issues, errors first, most frequent first. */
+    groups: AuditIssueGroup[];
+    /** More kinds of issues than `groups` holds. */
+    groupsTruncated: boolean;
+  } | null;
+  geo: {
+    /** 0–100. */
+    score: number;
+    llmsTxt: boolean;
+    llmsFullTxt: boolean;
+    /** Pages with GEO front matter (geo.faq, geo.steps, geo.schema_type). */
+    enhancedRoutes: number;
+  } | null;
+}
+
+export const AUDIT_ROUTES_PER_GROUP = 5;
+export const AUDIT_MAX_GROUPS = 40;
+
 export interface BuildReport {
   /** Warning and error lines from Bukit's JSON log, in order. */
   messages: BuildMessage[];
@@ -44,6 +86,8 @@ export interface BuildReport {
   detail?: string;
   /** A disk write failure behind the failed build (plan M5 layer 2). */
   problem?: "fs.disk_full" | "fs.read_only" | "fs.permission_denied";
+  /** SEO / GEO summary of a successful build (plan M4 layer 7); absent when Bukit wrote no reports. */
+  audit?: BuildAudit;
 }
 
 export interface Build {

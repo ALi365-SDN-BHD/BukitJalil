@@ -58,6 +58,25 @@ categories: [shop]
 - Titles under about 60 characters; put the important words first.
 - Link related pages with relative links; give images useful `alt` text.
 - See `bukit-seo` and `bukit-geo` for what Bukit generates automatically.
+- `bukit_build` ends with `seoGeo`: SEO errors and warnings by kind, and the
+  GEO score. Fix what your change caused or what the user asked about; do
+  not chase every warning. Warnings that only say URLs are relative come
+  from a missing `site.url` — set it only when the user gives the address.
+  The GEO score rises when pages carry a `geo` block in their front matter,
+  where it fits the content — an FAQ page, a how-to, a service page:
+
+  ```yaml
+  geo:
+    schema_type: FAQPage        # or HowTo, Service, Article, Organization…
+    faq:                        # each item needs both fields
+      - question: How long does a project take?
+        answer: Most projects take four to six weeks.
+    steps:                      # for how-to content
+      - name: Book a call
+        text: Pick a time on the contact page.
+  ```
+
+  Only put facts the page itself states into `faq` and `steps`.
 
 Finish with `bukit_check`, `bukit_build` and `summarize_changes` (see
 `site-editing`).
