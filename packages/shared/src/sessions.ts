@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Build } from "./builds.ts";
 import type { CurrentChange } from "./changes.ts";
+import type { Deploy } from "./deploys.ts";
 
 /** AI sessions and the event stream (plan 6.2, 9.1, 9.2). */
 
@@ -92,6 +93,8 @@ export type ServerEvent = { id: string } & (
   /** summarize_changes: the AI's description of its changes (kept with the change set from M4). */
   | SessionScoped<"session.summary", { summary: string }>
   | { type: "build.start" | "build.end"; siteId: string; data: { build: Build } }
+  /** A publish started, moved to its next step, or ended. */
+  | { type: "deploy"; siteId: string; data: { deploy: Deploy } }
   /**
    * The site's change set changed (plan 9.2): its whole current state, or null once none is open. Only the
    * last one per site is kept for reconnects.

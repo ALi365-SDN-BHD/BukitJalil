@@ -13,7 +13,7 @@ import type { BukitService } from "./locate.ts";
  * - secrets are only passed when the caller adds them explicitly (plan 8.5)
  */
 
-export type BukitCommand = "version" | "check" | "doctor" | "build" | "schema";
+export type BukitCommand = "version" | "check" | "doctor" | "build" | "schema" | "publish" | "deploy";
 
 export const DEFAULT_TIMEOUTS: Record<BukitCommand, number> = {
   version: 15_000,
@@ -21,6 +21,8 @@ export const DEFAULT_TIMEOUTS: Record<BukitCommand, number> = {
   doctor: 60_000,
   schema: 60_000,
   build: 5 * 60_000,
+  publish: 60_000,
+  deploy: 10 * 60_000,
 };
 
 /** The only variables a caller may add; everything else in the environment is fixed here. */
@@ -30,10 +32,24 @@ export interface BukitSecrets {
 }
 const SECRET_KEYS = ["NOTION_TOKEN", "GITHUB_TOKEN"] as const;
 
+/**
+ * What `bukit deploy` gets on top of the minimal environment (plan 14 M6): the GitHub token under the name
+ * passed with --token-env, and the commit identity from the settings (Bukit keeps GIT_AUTHOR_* and
+ * GIT_COMMITTER_* and uses them over its own default).
+ */
+export interface DeployEnv {
+  token: string;
+  name: string;
+  email: string;
+}
+export const DEPLOY_TOKEN_ENV = "BUKIT_DEPLOY_TOKEN";
+
 export interface BukitRunOptions {
   cwd: string;
   /** Secrets for a user-triggered main build or deploy (plan 8.5). Never for unreviewed content. */
   env?: BukitSecrets;
+  /** Only for `deploy`. */
+  deploy?: DeployEnv;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -131,13 +147,26 @@ export class BukitRunner {
     fs.symlinkSync(this.opts.git.opts.gitPath, link);
   }
 
-  env(secrets: BukitSecrets = {}): Record<string, string> {
+  env(secrets: BukitSecrets = {}, deploy?: DeployEnv): Record<string, string> {
     fs.mkdirSync(this.opts.tmpDir, { recursive: true, mode: 0o700 });
     this.ensureBinDir();
     const env: Record<string, string> = {};
     for (const key of SECRET_KEYS) {
       const value = secrets[key];
       if (typeof value === "string") env[key] = value;
+    }
+    const git = this.opts.git.envForChildGit();
+    if (deploy) {
+      // Bukit's deploy drops the GIT_CONFIG_COUNT group before starting git (M1), so it is not passed at all;
+      // its git runs in a fresh temporary repository with an empty global config instead (plan 14 M6).
+      for (const key of Object.keys(git)) if (/^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(key)) delete git[key];
+      Object.assign(env, {
+        [DEPLOY_TOKEN_ENV]: deploy.token,
+        GIT_AUTHOR_NAME: deploy.name,
+        GIT_AUTHOR_EMAIL: deploy.email,
+        GIT_COMMITTER_NAME: deploy.name,
+        GIT_COMMITTER_EMAIL: deploy.email,
+      });
     }
     return {
       ...env,
@@ -146,7 +175,7 @@ export class BukitRunner {
       LANG: "C.UTF-8",
       TMPDIR: this.opts.tmpDir,
       DOTNET_CLI_TELEMETRY_OPTOUT: "1",
-      ...this.opts.git.envForChildGit(),
+      ...git,
     };
   }
 
@@ -155,7 +184,7 @@ export class BukitRunner {
     return new Promise((resolve, reject) => {
       const child = spawn(this.opts.bukitPath, args, {
         cwd: opts.cwd,
-        env: this.env(opts.env),
+        env: this.env(opts.env, command === "deploy" ? opts.deploy : undefined),
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
       });

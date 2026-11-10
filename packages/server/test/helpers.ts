@@ -57,6 +57,8 @@ export function makeApp(
     /** Replay buffer size of the event hub. */
     replayBytes?: number;
     eventStream?: EventStreamOptions;
+    /** The git BukitJalil (and so Bukit) runs; the system git by default. */
+    gitPath?: string;
     /** Environment the token store reads (and clears) its variables from. */
     secretEnv?: NodeJS.ProcessEnv;
   } = {},
@@ -73,7 +75,7 @@ export function makeApp(
     });
   const rg = overrides.rg ?? new RgService({ piBin: paths.piBin });
   const git = new GitRunner({
-    gitPath: resolveGitPath() ?? "/nonexistent/git",
+    gitPath: overrides.gitPath ?? resolveGitPath() ?? "/nonexistent/git",
     home: paths.home,
     emptyFile: paths.emptyGitConfig,
     hooksDir: paths.emptyHooks,
@@ -118,10 +120,10 @@ export function makeApp(
     ...overrides.agent,
   });
   const events = new EventHub(overrides.replayBytes);
-  connectEvents(events, { agent, builds, changes, logger });
-  const loginToken = new LoginToken(TOKEN);
   const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
-  const deploys = new DeployService({ sites, panels, secrets });
+  const deploys = new DeployService({ sites, panels, secrets, git, bukit, locks, paths, logger, db });
+  connectEvents(events, { agent, builds, changes, deploys, logger });
+  const loginToken = new LoginToken(TOKEN);
   const app = createAdminApp({
     port: PORT,
     allowedOrigin: overrides.allowedOrigin ?? ADMIN,
@@ -163,6 +165,7 @@ export function makeApp(
     agent,
     events,
     secrets,
+    deploys,
   };
 }
 

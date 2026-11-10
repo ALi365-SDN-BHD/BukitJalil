@@ -2,6 +2,7 @@ import type { ChatMessage, ServerEventInput } from "@bukitjalil/shared";
 import type { AgentEvent, AgentService } from "../agent/service.ts";
 import type { BuildService } from "../builds/service.ts";
 import type { ChangeService } from "../changes/service.ts";
+import type { DeployService } from "../deploys/service.ts";
 import type { Logger } from "../log.ts";
 import { SiteError } from "../sites/location.ts";
 import type { EventHub } from "./hub.ts";
@@ -10,11 +11,12 @@ export interface EventSources {
   agent: AgentService;
   builds: BuildService;
   changes: ChangeService;
+  deploys?: DeployService;
   logger: Logger;
 }
 
-/** Send session, build and change set events to the hub (plan 9.2); returns the function that disconnects them. */
-export function connectEvents(hub: EventHub, { agent, builds, changes, logger }: EventSources): () => void {
+/** Send session, build, change set and publish events to the hub (plan 9.2); returns the function that disconnects them. */
+export function connectEvents(hub: EventHub, { agent, builds, changes, deploys, logger }: EventSources): () => void {
   const translate = agentEventTranslator();
   const refresh = changeRefresher(hub, agent, changes, logger);
   const stopAgent = agent.subscribe((event) => {
@@ -24,10 +26,14 @@ export function connectEvents(hub: EventHub, { agent, builds, changes, logger }:
   });
   const stopBuilds = builds.onEvent(({ type, build }) => hub.publish({ type, siteId: build.siteId, data: { build } }));
   const stopChanges = changes.subscribe(refresh);
+  const stopDeploys = deploys?.onEvent((deploy) =>
+    hub.publish({ type: "deploy", siteId: deploy.siteId, data: { deploy } }),
+  );
   return () => {
     stopAgent();
     stopBuilds();
     stopChanges();
+    stopDeploys?.();
   };
 }
 

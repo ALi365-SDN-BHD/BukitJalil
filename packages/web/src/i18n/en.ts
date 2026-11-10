@@ -578,6 +578,11 @@ const en: Messages = {
     "model.not_found": "No such model",
     "model.key_unsupported":
       "This provider needs several settings, not just an API key; set it up with environment variables",
+    "deploy.not_found": "This publish was not found",
+    "deploy.not_running": "This publish has already ended",
+    "deploy.no_target": "site.yaml on the default branch has no valid publish target (deploy.repo)",
+    "deploy.no_token": "Set a GitHub token in the settings first",
+    "deploy.commit_changed": "The default branch has moved on; confirm the new version before publishing",
     "secret.not_found": "There is no such token",
     "secret.from_environment": "This token comes from an environment variable and cannot be changed in the UI",
     "model.key_from_environment":

@@ -147,9 +147,9 @@ const agent = new AgentService({
   skillsDir,
 });
 const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
-const deploys = new DeployService({ sites, panels, secrets });
+const deploys = new DeployService({ sites, panels, secrets, git, bukit, locks, paths, logger, db });
 const events = new EventHub();
-connectEvents(events, { agent, builds, changes, logger });
+connectEvents(events, { agent, builds, changes, deploys, logger });
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
@@ -222,6 +222,7 @@ async function shutdown() {
   events.closeAll();
   await agent.shutdown();
   await builds.shutdown();
+  await deploys.shutdown();
   await previews.closeAll();
   server.close();
   db.close();

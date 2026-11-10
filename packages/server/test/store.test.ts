@@ -16,7 +16,16 @@ describe("SQLite store (plan 4.2)", () => {
       .map((r) => r.name)
       .sort();
     expect(tables).toEqual(
-      ["builds", "change_set_sessions", "change_sets", "schema_migrations", "sessions", "settings", "sites"].sort(),
+      [
+        "builds",
+        "change_set_sessions",
+        "change_sets",
+        "deploys",
+        "schema_migrations",
+        "sessions",
+        "settings",
+        "sites",
+      ].sort(),
     );
     const versions = db.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
     expect(versions.map((v) => v.version)).toEqual(loadMigrations().map((m) => m.version));

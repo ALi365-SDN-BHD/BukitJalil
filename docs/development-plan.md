@@ -1258,6 +1258,13 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > - 新技能 `skills/bukitjalil/publishing`：`deploy` 是顶层段、`repo` 必须问用户、分支默认 `gh-pages` 并提醒用户在 GitHub 的 Pages 设置里选这个分支、`cname` 的写法、不在 `site.yaml` 里放 token；按仓库类型设置 `site.url` 和 `site.baseUrl`
 > - 测试：新增 `deploys.test.ts`（目标解析和各种错误、用户 / 项目站点地址、接口只看正式分支）、`e2e/deploy.spec.ts`（没有目标时让 AI 设置，输入框有预填说明；提交目标并设置 token 后显示目标）
 
+> M6 第 3 层实现说明（发布服务）：
+> - 新表 `deploys`（迁移 `004_deploys.sql`）：提交、仓库、分支、网站地址、状态（running / succeeded / failed / stopped）、当前或失败的步骤、结果、报告（各步结果、消息、发布审计摘要）；每个网站保留最近 50 条，服务重启时把还在运行的记成 `interrupted`
+> - `POST /api/sites/:id/deploys` 带上用户确认的提交：在网站锁（和构建共用，`site.busy`）里核对它仍是默认分支的最新提交（否则 409 `deploy.commit_changed`，附上新提交），再从**这个提交**的 `site.yaml` 读发布目标（没有有效目标 409 `deploy.no_target`）；还要求有 token（`deploy.no_token`）、提交身份（`site.identity_required`）、可用的 Bukit、网站不是只读。返回 202，后台按步骤执行，每进入一步发一次 `deploy` 事件；`GET` 列表和单条、`POST .../stop` 停止（Bukit 收到 SIGINT）
+> - 步骤：8.5 安全检查（拒绝时网站状态照常更新；Notion 网站暂不能发布）→ `config check` → `doctor` → 在 `main/` 检出里构建到新的空目录 `.bukitjalil-deploy/<id>`（用网站自己的 baseUrl，不像预览那样改成 `/`）→ 不允许符号链接 → `publish audit --dir`（失败就停，摘要照样保存）→ `deploy --config site.yaml --skip-build --output <同一目录> --repo <deploy.repo> --branch <分支> --token-env BUKIT_DEPLOY_TOKEN`。任何一步失败都不再往下走，结束后删除输出目录
+> - `BukitRunner` 新增 `publish`（60 秒）和 `deploy`（10 分钟）命令；只有 `deploy` 拿到 `BUKIT_DEPLOY_TOKEN` 和 `GIT_AUTHOR_*` / `GIT_COMMITTER_*`（设置里的身份），并去掉 `GIT_CONFIG_COUNT` 一组（Bukit 本来就会删）；其他步骤的环境不变
+> - 测试：`deploys.test.ts` 补假 Bukit 的完整流程（参数、只在 deploy 传 token 和身份、发布的就是审计过的目录、事件顺序、输出目录删除）、每一步失败都停下、未确认的提交 / 没有 token / 没有身份 / 没有目标被拒、安全检查拒绝、发布中网站被锁住和停止；真实 Bukit 2.0.12 加 git 替身推到本地裸仓库（gh-pages 有 `index.html` 和 `.nojekyll`、没有 `.bukit/`，提交作者和提交者是设置里的身份，网站目录和检出都没有留下东西）
+
 ### M7 桌面版（4–5 天，MVP 之后）
 
 - Electron 45 壳：主进程启动 server，窗口加载本地页面

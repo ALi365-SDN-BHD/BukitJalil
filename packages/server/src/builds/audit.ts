@@ -149,6 +149,17 @@ export function readAudit(outputDir: string): BuildAudit | null {
   return seo || geo ? { seo, geo } : null;
 }
 
+/**
+ * The publish audit of an output directory (`.bukit/publish-audit-report.json`, what `bukit publish audit`
+ * reads): issues in the SEO report's shape, pages listed as `documents`. Null when missing or unreadable.
+ */
+export function readPublishAudit(outputDir: string): BuildAudit["seo"] {
+  const raw = readJson(path.join(outputDir, ".bukit", "publish-audit-report.json"), MAX_SEO_REPORT);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const { documents } = raw as { documents?: unknown };
+  return summarizeSeo({ ...raw, routes: Array.isArray(documents) ? documents : [] });
+}
+
 /** A few lines for the AI's bukit_build result, so it can act on the findings. */
 export function auditText(audit: BuildAudit | null): string | null {
   if (!audit) return null;
