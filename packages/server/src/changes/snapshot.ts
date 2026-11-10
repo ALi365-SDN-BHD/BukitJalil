@@ -5,7 +5,7 @@ import type { GitRunner } from "../git/run.ts";
 import { BUILD_DIRS } from "../sites/exclude.ts";
 
 /** Committer of snapshot commits; they stay inside BukitJalil (the applied commit gets the user's identity). */
-const SNAPSHOT_IDENTITY = { "user.name": "BukitJalil", "user.email": "ai@bukitjalil.invalid" };
+export const SNAPSHOT_IDENTITY = { "user.name": "BukitJalil", "user.email": "ai@bukitjalil.invalid" };
 const SNAPSHOT_MESSAGE = "BukitJalil AI snapshot";
 /** Ignored files may stay here: build output and caches the AI cannot write (plan 6.3). */
 const IGNORED_OK = new Set<string>([...BUILD_DIRS, "node_modules"]);

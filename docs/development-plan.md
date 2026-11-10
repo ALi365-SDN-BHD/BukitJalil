@@ -1076,6 +1076,24 @@ M4 分层实施（每层做完先审计、修复，再提交）：
 > - 改动集有变化时通知订阅者（第 3 层接到 `change` 事件上）；每轮运行结束后也通知一次（能否审核取决于有没有会话在运行，文件没变时也要更新）；新错误码 `change.file_not_found`
 > - 测试：`test/changes.test.ts`（10 项）：运行结束后即使没改文件也发通知；超过 2000 个文件时截断，之后的文件仍能看差异，目录不算改动里的文件；开新改动集时重置工作副本、写引用、记录会话，第二个会话加入同一个改动集；工作副本丢失后在快照上恢复；只读网站拒绝；快照移动改动集和引用、没变化时不动；假模型的一轮运行写文件、改 `site.yaml`、写摘要，网站目录不变，文件列表和行数、指纹、运行中不可审核，另一个会话的下一轮接着同一个改动集；被停止的运行也快照；改动集结束后下一轮从默认分支重新开始；差异（中文和空格文件名、删除、二进制、太大、不在改动里的路径、`:(glob)` 写法、不存在的改动集）。`agent.test.ts` 改为：锁被占用时消息排队，释放后运行，运行期间其他操作拿不到锁；`site-tools.test.ts`：停止构建时 `settled` 一直等到 Bukit 结束
 
+> M4 第 2 层实现说明（应用与拒绝）：
+> - `ChangeService.apply(changeId, {treeHash, force?})`，整个过程持有网站操作锁（操作名 `apply`，会话运行中返回 409 `site.busy`）：
+>   1. 改动集必须是 `open`（否则 409 `change.not_open`，带当前状态），网站不能只读，设置里要有提交身份（否则 400 `site.identity_required`）
+>   2. 再快照一次工作副本，快照的树必须等于请求里的指纹，否则 409 `change.fingerprint_mismatch`；树和 base 一样时 409 `change.no_changes`
+>   3. 网站目录必须在默认分支上（`symbolic-ref HEAD`，否则 409 `change.wrong_branch`），被跟踪的文件没有未提交的改动（`status --untracked-files=no`，否则 409 `change.site_dirty`）
+>   4. 默认分支已经不是 base 时：`git merge-tree --write-tree <main> <快照>`。成功就把结果作为新快照（`commit-tree -p <main>`，工作副本 `reset --hard` 到它，base 改为 main，引用跟着移动），返回 `rebased`，用户要看过新的差异、带新指纹再应用一次；有冲突，或者合并结果和默认分支一样（改动已经在默认分支里了），就把改动集标为 `stale`，返回 `stale`，下一轮对话从新的默认分支开新改动集
+>   5. 运行检查（`AiBukit.checkForApply`：和 `bukit_check` 一样快照、过构建前检查、跑 `config check` 和 `doctor`；没有 Bukit 或构建前检查拒绝时也算检查失败，`problemCode` 写明是哪一种（`bukit_missing` / `guard` / `notion`），`problem` 写明原因）。检查之后再核对一次指纹。失败且没有 `force` 时返回 `check_failed`，什么都不改
+>   6. `git commit-tree <指纹> -p <main>` 生成结果提交：作者固定为 `BukitJalil AI <ai@bukitjalil.local>`，提交者是设置里的身份（`-c author.* -c committer.*`）；提交信息是 AI 的改动说明（没有时用默认说明）加一行 `BukitJalil-Sessions: <会话 ID…>`
+>   7. 在网站目录里 `git merge --ff-only --no-overwrite-ignore <结果提交>`；git 拒绝时（例如会覆盖网站目录里被忽略的本地文件）返回 409 `change.merge_failed`，带 git 的说明，改动集保持 `open`
+>   8. 改动集标为 `applied`，记下 `result_commit`
+> - 关闭的改动集（`applied` / `rejected` / `stale`）保留 `refs/bukitjalil/changes/<id>`，快照不会被 gc 清掉，历史里还能看差异；从 BukitJalil 移除网站时才删除
+> - 返回 `{outcome, change, check}`，`outcome` 为 `applied` / `rebased` / `stale` / `check_failed`
+> - `reject(changeId)`：同样持锁（操作名 `reject`），只改状态为 `rejected`；工作副本在下一轮开新改动集时重置
+> - 应用后正式预览的重新构建在第 3 层的接口里触发
+> - 新错误码：`change.not_open`、`change.fingerprint_mismatch`、`change.no_changes`、`change.wrong_branch`、`change.site_dirty`、`change.merge_failed`
+> - 提交身份由 `SiteService.commitIdentity()` 统一读取
+> - 测试：`test/changes.test.ts` 新增 10 项（替身 Bukit，`fake-doctor` 文件让 `doctor` 失败）：应用后默认分支多一个提交，树等于指纹，作者、提交者、提交信息正确，网站目录有新文件且干净，引用保留在快照上，下一个改动集从结果提交开始；指纹不对、审核后又改过、网站忙、没有提交身份、已拒绝、没有改动、网站只读时都拒绝，拒绝后 `gc` 仍能看差异；网站目录在别的分支或有未提交改动时拒绝；AI 取消忽略并写同名文件时不覆盖网站目录里被忽略的本地文件；检查失败时不应用，`force` 后应用；默认分支前进且不冲突时先合并、要求重新审核、旧指纹被拒、新指纹应用后两边的改动都在；冲突或默认分支已包含全部改动时标为 `stale`，下一轮从新的默认分支开始；构建前检查拒绝时 `check_failed` 带 `problemCode: guard`，`force` 后应用
+
 ### M5 打磨与 MVP 发布（4–5 天）
 
 - 端到端测试全流程（假模型）、真实 Bukit 构建测试

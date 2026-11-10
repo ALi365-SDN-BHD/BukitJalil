@@ -76,12 +76,13 @@ export function makeApp(
     ceilingDirs: [paths.home],
   });
   const locks = new SiteLocks();
+  const settings = new SettingsStore(db);
   const logger = overrides.logger ?? silentLogger;
   const sites = new SiteService({
     db,
     git,
     paths,
-    settings: new SettingsStore(db),
+    settings,
     bukit,
     locks,
     templateDir: path.resolve(import.meta.dirname, "../../../templates/starter"),
@@ -89,7 +90,15 @@ export function makeApp(
   });
   const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);
   const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
-  const changes = new ChangeService({ db, git, sites, logger });
+  const changes = new ChangeService({
+    db,
+    git,
+    sites,
+    locks,
+    check: (siteId, cwd) => aiBukit.checkForApply(siteId, cwd),
+    logger,
+  });
+  const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
   const agent = new AgentService({
     db,
     paths,
@@ -99,7 +108,7 @@ export function makeApp(
     logger,
     resolveModel: () => undefined,
     rgReady: () => false,
-    bukit: new AiBukit({ git, paths, sites, bukit, changes }),
+    bukit: aiBukit,
     skillsDir: SKILLS_DIR,
     ...overrides.agent,
   });

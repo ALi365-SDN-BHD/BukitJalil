@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import type { ApplyCheck } from "@bukitjalil/shared";
 import { BUILD_OUTPUT_PARENT, buildArgs, buildReport } from "../builds/service.ts";
 import { type GuardReason, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
@@ -110,6 +111,25 @@ export class AiBukit {
       }
       return { passed: steps.length === 2 && steps.every((s) => s.passed), commit, removed, steps };
     });
+  }
+
+  /**
+   * The check before applying a change set (plan 7.2), with the site lock held by the caller: like
+   * bukit_check, but a refusal (no Bukit, the pre-build guard) is a failed check the user may override.
+   */
+  async checkForApply(siteId: string, cwd: string): Promise<ApplyCheck> {
+    try {
+      const { passed, steps } = await this.check(siteId, cwd);
+      return {
+        passed,
+        problemCode: null,
+        problem: null,
+        steps: steps.map(({ command, passed, exitCode, output }) => ({ command, passed, exitCode, output })),
+      };
+    } catch (err) {
+      if (!(err instanceof AiBukitError)) throw err;
+      return { passed: false, problemCode: err.code, problem: err.message, steps: [] };
+    }
   }
 
   /** Build into a fresh .bukitjalil-build/ai-<id>/ and report; the output is deleted (previews come in M4). */

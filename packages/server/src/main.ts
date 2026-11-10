@@ -112,7 +112,15 @@ const skillsDir = path.join(repoRoot, "skills");
 if (!fs.existsSync(path.join(skillsDir, "bukitjalil", "site-editing", "SKILL.md"))) {
   fail(`BukitJalil's AI skills are missing: ${skillsDir}`);
 }
-const changes = new ChangeService({ db, git, sites, logger });
+const changes = new ChangeService({
+  db,
+  git,
+  sites,
+  locks,
+  check: (siteId, cwd) => aiBukit.checkForApply(siteId, cwd),
+  logger,
+});
+const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
 const agent = new AgentService({
   db,
   paths,
@@ -126,7 +134,7 @@ const agent = new AgentService({
   // A scripted model for end-to-end tests (agent/fake-model.ts); never set in normal use.
   setupRuntime: process.env.BUKITJALIL_FAKE_MODEL === "1" ? registerFakeModel : undefined,
   rgReady: () => rg.ready(),
-  bukit: new AiBukit({ git, paths, sites, bukit, changes }),
+  bukit: aiBukit,
   skillsDir,
 });
 const events = new EventHub();

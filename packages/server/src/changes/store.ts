@@ -79,6 +79,20 @@ export class ChangeStore {
     this.db.prepare("UPDATE change_sets SET summary = ? WHERE id = ?").run(summary, id);
   }
 
+  /** Close the change set: applied (with the commit it became), rejected or stale. */
+  resolve(id: string, status: Exclude<ChangeStatus, "open">, resultCommit: string | null = null): void {
+    this.db
+      .prepare("UPDATE change_sets SET status = ?, resolved_at = ?, result_commit = ? WHERE id = ? AND status = 'open'")
+      .run(status, new Date().toISOString(), resultCommit, id);
+  }
+
+  /** The default branch moved and the change was merged onto it: new base and snapshot. */
+  rebase(id: string, baseCommit: string, snapshotCommit: string): void {
+    this.db
+      .prepare("UPDATE change_sets SET base_commit = ?, snapshot_commit = ? WHERE id = ?")
+      .run(baseCommit, snapshotCommit, id);
+  }
+
   /** Record that a session took part (the first time only). */
   addSession(id: string, sessionId: string): void {
     this.db

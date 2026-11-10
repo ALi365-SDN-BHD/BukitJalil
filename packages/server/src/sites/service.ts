@@ -103,7 +103,8 @@ export class SiteService {
     return { appHome: this.opts.paths.home, userHome: this.opts.userHome, sites: this.store.list() };
   }
 
-  private identity(): Record<string, string> {
+  /** The commit identity from the settings, as git config (400 `site.identity_required` when unset). */
+  commitIdentity(): { "user.name": string; "user.email": string } {
     const { commitName, commitEmail } = this.opts.settings.get();
     if (!commitName || !commitEmail) throw new SiteError("site.identity_required", 400);
     return { "user.name": commitName, "user.email": commitEmail };
@@ -128,7 +129,7 @@ export class SiteService {
   // --- create (plan 5.2) ---
 
   async create(req: CreateSiteRequest): Promise<Site> {
-    const identity = this.identity();
+    const identity = this.commitIdentity();
     const real = checkSiteLocation(req.path, this.rules());
     const site = await this.reserved(real, async () => {
       assertEmptyOrMissing(real);
@@ -195,7 +196,7 @@ export class SiteService {
       const name = req.name ?? siteTitle(real) ?? path.basename(real);
       if (inspection.kind === "git") return this.register(real, name, inspection.branch, checked);
       if (!req.initGit) throw new SiteError("site.not_git", 409);
-      await this.initForImport(real, req.initGit.files, this.identity());
+      await this.initForImport(real, req.initGit.files, this.commitIdentity());
       return this.register(real, name, "main");
     });
     return this.added(site);

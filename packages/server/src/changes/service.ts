@@ -1,19 +1,27 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { ChangeSet, ChangeView, FileDiff } from "@bukitjalil/shared";
-import type { GitRunner } from "../git/run.ts";
+import type { ApplyCheck, ApplyRequest, ApplyResult, ChangeSet, ChangeView, FileDiff, Site } from "@bukitjalil/shared";
+import { GitError, type GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
 import { SiteError } from "../sites/location.ts";
+import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
 import { changedFiles, fileDiff } from "./diff.ts";
-import { type Snapshot, snapshotCheckout } from "./snapshot.ts";
+import { SNAPSHOT_IDENTITY, type Snapshot, snapshotCheckout } from "./snapshot.ts";
 import { type ChangeRecord, ChangeStore, isChangeId, newChangeId } from "./store.ts";
 
 export const changeRef = (id: string) => `refs/bukitjalil/changes/${id}`;
+
+/** Author of applied AI changes; the committer is the identity from the settings (plan 7.2). */
+const AI_AUTHOR = { "author.name": "BukitJalil AI", "author.email": "ai@bukitjalil.local" };
+const DEFAULT_MESSAGE = "Changes made with BukitJalil AI";
 
 export interface ChangeServiceOptions {
   db: DatabaseSync;
   git: GitRunner;
   sites: SiteService;
+  locks: SiteLocks;
+  /** The check before applying: Bukit on the AI checkout (AiBukit.checkForApply), with the site lock held. */
+  check: (siteId: string, cwd: string) => Promise<ApplyCheck>;
   logger: Logger;
 }
 
@@ -94,6 +102,95 @@ export class ChangeService {
     this.emit(siteId);
   }
 
+  /**
+   * Apply a change set (plan 7.2), under the site lock: snapshot the checkout again and compare it with the
+   * fingerprint the user reviewed; if the default branch moved since the base, merge onto it and ask for
+   * another review (or close the change set as stale on conflicts); run the check; commit the snapshot's
+   * tree on the default branch (author BukitJalil AI, committer from the settings) and fast-forward the
+   * site folder to it, refusing to overwrite ignored local files.
+   */
+  async apply(id: string, req: ApplyRequest): Promise<ApplyResult> {
+    const { siteId } = this.get(id);
+    return this.opts.locks.run(siteId, "apply", async () => {
+      const { git, sites } = this.opts;
+      const open = this.openChange(id);
+      const site = sites.get(siteId);
+      if (site.readOnly) throw new SiteError("site.read_only", 409);
+      const identity = sites.commitIdentity();
+      const cwd = await sites.aiWorktree(siteId, open.snapshotCommit, { reset: false });
+      // The checkout can only differ from the snapshot if something touched it outside a run.
+      await this.snapshot(siteId, cwd);
+      let change = this.openChange(id);
+      const tree = await this.treeOf(site.path, change.snapshotCommit);
+      if (tree !== req.treeHash) throw new SiteError("change.fingerprint_mismatch", 409);
+      if (tree === (await this.treeOf(site.path, change.baseCommit))) throw new SiteError("change.no_changes", 409);
+      await this.assertSiteReady(site);
+
+      const main = await sites.headOf(site);
+      if (main !== change.baseCommit) {
+        const merged = await this.mergeTree(site.path, main, change.snapshotCommit);
+        // On conflicts, or when the default branch already has all of it, there is nothing to review again.
+        if (merged === null || merged === (await this.treeOf(site.path, main))) {
+          this.close(change, "stale");
+          return { outcome: "stale", change: await this.toChangeSet(this.get(id)), check: null };
+        }
+        const commit = (
+          await git.text(["commit-tree", merged, "-p", main, "-m", "BukitJalil AI snapshot (merged)"], {
+            cwd: site.path,
+            config: SNAPSHOT_IDENTITY,
+          })
+        ).trim();
+        // A full OID from commit-tree (`reset` rejects --end-of-options before it).
+        await git.run(["reset", "-q", "--hard", commit], { cwd });
+        await git.run(["update-ref", changeRef(change.id), commit], { cwd: site.path });
+        this.store.rebase(change.id, main, commit);
+        this.emit(siteId);
+        return { outcome: "rebased", change: await this.toChangeSet(this.get(id)), check: null };
+      }
+
+      const check = await this.opts.check(siteId, cwd);
+      // The check snapshots too; it must still be what the user reviewed.
+      change = this.openChange(id);
+      if ((await this.treeOf(site.path, change.snapshotCommit)) !== req.treeHash) {
+        throw new SiteError("change.fingerprint_mismatch", 409);
+      }
+      if (!check.passed && !req.force)
+        return { outcome: "check_failed", change: await this.toChangeSet(change), check };
+
+      const result = (
+        await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change)], {
+          cwd: site.path,
+          config: {
+            ...AI_AUTHOR,
+            "committer.name": identity["user.name"],
+            "committer.email": identity["user.email"],
+          },
+        })
+      ).trim();
+      try {
+        await git.run(["merge", "-q", "--ff-only", "--no-overwrite-ignore", "--end-of-options", result], {
+          cwd: site.path,
+          config: identity,
+        });
+      } catch (err) {
+        if (!(err instanceof GitError) || err.kind !== "failed") throw err;
+        const detail = (err.details.stderr?.trim() || err.message).slice(0, 500);
+        throw new SiteError("change.merge_failed", 409, { detail });
+      }
+      this.close(change, "applied", result);
+      return { outcome: "applied", change: await this.toChangeSet(this.get(id)), check };
+    });
+  }
+
+  /** Reject a change set (plan 7.2): it is closed; the checkout is reset when the next change set opens. */
+  async reject(id: string): Promise<ChangeSet> {
+    const { siteId } = this.get(id);
+    return this.opts.locks.run(siteId, "reject", async () => {
+      this.close(this.openChange(id), "rejected");
+      return this.toChangeSet(this.get(id));
+    });
+  }
+
   get(id: string): ChangeRecord {
     const change = isChangeId(id) ? this.store.get(id) : null;
     if (!change) throw new SiteError("change.not_found", 404);
@@ -146,6 +243,50 @@ export class ChangeService {
       resolvedAt: change.resolvedAt,
       resultCommit: change.resultCommit,
     };
+  }
+
+  private openChange(id: string): ChangeRecord {
+    const change = this.get(id);
+    if (change.status !== "open") throw new SiteError("change.not_open", 409, { status: change.status });
+    return change;
+  }
+
+  /**
+   * Close the change set. Its ref stays, so the snapshot can still be shown (history) and is never
+   * garbage-collected; refs/bukitjalil/ goes when the site is removed from BukitJalil.
+   */
+  private close(change: ChangeRecord, status: "applied" | "rejected" | "stale", result?: string): void {
+    this.store.resolve(change.id, status, result ?? null);
+    this.emit(change.siteId);
+  }
+
+  /** The site folder must be on its default branch with nothing uncommitted (plan 7.2). */
+  private async assertSiteReady(site: Site): Promise<void> {
+    const { git } = this.opts;
+    const head = (await git.run(["symbolic-ref", "-q", "HEAD"], { cwd: site.path, okCodes: [1] })).stdout
+      .toString("utf8")
+      .trim();
+    if (head !== `refs/heads/${site.defaultBranch}`) {
+      throw new SiteError("change.wrong_branch", 409, { branch: site.defaultBranch });
+    }
+    const dirty = await git.text(["status", "--porcelain=v1", "-z", "--untracked-files=no"], { cwd: site.path });
+    if (dirty !== "") throw new SiteError("change.site_dirty", 409);
+  }
+
+  /** The tree of merging `theirs` onto `ours` without touching any checkout, or null on conflicts. */
+  private async mergeTree(cwd: string, ours: string, theirs: string): Promise<string | null> {
+    const res = await this.opts.git.run(["merge-tree", "--write-tree", "--end-of-options", ours, theirs], {
+      cwd,
+      okCodes: [1],
+    });
+    if (res.code === 1) return null;
+    return res.stdout.toString("utf8").split("\n")[0]?.trim() ?? null;
+  }
+
+  /** The commit message: the AI's summary and the sessions it came from. */
+  private message(change: ChangeRecord): string {
+    const sessions = this.store.sessions(change.id);
+    return `${change.summary?.trim() || DEFAULT_MESSAGE}\n\nBukitJalil-Sessions: ${sessions.join(", ")}\n`;
   }
 
   private async treeOf(cwd: string, commit: string): Promise<string> {

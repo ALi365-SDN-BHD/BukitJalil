@@ -48,3 +48,38 @@ export interface FileDiff {
   patch: string | null;
   tooLarge: boolean;
 }
+
+/** The check run before applying (plan 7.2): Bukit `config check` and `doctor` on the snapshot. */
+export type ApplyProblem = "bukit_missing" | "guard" | "notion" | "read_only";
+
+export interface ApplyCheck {
+  passed: boolean;
+  /**
+   * Why the check could not run, else null: `bukit_missing` (no usable Bukit), `guard` (the pre-build
+   * safety check refused the snapshot) or `notion` (a Notion source cannot be checked without its token).
+   */
+  problemCode: ApplyProblem | null;
+  /** The same, in words. */
+  problem: string | null;
+  steps: { command: string; passed: boolean; exitCode: number; output: string }[];
+}
+
+/**
+ * What applying did: `applied` (merged into the default branch); `rebased` (the default branch had moved:
+ * the change was merged onto it and must be reviewed again); `stale` (that merge had conflicts: the change
+ * set is closed, the AI has to redo it); `check_failed` (nothing applied; send `force` to apply anyway).
+ */
+export type ApplyOutcome = "applied" | "rebased" | "stale" | "check_failed";
+
+export interface ApplyRequest {
+  /** The review fingerprint the user saw (ChangeSet.treeHash). */
+  treeHash: string;
+  /** Apply although the check failed. */
+  force?: boolean;
+}
+
+export interface ApplyResult {
+  outcome: ApplyOutcome;
+  change: ChangeSet;
+  check: ApplyCheck | null;
+}
