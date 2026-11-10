@@ -115,8 +115,11 @@ function toEntry(
   let sessionIds: string[] = [];
   let restoreOf: string | null = null;
   const kept: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith(SESSIONS_TRAILER)) {
+  // Trailers are the last paragraph only; a line in the subject or body is never one, whatever it says.
+  const trailersFrom = lines.lastIndexOf("") + 1;
+  for (const [i, line] of lines.entries()) {
+    if (i === 0 || trailersFrom === 0 || i < trailersFrom) kept.push(line);
+    else if (line.startsWith(SESSIONS_TRAILER)) {
       sessionIds = line
         .slice(SESSIONS_TRAILER.length)
         .split(",")

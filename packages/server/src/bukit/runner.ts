@@ -47,7 +47,58 @@ export interface BukitRunResult {
   stopped: "timeout" | "aborted" | null;
 }
 
-const MAX_CAPTURE = 4 * 1024 * 1024;
+/** Characters kept of each stream: the start and, in a rolling window, the end (errors come last). */
+const CAPTURE_HEAD = 1024 * 1024;
+const CAPTURE_TAIL = 3 * 1024 * 1024;
+export const CAPTURE_GAP = "[... output in the middle left out ...]";
+
+/**
+ * Text of a stream capped at head + tail characters. Bukit 2.0.x logs everything to stderr, one line per
+ * SEO issue, so a large build easily passes the cap; keeping only the start would drop the error that made
+ * it fail. The tail starts at a line boundary, so no JSON log line is cut in half.
+ */
+export class StreamCapture {
+  private head = "";
+  private tail = "";
+  private dropped = false;
+
+  constructor(
+    private readonly headMax = CAPTURE_HEAD,
+    private readonly tailMax = CAPTURE_TAIL,
+  ) {}
+
+  push(chunk: string): void {
+    if (!this.dropped && this.head.length + chunk.length <= this.headMax) {
+      this.head += chunk;
+      return;
+    }
+    if (!this.dropped) {
+      // Keep whole lines in the head; the rest starts the tail.
+      const room = this.headMax - this.head.length;
+      const cut = chunk.lastIndexOf("\n", room - 1);
+      if (cut >= 0) {
+        this.head += chunk.slice(0, cut + 1);
+        chunk = chunk.slice(cut + 1);
+      }
+      this.dropped = true;
+    }
+    this.tail += chunk;
+    if (this.tail.length > this.tailMax * 2) this.trim();
+  }
+
+  text(): string {
+    this.trim();
+    if (!this.dropped) return this.head;
+    return `${this.head}${this.head.endsWith("\n") || this.head === "" ? "" : "\n"}${CAPTURE_GAP}\n${this.tail}`;
+  }
+
+  private trim(): void {
+    if (this.tail.length <= this.tailMax) return;
+    const rest = this.tail.slice(-this.tailMax);
+    const nl = rest.indexOf("\n");
+    this.tail = nl >= 0 ? rest.slice(nl + 1) : rest;
+  }
+}
 const KILL_GRACE_MS = 10_000;
 
 export class BukitRunner {
@@ -103,8 +154,8 @@ export class BukitRunner {
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
       });
-      let stdout = "";
-      let stderr = "";
+      const stdout = new StreamCapture();
+      const stderr = new StreamCapture();
       let stopped: BukitRunResult["stopped"] = null;
       let killTimer: NodeJS.Timeout | undefined;
 
@@ -123,12 +174,8 @@ export class BukitRunner {
       // Decode as streams so multibyte characters split across chunks stay intact.
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (d: string) => {
-        if (stdout.length < MAX_CAPTURE) stdout += d;
-      });
-      child.stderr.on("data", (d: string) => {
-        if (stderr.length < MAX_CAPTURE) stderr += d;
-      });
+      child.stdout.on("data", (d: string) => stdout.push(d));
+      child.stderr.on("data", (d: string) => stderr.push(d));
       child.on("error", (err) => {
         clearTimeout(timer);
         clearTimeout(killTimer);
@@ -141,8 +188,8 @@ export class BukitRunner {
         opts.signal?.removeEventListener("abort", onAbort);
         resolve({
           exitCode: code ?? (signal ? 128 : -1),
-          stdout,
-          stderr,
+          stdout: stdout.text(),
+          stderr: stderr.text(),
           durationMs: Date.now() - started,
           stopped,
         });

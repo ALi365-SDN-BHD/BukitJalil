@@ -413,11 +413,27 @@ export function buildReport(result: BukitRunResult): BuildReport {
     // Every SEO issue is also logged as a warning; the audit summary lists them grouped (M4 layer 7).
     // Errors stay: the summary is read only for a succeeded build, so a failed one must still show them.
     if (AUDIT_LOG_LINE.test(entry.msg) && !ERROR_LEVELS.has(entry.level.toLowerCase())) continue;
-    if (MESSAGE_LEVELS.has(entry.level.toLowerCase()) && messages.length < MAX_MESSAGES) {
+    if (MESSAGE_LEVELS.has(entry.level.toLowerCase())) {
       messages.push({ level: entry.level, msg: entry.msg.slice(0, MAX_MESSAGE_CHARS) });
     }
   }
-  return { messages, output: other.join("\n").slice(-MAX_OUTPUT_CHARS) };
+  return { messages: limitMessages(messages, MAX_MESSAGES), output: other.join("\n").slice(-MAX_OUTPUT_CHARS) };
+}
+
+/**
+ * At most `max` messages in their original order, errors first in line: an error usually comes last, after
+ * the warnings, and is the one message that says why a build failed.
+ */
+export function limitMessages(messages: BuildReport["messages"], max: number): BuildReport["messages"] {
+  if (messages.length <= max) return messages;
+  const isError = (m: BuildReport["messages"][number]) => ERROR_LEVELS.has(m.level.toLowerCase());
+  const errors = messages.filter(isError).length;
+  let warningRoom = Math.max(0, max - errors);
+  let errorRoom = max - warningRoom;
+  return messages.filter((m) => {
+    if (isError(m)) return errorRoom-- > 0;
+    return warningRoom-- > 0;
+  });
 }
 
 const HOME_DIR = /^[A-Za-z0-9][A-Za-z0-9_-]{0,34}$/;

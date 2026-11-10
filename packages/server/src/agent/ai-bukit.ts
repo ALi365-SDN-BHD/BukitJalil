@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ApplyCheck, BuildAudit } from "@bukitjalil/shared";
 import { readAudit } from "../builds/audit.ts";
-import { BUILD_OUTPUT_PARENT, buildArgs, buildReport } from "../builds/service.ts";
+import { BUILD_OUTPUT_PARENT, buildArgs, buildReport, limitMessages } from "../builds/service.ts";
 import { type GuardReason, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, checkPassed, usableRunner } from "../bukit/runner.ts";
@@ -150,7 +150,7 @@ export class AiBukit {
           removed,
           exitCode: result.exitCode,
           pages: outcome === "ok" ? countPages(out) : 0,
-          messages: report.messages.slice(0, 50),
+          messages: limitMessages(report.messages, 50),
           output: tail(report.output, MAX_STEP_OUTPUT),
           audit: outcome === "ok" ? readAuditQuietly(out) : null,
         };

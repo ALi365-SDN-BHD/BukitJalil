@@ -36,6 +36,7 @@ export const changeRef = (id: string) => `refs/bukitjalil/changes/${id}`;
 const AI_AUTHOR = { "author.name": AI_AUTHOR_NAME, "author.email": AI_AUTHOR_EMAIL };
 const DEFAULT_MESSAGE = "Changes made with BukitJalil AI";
 const MAX_SUBJECT = 72;
+const TRAILER_LINE = /^\s*BukitJalil-[A-Za-z]+:/i;
 
 /**
  * A summary as a commit message with a short subject line. Real models often write one long paragraph,
@@ -43,9 +44,20 @@ const MAX_SUBJECT = 72;
  * MAX_SUBJECT characters) becomes the subject and the whole summary the body.
  */
 export function commitText(summary: string): string {
-  const first = summary.split("\n", 1)[0]?.trim() ?? "";
-  if ([...first].length <= MAX_SUBJECT) return summary;
-  const sentence = /^.+?(?:[。！？；]|[.!?;](?=\s|$))/u.exec(first)?.[0] ?? first;
+  // Lines that look like our trailers would be read back as them (a forged restore marker, plan 7.4).
+  summary = summary
+    .split("\n")
+    .filter((line) => !TRAILER_LINE.test(line))
+    .join("\n")
+    .trim();
+  if (summary === "") return DEFAULT_MESSAGE;
+  const [first = "", ...rest] = summary.split("\n");
+  if ([...first.trim()].length <= MAX_SUBJECT) {
+    // Git takes the whole first paragraph as the subject, so the body must start after a blank line.
+    const body = rest.join("\n").trim();
+    return body === "" ? first.trim() : `${first.trim()}\n\n${body}`;
+  }
+  const sentence = /^.+?(?:[。！？；]|[.!?;](?=\s|$))/u.exec(first.trim())?.[0] ?? first;
   const chars = [...sentence.replace(/[。；;,，:：]$/u, "")];
   const subject =
     chars.length <= MAX_SUBJECT

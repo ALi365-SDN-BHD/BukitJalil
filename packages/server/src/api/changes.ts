@@ -45,7 +45,10 @@ export function changeRoutes(api: Hono<AppEnv>, { changes, agent, builds, logger
     handle(c, async () => {
       const req = await body(c, ApplyRequest);
       if (!req) return apiError(c, 400, "request.invalid_body");
-      const result = await changes.apply(c.req.param("changeId"), req);
+      const changeId = c.req.param("changeId");
+      // A running or queued conversation is about to change what the user reviewed (plan 7.2).
+      if (agent.busy(changes.get(changeId).siteId)) throw new SiteError("site.busy", 409);
+      const result = await changes.apply(changeId, req);
       // The default branch moved: rebuild the main preview (plan 7.2). When that cannot start now (no Bukit,
       // the site is busy), the preview stays on the previous build until the next one.
       if (result.outcome === "applied") {

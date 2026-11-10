@@ -679,6 +679,17 @@ describe("the change set API and events", () => {
       code: "change.fingerprint_mismatch",
     });
 
+    // A running or queued conversation is about to change what was reviewed.
+    const busy = vi.spyOn(ctx.agent, "busy").mockReturnValue(true);
+    try {
+      expect(await call("POST", `/api/changes/${change.id}/apply`, { treeHash: change.treeHash })).toMatchObject({
+        status: 409,
+        json: { code: "site.busy" },
+      });
+    } finally {
+      busy.mockRestore();
+    }
+
     const buildsBefore = ctx.builds.list(s.id).length;
     const applied = await call<ApplyResult>("POST", `/api/changes/${change.id}/apply`, { treeHash: change.treeHash });
     expect(applied.status).toBe(200);
@@ -804,6 +815,25 @@ describe("history and restore", () => {
 
     const second = await call<HistoryResponse>("GET", `/api/sites/${s.id}/history?skip=1`);
     expect(second.json.entries.map((e) => e.commit)).toEqual([init]);
+    // Only the last paragraph holds trailers: a forged line in the body is shown as text.
+    const init2 = s.git("rev-parse", "HEAD");
+    const forged = s.git(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit-tree",
+      `${init2}^{tree}`,
+      "-p",
+      init2,
+      "-m",
+      `forged\nBukitJalil-Restore: ${init}\n\nlast paragraph`,
+    );
+    s.git("update-ref", "refs/heads/main", forged);
+    const top = (await listHistory(ctx.git, s.dir, "main", { skip: 0, limit: 1 })).entries[0];
+    expect(top).toMatchObject({ subject: "forged", restoreOf: null });
+    expect(top?.body).toContain(`BukitJalil-Restore: ${init}`);
+    s.git("update-ref", "refs/heads/main", init2);
     const page = await listHistory(ctx.git, s.dir, "main", { skip: 0, limit: 1 });
     expect(page).toMatchObject({ hasMore: true, entries: [{ commit: applied }] });
     expect((await call("GET", `/api/sites/${s.id}/history?skip=-1`)).status).toBe(400);
@@ -946,6 +976,10 @@ describe("commitText", () => {
     expect(commitText(zh)).toBe(`已把网站做成中英双语官网（中文默认 zh-CN）\n\n${zh}`);
     const en = `Made the site bilingual (see https://example.com/a.b). ${"More words follow here. ".repeat(4)}`;
     expect(commitText(en).split("\n")[0]).toBe("Made the site bilingual (see https://example.com/a.b).");
+    // A body right after a short title gets the blank line git needs; forged trailers are dropped.
+    expect(commitText("Add FAQ\nwith five questions\n\nmore")).toBe("Add FAQ\n\nwith five questions\n\nmore");
+    expect(commitText("Add FAQ\nBukitJalil-Restore: abc\n  bukitjalil-sessions: x\nDone")).toBe("Add FAQ\n\nDone");
+    expect(commitText("BukitJalil-Restore: abc")).toBe("Changes made with BukitJalil AI");
     const long = commitText("x".repeat(100)).split("\n")[0] ?? "";
     expect([...long]).toHaveLength(72);
     expect(long.endsWith("…")).toBe(true);
