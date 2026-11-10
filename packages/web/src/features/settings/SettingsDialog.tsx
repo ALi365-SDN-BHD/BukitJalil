@@ -62,7 +62,7 @@ function SettingsForm() {
   if (!draft) return <p className="text-sm text-muted-foreground">{m.common.loading}</p>;
   return (
     <form
-      className="flex flex-col gap-4"
+      className="-mx-1 flex min-h-0 flex-col gap-4 overflow-y-auto px-1"
       onSubmit={(e) => {
         e.preventDefault();
         save.mutate(draft);
