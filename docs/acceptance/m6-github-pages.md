@@ -25,6 +25,8 @@
    - 导航和语言切换用的是站内相对地址（`/en-US/`、`/zh-CN/about/`），在 GitHub Pages 上都能点
    - 界面的发布记录见 [`m6/publish-section.jpg`](m6/publish-section.jpg)
 
+7. **改 `site.url` 后再发布**：`site.url` 和组织信息里的地址从占位的 `https://hengxin.example.com` 改成 `https://3721-my.github.io`，提交为新版本 `6b7973c` 后发布（`dep_dbf1810f34e6075e`，成功，审计 0 个错误）。`gh-pages` 新提交 `89a64a2`。线上 canonical 和 hreflang 都是 `https://3721-my.github.io/...`，页面里不再出现 example.com
+
 ## 发现的问题和处理
 
 | 问题 | 原因 | 处理 |
@@ -35,5 +37,4 @@
 
 ## 遗留
 
-- 网站的 `site.url` 仍是 M5 时随便填的 `https://hengxin.example.com`，所以线上页面的 canonical、sitemap 和 hreflang 指向这个地址。要正式使用，应该让 AI 把 `site.url` 改成 `https://3721-my.github.io` 或者自己的域名，再发布一次
 - Bukit 推送后提示"publication not verified"，它只负责推送。GitHub Pages 是否打开、多久生效，要用户在 GitHub 上看，使用说明里已有说明
