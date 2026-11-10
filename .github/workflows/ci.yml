@@ -71,6 +71,13 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium firefox webkit
       - run: pnpm e2e
+      # The desktop app (plan M7) on macOS, the platform it is packaged for.
+      - name: Desktop app tests
+        if: runner.os == 'macOS'
+        run: |
+          pnpm --filter @bukitjalil/desktop exec install-electron
+          pnpm --filter @bukitjalil/desktop build
+          pnpm exec playwright test -c e2e/desktop/playwright.config.ts
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

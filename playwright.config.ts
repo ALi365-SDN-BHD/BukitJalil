@@ -6,6 +6,8 @@ import { ADMIN } from "./e2e/ports.ts";
 // One worker, so each browser project gets one server (worker fixture in e2e/fixtures.ts) on fixed ports.
 export default defineConfig({
   testDir: "e2e",
+  // The desktop app has its own config (e2e/desktop/playwright.config.ts).
+  testIgnore: "desktop/**",
   workers: 1,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

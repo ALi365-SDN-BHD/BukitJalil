@@ -1320,6 +1320,16 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > - `src/lock.ts`：`server.lock` 用 `wx` 创建并写 pid；锁的进程还在（`kill(pid, 0)` 成功或 EPERM）就拒绝，进程已不在或内容读不出时接管；释放时只删自己的锁。`pnpm start` 同样拿锁，进程退出（包括启动失败）时释放
 > - `resolveResources`：`BUKITJALIL_RESOURCES` 下的 `skills/`、`templates/starter/`、`web/`；没有设置时仍从仓库读
 > - 测试 `desktop.test.ts` 用 tsx 真实启动 `main.ts`：握手、登录链接能换到会话 cookie、关闭后锁被删除、父进程断开时关闭、第二个 server 被拒、端口被占
+> - 核对 Electron 45.2.3：自带 Node 24.22.2，`node:sqlite` 可用（SQLite 3.53.4），有内置的 TypeScript 类型擦除
+
+> M7 第 2 层实现说明（桌面壳）：
+> - `packages/desktop`：`src/main.ts`（主进程）、`src/server.ts`（`ServerProcess`）、`src/preload.ts`，esbuild 打包成 CommonJS 到 `dist/`（沙盒里的预加载脚本不能是模块）；`static/status.html` + `status.js` 是启动中和出错时的本地页面，内容只用 `textContent` 写入，CSP `default-src 'none'`
+> - **开发运行要绕开 Node 的类型擦除**：Electron 的 utility process 不处理 `--import tsx`，Node 24 自带的类型擦除不支持参数属性（`constructor(readonly code …)`），server 直接退出。改为 `static/dev-server.mjs` 先注册 tsx（`tsx/esm/api`）再导入 `main.ts`
+> - `ServerProcess`：`--desktop` 启动，端口被占时上移 10 再试，最多 10 次；`start()` 进行中再调用时共用同一次启动（第二次打开、Dock 点击）；保留最后 40 行输出给错误页；`stop()` 发 `shutdown`，10 秒后结束进程
+> - 主进程：单实例；导航只允许管理端口的地址和本地状态页，其他 http(s) 交给系统浏览器，其余协议不打开；`window.open` 一律拒绝并交给系统浏览器（预览和发布地址的链接都是 `target="_blank"`，所以第 3 层的"外部链接"已在这里完成）；拒绝所有权限请求和 `webview`；文件夹选择只回应管理端口的页面，重新启动只回应本地状态页
+> - 应用名 `BukitJalil`；`BUKITJALIL_DESKTOP_PROFILE` 指定 Electron 的用户数据目录（测试用，各自独立，不碰用户的），`BUKITJALIL_DESKTOP_PORT` 指定起始端口
+> - 测试 `e2e/desktop/`（单独的 Playwright 配置，主配置忽略这个目录）：自动登录且只暴露桥接对象、退出后 server 结束并释放锁、外部链接交给系统浏览器且窗口不离开应用、通知权限被拒、第二次打开交给已运行的应用、server 被杀后显示原因并能重新启动、数据目录被占时说明原因。`pnpm e2e:desktop` 运行；CI 只在 macOS 上跑（先 `install-electron`）
+> - `pnpm desktop`：构建网页界面和桌面包后启动
 
 ### 里程碑总览
 

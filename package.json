@@ -14,7 +14,9 @@
     "format": "biome check --write .",
     "test": "vitest run",
     "e2e": "playwright test",
-    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json"
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
+    "desktop": "pnpm build && pnpm --filter @bukitjalil/desktop start",
+    "e2e:desktop": "pnpm build && pnpm --filter @bukitjalil/desktop build && playwright test -c e2e/desktop/playwright.config.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

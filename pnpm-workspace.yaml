@@ -2,6 +2,7 @@ packages:
   - packages/shared
   - packages/server
   - packages/web
+  - packages/desktop
 minimumReleaseAgeExclude:
   - "@vitejs/plugin-react@6.3.0"
   - react-resizable-panels@4.21.0
