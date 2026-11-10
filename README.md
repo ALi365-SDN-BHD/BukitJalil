@@ -2,7 +2,7 @@
 
 把**网站当作项目**来管理的系统。每个网站的配置、主题、文件、数据都在这里统一管理；建站和修改都通过和 AI 对话完成，用户不直接改代码。
 
-> 状态：M0 工程骨架、M1 技术验证、M2 网站与只读面板、M3 AI 会话已完成；M4 审核与版本、M5 MVP 打磨已完成（真实模型验收见 [docs/acceptance](docs/acceptance/m5-real-model.md)）；M6 发布到 GitHub Pages 已完成（真实发布验收见 [docs/acceptance](docs/acceptance/m6-github-pages.md)）。旧的 Electron + Codex 实现仍保留在 `main` 分支上。
+> 状态：M0 工程骨架、M1 技术验证、M2 网站与只读面板、M3 AI 会话已完成；M4 审核与版本、M5 MVP 打磨已完成（真实模型验收见 [docs/acceptance](docs/acceptance/m5-real-model.md)）；M6 发布到 GitHub Pages 已完成（真实发布验收见 [docs/acceptance](docs/acceptance/m6-github-pages.md)）；M7 macOS 桌面版已完成（验收见 [docs/acceptance](docs/acceptance/m7-desktop.md)）。旧的 Electron + Codex 实现仍保留在 `main` 分支上。
 >
 > 使用方法见 [使用说明](docs/user-guide.md)。
 
@@ -85,22 +85,22 @@ Pi 的工作方式（模型请求、工具执行、会话树、技能、扩展�
 
 ## 🧰 技术栈
 
-全部使用 TypeScript，开发统一用 Node 24 LTS（最低 22.19）、pnpm 12.18.0、TypeScript 7.0.2、Bukit 2.0.12。服务端和界面分开，先做本地 Web 应用（支持 macOS 和 Linux），以后再用 Electron 套成桌面版。每个依赖的固定版本见[开发方案 · 固定技术栈](docs/development-plan.md#2-固定技术栈)。
+全部使用 TypeScript，开发统一用 Node 24 LTS（最低 22.19）、pnpm 12.18.0、TypeScript 7.0.2、Bukit 2.0.12。服务端和界面分开，本地 Web 应用支持 macOS 和 Linux，同一套服务和界面用 Electron 套成 macOS 桌面版。每个依赖的固定版本见[开发方案 · 固定技术栈](docs/development-plan.md#2-固定技术栈)。
 
-| 部分           | 技术                                                                                       | 说明                                                               |
-| -------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| 项目结构       | pnpm workspaces                                                                            | `shared` / `server` / `web` 三个包                                 |
-| 本地服务       | Node 24 LTS + TypeScript + [Hono](https://hono.dev)                                        | 只有服务端引用 Pi SDK，也只有它调用 Bukit                          |
-| AI             | [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md) | 每个会话一个 `AgentSession`，版本锁定                              |
-| 实时推送       | SSE                                                                                        | AI 的流式输出、工具调用和改动事件                                  |
-| 界面           | React + Vite + Tailwind CSS + shadcn/ui                                                    | 三栏工作区                                                         |
-| 只读查看       | Shiki，以及 Markdown / 图片 / PDF 预览                                                     | 只能看，不能改                                                     |
-| 改动审核       | 差异查看组件                                                                               | 显示每次 AI 改动                                                   |
-| 版本           | 每个网站一个 git 仓库                                                                      | 差异、历史、恢复；直接调用系统 git（≥ 2.38，统一加固），不用封装库 |
-| 系统数据       | SQLite（`node:sqlite`）                                                                    | 网站列表、设置等；和网站自己的数据分开                             |
-| 构建           | Bukit（.NET Native AOT）子进程                                                             | 构建、预览、发布                                                   |
-| 测试           | Vitest + Playwright                                                                        | 单元测试和端到端测试                                               |
-| 桌面版（以后） | Electron                                                                                   | 加载同一个本地服务和界面                                           |
+| 部分     | 技术                                                                                       | 说明                                                               |
+| -------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| 项目结构 | pnpm workspaces                                                                            | `shared` / `server` / `web` / `desktop` 四个包                     |
+| 本地服务 | Node 24 LTS + TypeScript + [Hono](https://hono.dev)                                        | 只有服务端引用 Pi SDK，也只有它调用 Bukit                          |
+| AI       | [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md) | 每个会话一个 `AgentSession`，版本锁定                              |
+| 实时推送 | SSE                                                                                        | AI 的流式输出、工具调用和改动事件                                  |
+| 界面     | React + Vite + Tailwind CSS + shadcn/ui                                                    | 三栏工作区                                                         |
+| 只读查看 | Shiki，以及 Markdown / 图片 / PDF 预览                                                     | 只能看，不能改                                                     |
+| 改动审核 | 差异查看组件                                                                               | 显示每次 AI 改动                                                   |
+| 版本     | 每个网站一个 git 仓库                                                                      | 差异、历史、恢复；直接调用系统 git（≥ 2.38，统一加固），不用封装库 |
+| 系统数据 | SQLite（`node:sqlite`）                                                                    | 网站列表、设置等；和网站自己的数据分开                             |
+| 构建     | Bukit（.NET Native AOT）子进程                                                             | 构建、预览、发布                                                   |
+| 测试     | Vitest + Playwright                                                                        | 单元测试和端到端测试                                               |
+| 桌面版   | Electron 45.2.3                                                                            | 启动同一个本地服务并加载同一个界面                                 |
 
 计划中的目录结构：
 
@@ -137,8 +137,8 @@ BukitJalil/
 | M3 AI 会话 ✅    | Pi 会话、建站工具、权限闸门、流式对话、模型设置                                           | 8–10 天 |
 | M4 审核与版本 ✅ | 工作副本快照、网站操作锁、差异审核、应用 / 拒绝、历史与恢复                               | 6–8 天  |
 | M5 MVP ✅        | 端到端测试、错误处理、首次启动引导、文档、真实模型验收                                    | 4–5 天  |
-| M6 发布          | GitHub Pages（`bukit deploy`）                                                            | 3–4 天  |
-| M7 桌面版        | Electron 壳                                                                               | 4–5 天  |
+| M6 发布 ✅       | GitHub Pages（`bukit deploy`）                                                            | 3–4 天  |
+| M7 桌面版 ✅     | Electron 壳，macOS arm64 安装包                                                           | 4–5 天  |
 
 ## 🛠️ 开发
 
@@ -151,13 +151,16 @@ pnpm dev        # 服务端 + Vite，终端里打印一次性登录地址（按�
 pnpm check      # Biome + 类型检查
 pnpm test       # 单元测试
 pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
+pnpm desktop        # 桌面版（Electron），从源码运行（先 pnpm --filter @bukitjalil/desktop exec install-electron）
+pnpm package:desktop     # 打包 macOS arm64 的 BukitJalil.app 和 zip，在 packages/desktop/out/
+pnpm e2e:desktop    # 桌面版测试；打包过时也测试打包后的应用
 ```
 
 `pnpm build && pnpm start` 运行构建好的版本（端口被占用时加 `--port <端口> --preview-port-base <端口>`）。登录地址只能用一次，需要新地址（换浏览器、会话失效）时在终端按回车。
 
 端到端测试默认用一个替身 Bukit；设置 `BUKIT_BIN=/path/to/bukit` 时改用真实 Bukit 构建（单元测试里的真实 Bukit 用例同样读 `BUKIT_BIN`，下载安装的用例另外读 `BUKIT_TARBALL`，即本平台的官方安装包）。这两个文件可以用 `pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts <目录>` 下载（固定版本和校验和），它会输出两个变量的值；CI 就是这样做的。
 
-### 现在能做什么（M6）
+### 现在能做什么（M7）
 
 1. 打开设置（顶栏齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）；没有 Bukit 或版本较旧时可以确认后下载安装官方 2.0.12（macOS arm64、Linux x64），其他平台填自建 Bukit 的路径。
 2. 在设置的"AI 模型"里选服务商和模型，填 API Key（只保存在本机 `~/.bukitjalil/pi/auth.json`，界面只显示末四位；也可以用服务商的环境变量），点"测试连接"确认可用，再点"使用这个模型"。
@@ -171,6 +174,7 @@ pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
 10. 首页的"开始使用"清单按顺序检查 git、Bukit、提交身份、模型和第一个网站；模型、构建、磁盘出错时界面写明是哪类问题和怎么处理。
 11. 发布到 GitHub Pages：在设置里填 GitHub token（只保存在本机 `~/.bukitjalil/secrets.json`，也可以用环境变量 `BUKITJALIL_GITHUB_TOKEN`），让 AI 在 `site.yaml` 设置发布目标并审核应用；网站主页点"发布"，确认仓库、分支和版本后，BukitJalil 依次做安全检查、配置检查、诊断、构建、发布审计，全部通过才推送，发布记录里有每一步的结果和发布审计摘要。
 12. 顶栏可以切换界面语言和外观（跟随系统 / 浅色 / 深色）；窄屏时三栏改为一次一栏；Enter 发送、Esc 停止、Alt+1…6 切换面板，按 ? 查看全部快捷键。
+13. 桌面版（macOS）：双击打开，窗口自动登录，用系统文件夹选择框选位置，网页链接在默认浏览器打开，⌘Q 退出时先停下会话和构建；和 `pnpm start` 共用 `~/.bukitjalil/`，但不能同时运行。
 
 不想用真实模型时，用 `BUKITJALIL_FAKE_MODEL=1 pnpm dev` 启动，设置里会多出一个脚本化的假模型 `bukitjalil-fake`，不联网，端到端测试也用它。平常的消息它只查看网站；消息里带 `#faq` 时会真的在 AI 工作副本里改标题、加 FAQ 页面（`#auth`、`#plugin` 用来演示被拒绝的读取和构建）。
 

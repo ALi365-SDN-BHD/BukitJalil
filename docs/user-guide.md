@@ -8,8 +8,8 @@ BukitJalil 把每个网站当作一个项目来管理。你用对话告诉 AI �
 
 | 需要 | 说明 |
 | --- | --- |
-| macOS（Apple 芯片）或 Linux x64 | 暂不支持 Windows。Intel Mac 没有官方 Bukit 包，可以自己编译 Bukit 后在设置里填路径 |
-| Node 22.19 或更新（推荐 24 LTS） | 运行 BukitJalil 本身 |
+| macOS（Apple 芯片）或 Linux x64 | 暂不支持 Windows。桌面版目前只有 macOS（Apple 芯片）。Intel Mac 没有官方 Bukit 包，可以自己编译 Bukit 后在设置里填路径 |
+| Node 22.19 或更新（推荐 24 LTS） | 从源码运行 BukitJalil 时需要；桌面版自带，不用装 |
 | git 2.38 或更新 | 每个网站都是一个 git 仓库，版本、差异、恢复都靠它 |
 | Bukit 2.0.12（最低 2.0.11） | 构建网站。可以在 BukitJalil 的设置里一键下载安装，不用提前装 |
 | 一个 AI 模型服务商的 API Key | 例如 Anthropic、OpenAI 等 Pi 支持的服务商 |
@@ -33,6 +33,25 @@ pnpm start
 - 网站文件夹本身由你选择位置，不在应用目录里
 
 停止 BukitJalil：在终端按 Ctrl+C。正在运行的 AI 会话和构建会被停下，没完成的构建下次启动时标记为"服务重启时中断"；对话记录和 AI 已经做的修改都保留。
+
+### 桌面版（macOS）
+
+桌面版是同一个 BukitJalil 装在一个窗口里，双击就能用，不需要终端和 Node。
+
+1. 得到安装包：在仓库目录运行 `pnpm package:desktop`，生成 `packages/desktop/out/BukitJalil-<版本>-mac-arm64.zip`（目前还没有公开下载）
+2. 解压，把 `BukitJalil.app` 拖进"应用程序"
+3. 第一次打开：安装包没有 Apple 开发者签名，macOS 会说"无法验证开发者"或"Apple 无法检查其是否包含恶意软件"。先点"完成"，到"系统设置 → 隐私与安全性"，在下面找到 BukitJalil，点"仍要打开"并确认。之后就能正常双击打开
+
+和在终端里运行的区别：
+
+- 窗口自动登录，不需要登录地址
+- 新建网站和导入网站时，用"选择文件夹…"按钮打开系统的文件夹选择框
+- 网页链接（发布后的网站地址、"在新标签页打开"预览）在默认浏览器里打开
+- 关闭窗口不会退出（和其他 Mac 应用一样），点 Dock 图标重新打开；退出用 ⌘Q，BukitJalil 会先停下正在运行的会话和构建
+- 帮助菜单里可以打开日志目录和数据目录
+- 数据目录同样是 `~/.bukitjalil/`，所以桌面版和 `pnpm start` 看到的是同一批网站和设置。两者不能同时运行：后启动的那个会说明"另一个 BukitJalil 正在使用同一个数据目录"
+- 从"应用程序"打开时读不到终端里设置的环境变量，模型的 API Key 和 GitHub token 都在设置里填
+- 还是需要 git（macOS 第一次用 git 时会提示安装"命令行开发者工具"）；Bukit 在设置里一键安装
 
 ## 3. 第一次使用
 
@@ -174,11 +193,15 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 
 **发布失败**：在"发布"一节点开发布记录。推送这一步失败多半是 token 的问题：没有这个仓库的 Contents 写权限、已过期，或者仓库名写错了；在设置里换一个 token 或让 AI 改 `deploy.repo` 后重试。推送成功但网站没更新时，检查 GitHub 仓库的 Pages 设置是否从对应分支发布。
 
+**桌面版提示"另一个 BukitJalil 正在使用同一个数据目录"**：在终端里用 `pnpm start` 或 `pnpm dev` 启动的 BukitJalil 还在运行。先把它停下（终端里按 Ctrl+C），再点窗口里的"重新启动"。如果确定没有别的 BukitJalil 在运行，删除 `~/.bukitjalil/server.lock` 后重试。
+
+**桌面版提示"服务意外停止"**：点"重新启动"。反复出现时，帮助菜单 → 打开日志目录，看 `server.log` 最后几行。
+
 **应用时提示网站文件夹有未提交的改动或不在正式分支上**：你在 BukitJalil 之外改过网站文件夹。先在那里提交或撤销、切回正式分支，再应用。
 
 ## 14. 目前的限制
 
-- 只支持 macOS（Apple 芯片）和 Linux x64；没有 Windows 版和桌面应用（以后用 Electron 提供）
+- 只支持 macOS（Apple 芯片）和 Linux x64，没有 Windows 版；桌面版只有 macOS（Apple 芯片），没有开发者签名和自动更新
 - 只能发布到 GitHub Pages；Cloudflare Pages 和自己的服务器以后再做
 - 不支持 Bukit 的外部插件，只允许内置插件
 - 不连接 Notion 数据源

@@ -1346,6 +1346,12 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > - 测试 `e2e/desktop/packaged.spec.ts`（打包后才运行）：只给系统 PATH（和从 Finder 打开一样）启动 `BukitJalil.app`，自动登录，用应用里的模板创建网站并提交（git），能开始对话（找到技能），Pi 的模型目录能读出（依赖完整），退出后释放锁。CI 的 macOS 任务打包后运行全部桌面测试
 > - 未做：Electron fuses（关闭 `RunAsNode` 等），等有 Developer ID 签名时一起做；应用图标用 Electron 默认图标
 
+> M7 第 5 层实现说明（文档和验收）：
+> - 使用说明第 2 节加"桌面版（macOS）"：得到安装包、第一次打开时在"隐私与安全性"里允许、和终端运行的区别（自动登录、系统文件夹选择框、链接在浏览器打开、⌘Q 退出、共用数据目录但不能同时运行、读不到终端环境变量）；常见问题加数据目录被占和服务意外停止；限制一节更新。README 更新状态、路线图、开发命令和"现在能做什么"
+> - 验收：解压 zip 后用 `open -n` 从 Launch Services 打开（与 Finder 双击相同），自动登录、正常退出并释放锁；截图和问题见 `docs/acceptance/m7-desktop.md`。下载后带隔离属性的第一次打开需要手动确认，未走
+
+> M7 结果：macOS arm64 桌面版完成。server 在 Electron 的 utility process 里以桌面模式运行，窗口自动登录、锁定导航和权限，新建 / 导入网站用系统文件夹选择框；`pnpm package:desktop` 生成临时签名的 `.app` 和 zip。没有 Developer ID 签名、公证、自动更新和自定义图标，没有 Linux / Windows 安装包
+
 ### 里程碑总览
 
 ```text
