@@ -64,7 +64,10 @@ afterEach(async () => {
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
 
 let n = 0;
-/** An imported starter site with its ai/ checkout, an AiBukit on the fake Bukit, and the site tools. */
+/**
+ * An imported starter site with a session and its change set (so the ai/ checkout), an AiBukit on the
+ * fake Bukit, and the site tools. The tools run outside an AI run here, so nothing holds the site lock.
+ */
 async function setup(opts: { bin?: string | null; files?: Record<string, string> } = {}) {
   const bukit = new BukitService({
     home: path.join(base, `bk-${++n}`),
@@ -84,8 +87,10 @@ async function setup(opts: { bin?: string | null; files?: Record<string, string>
   commitAllAs(base, dir);
   const site = await ctx.sites.import({ path: dir });
   await ctx.builds.settled(); // the first main build after import holds the site lock
-  const cwd = await ctx.sites.aiCheckout(site.id);
-  const ai = new AiBukit({ git: ctx.git, paths: ctx.paths, sites: ctx.sites, bukit, locks: ctx.locks });
+  const session = ctx.agent.create(site.id);
+  const { cwd } = await ctx.changes.begin(site.id, session.id);
+  const ai = new AiBukit({ git: ctx.git, paths: ctx.paths, sites: ctx.sites, bukit, changes: ctx.changes });
+  const snapshot = () => ctx.changes.snapshot(site.id, cwd);
   const summaries: string[] = [];
   const tools = Object.fromEntries(
     createSiteTools({
@@ -98,7 +103,7 @@ async function setup(opts: { bin?: string | null; files?: Record<string, string>
   ) as Record<(typeof SITE_TOOLS)[number], ToolDefinition>;
   fs.rmSync(calls, { force: true });
   const git = (...args: string[]) => rawGit(base, cwd, ...args).trim();
-  return { ctx, site, cwd, ai, tools, summaries, git };
+  return { ctx, site, cwd, ai, tools, summaries, git, snapshot };
 }
 
 async function waitFor(condition: () => boolean, ms = 5000) {
@@ -117,15 +122,15 @@ async function call(tool: ToolDefinition, params: Record<string, unknown> = {}) 
   return { text, value: JSON.parse(text.startsWith("{") ? text : "null") as Record<string, unknown> | null };
 }
 
-describe("AiBukit snapshot", () => {
+describe("snapshot", () => {
   it("commits the checkout and moves HEAD; nothing changes when nothing did", async () => {
-    const { ai, cwd, git } = await setup();
+    const { cwd, git, snapshot } = await setup();
     const before = git("rev-parse", "HEAD");
-    expect(await ai.snapshot(cwd)).toEqual({ commit: before, removed: [] });
+    expect(await snapshot()).toEqual({ commit: before, removed: [] });
 
     fs.writeFileSync(path.join(cwd, "content/pages/new.md"), "---\ntitle: New\n---\n");
     fs.rmSync(path.join(cwd, "content/pages/about.md"));
-    const { commit } = await ai.snapshot(cwd);
+    const { commit } = await snapshot();
     expect(commit).not.toBe(before);
     expect(git("rev-parse", "HEAD")).toBe(commit);
     expect(git("rev-parse", "HEAD^")).toBe(before);
@@ -133,37 +138,37 @@ describe("AiBukit snapshot", () => {
     expect(git("show", "--name-status", "--format=%an <%ae>", "HEAD")).toBe(
       "BukitJalil <ai@bukitjalil.invalid>\n\nD\tcontent/pages/about.md\nA\tcontent/pages/new.md",
     );
-    expect((await ai.snapshot(cwd)).commit).toBe(commit);
+    expect((await snapshot()).commit).toBe(commit);
   });
 
   it("deletes new files that .gitignore hides from the snapshot; tracked files stay in it", async () => {
-    const { ai, cwd, git } = await setup();
+    const { cwd, git, snapshot } = await setup();
     // A tracked file is still committed when .gitignore lists it.
     fs.appendFileSync(path.join(cwd, ".gitignore"), "\nsite.yaml\nnotes/\n");
     fs.appendFileSync(path.join(cwd, "site.yaml"), "# changed\n");
-    expect((await ai.snapshot(cwd)).removed).toEqual([]);
+    expect((await snapshot()).removed).toEqual([]);
     expect(git("show", "HEAD:site.yaml")).toContain("# changed");
     // A new, ignored file would reach Bukit without the guard seeing it: it is deleted.
     fs.mkdirSync(path.join(cwd, "notes"));
     fs.writeFileSync(path.join(cwd, "notes", "x.md"), "x");
-    expect((await ai.snapshot(cwd)).removed).toEqual(["notes/"]);
+    expect((await snapshot()).removed).toEqual(["notes/"]);
     expect(fs.existsSync(path.join(cwd, "notes"))).toBe(false);
     // Deleting site.yaml, snapshotting and writing it back makes it new and ignored too.
     fs.renameSync(path.join(cwd, "site.yaml"), path.join(base, `held-${n}.yaml`));
-    await ai.snapshot(cwd);
+    await snapshot();
     fs.renameSync(path.join(base, `held-${n}.yaml`), path.join(cwd, "site.yaml"));
-    expect((await ai.snapshot(cwd)).removed).toEqual(["site.yaml"]);
+    expect((await snapshot()).removed).toEqual(["site.yaml"]);
     expect(fs.existsSync(path.join(cwd, "site.yaml"))).toBe(false);
   });
 
   it("keeps build output and caches out of the commit, even when .gitignore un-ignores them", async () => {
-    const { ai, cwd, git } = await setup();
+    const { cwd, git, snapshot } = await setup();
     fs.appendFileSync(path.join(cwd, ".gitignore"), "\n!dist/\n!.bukit/\n!.CACHE/\n");
     for (const d of ["dist", ".bukit", ".cache", ".bukitjalil-build", "node_modules"]) {
       fs.mkdirSync(path.join(cwd, d), { recursive: true });
       fs.writeFileSync(path.join(cwd, d, "f"), "x");
     }
-    const { commit, removed } = await ai.snapshot(cwd);
+    const { commit, removed } = await snapshot();
     expect(removed).toEqual([]);
     expect(git("show", "--name-only", "--format=", commit)).toBe(".gitignore");
     for (const d of ["dist", ".bukit", ".cache"]) expect(fs.existsSync(path.join(cwd, d, "f"))).toBe(true);
@@ -244,30 +249,6 @@ describe("bukit_check and bukit_build", () => {
     expect(bukitCalls()).toEqual([]);
   });
 
-  it("takes the site lock and gives up at once when the site is busy", async () => {
-    const { tools, ctx, site } = await setup();
-    const release = ctx.locks.acquire(site.id, "build");
-    try {
-      await expect(call(tools.bukit_check)).rejects.toMatchObject({
-        code: "busy",
-        message: expect.stringContaining("build"),
-      });
-    } finally {
-      release();
-    }
-    // Held during the call: nothing else can take the site meanwhile.
-    let busyDuring: unknown = null;
-    const running = call(tools.bukit_build);
-    try {
-      ctx.locks.acquire(site.id, "other")();
-    } catch (err) {
-      busyDuring = err;
-    }
-    await running;
-    expect(busyDuring).toMatchObject({ code: "site.busy", params: { operation: "ai_build" } });
-    expect(() => ctx.locks.acquire(site.id, "after")()).not.toThrow();
-  });
-
   it("tells the AI which ignored files it deleted", async () => {
     const { tools, cwd } = await setup();
     fs.appendFileSync(path.join(cwd, ".gitignore"), "\ndrafts/\n");
@@ -278,19 +259,28 @@ describe("bukit_check and bukit_build", () => {
     expect(r.value).not.toHaveProperty("commit");
   });
 
-  it("stops Bukit when the tool call is aborted, and frees the site", async () => {
-    const { tools, cwd, ctx, site } = await setup();
+  it("stops Bukit when the tool call is aborted; settled() waits until it has", async () => {
+    const { tools, cwd, ai, site } = await setup();
     fs.writeFileSync(path.join(cwd, "fake-build"), "slow");
     const abort = new AbortController();
     const running = tools.bukit_build.execute("id", {} as never, abort.signal, undefined, undefined as never);
     await waitFor(() => bukitCalls().some((l) => l.includes(" build ")));
+    // What a run waits for before it lets go of the site lock.
+    let settled = false;
+    const waiting = ai.settled(site.id).then(() => {
+      settled = true;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(settled).toBe(false);
     abort.abort();
     const result = await running;
     expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({
       succeeded: false,
       result: "The build was stopped.",
     });
-    expect(() => ctx.locks.acquire(site.id, "after")()).not.toThrow();
+    await waiting;
+    expect(settled).toBe(true);
+    await expect(ai.settled(site.id)).resolves.toBeUndefined();
   });
 
   it("lets the site be removed during an AI build: removal stops the run first", async () => {

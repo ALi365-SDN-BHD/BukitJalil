@@ -4,9 +4,11 @@ import type { DatabaseSync } from "node:sqlite";
 import type { SessionInfo, SessionMessage, SessionStatus, ThinkingLevel } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ChangeService } from "../changes/service.ts";
 import type { Logger } from "../log.ts";
 import type { AppPaths } from "../paths.ts";
 import { SiteError } from "../sites/location.ts";
+import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
 import type { AiBukit } from "./ai-bukit.ts";
 import { PathGate } from "./gate.ts";
@@ -25,7 +27,7 @@ export type { SessionStatus };
 export type AgentEvent = { siteId: string; sessionId: string } & (
   | { type: "pi"; event: AgentSessionEvent }
   | { type: "status"; status: SessionStatus; error?: string }
-  /** summarize_changes: the AI's description of its changes, for the review (kept with the change set in M4). */
+  /** summarize_changes: the AI's description of its changes, for the review (also kept with the change set). */
   | { type: "summary"; summary: string }
   /** The session was created, renamed or forked from another. */
   | { type: "session"; session: SessionInfo }
@@ -36,6 +38,10 @@ export interface AgentServiceOptions {
   db: DatabaseSync;
   paths: AppPaths;
   sites: SiteService;
+  /** The site lock: a run holds it from start to end; while another operation holds it, runs wait. */
+  locks: SiteLocks;
+  /** Change sets: opened before a run, snapshotted after it (plan 7.2). */
+  changes: ChangeService;
   logger: Logger;
   /**
    * The model to use, or undefined when none is chosen; read before every run, so a change in the settings
@@ -75,6 +81,8 @@ interface Run {
   cancelled: boolean;
   /** Messages that arrived while the session was not streaming (opening, or between prompts). */
   extra: string[];
+  /** The AI checkout of the run's change set, once the run has one; snapshotted when the run ends. */
+  cwd: string | null;
   /** Settles when the run has ended and touched nothing more. */
   done: Promise<void>;
 }
@@ -90,6 +98,8 @@ export class AgentService {
   private readonly pending = new Map<string, Pending[]>();
   /** siteId -> the run there. */
   private readonly running = new Map<string, Run>();
+  /** Sites whose queued messages wait for another operation to free the site lock. */
+  private readonly waiting = new Set<string>();
   private readonly listeners = new Set<(event: AgentEvent) => void>();
   private runtime: Promise<ModelRuntime> | null = null;
   private closing = false;
@@ -266,7 +276,7 @@ export class AgentService {
     const waiting = queue.find((p) => p.sessionId === id);
     if (waiting) waiting.texts.push(text);
     else queue.push({ sessionId: id, texts: [text] });
-    if (this.running.has(session.siteId))
+    if (this.running.has(session.siteId) || this.opts.locks.holder(session.siteId) !== null)
       this.emit({ siteId: session.siteId, sessionId: id, type: "status", status: "queued" });
     this.pump(session.siteId);
   }
@@ -375,20 +385,65 @@ export class AgentService {
     if (level && session.thinkingLevel !== level) session.setThinkingLevel(level);
   }
 
-  /** Start the next waiting session of a site, if none runs there. */
+  /**
+   * Start the site's next queued run. The run holds the site lock from start to end (plan 7.2); while a
+   * build or another operation holds it, the messages stay queued and the run starts once it is free.
+   */
   private pump(siteId: string): void {
     if (this.running.has(siteId) || this.closing) return;
+    if (!this.pending.get(siteId)?.length) return;
+    let release: () => void;
+    try {
+      release = this.opts.locks.acquire(siteId, "session");
+    } catch (err) {
+      if (!(err instanceof SiteError) || err.code !== "site.busy") throw err;
+      if (!this.waiting.has(siteId)) {
+        this.waiting.add(siteId);
+        void this.opts.locks.waitFree(siteId).then(() => {
+          this.waiting.delete(siteId);
+          this.pump(siteId);
+        });
+      }
+      return;
+    }
     const next = this.pending.get(siteId)?.shift();
-    if (!next) return;
-    const run: Run = { sessionId: next.sessionId, cancelled: false, extra: [], done: Promise.resolve() };
+    if (!next) {
+      release();
+      return;
+    }
+    const run: Run = { sessionId: next.sessionId, cancelled: false, extra: [], cwd: null, done: Promise.resolve() };
     this.running.set(siteId, run);
     const base = { siteId, sessionId: next.sessionId, type: "status" } as const;
     this.emit({ ...base, status: "running" });
-    run.done = this.execute(run, next.texts.join("\n\n")).then((error) => {
-      this.running.delete(siteId);
-      this.emit(error ? { ...base, status: "idle", error } : { ...base, status: "idle" });
-      this.pump(siteId);
-    });
+    run.done = this.execute(run, next.texts.join("\n\n"))
+      .then(async (error) => {
+        // An aborted check or build may still be stopping Bukit: the lock stays until it has.
+        await this.opts.bukit.settled(siteId);
+        return (await this.snapshotAfter(siteId, run)) ?? error;
+      })
+      .then((error) => {
+        this.running.delete(siteId);
+        release();
+        this.emit(error ? { ...base, status: "idle", error } : { ...base, status: "idle" });
+        // Whether the change set can be reviewed depends on the run: say so even when no file changed.
+        if (run.cwd) this.opts.changes.notify(siteId);
+        this.pump(siteId);
+      });
+  }
+
+  /**
+   * After a run, still holding the lock: snapshot what the AI left in the checkout into the change set, even
+   * when the run failed or was stopped. Resolves to an error code when that fails, never rejects.
+   */
+  private async snapshotAfter(siteId: string, run: Run): Promise<string | undefined> {
+    if (!run.cwd || !this.opts.changes.store.open(siteId)) return undefined;
+    try {
+      await this.opts.changes.snapshot(siteId, run.cwd);
+      return undefined;
+    } catch (err) {
+      this.opts.logger.log("error", "agent.snapshot_failed", { sessionId: run.sessionId, error: String(err) });
+      return err instanceof SiteError ? err.code : "server.internal";
+    }
   }
 
   /** Run a session's prompts; resolves to an error code, never rejects. */
@@ -398,6 +453,10 @@ export class AgentService {
     try {
       // A session opened now already has the current model; one kept open may have an older one.
       const wasOpen = this.live.has(id);
+      // Every run joins the site's open change set, or starts one (plan 7.2), before the AI touches files.
+      const record = this.store.get(id);
+      if (!record || run.cancelled || this.closing) return undefined;
+      run.cwd = (await this.opts.changes.begin(record.siteId, id)).cwd;
       live = await this.open(run);
       if (!live) return undefined;
       if (live.idleTimer) clearTimeout(live.idleTimer);
@@ -439,7 +498,8 @@ export class AgentService {
     if (existing) return existing;
     const record = this.get(id);
     const site = this.opts.sites.get(record.siteId);
-    const cwd = await this.opts.sites.aiCheckout(site.id);
+    const cwd = run.cwd;
+    if (!cwd) throw new Error("open() before the run has a change set");
     const pi = await this.pi();
     const [modelRuntime, model] = await Promise.all([this.modelRuntime(), this.model()]);
     if (gone()) return null;
@@ -474,7 +534,10 @@ export class AgentService {
           cwd,
           gate,
           bukit: this.opts.bukit,
-          onSummary: (summary) => this.emit({ siteId: site.id, sessionId: id, type: "summary", summary }),
+          onSummary: (summary) => {
+            this.opts.changes.setSummary(site.id, summary);
+            this.emit({ siteId: site.id, sessionId: id, type: "summary", summary });
+          },
         }),
       ],
       resourceLoader,

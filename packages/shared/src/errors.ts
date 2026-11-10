@@ -47,6 +47,7 @@ export const errorCodes = [
   "preview.not_built",
   "preview.no_port",
   "change.not_found",
+  "change.file_not_found",
   "panel.not_found",
   "panel.not_directory",
   "panel.not_file",

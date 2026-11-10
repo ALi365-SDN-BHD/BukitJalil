@@ -10,6 +10,7 @@ import type { EventStreamOptions } from "../src/api/events.ts";
 import { createAdminApp } from "../src/app.ts";
 import { BuildService } from "../src/builds/service.ts";
 import { BukitService } from "../src/bukit/locate.ts";
+import { ChangeService } from "../src/changes/service.ts";
 import { connectEvents } from "../src/events/bridge.ts";
 import { EventHub } from "../src/events/hub.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
@@ -88,14 +89,17 @@ export function makeApp(
   });
   const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);
   const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
+  const changes = new ChangeService({ db, git, sites, logger });
   const agent = new AgentService({
     db,
     paths,
     sites,
+    locks,
+    changes,
     logger,
     resolveModel: () => undefined,
     rgReady: () => false,
-    bukit: new AiBukit({ git, paths, sites, bukit, locks }),
+    bukit: new AiBukit({ git, paths, sites, bukit, changes }),
     skillsDir: SKILLS_DIR,
     ...overrides.agent,
   });
@@ -124,7 +128,7 @@ export function makeApp(
     version: "test",
     logger,
   });
-  return { app, db, loginToken, sites, paths, git, builds, previews, locks, rg, bukit, agent, events };
+  return { app, db, loginToken, sites, paths, git, builds, previews, locks, changes, rg, bukit, agent, events };
 }
 
 /** Build a request as the browser would send it to the admin port. */

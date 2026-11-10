@@ -58,11 +58,13 @@ function service(opts: { model?: boolean; idleMs?: number; rgReady?: () => boole
     db: ctx.db,
     paths: ctx.paths,
     sites: ctx.sites,
+    locks: ctx.locks,
+    changes: ctx.changes,
     logger: silentLogger,
     resolveModel: () => (opts.model === false ? undefined : (faux.getModel() as Model<Api>)),
     setupRuntime: (runtime) => runtime.registerNativeProvider(faux.provider),
     rgReady: opts.rgReady ?? (() => false),
-    bukit: new AiBukit({ git: ctx.git, paths: ctx.paths, sites: ctx.sites, bukit: ctx.bukit, locks: ctx.locks }),
+    bukit: new AiBukit({ git: ctx.git, paths: ctx.paths, sites: ctx.sites, bukit: ctx.bukit, changes: ctx.changes }),
     skillsDir: SKILLS,
     idleMs: opts.idleMs,
   });
@@ -485,19 +487,37 @@ describe("AgentService", () => {
     await expect(agent.send(session.id, "Hi")).rejects.toMatchObject({ code: "site.read_only" });
   });
 
-  it("reports site.busy when the AI checkout cannot take the site lock", async () => {
+  it("waits while another operation holds the site lock, and holds it for the whole run", async () => {
     const s = await site();
-    const { agent, settled } = service();
+    const { agent, settled, statuses } = service();
     const session = agent.create(s.id);
     const release = ctx.locks.acquire(s.id, "build");
-    try {
-      const done = settled(session.id);
-      await agent.send(session.id, "Hi");
-      expect(await done).toMatchObject({ status: "idle", error: "site.busy" });
-      expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai"))).toBe(false);
-    } finally {
-      release();
-    }
+    faux.setResponses([pi.ai.fauxAssistantMessage("done")]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Hi");
+    await new Promise((r) => setTimeout(r, 100));
+    // Queued, not failed: nothing started, the checkout was not touched.
+    expect(agent.status(session.id)).toBe("queued");
+    expect(statuses(session.id)).toEqual(["queued"]);
+    expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai"))).toBe(false);
+
+    // Held from start to end: other operations get site.busy meanwhile.
+    let during: unknown = null;
+    const stop = agent.subscribe((e) => {
+      if (e.sessionId === session.id && e.type === "status" && e.status === "running") {
+        try {
+          ctx.locks.acquire(s.id, "other")();
+        } catch (err) {
+          during = err;
+        }
+      }
+    });
+    release();
+    expect(await done).toEqual({ siteId: s.id, sessionId: session.id, type: "status", status: "idle" });
+    stop();
+    expect(during).toMatchObject({ code: "site.busy", params: { operation: "session" } });
+    expect(ctx.locks.holder(s.id)).toBeNull();
+    expect(statuses(session.id)).toEqual(["queued", "running", "idle"]);
   });
 
   it("lists, renames and deletes sessions", async () => {

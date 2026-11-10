@@ -393,6 +393,7 @@ const zhCN = {
     "preview.not_built": "还没有成功的构建可以预览",
     "preview.no_port": "找不到可用的预览端口",
     "change.not_found": "当前没有可显示的改动",
+    "change.file_not_found": "这个文件不在本次改动里",
     "panel.not_found": "这个版本里没有这个文件或文件夹",
     "panel.not_directory": "这不是一个文件夹",
     "panel.not_file": "这不是一个文件",

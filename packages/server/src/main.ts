@@ -13,6 +13,7 @@ import { AgentService } from "./agent/service.ts";
 import { createAdminApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
 import { BukitService } from "./bukit/locate.ts";
+import { ChangeService } from "./changes/service.ts";
 import { connectEvents } from "./events/bridge.ts";
 import { EventHub } from "./events/hub.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
@@ -111,10 +112,13 @@ const skillsDir = path.join(repoRoot, "skills");
 if (!fs.existsSync(path.join(skillsDir, "bukitjalil", "site-editing", "SKILL.md"))) {
   fail(`BukitJalil's AI skills are missing: ${skillsDir}`);
 }
+const changes = new ChangeService({ db, git, sites, logger });
 const agent = new AgentService({
   db,
   paths,
   sites,
+  locks,
+  changes,
   logger,
   // The model chosen in the settings (plan 6.5), looked up again before every run.
   resolveModel: settingsModel(settingsStore),
@@ -122,7 +126,7 @@ const agent = new AgentService({
   // A scripted model for end-to-end tests (agent/fake-model.ts); never set in normal use.
   setupRuntime: process.env.BUKITJALIL_FAKE_MODEL === "1" ? registerFakeModel : undefined,
   rgReady: () => rg.ready(),
-  bukit: new AiBukit({ git, paths, sites, bukit, locks }),
+  bukit: new AiBukit({ git, paths, sites, bukit, changes }),
   skillsDir,
 });
 const events = new EventHub();

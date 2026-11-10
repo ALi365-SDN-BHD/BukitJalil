@@ -1,5 +1,6 @@
 export * from "./builds.ts";
 export * from "./bukit.ts";
+export * from "./changes.ts";
 export * from "./constants.ts";
 export * from "./errors.ts";
 export * from "./health.ts";

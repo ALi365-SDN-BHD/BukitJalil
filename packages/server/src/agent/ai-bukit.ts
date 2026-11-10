@@ -5,43 +5,27 @@ import { BUILD_OUTPUT_PARENT, buildArgs, buildReport } from "../builds/service.t
 import { type GuardReason, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, checkPassed, usableRunner } from "../bukit/runner.ts";
+import type { ChangeService } from "../changes/service.ts";
+import type { Snapshot } from "../changes/snapshot.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
-import { BUILD_DIRS } from "../sites/exclude.ts";
-import { SiteError } from "../sites/location.ts";
-import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
-import { segmentKey } from "./gate.ts";
 
 /**
  * Bukit for the AI (plan 6.3, 8.5): `bukit_check` and `bukit_build` run in the site's ai/ checkout. Each
- * call holds the site lock, snapshots the checkout into a commit (`add -A`, `write-tree`, `commit-tree`,
- * HEAD moves to it), passes the pre-build guard on that commit and only then starts Bukit, with no secrets.
- * A multilingual build needs the clean checkout the snapshot leaves (plan 7.2).
+ * call snapshots the checkout into a commit (through the change set, plan 7.2), passes the pre-build guard
+ * on that commit and only then starts Bukit, with no secrets. A multilingual build needs the clean
+ * checkout the snapshot leaves (plan 7.2). The tools only run inside an AI run, which holds the site lock
+ * until `settled` says they have all ended.
  */
 
-/** Committer of snapshot commits; they stay inside BukitJalil (the reviewed commit gets the user's identity). */
-const SNAPSHOT_IDENTITY = { "user.name": "BukitJalil", "user.email": "ai@bukitjalil.invalid" };
-const SNAPSHOT_MESSAGE = "BukitJalil AI snapshot";
-/** Ignored files may stay here: build output and caches the AI cannot write (plan 6.3). */
-const IGNORED_OK = new Set<string>([...BUILD_DIRS, "node_modules"]);
-
-/**
- * Pathspecs that keep a top-level name out of `git add`, even when .gitignore un-ignores it. The first
- * character is a bracket class: git refuses a pathspec that literally names an ignored path, and a
- * glob without a leading `**` only matches at the top level.
- */
-const excludeTopLevel = (name: string) => {
-  const glob = `[${name[0]}]${name.slice(1)}`;
-  return [`:(exclude,icase,glob)${glob}`, `:(exclude,icase,glob)${glob}/**`];
-};
 const MAX_STEP_OUTPUT = 6000;
 const MAX_SCHEMA_BYTES = 4 * 1024 * 1024;
 
 /** A refusal before Bukit runs, with what the AI should do about it. */
 export class AiBukitError extends Error {
   constructor(
-    readonly code: "busy" | "read_only" | "bukit_missing" | "guard" | "notion",
+    readonly code: "read_only" | "bukit_missing" | "guard" | "notion",
     message: string,
     readonly reasons: GuardReason[] = [],
   ) {
@@ -58,11 +42,7 @@ export interface CheckStep {
   output: string;
 }
 
-export interface Snapshot {
-  commit: string;
-  /** Ignored files deleted before the commit (relative paths; a directory ends in "/"). */
-  removed: string[];
-}
+export type { Snapshot };
 
 export interface CheckResult {
   passed: boolean;
@@ -86,18 +66,33 @@ export interface AiBukitOptions {
   paths: AppPaths;
   sites: SiteService;
   bukit: BukitService;
-  locks: SiteLocks;
+  changes: ChangeService;
 }
 
 export class AiBukit {
   /** Keyed by path and version: Bukit may be replaced in place at a custom path. */
   private schema: { key: string; value: Promise<unknown> } | null = null;
+  /** siteId -> checks and builds still running there (the site lock must outlive them). */
+  private readonly inflight = new Map<string, Set<Promise<unknown>>>();
 
   constructor(private readonly opts: AiBukitOptions) {}
 
+  /**
+   * Resolves once every check and build of the site has ended, the Bukit process included. A run waits for
+   * this before it lets go of the site lock: stopping a run aborts its tools, and Pi may finish the prompt
+   * before an aborted Bukit has exited (it gets SIGINT, then is killed after a grace period).
+   */
+  async settled(siteId: string): Promise<void> {
+    for (;;) {
+      const calls = this.inflight.get(siteId);
+      if (!calls || calls.size === 0) return;
+      await Promise.allSettled([...calls]);
+    }
+  }
+
   /** `config check`, then `doctor` (it finds content and template errors check does not; plan 8.2). */
   check(siteId: string, cwd: string, signal?: AbortSignal): Promise<CheckResult> {
-    return this.guarded(siteId, cwd, "ai_check", async (runner, { commit, removed }) => {
+    return this.guarded(siteId, cwd, async (runner, { commit, removed }) => {
       const steps: CheckStep[] = [];
       for (const [command, args] of [
         ["config check", ["config", "check", "--config", "site.yaml"]],
@@ -119,7 +114,7 @@ export class AiBukit {
 
   /** Build into a fresh .bukitjalil-build/ai-<id>/ and report; the output is deleted (previews come in M4). */
   build(siteId: string, cwd: string, signal?: AbortSignal): Promise<BuildResult> {
-    return this.guarded(siteId, cwd, "ai_build", async (runner, { commit, removed }) => {
+    return this.guarded(siteId, cwd, async (runner, { commit, removed }) => {
       const name = `ai-${crypto.randomBytes(6).toString("hex")}`;
       const out = path.join(cwd, BUILD_OUTPUT_PARENT, name);
       try {
@@ -156,77 +151,51 @@ export class AiBukit {
     return this.schema.value;
   }
 
-  /**
-   * Commit the checkout as it is now (plan 7.2). Files ignored by .gitignore cannot be committed, so the
-   * guard would never see them while Bukit reads them: they are deleted first (outside the build
-   * directories) and listed in `removed`. They could never reach the site, and the AI has no delete tool.
-   * Build directories stay out of the commit even when a .gitignore rule un-ignores them.
-   */
-  async snapshot(cwd: string): Promise<Snapshot> {
-    const { git } = this.opts;
-    const removed = (
-      await git.text(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd })
-    )
-      .split("\0")
-      .filter((p) => p !== "" && !IGNORED_OK.has(segmentKey(p.split("/")[0] ?? "")));
-    for (const rel of removed) {
-      const abs = path.resolve(cwd, rel);
-      if (!abs.startsWith(cwd + path.sep)) throw new Error(`git listed a path outside the checkout: ${rel}`);
-      fs.rmSync(abs, { recursive: true, force: true });
-    }
-    await git.run(["add", "-A", "--", ".", ...[...IGNORED_OK].flatMap(excludeTopLevel)], { cwd });
-    const tree = (await git.text(["write-tree"], { cwd })).trim();
-    const head = (await git.text(["rev-parse", "--verify", "HEAD"], { cwd })).trim();
-    const headTree = (await git.text(["rev-parse", "--verify", "HEAD^{tree}"], { cwd })).trim();
-    if (tree === headTree) return { commit: head, removed };
-    const commit = (
-      await git.text(["commit-tree", tree, "-p", head, "-m", SNAPSHOT_MESSAGE], { cwd, config: SNAPSHOT_IDENTITY })
-    ).trim();
-    await git.run(["update-ref", "--no-deref", "HEAD", commit, head], { cwd });
-    return { commit, removed };
-  }
-
   // --- internals ---
 
-  /** Lock, snapshot and guard, then run `fn` with a runner; any refusal is an AiBukitError. */
-  private async guarded<T>(
+  /** Snapshot and guard, then run `fn` with a runner; any refusal is an AiBukitError. */
+  private guarded<T>(
     siteId: string,
     cwd: string,
-    operation: string,
     fn: (runner: BukitRunner, snapshot: Snapshot) => Promise<T>,
   ): Promise<T> {
-    let release: () => void;
-    try {
-      release = this.opts.locks.acquire(siteId, operation);
-    } catch (err) {
-      if (!(err instanceof SiteError)) throw err;
-      const busy = err.params.operation ?? "another operation";
-      throw new AiBukitError("busy", `The site is busy (${busy}); try again in a moment.`);
+    const call = this.guardedCall(siteId, cwd, fn);
+    const calls = this.inflight.get(siteId) ?? new Set();
+    this.inflight.set(siteId, calls);
+    calls.add(call);
+    const done = () => {
+      calls.delete(call);
+      if (calls.size === 0 && this.inflight.get(siteId) === calls) this.inflight.delete(siteId);
+    };
+    call.then(done, done);
+    return call;
+  }
+
+  private async guardedCall<T>(
+    siteId: string,
+    cwd: string,
+    fn: (runner: BukitRunner, snapshot: Snapshot) => Promise<T>,
+  ): Promise<T> {
+    const site = this.opts.sites.get(siteId);
+    if (site.readOnly) throw new AiBukitError("read_only", "The site is read-only, so Bukit cannot run on it.");
+    const runner = await this.runner();
+    const snapshot = await this.opts.changes.snapshot(siteId, cwd);
+    const guard = await guardCommit(this.opts.git, site.path, snapshot.commit);
+    if (!guard.ok) {
+      throw new AiBukitError(
+        "guard",
+        `The pre-build safety check refused the site: ${guard.reasons.map(describeReason).join("; ")}`,
+        guard.reasons,
+      );
     }
-    try {
-      const site = this.opts.sites.get(siteId);
-      if (site.readOnly) throw new AiBukitError("read_only", "The site is read-only, so Bukit cannot run on it.");
-      const runner = await this.runner();
-      const snapshot = await this.snapshot(cwd);
-      const guard = await guardCommit(this.opts.git, site.path, snapshot.commit);
-      if (!guard.ok) {
-        throw new AiBukitError(
-          "guard",
-          `The pre-build safety check refused the site: ${guard.reasons.map(describeReason).join("; ")}`,
-          guard.reasons,
-        );
-      }
-      // Unreviewed content never gets secrets, and Bukit cannot check a Notion source without one (plan 8.5).
-      if (guard.usesNotion) {
-        throw new AiBukitError(
-          "notion",
-          "The site uses a Notion content source, which needs a token that is never given to unreviewed changes. Ask the user to build it from the site page.",
-        );
-      }
-      return await fn(runner, snapshot);
-    } finally {
-      release();
+    // Unreviewed content never gets secrets, and Bukit cannot check a Notion source without one (plan 8.5).
+    if (guard.usesNotion) {
+      throw new AiBukitError(
+        "notion",
+        "The site uses a Notion content source, which needs a token that is never given to unreviewed changes. Ask the user to build it from the site page.",
+      );
     }
+    return fn(runner, snapshot);
   }
 
   private async runner(): Promise<BukitRunner> {

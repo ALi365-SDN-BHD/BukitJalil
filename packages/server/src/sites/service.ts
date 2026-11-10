@@ -325,21 +325,16 @@ export class SiteService {
 
   /**
    * worktrees/<siteId>/ai, the AI's working copy (plan 6.1). Its path never changes, so a session can keep
-   * using it. Made at the head of the default branch when missing; an existing copy is left as it is
-   * (resetting it belongs to change sets, plan 7.2). Read-only sites get none. Making it runs git in the
-   * site repository, so it takes the site lock like builds and removal do (site.busy while they run).
+   * using it. With `reset`, it is checked out at `commit` and cleaned (a new change set, plan 7.2);
+   * without, an existing copy is left as it is and only a missing or broken one is made at `commit`.
+   * Read-only sites get none. The caller holds the site lock (it runs git in the site repository).
    */
-  async aiCheckout(id: string): Promise<string> {
+  async aiWorktree(id: string, commit: string, opts: { reset: boolean }): Promise<string> {
     const site = this.get(id);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
     const dir = path.join(this.opts.paths.worktrees, id, "ai");
-    if (fs.existsSync(dir) && (await this.isCheckoutOf(dir, site.path))) return dir;
-    return this.opts.locks.run(id, "ai_checkout", async () => {
-      // The site may have been removed or become read-only while the lock was free.
-      const current = this.get(id);
-      if (current.readOnly) throw new SiteError("site.read_only", 409);
-      return this.checkout(id, current.path, "ai", await this.headOf(current));
-    });
+    if (!opts.reset && fs.existsSync(dir) && (await this.isCheckoutOf(dir, site.path))) return dir;
+    return this.checkout(id, site.path, "ai", commit);
   }
 
   /** Commit at the head of the site's default branch, with API errors for the ways that fails. */

@@ -400,6 +400,7 @@ const en: Messages = {
     "preview.not_built": "There is no successful build to preview yet",
     "preview.no_port": "No free preview port was found",
     "change.not_found": "There is no open change to show",
+    "change.file_not_found": "That file is not part of the change",
     "panel.not_found": "This file or folder does not exist in this version",
     "panel.not_directory": "This is not a folder",
     "panel.not_file": "This is not a file",
