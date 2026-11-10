@@ -5,33 +5,13 @@ import {
   InspectImportRequest,
   SitePatch,
 } from "@bukitjalil/shared";
-import type { Context, Hono } from "hono";
-import type { z } from "zod";
+import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
 import type { GitIdentity } from "../git/identity.ts";
 import { apiError } from "../security/guard.ts";
-import { listDirs, SiteError } from "../sites/location.ts";
+import { listDirs } from "../sites/location.ts";
 import type { SiteService } from "../sites/service.ts";
-
-/** Parse a JSON body with a zod schema; null (and a 400 already chosen by the caller) when invalid. */
-async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.infer<T> | null> {
-  try {
-    const parsed = schema.safeParse(await c.req.json());
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Map an expected failure to its API error; anything else goes to the generic 500 handler. */
-async function handle(c: Context, fn: () => Promise<Response> | Response): Promise<Response> {
-  try {
-    return await fn();
-  } catch (err) {
-    if (err instanceof SiteError) return apiError(c, err.status, err.code, err.params);
-    throw err;
-  }
-}
+import { body, handle } from "./common.ts";
 
 /** Sites, directory picker and identity defaults (plan 9.1). */
 export function siteRoutes(

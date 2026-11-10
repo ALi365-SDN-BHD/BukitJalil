@@ -619,6 +619,17 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | GET | `/api/sites/:siteId/config` | `site.yaml` 结构化视图 + 原文 |
 | GET | `/api/sites/:siteId/theme` | 主题信息 |
 | GET | `/api/sites/:siteId/data` | 内容源与数据 |
+
+> M2 第 5 层实现说明（面板接口）：
+> - `ref` 现在只支持 `main`（默认分支的最新提交）；`ref=change` 返回 404 `change.not_found`，改动集快照随 M4 接入。`path` 必须是仓库内的相对路径，不能有空段、`.`、`..` 或 NUL，否则返回 400 `request.invalid_query`。
+> - 文件接口用 `as` 参数区分三种返回：
+>   - `json`（默认）：返回文件说明，`kind` 为 `text`、`image`、`binary`、`too_large`、`symlink` 或 `submodule`。内联上限 1 MB。超过时只读文件头几个字节：是图片（不超过 16 MB）时 `kind` 为 `image`，否则为 `too_large`。
+>   - `raw`：只返回按文件头字节识别出的 PNG、JPEG、GIF、WebP，上限 16 MB，响应头带 `nosniff`，CSP 末尾追加 `sandbox`。其他类型返回 400 `panel.not_file`。
+>   - `download`：以 `application/octet-stream` 和 `Content-Disposition: attachment` 下载，上限 64 MB。
+> - 配置、主题、数据面板都从提交里的 `site.yaml` 读取，YAML 的重复键和别名炸弹都按错误处理。
+>   - 主题目录取 `themes/<theme.name>`，`theme.layouts`、`theme.assets`、`theme.static` 按相对主题目录的路径列文件，每类最多 2000 个。
+>   - 数据面板按 `markdown.dir` 列 `.md` 文件，统计 front matter 字段，`mode: data` 源再给出每个文件的 front matter，最多 500 条，超出时 `itemsTruncated` 为 true。每次请求最多读 2000 个文件、共 32 MB，单个文件上限 256 KB，超出时 `truncated` 为 true。目录写成 `content/posts/`、`./data` 或 `.` 都按同一个目录处理。`includePaths` 和 `includeGlobs` 暂未处理。
+> - 仓库配置不安全时，返回 409 `site.repo_unsafe`；网站文件夹已不是 git 仓库时，返回 409 `site.not_repo`；默认分支不存在时，返回 409 `site.branch_missing`。`panel.too_large` 的 `max` 是实际碰到的上限。
 | GET | `/api/sites/:siteId/sessions` | 会话列表 |
 | POST | `/api/sites/:siteId/sessions` | 新建会话 |
 | GET | `/api/sessions/:sessionId` | 会话消息（从 Pi 会话文件还原） |
@@ -854,7 +865,7 @@ packages/web/src/
 | 目录选择器（`/api/fs/dirs` + 界面组件，见 5.2）| 新建、导入时选择位置 |
 | 新建网站、导入网站（含不满足安全规则时的"只读"状态，见 5.1；先检查 git 对象再创建检出）、`git/run.ts`（`spawn` 流式读取 + 加固参数 + 参数校验 + 机器可读输出解析）与配置白名单检查（7.3）、`readGlobalIdentity()`、网站列表、归档、移除（删除引用和排除规则段落）、网站操作锁（同一网站已有操作时返回 409 `site.busy`）。服务端已实现（第 4 层），界面在第 7 层；移除时仓库配置不安全就跳过删除引用和 `worktree prune`，在返回的 `leftovers` 里列出 | 侧栏网站列表 |
 | 文件树（按目录懒加载，读 git 对象）和文件预览（Shiki、Markdown、位图；SVG / HTML / PDF 通过预览端口或下载，见 9.1） | 文件面板 |
-| 配置面板（结构化 + 原文） | 配置面板 |
+| 配置面板（结构化 + 原文）。目录树、文件、配置、主题、数据五个接口已在第 5 层实现（见 9.1 的说明），界面在第 7 层 | 配置面板 |
 | 主题面板、数据面板（Markdown 集合、data 源、Notion 源只显示配置） | 主题、数据面板 |
 | 构建（main）与预览托管（独立预览端口 + CSP sandbox） | 预览面板 |
 

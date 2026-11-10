@@ -4,11 +4,13 @@ import type { DatabaseSync } from "node:sqlite";
 import { type BukitResponse, type HealthResponse, SettingsPatch, sessionCookieName } from "@bukitjalil/shared";
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
+import { panelRoutes } from "./api/panels.ts";
 import { siteRoutes } from "./api/sites.ts";
 import type { BukitService } from "./bukit/locate.ts";
 import type { GitIdentity } from "./git/identity.ts";
 import type { GitHealth } from "./git/version.ts";
 import type { Logger } from "./log.ts";
+import type { PanelService } from "./panels/service.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
 import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./security/headers.ts";
 import type { LoginToken } from "./security/token.ts";
@@ -30,6 +32,7 @@ export interface AdminAppOptions {
   checkGit: () => Promise<GitHealth>;
   bukit: BukitService;
   sites: SiteService;
+  panels: PanelService;
   readIdentity: () => Promise<GitIdentity>;
   /** Overrides the home directory used by the directory picker (tests). */
   userHome?: string;
@@ -37,7 +40,10 @@ export interface AdminAppOptions {
   logger: Logger;
 }
 
-export type AppEnv = { Variables: { cspNonce: string | undefined } };
+export type AppEnv = {
+  /** cspSandbox: a route serving site content (images, downloads) adds `sandbox` to the CSP (plan 9.1). */
+  Variables: { cspNonce: string | undefined; cspSandbox: boolean | undefined };
+};
 
 export function createAdminApp(opts: AdminAppOptions) {
   const settings = new SettingsStore(opts.db);
@@ -47,7 +53,8 @@ export function createAdminApp(opts: AdminAppOptions) {
   app.use("*", async (c, next) => {
     await next();
     for (const [k, v] of Object.entries(adminHeaders)) c.header(k, v);
-    c.header("Content-Security-Policy", adminCsp(c.get("cspNonce") ?? null));
+    const sandbox = c.get("cspSandbox") === true;
+    c.header("Content-Security-Policy", `${adminCsp(c.get("cspNonce") ?? null)}${sandbox ? "; sandbox" : ""}`);
   });
   app.use("*", hostCheck([`127.0.0.1:${opts.port}`, `localhost:${opts.port}`]));
 
@@ -128,6 +135,7 @@ export function createAdminApp(opts: AdminAppOptions) {
   });
 
   siteRoutes(api, { sites: opts.sites, readIdentity: opts.readIdentity, userHome: opts.userHome });
+  panelRoutes(api, opts.panels);
 
   api.all("*", (c) => apiError(c, 404, "request.not_found"));
   app.route("/api", api);

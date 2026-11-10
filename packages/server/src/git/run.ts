@@ -42,6 +42,8 @@ export interface RunOptions {
   input?: string | Buffer;
   /** Collected stdout limit; exceeding it is an error (default 16 MiB). */
   maxOutputBytes?: number;
+  /** Keep only the first N bytes of stdout and drop the rest without error (reading a file's head). */
+  headBytes?: number;
   timeoutMs?: number;
   /** Exit codes treated as success besides 0 (e.g. 1 for `diff --quiet`). */
   okCodes?: number[];
@@ -59,7 +61,7 @@ export class GitError extends Error {
   constructor(
     readonly kind: GitErrorKind,
     message: string,
-    readonly details: { code?: number; stderr?: string; reasons?: string[] } = {},
+    readonly details: { code?: number; stderr?: string; reasons?: string[]; max?: number } = {},
   ) {
     super(message);
     this.name = "GitError";
@@ -201,9 +203,16 @@ export class GitRunner {
       );
 
       child.stdout.on("data", (d: Buffer) => {
+        if (opts.headBytes !== undefined) {
+          if (size < opts.headBytes) chunks.push(d.subarray(0, opts.headBytes - size));
+          size += d.length;
+          return;
+        }
         size += d.length;
         if (size > maxOutput) {
-          fail(new GitError("output_too_large", `git ${args[0]} output exceeds ${maxOutput} bytes`));
+          fail(
+            new GitError("output_too_large", `git ${args[0]} output exceeds ${maxOutput} bytes`, { max: maxOutput }),
+          );
           return;
         }
         chunks.push(d);

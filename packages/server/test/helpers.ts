@@ -6,6 +6,7 @@ import { BukitService } from "../src/bukit/locate.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import type { GitHealth } from "../src/git/version.ts";
 import { type Logger, silentLogger } from "../src/log.ts";
+import { PanelService } from "../src/panels/service.ts";
 import { ensureAppHome } from "../src/paths.ts";
 import { LoginToken } from "../src/security/token.ts";
 import { SiteLocks } from "../src/sites/locks.ts";
@@ -70,6 +71,7 @@ export function makeApp(
     checkGit: overrides.checkGit ?? (async () => ({ ok: true, version: "2.45.0", problem: null })),
     bukit,
     sites,
+    panels: new PanelService({ git, sites }),
     readIdentity: async () => ({ name: "Global Name", email: "global@example.com" }),
     userHome: overrides.userHome,
     version: "test",

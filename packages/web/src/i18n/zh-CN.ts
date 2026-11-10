@@ -43,6 +43,7 @@ const zhCN = {
     "request.cors_not_allowed": "不允许跨源请求",
     "request.invalid_body": "请求内容无效",
     "request.not_found": "接口不存在",
+    "request.invalid_query": "请求参数无效",
     "server.internal": "服务内部错误",
     "bukit.install_running": "Bukit 正在安装中",
     "bukit.unsupported_platform": "当前平台没有官方 Bukit 安装包：请自行编译 Bukit，并在设置里填写路径",
@@ -66,6 +67,14 @@ const zhCN = {
     "site.nested_repo": "文件夹里包含另一个 git 仓库：{path}",
     "site.too_many_files": "文件夹里要提交的文件超过 {max} 个，请先添加 .gitignore",
     "site.file_list_changed": "文件在你确认之后有变化，请重新查看列表",
+    "site.repo_unsafe": "网站的 git 设置不被允许，无法读取它的文件",
+    "site.not_repo": "网站文件夹已不是 git 仓库",
+    "site.branch_missing": "网站的默认分支 {branch} 已不存在",
+    "change.not_found": "当前没有可显示的改动",
+    "panel.not_found": "这个版本里没有这个文件或文件夹",
+    "panel.not_directory": "这不是一个文件夹",
+    "panel.not_file": "这不是一个文件",
+    "panel.too_large": "文件太大（上限 {max} 字节）",
   },
 };
 

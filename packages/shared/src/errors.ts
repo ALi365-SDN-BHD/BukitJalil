@@ -13,6 +13,7 @@ export const errorCodes = [
   "request.cors_not_allowed",
   "request.invalid_body",
   "request.not_found",
+  "request.invalid_query",
   "server.internal",
   "bukit.install_running",
   "bukit.unsupported_platform",
@@ -36,6 +37,14 @@ export const errorCodes = [
   "site.nested_repo",
   "site.too_many_files",
   "site.file_list_changed",
+  "site.repo_unsafe",
+  "site.not_repo",
+  "site.branch_missing",
+  "change.not_found",
+  "panel.not_found",
+  "panel.not_directory",
+  "panel.not_file",
+  "panel.too_large",
 ] as const;
 
 export const ErrorCode = z.enum(errorCodes);

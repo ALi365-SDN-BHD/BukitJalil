@@ -10,6 +10,7 @@ import { readGlobalIdentity } from "./git/identity.ts";
 import { GitRunner, resolveGitPath } from "./git/run.ts";
 import { checkGit } from "./git/version.ts";
 import { createLogger } from "./log.ts";
+import { PanelService } from "./panels/service.ts";
 import { ensureAppHome, resolveAppHome } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
@@ -89,6 +90,7 @@ const sites = new SiteService({
   locks: new SiteLocks(),
   templateDir: path.join(repoRoot, "templates", "starter"),
 });
+const panels = new PanelService({ git, sites });
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
@@ -104,6 +106,7 @@ const app = createAdminApp({
     gitPath ? checkGit(gitPath) : Promise.resolve({ ok: false, version: null, problem: "missing" as const }),
   bukit,
   sites,
+  panels,
   readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,
   logger,

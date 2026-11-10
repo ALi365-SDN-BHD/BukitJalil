@@ -44,6 +44,7 @@ const en: Messages = {
     "request.cors_not_allowed": "Cross-origin requests are not allowed",
     "request.invalid_body": "Invalid request content",
     "request.not_found": "Unknown endpoint",
+    "request.invalid_query": "The request parameters are invalid",
     "server.internal": "Internal server error",
     "bukit.install_running": "Bukit is already being installed",
     "bukit.unsupported_platform":
@@ -68,6 +69,14 @@ const en: Messages = {
     "site.nested_repo": "The folder contains another git repository: {path}",
     "site.too_many_files": "The folder has more than {max} files to commit; add a .gitignore first",
     "site.file_list_changed": "The files changed after you reviewed them; check the list again",
+    "site.repo_unsafe": "The site's git settings are not allowed, so its files cannot be read",
+    "site.not_repo": "The site folder is no longer a git repository",
+    "site.branch_missing": "The site's default branch {branch} no longer exists",
+    "change.not_found": "There is no open change to show",
+    "panel.not_found": "This file or folder does not exist in this version",
+    "panel.not_directory": "This is not a folder",
+    "panel.not_file": "This is not a file",
+    "panel.too_large": "The file is too large (limit {max} bytes)",
   },
 };
 
