@@ -45,6 +45,18 @@ describe("SQLite store (plan 4.2)", () => {
     ).toThrow(/002_bad\.sql/);
   });
 
+  it("one invalid setting does not reset the others", () => {
+    const db = openDatabase(":memory:");
+    const store = new SettingsStore(db);
+    store.update({ commitName: "Test Owner", appearance: "dark" });
+    db.prepare("UPDATE settings SET value_json = '\"fr\"' WHERE key = 'appearance'").run();
+    db.prepare("INSERT INTO settings (key, value_json) VALUES ('locale', 'not json')").run();
+    const settings = store.get();
+    expect(settings.commitName).toBe("Test Owner");
+    expect(settings.appearance).toBe("system");
+    expect(settings.locale).toBeNull();
+  });
+
   it("settings fall back to defaults for corrupt or unknown values", () => {
     const db = openDatabase(":memory:");
     const store = new SettingsStore(db);
@@ -56,6 +68,7 @@ describe("SQLite store (plan 4.2)", () => {
       commitEmail: null,
       model: null,
       thinkingLevel: "medium",
+      appearance: "system",
     });
     db.prepare("INSERT INTO settings (key, value_json) VALUES ('locale', '\"fr\"'), ('junk', '1')").run();
     expect(store.get()).toEqual({
@@ -66,8 +79,10 @@ describe("SQLite store (plan 4.2)", () => {
       commitEmail: null,
       model: null,
       thinkingLevel: "medium",
+      appearance: "system",
     });
-    expect(store.update({ locale: "en", lastParentDir: "/Users/x/Sites" })).toEqual({
+    expect(store.update({ appearance: "dark" }).appearance).toBe("dark");
+    expect(store.update({ appearance: "system", locale: "en", lastParentDir: "/Users/x/Sites" })).toEqual({
       locale: "en",
       lastParentDir: "/Users/x/Sites",
       bukitPath: null,
@@ -75,6 +90,7 @@ describe("SQLite store (plan 4.2)", () => {
       commitEmail: null,
       model: null,
       thinkingLevel: "medium",
+      appearance: "system",
     });
   });
 });

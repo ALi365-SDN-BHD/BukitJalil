@@ -421,6 +421,12 @@ function Composer({ site, session }: { site: Site; session: SessionInfo }) {
   const empty = text.trim() === "";
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Esc stops the run (plan M5 layer 3); not while an IME candidate list is open.
+    if (e.key === "Escape" && !e.nativeEvent.isComposing && session.status !== "idle" && !stop.isPending) {
+      e.preventDefault();
+      stop.mutate();
+      return;
+    }
     // Enter while composing (IME) picks a candidate, it does not send.
     if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
     e.preventDefault();

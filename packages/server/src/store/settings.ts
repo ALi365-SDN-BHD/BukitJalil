@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { defaultSettings, Settings, type SettingsPatch } from "@bukitjalil/shared";
+import type { z } from "zod";
 
 /** Global settings stored as one JSON value per key (plan 4.2). Unknown or invalid values fall back to defaults. */
 export class SettingsStore {
@@ -7,18 +8,20 @@ export class SettingsStore {
 
   get(): Settings {
     const rows = this.db.prepare("SELECT key, value_json FROM settings").all() as { key: string; value_json: string }[];
-    const raw: Record<string, unknown> = { ...defaultSettings };
+    const result: Record<string, unknown> = { ...defaultSettings };
+    const shape = Settings.shape as Record<string, z.ZodType>;
     for (const row of rows) {
-      if (row.key in defaultSettings) {
-        try {
-          raw[row.key] = JSON.parse(row.value_json);
-        } catch {
-          // keep the default for a corrupt value
-        }
+      const field = shape[row.key];
+      if (!field) continue;
+      try {
+        // Each value on its own: one corrupt or outdated value must not reset the others.
+        const parsed = field.safeParse(JSON.parse(row.value_json));
+        if (parsed.success) result[row.key] = parsed.data;
+      } catch {
+        // keep the default for a value that is not JSON
       }
     }
-    const parsed = Settings.safeParse(raw);
-    return parsed.success ? parsed.data : { ...defaultSettings };
+    return result as Settings;
   }
 
   update(patch: SettingsPatch): Settings {

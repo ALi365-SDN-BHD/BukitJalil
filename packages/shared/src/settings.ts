@@ -8,6 +8,10 @@ export type Locale = z.infer<typeof Locale>;
 export const ThinkingLevel = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export type ThinkingLevel = z.infer<typeof ThinkingLevel>;
 
+/** Light or dark interface (plan M5 layer 3); "system" follows the operating system. */
+export const Appearance = z.enum(["system", "light", "dark"]);
+export type Appearance = z.infer<typeof Appearance>;
+
 /** A model of Pi's catalog, by provider id and model id (plan 6.5). */
 export const ModelRef = z.object({
   provider: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
@@ -39,6 +43,7 @@ export const Settings = z.object({
   /** The model conversations use; null until the user picks one. */
   model: ModelRef.nullable(),
   thinkingLevel: ThinkingLevel,
+  appearance: Appearance,
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -53,4 +58,5 @@ export const defaultSettings: Settings = {
   commitEmail: null,
   model: null,
   thinkingLevel: "medium",
+  appearance: "system",
 };
