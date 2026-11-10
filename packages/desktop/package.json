@@ -6,9 +6,11 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "node scripts/build.mjs && electron .",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "package": "node scripts/package.mjs"
   },
   "devDependencies": {
+    "@electron/packager": "20.3.0",
     "electron": "45.2.3",
     "esbuild": "0.28.2"
   }

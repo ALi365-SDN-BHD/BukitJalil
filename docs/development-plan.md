@@ -1337,6 +1337,15 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > - 外部链接和预览在系统浏览器打开已在第 2 层完成
 > - 测试：在主进程替换 `dialog.showOpenDialog`，确认没有文件夹列表、选择框从当前路径打开、选中的文件夹填进输入框
 
+> M7 第 4 层实现说明（打包）：
+> - `pnpm package:desktop`（`packages/desktop/scripts/package.mjs`）生成 `packages/desktop/out/BukitJalil-darwin-arm64/BukitJalil.app` 和 `BukitJalil-<版本>-mac-arm64.zip`
+> - 应用目录 `Contents/Resources/app`：桌面壳；`server.mjs`（esbuild 只打包 BukitJalil 自己的代码和 `@bukitjalil/shared`，npm 包全部外置，因为 Pi SDK 按自身模块的位置读文件）；`migrations/`（`db.ts` 在代码旁边找）；`node_modules/`（`pnpm deploy --prod --legacy`，版本跟锁文件一致）；`skills/`、`templates/starter/`、`web/`
+> - **`node_modules` 用 hoisted 布局**：packager 把 pnpm 的符号链接复制成完整副本，应用一度有 1.0 GB；改成平铺目录并去掉 tsx 和已打包的 `@bukitjalil/*` 后，应用 445 MB（Electron 266 MB、依赖 189 MB），zip 176 MB
+> - 不用 asar（server 要从模板目录复制文件、对工作副本运行 git）
+> - **重新做临时签名**：Electron 自带的临时签名在加入应用文件后失效，`codesign --verify --strict` 不通过，下载的副本会被 macOS 说成"已损坏"。打包后对整个应用 `codesign --force --deep --sign -` 再验证；`spctl` 仍拒绝（没有 Developer ID），使用说明写允许打开的步骤
+> - 测试 `e2e/desktop/packaged.spec.ts`（打包后才运行）：只给系统 PATH（和从 Finder 打开一样）启动 `BukitJalil.app`，自动登录，用应用里的模板创建网站并提交（git），能开始对话（找到技能），Pi 的模型目录能读出（依赖完整），退出后释放锁。CI 的 macOS 任务打包后运行全部桌面测试
+> - 未做：Electron fuses（关闭 `RunAsNode` 等），等有 Developer ID 签名时一起做；应用图标用 Electron 默认图标
+
 ### 里程碑总览
 
 ```text
