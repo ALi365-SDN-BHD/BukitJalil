@@ -61,7 +61,7 @@ export function HistorySection({ site }: { site: Site }) {
                 </span>
                 {i === 0 && <Badge tone="ok">{m.history.current}</Badge>}
                 {e.byAi && (
-                  <Badge>
+                  <Badge data-testid="history-ai">
                     <Bot className="size-3" aria-hidden /> {m.history.ai}
                   </Badge>
                 )}

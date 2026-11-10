@@ -23,10 +23,10 @@ export async function putSettings(page: Page, body: Record<string, unknown>): Pr
 }
 
 /** A committed starter site in a temp folder, imported through the API; returns its id. */
-export async function importSite(page: Page, title = "Chat"): Promise<string> {
+export async function importSite(page: Page, title = "Chat", language = "en-US"): Promise<string> {
   work ??= fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-sites-")));
   const dir = path.join(work, `site${++counter}`);
-  copyStarter(STARTER, dir, { title: `${title} ${counter}`, language: "en-US" });
+  copyStarter(STARTER, dir, { title: `${title} ${counter}`, language });
   const git = (...args: string[]) =>
     execFileSync("git", ["-c", "user.name=E2E", "-c", "user.email=e2e@example.com", ...args], {
       cwd: dir,
