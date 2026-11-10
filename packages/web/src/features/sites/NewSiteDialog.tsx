@@ -121,7 +121,11 @@ export function NewSiteDialog({
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               {m.common.cancel}
             </Button>
-            <Button type="submit" disabled={create.isPending || !target || !name.trim() || !identity.ready}>
+            <Button
+              type="submit"
+              data-testid="new-site-create"
+              disabled={create.isPending || !target || !name.trim() || !identity.ready}
+            >
               {create.isPending ? m.newSite.creating : m.newSite.create}
             </Button>
           </div>

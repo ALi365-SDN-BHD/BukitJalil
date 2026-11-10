@@ -73,6 +73,7 @@ export function ImportDialog({
           <Button
             type="button"
             variant="outline"
+            data-testid="import-inspect"
             disabled={!current || inspect.isPending}
             onClick={() => current && inspect.mutate(current)}
           >
@@ -105,7 +106,12 @@ export function ImportDialog({
                 ))}
               </ul>
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  data-testid="import-confirm-files"
+                  checked={confirmed}
+                  onChange={(e) => setConfirmed(e.target.checked)}
+                />
                 {m.importSite.confirmFiles}
               </label>
               {identity.missing && <IdentityFields draft={identity.draft} onChange={identity.setDraft} />}
@@ -126,7 +132,7 @@ export function ImportDialog({
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             {m.common.cancel}
           </Button>
-          <Button type="button" disabled={!canImport} onClick={() => run.mutate()}>
+          <Button type="button" data-testid="import-submit" disabled={!canImport} onClick={() => run.mutate()}>
             {run.isPending ? m.importSite.importing : m.importSite.import}
           </Button>
         </div>

@@ -51,7 +51,9 @@ export function SiteHome({ site }: { site: Site }) {
         <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="text-muted-foreground">{m.site.path}</dt>
           <dd>
-            <code className="break-all text-xs">{site.path}</code>
+            <code className="break-all text-xs" data-testid="site-path">
+              {site.path}
+            </code>
           </dd>
           <dt className="text-muted-foreground">{m.site.branch}</dt>
           <dd>
@@ -72,13 +74,31 @@ export function SiteHome({ site }: { site: Site }) {
 
       <div className="flex flex-wrap gap-2">
         <BuildButton siteId={site.id} disabled={site.readOnly !== null} />
-        <Button size="sm" variant="outline" disabled={recheck.isPending} onClick={() => recheck.mutate()}>
+        <Button
+          size="sm"
+          variant="outline"
+          data-testid="site-recheck"
+          disabled={recheck.isPending}
+          onClick={() => recheck.mutate()}
+        >
           <RefreshCw className={recheck.isPending ? "animate-spin" : undefined} /> {m.site.recheck}
         </Button>
-        <Button size="sm" variant="outline" disabled={archive.isPending} onClick={() => archive.mutate()}>
+        <Button
+          size="sm"
+          variant="outline"
+          data-testid="site-archive"
+          disabled={archive.isPending}
+          onClick={() => archive.mutate()}
+        >
           {site.archived ? <ArchiveRestore /> : <Archive />} {site.archived ? m.site.unarchive : m.site.archive}
         </Button>
-        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirmRemove(true)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-destructive"
+          data-testid="site-remove"
+          onClick={() => setConfirmRemove(true)}
+        >
           <Trash2 /> {m.site.remove}
         </Button>
       </div>
@@ -111,7 +131,12 @@ export function SiteHome({ site }: { site: Site }) {
             <Button variant="ghost" onClick={() => setConfirmRemove(false)}>
               {m.common.cancel}
             </Button>
-            <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
+            <Button
+              variant="destructive"
+              data-testid="site-remove-confirm"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
               {m.site.removeConfirm}
             </Button>
           </div>
