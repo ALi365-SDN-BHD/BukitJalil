@@ -97,6 +97,35 @@ export function chatItems(
   return items;
 }
 
+export type ModelErrorKind = "auth" | "limit" | "overloaded" | "network" | "context";
+
+/**
+ * What kind of failure a provider's error message describes (plan M5 layer 2), so the chat can say what
+ * to do about it; null when it is none of the known kinds. Providers word these differently, so this
+ * looks for status codes and the usual phrases.
+ */
+export function modelErrorKind(message: string): ModelErrorKind | null {
+  const text = message.toLowerCase();
+  if (
+    /\b(401|403)\b|unauthori[sz]ed|(invalid|incorrect).{0,20}(api[ _-]?key|token|credential)|authentication|permission denied|forbidden/.test(
+      text,
+    )
+  )
+    return "auth";
+  if (/\b429\b|rate.?limit|too many requests|quota|insufficient.{0,10}(balance|credit|funds)|billing/.test(text))
+    return "limit";
+  if (/context.{0,20}(length|window|too long)|maximum.{0,20}tokens|prompt is too long|too many tokens/.test(text))
+    return "context";
+  if (/\b(529|503)\b|overloaded|unavailable|capacity/.test(text)) return "overloaded";
+  if (
+    /fetch failed|network|econn(refused|reset)|enotfound|etimedout|eai_again|socket hang up|timed? ?out|getaddrinfo/.test(
+      text,
+    )
+  )
+    return "network";
+  return null;
+}
+
 function toolView(
   call: { id: string; name: string; arguments: unknown },
   result: ChatMessage | undefined,

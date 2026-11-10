@@ -21,6 +21,7 @@ import { NoPreviewPortError, PreviewPool } from "../preview/pool.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
+import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
 import { type BuildRecord, BuildStore, newBuildId } from "./store.ts";
 
 export interface BuildServiceOptions {
@@ -294,7 +295,10 @@ export class BuildService {
       const result = await runner.run("build", buildArgs(id), { cwd: checkout, signal });
       const report = buildReport(result);
       const outcome = buildOutcome(result);
-      if (outcome !== "ok") return finish("failed", outcome, result.exitCode, report);
+      if (outcome !== "ok") {
+        const problem = storageErrorInText([report.output, ...report.messages.map((m) => m.msg)].join("\n"));
+        return finish("failed", outcome, result.exitCode, problem ? { ...report, problem } : report);
+      }
       if (!fs.lstatSync(temp, { throwIfNoEntry: false })?.isDirectory()) {
         return finish("failed", "error", result.exitCode, { ...report, detail: "bukit wrote no output directory" });
       }
@@ -312,7 +316,11 @@ export class BuildService {
         this.opts.previews.repoint(PreviewPool.key(site.id, target.ref), dest);
       }
     } catch (err) {
-      finish("failed", "error", null, { detail: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
+      const problem = storageErrorCode(err) ?? undefined;
+      finish("failed", "error", null, {
+        detail: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+        ...(problem ? { problem } : {}),
+      });
     } finally {
       if (temp) fs.rmSync(temp, { recursive: true, force: true });
       this.prune(site.id);

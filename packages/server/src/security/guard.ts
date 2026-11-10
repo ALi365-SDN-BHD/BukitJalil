@@ -5,7 +5,7 @@ import { safeEqual } from "./token.ts";
 
 export function apiError(
   c: Context,
-  status: 400 | 401 | 403 | 404 | 409 | 421 | 500 | 503,
+  status: 400 | 401 | 403 | 404 | 409 | 421 | 500 | 503 | 507,
   code: ErrorCode,
   params?: Record<string, string>,
 ) {

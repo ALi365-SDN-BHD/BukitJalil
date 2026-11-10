@@ -129,7 +129,7 @@ export function BuildList({ siteId, limit = 5 }: { siteId: string; limit?: numbe
 }
 
 function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; buildId: string; onClose: () => void }) {
-  const { m, t, errorOf } = useI18n();
+  const { m, t, errorOf, errorText } = useI18n();
   const build = useQuery({
     queryKey: ["build", siteId, buildId],
     queryFn: () => api.build(siteId, buildId),
@@ -150,6 +150,16 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
             <p className="text-muted-foreground">
               {t(m.build.commit, { commit: shortOid(build.data.commit) })}
               {build.data.exitCode !== null && ` · exit ${build.data.exitCode}`}
+            </p>
+          )}
+          {report?.problem && (
+            <p role="alert" className="text-destructive" data-testid="build-problem">
+              {errorText(report.problem)}
+            </p>
+          )}
+          {build.data?.outcome === "failed" && !report?.problem && (
+            <p className="text-muted-foreground" data-testid="build-crashed">
+              {m.build.crashed}
             </p>
           )}
           {report?.detail && <pre className="whitespace-pre-wrap rounded-md bg-muted p-2 text-xs">{report.detail}</pre>}

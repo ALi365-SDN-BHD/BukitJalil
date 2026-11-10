@@ -4,7 +4,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { keys } from "@/lib/api";
 import { handleEvent } from "@/lib/events";
 import { applyEvent, emptyLive, unseen } from "./live";
-import { chatItems, latestSummary, mergeMessages, resultText, tailSignature, toolTarget } from "./model";
+import {
+  chatItems,
+  latestSummary,
+  mergeMessages,
+  modelErrorKind,
+  resultText,
+  tailSignature,
+  toolTarget,
+} from "./model";
 import { liveStore } from "./store";
 
 const S = { siteId: "site1", sessionId: "aaaaaaaaaaaaaaaa" };
@@ -225,6 +233,14 @@ describe("events and the query cache", () => {
     liveStore.reset();
   });
 
+  it("fetches the previews again when a build ends", () => {
+    qc.setQueryData(["preview", S.siteId, "change"], { buildId: "old" });
+    qc.setQueryData(["preview", "ffffffffffffffff", "main"], { buildId: "other" });
+    handleEvent(qc, ev({ type: "build.end", siteId: S.siteId, data: { build: {} } } as never));
+    expect(qc.getQueryState(["preview", S.siteId, "change"])?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(["preview", "ffffffffffffffff", "main"])?.isInvalidated).toBe(false);
+  });
+
   it("keeps session lists and details current", () => {
     const other = info({ id: "bbbbbbbbbbbbbbbb" });
     qc.setQueryData(keys.sessions(S.siteId), [other]);
@@ -299,5 +315,21 @@ describe("events and the query cache", () => {
     expect(qc.getQueryState(main)?.isInvalidated).toBe(true);
     // The closed snapshot is dropped, not fetched again (it would only answer change.not_found).
     expect(qc.getQueryState(inChange)).toBeUndefined();
+  });
+});
+
+describe("modelErrorKind", () => {
+  it("names the usual provider failures", () => {
+    expect(modelErrorKind('401 {"error":{"message":"invalid x-api-key"}}')).toBe("auth");
+    expect(modelErrorKind("Incorrect API key provided")).toBe("auth");
+    expect(modelErrorKind("Invalid API key")).toBe("auth");
+    expect(modelErrorKind("429 Too Many Requests")).toBe("limit");
+    expect(modelErrorKind("You exceeded your current quota")).toBe("limit");
+    expect(modelErrorKind("529 Overloaded")).toBe("overloaded");
+    expect(modelErrorKind("prompt is too long: 210000 tokens > 200000 maximum")).toBe("context");
+    expect(modelErrorKind("input exceeds the context window; 503 tokens over")).toBe("context");
+    expect(modelErrorKind("TypeError: fetch failed")).toBe("network");
+    expect(modelErrorKind("getaddrinfo ENOTFOUND api.example.com")).toBe("network");
+    expect(modelErrorKind("Something odd")).toBe(null);
   });
 });

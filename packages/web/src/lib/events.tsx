@@ -104,8 +104,12 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
       queryClient.removeQueries({ queryKey: keys.session(event.sessionId) });
       break;
     case "build.start":
+      void queryClient.invalidateQueries({ queryKey: keys.builds(event.siteId) });
+      break;
     case "build.end":
       void queryClient.invalidateQueries({ queryKey: keys.builds(event.siteId) });
+      // A build can end before the list ever showed it running, so the preview cannot wait for that.
+      void queryClient.invalidateQueries({ queryKey: ["preview", event.siteId] });
       break;
     case "change": {
       const { siteId } = event;

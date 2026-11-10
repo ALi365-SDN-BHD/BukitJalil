@@ -21,6 +21,8 @@ export const errorCodes = [
   "fs.not_found",
   "fs.not_directory",
   "fs.permission_denied",
+  "fs.disk_full",
+  "fs.read_only",
   "site.not_found",
   "site.busy",
   "site.identity_required",

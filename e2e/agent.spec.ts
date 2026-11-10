@@ -108,3 +108,25 @@ test("a plugin that is not built in stops the AI's build", async ({ page, server
   expect(result).toContain("site.plugins.fake-plugin");
   await expect(page.getByTestId("message-assistant").last()).toContainText("1 of my 3 steps were refused");
 });
+
+test("a provider's error is explained in plain words, with its own text kept", async ({ page, server }) => {
+  // Pi retries rate limits and network failures a few times with a growing wait before giving up.
+  test.setTimeout(240_000);
+  await startConversation(page, await server.loginUrl(), "Agent errors");
+  const input = page.getByTestId("composer-input");
+  for (const [tag, kind, text] of [
+    ["#fail-key", "auth", /API key|API Key/],
+    ["#fail-limit", "limit", /rate limit|频率限制/],
+    ["#fail-network", "network", /network|网络/],
+  ] as const) {
+    await input.fill(`${tag} Try it`);
+    await input.press("Enter");
+    const error = page.getByTestId("model-error").last();
+    await expect(error).toHaveAttribute("data-kind", kind, { timeout: 60_000 });
+    await expect(error).toContainText(text);
+    await expect(page.getByTestId("chat-status")).toHaveCount(0, { timeout: 60_000 });
+  }
+  const last = page.getByTestId("model-error").last();
+  await last.locator("summary").click();
+  await expect(last).toContainText("ENOTFOUND");
+});

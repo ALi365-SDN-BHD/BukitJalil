@@ -12,7 +12,7 @@ import { MarkdownView } from "@/features/panels/MarkdownView";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { type PendingMessage, unseen } from "./live";
-import { type ChatItem, chatItems, latestSummary, mergeMessages, tailSignature } from "./model";
+import { type ChatItem, chatItems, latestSummary, mergeMessages, modelErrorKind, tailSignature } from "./model";
 import { StatusDot, sessionPath } from "./sessions";
 import { liveStore, useDeleted, useLive } from "./store";
 import { ToolCard } from "./ToolCard";
@@ -387,11 +387,7 @@ function AssistantMessage({ item }: { item: Extract<ChatItem, { kind: "assistant
         ),
       )}
       {item.aborted && <p className="text-xs text-muted-foreground">{m.chat.aborted}</p>}
-      {item.error && (
-        <p role="alert" className="whitespace-pre-wrap text-xs text-destructive">
-          {item.error}
-        </p>
-      )}
+      {item.error && <ModelError message={item.error} />}
     </div>
   );
 }
@@ -502,6 +498,26 @@ function Composer({ site, session }: { site: Site; session: SessionInfo }) {
           </div>
         </form>
       )}
+    </div>
+  );
+}
+
+/** A provider's error on an answer: what it means in plain words, and the provider's own text. */
+function ModelError({ message }: { message: string }) {
+  const { m } = useI18n();
+  const kind = modelErrorKind(message);
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-1 text-xs text-destructive"
+      data-testid="model-error"
+      data-kind={kind ?? "other"}
+    >
+      <p>{m.chat.modelError[kind ?? "other"]}</p>
+      <details className="text-muted-foreground">
+        <summary className="cursor-pointer">{m.chat.modelError.details}</summary>
+        <p className="mt-1 whitespace-pre-wrap break-all">{message}</p>
+      </details>
     </div>
   );
 }

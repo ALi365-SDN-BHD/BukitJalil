@@ -33,6 +33,7 @@ import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./se
 import type { LoginToken } from "./security/token.ts";
 import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
+import { storageErrorCode } from "./storage-errors.ts";
 import { SettingsStore } from "./store/settings.ts";
 
 export interface AdminAppOptions {
@@ -92,7 +93,12 @@ export function createAdminApp(opts: AdminAppOptions) {
       error: err.message,
       stack: err.stack,
     });
-    if (new URL(c.req.url).pathname.startsWith("/api/")) return apiError(c, 500, "server.internal");
+    if (new URL(c.req.url).pathname.startsWith("/api/")) {
+      // A full or read-only disk is something the user can fix, so it gets its own message.
+      const storage = storageErrorCode(err);
+      if (storage) return apiError(c, storage === "fs.disk_full" ? 507 : 500, storage);
+      return apiError(c, 500, "server.internal");
+    }
     return c.body(null, 500);
   });
 

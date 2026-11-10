@@ -19,7 +19,8 @@ const _gitPath = resolveGitPath() as string;
 
 /**
  * Stand-in for bukit. `build` reads the committed file fake-mode: "" writes index.html with the
- * committed marker, "fail" exits 2, "symlink" puts a link in the output, "slow" waits for SIGINT.
+ * committed marker, "fail" exits 2, "full" fails as on a full disk, "symlink" puts a link in the output,
+ * "slow" waits for SIGINT.
  */
 const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
@@ -32,6 +33,8 @@ case "$1" in
     echo '{"ts":"t","level":"info","msg":"event=build.start"}'
     case "$mode" in
       fail) echo '{"ts":"t","level":"error","msg":"event=content.error file=x.md"}'; echo "boom" >&2; exit 2;;
+      full) echo "write index.html: no space left on device" >&2; exit 1;;
+      fulljson) echo '{"ts":"t","level":"error","msg":"event=output.failed error=no space left on device"}'; exit 3;;
       symlink) mkdir -p "$out"; echo hi > "$out/index.html"; ln -s /etc/hosts "$out/leak";;
       slow) trap 'exit 130' INT; while true; do sleep 0.05; done;;
       *) mkdir -p "$out"; echo "<h1>$(cat marker 2>/dev/null)</h1>" > "$out/index.html";;
@@ -199,6 +202,17 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect(b.report?.output).toContain("boom");
     expect(fs.existsSync(path.join(s.paths.worktrees, s.site.id, "main", ".bukitjalil-build", b.id))).toBe(false);
     expect(fs.existsSync(path.join(s.paths.previews, s.site.id, b.id))).toBe(false);
+  });
+
+  it("names a full disk behind a failed build", async () => {
+    const s = await setup("full", { mode: "full" });
+    const b = await s.build();
+    expect(b).toMatchObject({ status: "failed", outcome: "failed", exitCode: 1 });
+    expect(b.report?.problem).toBe("fs.disk_full");
+    const logged = await (await setup("fulljson", { mode: "fulljson" })).build();
+    expect(logged).toMatchObject({ outcome: "render_error", report: { problem: "fs.disk_full" } });
+    const plain = await (await setup("fail2", { mode: "fail" })).build();
+    expect(plain.report?.problem).toBeUndefined();
   });
 
   it("does not keep an output that contains a symbolic link", async () => {

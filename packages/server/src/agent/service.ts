@@ -10,6 +10,7 @@ import type { AppPaths } from "../paths.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
+import { storageErrorCode } from "../storage-errors.ts";
 import type { AiBukit } from "./ai-bukit.ts";
 import { PathGate } from "./gate.ts";
 import { hasAuth } from "./models.ts";
@@ -447,7 +448,7 @@ export class AgentService {
       return undefined;
     } catch (err) {
       this.opts.logger.log("error", "agent.snapshot_failed", { sessionId: run.sessionId, error: String(err) });
-      return err instanceof SiteError ? err.code : "server.internal";
+      return err instanceof SiteError ? err.code : (storageErrorCode(err) ?? "server.internal");
     }
   }
 
@@ -477,7 +478,7 @@ export class AgentService {
       return undefined;
     } catch (err) {
       this.opts.logger.log("error", "agent.run_failed", { sessionId: id, error: String(err) });
-      return err instanceof SiteError ? err.code : "server.internal";
+      return err instanceof SiteError ? err.code : (storageErrorCode(err) ?? "server.internal");
     } finally {
       if (live && this.live.get(id) === live) {
         if (this.store.get(id) && !this.closing) {

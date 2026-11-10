@@ -12,6 +12,8 @@ import type { PiModules } from "./pi.ts";
  * - "#auth": tries to read Pi's auth.json outside the working copy
  * - "#plugin": adds a plugin that is not built in to site.yaml, runs bukit_build, then takes the plugin out
  *   again so later builds are not refused
+ * - "#fail-key", "#fail-limit", "#fail-network": fails like a provider would (a refused key, a rate limit,
+ *   no network), so the chat's error messages can be tried
  * - anything else: looks at the site with site_info
  * Each step is one tool call; it ends with a Markdown answer that quotes the request.
  */
@@ -20,6 +22,13 @@ export const FAKE_PROVIDER = "bukitjalil-fake";
 /** From the ai/ working copy (worktrees/<siteId>/ai) to the app's pi/auth.json. */
 const AUTH_JSON = "../../../pi/auth.json";
 const DEFAULT_TITLE = "Hello from BukitJalil";
+
+/** Provider errors, worded like real providers word them. */
+const FAILURES: Record<string, string> = {
+  key: '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}',
+  limit: "429 Too Many Requests: rate limit exceeded, please retry later",
+  network: "TypeError: fetch failed (getaddrinfo ENOTFOUND api.example.invalid)",
+};
 
 interface Message {
   role: string;
@@ -47,6 +56,8 @@ export function registerFakeModel(runtime: ModelRuntime, { ai }: PiModules): voi
     const start = lastUserIndex(messages);
     const request = textOf(messages[start]?.content);
     const results = messages.slice(start + 1).filter((m) => m.role === "toolResult");
+    const failure = /#fail-(key|limit|network)\b/i.exec(request)?.[1]?.toLowerCase();
+    if (failure) return ai.fauxAssistantMessage([], { stopReason: "error", errorMessage: FAILURES[failure] });
     const call = nextCall(request, results);
     if (call) {
       return ai.fauxAssistantMessage(

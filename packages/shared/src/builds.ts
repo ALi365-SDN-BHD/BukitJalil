@@ -42,6 +42,8 @@ export interface BuildReport {
   output: string;
   reasons?: SiteReason[];
   detail?: string;
+  /** A disk write failure behind the failed build (plan M5 layer 2). */
+  problem?: "fs.disk_full" | "fs.read_only" | "fs.permission_denied";
 }
 
 export interface Build {

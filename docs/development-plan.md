@@ -1159,6 +1159,16 @@ M5 分层实施（每层做完先审计、修复，再提交）：
 > - 清单直接用这几个已有的查询，设置里保存后对应的查询更新，清单跟着变；所有检查都有结果之后才显示，五步都完成后不再显示。没有新增接口
 > - 测试：新增 `e2e/setup.spec.ts`（清空身份和模型后两步为待完成，打开设置，填好后两步完成或清单消失）。内置浏览器里用全新的应用目录走通：git 已完成 → 填 Bukit 路径 → 在设置里选假模型、填身份，清单逐步更新 → 剩下"第一个网站"
 
+> M5 第 2 层实现说明（错误提示）：
+> - 模型报错：服务商的错误信息原样保存在回答里（`stopReason: "error"`），界面按状态码和常见说法分成密钥被拒（401、403、invalid / incorrect API key）、频率限制或额度（429、rate limit、quota）、服务过载（529、503、overloaded）、上下文太长、网络不通（fetch failed、ENOTFOUND、ECONNREFUSED、超时）五类，每类一句该怎么做，原文放在可展开的"详情"里；认不出的写"模型服务商返回了错误"。分类在 `features/chat/model.ts` 的 `modelErrorKind`
+> - 假模型新增 `#fail-key`、`#fail-limit`、`#fail-network`，按真实服务商的写法返回这三种错误，方便试用和测试
+> - 磁盘写入失败：新增 `src/storage-errors.ts`，从 Node 的 errno（含 `cause` 链）和 git 的 stderr 认出 `ENOSPC` / `EDQUOT`（磁盘已满）、`EROFS`（只读）、`EACCES` / `EPERM`（无权限）。接口的全局错误处理据此返回 `fs.disk_full`（507）、`fs.read_only`、`fs.permission_denied`（500），不再一律是 `server.internal`；AI 运行失败时同样给出这几个错误码。构建报告新增 `problem`：BukitJalil 自己出错时按 errno 判断，Bukit 失败时在它的输出里找 "no space left on device"、"read-only file system"，界面在报告顶部用一句话说明
+> - Bukit 缺失本来就有 `build.bukit_missing`；Bukit 异常退出（结果为"Bukit 运行失败"、没有磁盘问题）时，构建报告加一句说明：看下面的输出后重试，反复出现就在设置里检查或重装 Bukit
+> - 和服务端的连接中断（顶栏"连接已断开，正在重试"）和请求发不出去（"连不上 BukitJalil 服务"）在 M3 已有，这一层没有改
+> - 修复 CI 上 Firefox 偶发失败：预览原来只在构建列表里看到"运行中 → 结束"时才重新获取，构建很快时列表可能从没看到运行中，预览就一直停在"还没构建"。现在收到 `build.end` 事件时也让这个网站的预览查询失效
+> - `fs.permission_denied` 的文字从"没有权限打开这个文件夹"改为"没有权限读写这个位置"，因为它现在也用于写入失败
+> - 测试：`test/storage-errors.test.ts`（2 项：errno、cause 链、git stderr、输出文字；接口遇到磁盘已满返回 507 `fs.disk_full`，其他错误仍是 500）；`builds.test.ts` 新增磁盘已满的构建报告带 `problem`；`chat.test.ts` 新增 `modelErrorKind`；`e2e/agent.spec.ts` 新增三种服务商错误的说明和原文
+
 ### M6 发布到 GitHub Pages（3–4 天，MVP 之后）
 
 - 部署设置：仓库、分支（写入 `site.yaml` 的 `deploy`，通过 AI 或设置向导生成改动集，同样走审核）
