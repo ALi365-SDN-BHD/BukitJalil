@@ -6,6 +6,7 @@ import { silentLogger } from "../packages/server/src/log.ts";
 import { PreviewPool } from "../packages/server/src/preview/pool.ts";
 import { expect, test } from "./fixtures.ts";
 import { ADMIN, E2E_ADMIN_PORT } from "./ports.ts";
+import { putSettings } from "./site-helpers.ts";
 
 // The M1 spike (packages/server/spikes/preview-isolation-browsers.mjs) as a regression test against the
 // real admin server: an AI-written preview page tries to change settings and to frame the admin UI.
@@ -48,14 +49,8 @@ test.afterAll(async () => {
 
 async function login(page: Page, url: string) {
   await page.goto(url);
-  await page.evaluate(async () => {
-    // Reset through the real UI path (same origin, all headers).
-    await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
-      body: JSON.stringify({ lastParentDir: null }),
-    });
-  });
+  // Reset through the real UI path (same origin, all headers).
+  await putSettings(page, { lastParentDir: null });
 }
 
 const readSettings = (page: Page) =>

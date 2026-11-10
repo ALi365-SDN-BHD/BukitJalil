@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.11（2026-11-10，写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.12（2026-11-10，写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -1027,6 +1027,21 @@ M3 分层实施（每层做完先审计、修复，再提交）：
 > - `BUKITJALIL_FAKE_MODEL=1` 启动时注册一个脚本化的假模型 `bukitjalil-fake`（`src/agent/fake-model.ts`，每次回答时把下一次回答排进队列，不用定时器）：先调用 `site_info`，再用 Markdown 回答并引用用户的话，以每秒 60 个 token 的速度流式输出，不联网。只用于端到端测试和本机预览，正常使用不设置
 > - 端到端测试：Playwright 用自带的 Chromium、Firefox、WebKit（CI 安装），配置加了 `baseURL`；e2e 服务器带 `BUKITJALIL_FAKE_MODEL=1` 启动。`e2e/models.spec.ts`：为真实服务商保存一个编造的测试密钥（只显示末四位，页面上找不到完整密钥）并删除，选择假模型、测试连接、使用，开始对话后看到流式输出、`site_info` 工具卡片完成、回答引用了请求、刷新后会话恢复。`e2e/site-helpers.ts` 抽出了通过 API 导入网站的步骤。本机曾用已安装的 Chrome 和 Edge 跑通全部 34 个用例；之后改为在 Claude Code 内置浏览器里按同样步骤手动核对（保存和删除密钥、测试连接、选择模型、流式回复和工具卡片、结束后没有错误）
 > - 测试：`test/models-api.test.ts`（9 项）：模型列表和密钥状态、保存密钥写入 `auth.json` 且权限 600、列表里没有密钥、删除、多项配置的服务商和未知服务商、非法密钥、环境变量里的密钥不能改、连接测试成功和失败、超时、没有密钥、未知模型、错误信息去掉密钥；会话依次得到 `agent.no_model`、`agent.model_not_found`、`agent.no_api_key`，选好模型后运行，改设置后同一个会话的下一条回复用新模型
+
+**M3 结果（2026-11-10）**：8 层全部完成。验收里的四项，除"用真实模型"之外都由端到端测试用假模型覆盖；真实模型的验收要用户用自己的 API Key 在设置里选好模型后手动跑一遍，还没有做。
+- `pnpm check` 通过（2 个旧的警告）；`pnpm test` 318 项通过、8 项跳过；`pnpm build` 通过。
+- 第 8 层：假模型（`src/agent/fake-model.ts`）按最近一条请求里的标签选脚本（用标签而不是普通的词，试用界面时不会意外改动网站），每一步一次工具调用，最后用 Markdown 回答：
+  - `#faq`：`read` site.yaml → `edit` 改标题（请求里 "title" 后面引号里的文字，按 YAML 字符串加引号写入）→ `write` `content/pages/faq.md` → `bukit_check` → `summarize_changes`
+  - `#auth`：`read` `../../../pi/auth.json`（从 `ai/` 工作副本指向应用目录里 Pi 的密钥文件）
+  - `#plugin`：`edit` 在 site.yaml 里加一个非内置插件 → `bukit_build` → `edit` 再把插件去掉，之后的构建不受影响
+  - 其他：`site_info`
+- 新增 `e2e/agent.spec.ts`，每个浏览器 3 项：
+  - AI 只改工作副本并通过检查：5 张工具卡片都成功，`bukit_check` 结果的整体 `passed` 为 true，显示摘要；网站自己的文件夹（默认分支）里 site.yaml 没变、没有 FAQ 页面；刷新后工具卡片和摘要都在
+  - 读取 `auth.json` 被拒绝：`read` 卡片失败，被拒绝的路径就是应用目录里的 `pi/auth.json`，原因是在工作副本之外
+  - 加了非内置插件后 AI 的构建被拒绝：`bukit_build` 卡片失败，原因写明 `site.plugins.fake-plugin`；两次 `edit` 都成功
+  - 刷新后会话恢复另由 `e2e/models.spec.ts` 覆盖
+- 替身 Bukit 移到 `e2e/fake-bukit.ts`，`sites.spec.ts` 和 `agent.spec.ts` 共用，并让 `doctor` 返回成功（`bukit_check` 依次运行 `config check` 和 `doctor`）；`bukitForTests` 返回 `BUKIT_BIN` 或写好的替身。`e2e/site-helpers.ts` 记下导入网站的文件夹（`siteFolder`），并提供 `putSettings`，各测试文件改设置都用它（请求失败时报错）。
+- 本机没有 Playwright 自带的浏览器，用临时配置改用本机 Chrome 跑：整套 20 项通过，`agent.spec.ts` 用 `--repeat-each=3` 连跑三遍（9 项）都通过；审计修复后整套再跑一遍仍是 20 项通过。Chromium、Firefox、WebKit 由 CI 运行：第 7 层的提交在 CI 上通过，第 8 层推送后再看。
 
 ### M4 改动审核与版本（6–8 天）
 

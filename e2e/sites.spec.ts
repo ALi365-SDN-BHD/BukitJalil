@@ -4,34 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { copyStarter } from "../packages/server/src/sites/template.ts";
+import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
+import { putSettings } from "./site-helpers.ts";
 
 // M2 end to end (plan 12): new site, import, read-only import, builds and the preview, the read-only panels,
 // archive and remove, settings. Builds use a stand-in Bukit unless BUKIT_BIN names a real one.
 
 const REAL_BUKIT = process.env.BUKIT_BIN;
 const STARTER = path.resolve(import.meta.dirname, "../templates/starter");
-
-/** Writes index.html titled with site.title; a committed `fake-mode` file containing "fail" fails the build. */
-const FAKE_BUKIT = `#!/bin/sh
-case "$1" in
-  version) echo "bukit 2.0.11+e2e"; exit 0;;
-  config) exit 0;;
-  build)
-    out=""; prev=""
-    for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
-    if [ "$(cat fake-mode 2>/dev/null)" = "fail" ]; then
-      echo '{"ts":"t","level":"error","msg":"event=content.error file=broken.md"}'
-      echo "boom" >&2
-      exit 2
-    fi
-    title=$(grep -m1 '^  title:' site.yaml | sed 's/^  title: *//')
-    mkdir -p "$out"
-    echo "<!doctype html><meta charset=utf-8><title>$title</title><h1>$title</h1>" > "$out/index.html"
-    exit 0;;
-esac
-exit 1
-`;
 
 // Creating a site runs its first build, and the first test also walks all the panels: give builds on a slow
 // runner (or a real Bukit) room beyond the default 30 s.
@@ -43,11 +24,7 @@ let counter = 0;
 
 test.beforeAll(() => {
   work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-sites-")));
-  if (REAL_BUKIT) bukitBin = REAL_BUKIT;
-  else {
-    bukitBin = path.join(work, "fake-bukit");
-    fs.writeFileSync(bukitBin, FAKE_BUKIT, { mode: 0o755 });
-  }
+  bukitBin = bukitForTests(work);
 });
 
 // The server outlives this file (one per worker): clear what login() set, so a later spec does not find a
@@ -55,13 +32,7 @@ test.beforeAll(() => {
 test.afterAll(async ({ browser, server }) => {
   const page = await browser.newPage();
   await page.goto(await server.loginUrl());
-  await page.evaluate(async () => {
-    await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
-      body: JSON.stringify({ bukitPath: null, commitName: null, commitEmail: null }),
-    });
-  });
+  await putSettings(page, { bukitPath: null, commitName: null, commitEmail: null });
   await page.close();
   fs.rmSync(work, { recursive: true, force: true });
 });
@@ -85,14 +56,7 @@ function git(cwd: string, ...args: string[]) {
 /** Log in, then point the server at the test Bukit and give it a commit identity. */
 async function login(page: Page, url: string) {
   await page.goto(url);
-  await page.evaluate(async (bin) => {
-    const res = await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
-      body: JSON.stringify({ bukitPath: bin, commitName: "E2E Tester", commitEmail: "e2e@example.com" }),
-    });
-    if (!res.ok) throw new Error(`settings: ${res.status}`);
-  }, bukitBin);
+  await putSettings(page, { bukitPath: bukitBin, commitName: "E2E Tester", commitEmail: "e2e@example.com" });
   await page.reload();
   await expect(page.getByTestId("site-list")).toBeVisible();
 }

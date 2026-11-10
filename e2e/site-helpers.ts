@@ -8,6 +8,19 @@ import { copyStarter } from "../packages/server/src/sites/template.ts";
 const STARTER = path.resolve(import.meta.dirname, "../templates/starter");
 let work: string | null = null;
 let counter = 0;
+const folders = new Map<string, string>();
+
+/** Change settings through the API, as the UI does (same origin, all headers); fails on an error status. */
+export async function putSettings(page: Page, body: Record<string, unknown>): Promise<void> {
+  await page.evaluate(async (b) => {
+    const res = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
+      body: JSON.stringify(b),
+    });
+    if (!res.ok) throw new Error(`settings: ${res.status}`);
+  }, body);
+}
 
 /** A committed starter site in a temp folder, imported through the API; returns its id. */
 export async function importSite(page: Page, title = "Chat"): Promise<string> {
@@ -23,7 +36,7 @@ export async function importSite(page: Page, title = "Chat"): Promise<string> {
   git("init", "-q", "-b", "main");
   git("add", "-A");
   git("commit", "-q", "-m", "init");
-  return page.evaluate(async (p) => {
+  const id = await page.evaluate(async (p) => {
     const res = await fetch("/api/sites/import", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
@@ -32,10 +45,20 @@ export async function importSite(page: Page, title = "Chat"): Promise<string> {
     if (!res.ok) throw new Error(`import: ${res.status}`);
     return ((await res.json()) as { id: string }).id;
   }, dir);
+  folders.set(id, dir);
+  return id;
+}
+
+/** The folder of a site imported with importSite. */
+export function siteFolder(id: string): string {
+  const dir = folders.get(id);
+  if (!dir) throw new Error(`not imported here: ${id}`);
+  return dir;
 }
 
 /** Remove the temp folder of the imported sites (call in afterAll). */
 export function removeImportedSites(): void {
   if (work) fs.rmSync(work, { recursive: true, force: true });
   work = null;
+  folders.clear();
 }

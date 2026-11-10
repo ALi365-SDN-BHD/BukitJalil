@@ -1,16 +1,9 @@
 import { expect, test } from "./fixtures.ts";
-import { importSite, removeImportedSites } from "./site-helpers.ts";
+import { importSite, putSettings, removeImportedSites } from "./site-helpers.ts";
 
 // M3 layer 7 (plan 6.5, 10.1): model settings, then a conversation that streams. The server runs with the
 // scripted model (BUKITJALIL_FAKE_MODEL=1, packages/server/src/agent/fake-model.ts), so nothing leaves the
 // machine; the key saved for a real provider is a made-up test value and is never used.
-
-const setModel = (model: unknown) =>
-  fetch("/api/settings", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
-    body: JSON.stringify({ model }),
-  });
 
 test.afterAll(removeImportedSites);
 
@@ -19,7 +12,7 @@ test("model settings: save and remove a key, test the connection, choose the mod
   server,
 }) => {
   await page.goto(await server.loginUrl());
-  await page.evaluate(setModel, null);
+  await putSettings(page, { model: null });
   const siteId = await importSite(page, "Models");
   await page.goto(`/sites/${siteId}`);
 
@@ -70,5 +63,5 @@ test("model settings: save and remove a key, test the connection, choose the mod
   await page.reload();
   await expect(page.getByTestId("message-user")).toContainText("Change the home page title");
   await expect(page.getByTestId("message-assistant").last()).toContainText("You asked");
-  await page.evaluate(setModel, null);
+  await putSettings(page, { model: null });
 });
