@@ -50,7 +50,7 @@ async function site(files: Record<string, string> = {}) {
   return ctx.sites.import({ path: dir });
 }
 
-function service(opts: { model?: boolean; idleMs?: number } = {}) {
+function service(opts: { model?: boolean; idleMs?: number; rgReady?: () => boolean } = {}) {
   const agent = new AgentService({
     db: ctx.db,
     paths: ctx.paths,
@@ -58,6 +58,7 @@ function service(opts: { model?: boolean; idleMs?: number } = {}) {
     logger: silentLogger,
     resolveModel: () => (opts.model === false ? undefined : (faux.getModel() as Model<Api>)),
     setupRuntime: (runtime) => runtime.registerNativeProvider(faux.provider),
+    rgReady: opts.rgReady ?? (() => false),
     idleMs: opts.idleMs,
   });
   services.push(agent);
@@ -216,6 +217,45 @@ describe("AgentService", () => {
     expect(text(result("find")[0] as never)).toContain("site.yaml");
     const ai = path.join(ctx.paths.worktrees, s.id, "ai");
     expect(fs.readFileSync(path.join(ai, "content", "ai.md"), "utf8")).toBe("# Edited\n");
+  });
+
+  it("lets grep run only while the rg check passes", async () => {
+    const s = await site();
+    let ready = false;
+    let asked = 0;
+    const { agent, events, settled } = service({
+      rgReady: () => {
+        asked++;
+        return ready;
+      },
+    });
+    const session = agent.create(s.id);
+    const grep = () =>
+      faux.setResponses([
+        pi.ai.fauxAssistantMessage([pi.ai.fauxToolCall("grep", { pattern: "title" })], { stopReason: "toolUse" }),
+        pi.ai.fauxAssistantMessage("done"),
+      ]);
+    const grepResults = () =>
+      events.flatMap((e) =>
+        e.type === "pi" && e.event.type === "tool_execution_end" && e.event.toolName === "grep"
+          ? [JSON.stringify(e.event.result)]
+          : [],
+      );
+
+    grep();
+    let done = settled(session.id);
+    await agent.send(session.id, "Search");
+    await done;
+    expect(asked).toBe(1);
+    expect(grepResults()[0]).toContain("failed its check");
+
+    ready = true;
+    grep();
+    done = settled(session.id);
+    await agent.send(session.id, "Search again");
+    await done;
+    expect(asked).toBe(2);
+    expect(grepResults()[1]).not.toContain("failed its check");
   });
 
   it("ignores Pi and agent files committed in the site", async () => {

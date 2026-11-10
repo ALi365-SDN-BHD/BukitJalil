@@ -28,8 +28,8 @@ export interface ToolOptions {
   /** The working copy; the session's cwd. */
   cwd: string;
   gate: PathGate;
-  /** rg installed by BukitJalil (plan 6.3); grep is refused while it is missing. */
-  rgPath: string;
+  /** BukitJalil's pinned rg is installed and verified (plan 6.3); grep is refused otherwise. */
+  rgReady: () => boolean;
   /** Entries find looks at before it stops; MAX_WALK by default. */
   maxWalk?: number;
 }
@@ -44,16 +44,6 @@ export function checkToolPath(value: unknown): void {
   const lower = value.trimStart().toLowerCase();
   if (lower.startsWith("@") || lower.startsWith("~") || lower.startsWith("file:") || UNICODE_SPACES.test(value)) {
     throw new GateError(`Path not allowed: ${value}. Use a path relative to the working directory.`);
-  }
-}
-
-/** rg exists as an executable file where BukitJalil installs it. */
-export function rgInstalled(rgPath: string): boolean {
-  try {
-    const st = fs.lstatSync(rgPath);
-    return st.isFile() && (process.platform === "win32" || (st.mode & 0o111) !== 0);
-  } catch {
-    return false;
   }
 }
 
@@ -189,7 +179,9 @@ export function createGatedTools({ pi }: PiModules, opts: ToolOptions): ToolDefi
   const grepExecute = grep.execute.bind(grep);
   grep.execute = async (id, params, ...rest) => {
     checkToolPath(params.path);
-    if (!rgInstalled(opts.rgPath)) throw new GateError("The search tool (rg) is not installed yet; use find and read");
+    if (!opts.rgReady()) {
+      throw new GateError("The search tool (rg) is not installed or failed its check; use find and read");
+    }
     // Leave .git out of the search itself, so its lines do not use up the match limit; lines are still
     // filtered below for searches that bring their own glob.
     const result = await grepExecute(id, { ...params, glob: params.glob ?? NO_GIT_GLOB }, ...rest);

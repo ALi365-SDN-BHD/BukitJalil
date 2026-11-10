@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import type { InstallProgress } from "@bukitjalil/shared";
 
 /**
  * Bukit 2.0.11 install (plan 8.1): official package for this platform, SHA-256 pinned in code (the
@@ -46,15 +47,12 @@ export function packageForPlatform(
 
 export const packageUrl = (pkg: BukitPackage) => `${RELEASE_URL}/${pkg.file}`;
 
+/** Why an install failed; the codes are the shared InstallProgress ones. */
+export type InstallFailure = Extract<InstallProgress, { state: "failed" }>["code"];
+
 export class InstallError extends Error {
   constructor(
-    readonly code:
-      | "unsupported_platform"
-      | "download_failed"
-      | "checksum_mismatch"
-      | "bad_archive"
-      | "too_large"
-      | "install_failed",
+    readonly code: InstallFailure,
     message: string,
   ) {
     super(message);
@@ -134,10 +132,14 @@ export function verifySha256(data: Buffer, expected: string): void {
 
 /**
  * Read a .tar.gz and return its files. Only regular files whose normalized names are exactly `allowed`
- * are accepted, plus the "./" directory entry; links, devices, pax/GNU extension headers, absolute
- * paths, "..", duplicates and missing files all fail.
+ * are accepted, plus the "./" directory entry and the directories in `dirs`; links, devices, pax/GNU
+ * extension headers, absolute paths, "..", duplicates and missing files all fail.
  */
-export function readStrictTarGz(data: Buffer, allowed: readonly string[]): Map<string, { mode: number; data: Buffer }> {
+export function readStrictTarGz(
+  data: Buffer,
+  allowed: readonly string[],
+  dirs: readonly string[] = [],
+): Map<string, { mode: number; data: Buffer }> {
   let tar: Buffer;
   try {
     tar = zlib.gunzipSync(data, { maxOutputLength: MAX_UNPACKED });
@@ -167,7 +169,8 @@ export function readStrictTarGz(data: Buffer, allowed: readonly string[]): Map<s
     const normalized = segments.join("/");
 
     if (type === "5") {
-      if (normalized !== "") throw new InstallError("bad_archive", `unexpected directory: ${full}`);
+      if (normalized !== "" && !dirs.includes(normalized))
+        throw new InstallError("bad_archive", `unexpected directory: ${full}`);
     } else if (type === "0" || type === "\0") {
       if (!allowed.includes(normalized)) throw new InstallError("bad_archive", `unexpected file: ${full}`);
       if (files.has(normalized)) throw new InstallError("bad_archive", `duplicate entry: ${full}`);
@@ -203,6 +206,69 @@ export function installFiles(
   } catch (err) {
     fs.rmSync(staging, { recursive: true, force: true });
     throw err;
+  }
+}
+
+/**
+ * Write one file next to `target` and move it into place with one rename (e.g. ~/.bukitjalil/pi/bin/rg).
+ * A directory in the way is removed first, since a rename cannot replace it.
+ */
+export function installFile(data: Buffer, target: string, mode: number): void {
+  const parent = path.dirname(target);
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  const staging = path.join(parent, `.staging-${path.basename(target)}-${crypto.randomBytes(6).toString("hex")}`);
+  try {
+    fs.writeFileSync(staging, data, { mode, flag: "wx" });
+    fs.chmodSync(staging, mode);
+    if (fs.lstatSync(target, { throwIfNoEntry: false })?.isDirectory()) fs.rmSync(target, { recursive: true });
+    fs.renameSync(staging, target);
+  } catch (err) {
+    fs.rmSync(staging, { force: true });
+    throw err;
+  }
+}
+
+/**
+ * One install at a time, its progress read by polling (`progress`). The task reports download progress
+ * and throws an InstallError to fail; when it returns, the job is done.
+ */
+export class InstallJob {
+  progress: InstallProgress = { state: "idle" };
+  private running: Promise<void> | null = null;
+
+  constructor(private readonly task: (report: (progress: InstallProgress) => void) => Promise<void>) {}
+
+  get busy(): boolean {
+    return this.running !== null;
+  }
+
+  /** Start installing; returns false if an install is already running. */
+  start(): boolean {
+    if (this.running) return false;
+    this.progress = { state: "downloading", received: 0, total: null };
+    this.running = this.task((progress) => {
+      this.progress = progress;
+    })
+      .then(
+        () => {
+          this.progress = { state: "done" };
+        },
+        (err: unknown) => {
+          this.progress =
+            err instanceof InstallError
+              ? { state: "failed", code: err.code, message: err.message }
+              : { state: "failed", code: "install_failed", message: (err as Error).message };
+        },
+      )
+      .finally(() => {
+        this.running = null;
+      });
+    return true;
+  }
+
+  /** Resolves when the current install (if any) has finished. */
+  async wait(): Promise<void> {
+    await this.running;
   }
 }
 

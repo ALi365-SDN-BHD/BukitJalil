@@ -3,6 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { RgService } from "../src/agent/rg.ts";
 import { createAdminApp } from "../src/app.ts";
 import { BuildService } from "../src/builds/service.ts";
 import { BukitService } from "../src/bukit/locate.ts";
@@ -31,6 +32,7 @@ export function makeApp(
     checkGit?: () => Promise<GitHealth>;
     logger?: Logger;
     bukit?: BukitService;
+    rg?: RgService;
     /** App data directory; a fresh temp directory by default. */
     appHome?: string;
     /** Home directory for the directory picker and location rules. */
@@ -49,6 +51,7 @@ export function makeApp(
       customPath: () => null,
       envPath: "",
     });
+  const rg = overrides.rg ?? new RgService({ piBin: paths.piBin });
   const git = new GitRunner({
     gitPath: resolveGitPath() ?? "/nonexistent/git",
     home: paths.home,
@@ -80,6 +83,7 @@ export function makeApp(
     webDist: overrides.webDist ?? null,
     checkGit: overrides.checkGit ?? (async () => ({ ok: true, version: "2.45.0", problem: null })),
     bukit,
+    rg,
     sites,
     panels: new PanelService({ git, sites }),
     builds,
@@ -88,7 +92,7 @@ export function makeApp(
     version: "test",
     logger,
   });
-  return { app, db, loginToken, sites, paths, git, builds, previews, locks };
+  return { app, db, loginToken, sites, paths, git, builds, previews, locks, rg };
 }
 
 /** Build a request as the browser would send it to the admin port. */

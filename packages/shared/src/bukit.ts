@@ -14,7 +14,8 @@ export interface BukitStatus {
   installable: boolean;
 }
 
-export type BukitInstallProgress =
+/** Progress of a download-and-install job (Bukit, rg), polled from its GET endpoint. */
+export type InstallProgress =
   | { state: "idle" }
   | { state: "downloading"; received: number; total: number | null }
   | { state: "verifying" }
@@ -34,5 +35,5 @@ export type BukitInstallProgress =
 
 export interface BukitResponse {
   status: BukitStatus;
-  install: BukitInstallProgress;
+  install: InstallProgress;
 }

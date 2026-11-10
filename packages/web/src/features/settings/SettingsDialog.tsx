@@ -1,4 +1,4 @@
-import type { BukitResponse, Settings } from "@bukitjalil/shared";
+import type { InstallProgress, Settings } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -11,7 +11,7 @@ import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { formatSize } from "@/lib/format";
 
-/** Settings (plan 10.1): commit identity, Bukit status and install, custom Bukit path. */
+/** Settings (plan 10.1): commit identity, Bukit status and install, custom Bukit path, rg status and install. */
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { m } = useI18n();
   return (
@@ -65,6 +65,7 @@ function SettingsForm() {
     >
       <IdentityFields draft={{ name: draft.name, email: draft.email }} onChange={(d) => setDraft({ ...draft, ...d })} />
       <BukitSection />
+      <RgSection />
       <Field label={m.settings.customPath} htmlFor="bukit-path" hint={m.settings.customPathHint}>
         <Input
           id="bukit-path"
@@ -90,11 +91,11 @@ function SettingsForm() {
   );
 }
 
-const installing = (b: BukitResponse | undefined) =>
+const installing = (b: { install: InstallProgress } | undefined) =>
   b?.install.state === "downloading" || b?.install.state === "verifying";
 
 function BukitSection() {
-  const { m, t, errorOf, locale } = useI18n();
+  const { m, t, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const bukit = useQuery({
     queryKey: keys.bukit,
@@ -105,7 +106,6 @@ function BukitSection() {
     mutationFn: api.installBukit,
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.bukit }),
   });
-  const [confirming, setConfirming] = useState(false);
 
   if (bukit.isPending) return <p className="text-sm text-muted-foreground">{m.common.loading}</p>;
   if (bukit.error)
@@ -122,6 +122,97 @@ function BukitSection() {
   });
   const tone = status.state === "ok" ? "ok" : status.state === "old" ? "warn" : "error";
 
+  return (
+    <section className="flex flex-col gap-2 rounded-md border p-3" data-testid="bukit-section">
+      <h3 className="text-sm font-medium">{s.bukit}</h3>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={tone} data-testid="bukit-state">
+          {stateText}
+        </Badge>
+        {status.path && <code className="truncate text-xs text-muted-foreground">{status.path}</code>}
+      </div>
+      {status.customProblem && <p className="text-xs text-amber-700 dark:text-amber-400">{s.customProblem}</p>}
+      <InstallControl
+        progress={progress}
+        offer={status.installable && status.state !== "ok"}
+        label={s.install}
+        confirm={s.installConfirm}
+        mutation={install}
+        testId="bukit-install"
+      />
+    </section>
+  );
+}
+
+/** ripgrep for the AI's grep tool (plan 6.3): pinned version, checked by SHA-256. */
+function RgSection() {
+  const { m, t, errorOf } = useI18n();
+  const queryClient = useQueryClient();
+  const rg = useQuery({
+    queryKey: keys.rg,
+    queryFn: api.rg,
+    refetchInterval: (q) => (installing(q.state.data) ? 1000 : false),
+  });
+  const install = useMutation({
+    mutationFn: api.installRg,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.rg }),
+  });
+
+  if (rg.isPending) return <p className="text-sm text-muted-foreground">{m.common.loading}</p>;
+  if (rg.error)
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        {errorOf(rg.error)}
+      </p>
+    );
+  const { status, install: progress } = rg.data;
+  const s = m.settings;
+  const state = status.installable ? status.state : "unsupported";
+  return (
+    <section className="flex flex-col gap-2 rounded-md border p-3" data-testid="rg-section">
+      <h3 className="text-sm font-medium">{s.rg}</h3>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={state === "ok" ? "ok" : state === "missing" ? "warn" : "error"} data-testid="rg-state">
+          {t(s.rgState[state], { version: status.version })}
+        </Badge>
+      </div>
+      {state !== "ok" && (
+        <p className="text-xs text-muted-foreground">{status.installable ? s.rgHint : s.rgUnavailable}</p>
+      )}
+      <InstallControl
+        progress={progress}
+        offer={status.installable && status.state !== "ok"}
+        label={t(s.rgInstall, { version: status.version })}
+        confirm={t(s.rgInstallConfirm, { version: status.version })}
+        mutation={install}
+        testId="rg-install"
+      />
+    </section>
+  );
+}
+
+/** Install progress, then a button that asks once before it starts the download. */
+function InstallControl({
+  progress,
+  offer,
+  label,
+  confirm,
+  mutation,
+  testId,
+}: {
+  progress: InstallProgress;
+  /** Show the install button: a package exists and the installed copy is missing or wrong. */
+  offer: boolean;
+  label: string;
+  confirm: string;
+  mutation: { mutate: () => void; isPending: boolean; error: unknown };
+  testId: string;
+}) {
+  const { m, t, errorOf, locale } = useI18n();
+  const [confirming, setConfirming] = useState(false);
+  const s = m.settings;
+  const busy = installing({ install: progress });
+
   let progressText: string | null = null;
   if (progress.state === "downloading")
     progressText = t(s.downloading, {
@@ -135,40 +226,35 @@ function BukitSection() {
   else if (progress.state === "failed") progressText = t(s.installFailed, { message: progress.message });
 
   return (
-    <section className="flex flex-col gap-2 rounded-md border p-3" data-testid="bukit-section">
-      <h3 className="text-sm font-medium">{s.bukit}</h3>
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={tone} data-testid="bukit-state">
-          {stateText}
-        </Badge>
-        {status.path && <code className="truncate text-xs text-muted-foreground">{status.path}</code>}
-      </div>
-      {status.customProblem && <p className="text-xs text-amber-700 dark:text-amber-400">{s.customProblem}</p>}
+    <>
       {progressText && (
-        <p className={`text-xs ${progress.state === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
+        <p
+          className={`text-xs ${progress.state === "failed" ? "text-destructive" : "text-muted-foreground"}`}
+          data-testid={`${testId}-progress`}
+        >
           {progressText}
         </p>
       )}
-      {install.error && (
+      {mutation.error != null && (
         <p role="alert" className="text-xs text-destructive">
-          {errorOf(install.error)}
+          {errorOf(mutation.error)}
         </p>
       )}
-      {status.installable &&
-        status.state !== "ok" &&
+      {offer &&
         (confirming ? (
           <div className="flex flex-col gap-2 rounded-md bg-muted/50 p-2 text-xs">
-            <p>{s.installConfirm}</p>
+            <p>{confirm}</p>
             <div className="flex gap-2">
               <Button
                 type="button"
                 size="xs"
                 onClick={() => {
                   setConfirming(false);
-                  install.mutate();
+                  mutation.mutate();
                 }}
+                data-testid={`${testId}-confirm`}
               >
-                {s.install}
+                {label}
               </Button>
               <Button type="button" size="xs" variant="ghost" onClick={() => setConfirming(false)}>
                 {m.common.cancel}
@@ -181,14 +267,14 @@ function BukitSection() {
             size="sm"
             variant="outline"
             className="self-start"
-            disabled={installing(bukit.data) || install.isPending}
+            disabled={busy || mutation.isPending}
             onClick={() => setConfirming(true)}
-            data-testid="bukit-install"
+            data-testid={testId}
           >
-            {installing(bukit.data) ? <Loader2 className="animate-spin" /> : <Download />}
-            {s.install}
+            {busy ? <Loader2 className="animate-spin" /> : <Download />}
+            {label}
           </Button>
         ))}
-    </section>
+    </>
   );
 }

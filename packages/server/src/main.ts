@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/shared";
 import { serve } from "@hono/node-server";
 import { preparePiEnvironment } from "./agent/env.ts";
+import { RgService } from "./agent/rg.ts";
 import { AgentService } from "./agent/service.ts";
 import { createAdminApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
@@ -100,7 +101,8 @@ const panels = new PanelService({ git, sites });
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
 const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
 // No model until model settings exist; sending a message answers agent.no_model.
-const agent = new AgentService({ db, paths, sites, logger, resolveModel: () => undefined });
+const rg = new RgService({ piBin: paths.piBin });
+const agent = new AgentService({ db, paths, sites, logger, resolveModel: () => undefined, rgReady: () => rg.ready() });
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
@@ -115,6 +117,7 @@ const app = createAdminApp({
   checkGit: () =>
     gitPath ? checkGit(gitPath) : Promise.resolve({ ok: false, version: null, problem: "missing" as const }),
   bukit,
+  rg,
   sites,
   panels,
   builds,

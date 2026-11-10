@@ -277,6 +277,10 @@ test("settings show Bukit and the identity; dialogs start empty each time", asyn
   await expect(page.getByTestId("bukit-state")).toContainText("2.0.11");
   await expect(page.locator("#commit-name")).toHaveValue("E2E Tester");
   await expect(page.locator("#bukit-path")).toHaveValue(bukitBin);
+  // A fresh app home has no rg yet: the dialog offers the pinned version and asks before downloading.
+  await expect(page.getByTestId("rg-state")).toContainText("ripgrep");
+  await page.getByTestId("rg-install").click();
+  await expect(page.getByTestId("rg-install-confirm")).toContainText("15.2.0");
   await page.keyboard.press("Escape");
 
   await page.getByTestId("new-site").click();

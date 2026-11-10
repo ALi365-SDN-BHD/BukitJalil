@@ -266,6 +266,18 @@ const en: Messages = {
     verifying: "Verifying…",
     installDone: "Installed",
     installFailed: "Install failed: {message}",
+    rg: "Search tool (ripgrep)",
+    rgState: {
+      ok: "ripgrep {version} installed and verified",
+      missing: "ripgrep is not installed",
+      mismatch: "The installed ripgrep does not match {version}'s checksum",
+      unsupported: "No pinned ripgrep package for this platform",
+    },
+    rgHint: "Until it is installed, the AI cannot use grep; it searches with find and read instead.",
+    rgUnavailable: "The AI cannot use grep on this platform; it searches with find and read instead.",
+    rgInstall: "Download and install ripgrep {version}",
+    rgInstallConfirm:
+      "Downloads the official ripgrep {version} package from GitHub, verifies its SHA-256 and installs rg in the app folder.",
     customPath: "Custom Bukit path",
     customPathHint: "Leave empty to use the app's copy or the one on PATH",
   },
@@ -319,6 +331,8 @@ const en: Messages = {
     "panel.too_large": "The file is too large (limit {max} bytes)",
     "session.not_found": "The conversation does not exist",
     "agent.no_model": "No AI model is set up yet. Choose a model and enter an API key in Settings first",
+    "rg.install_running": "ripgrep is already being installed",
+    "rg.unsupported_platform": "There is no pinned ripgrep package for this platform",
   },
 };
 

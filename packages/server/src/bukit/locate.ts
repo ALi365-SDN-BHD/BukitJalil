@@ -1,12 +1,13 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { BukitInstallProgress, BukitSource, BukitStatus } from "@bukitjalil/shared";
+import type { BukitSource, BukitStatus } from "@bukitjalil/shared";
 import { versionAtLeast } from "../git/version.ts";
+import { runProbe } from "../probe.ts";
 import {
   BUKIT_VERSION,
   download,
   InstallError,
+  InstallJob,
   installFiles,
   packageForPlatform,
   packageUrl,
@@ -41,29 +42,15 @@ function findOnPath(envPath: string): string | null {
 }
 
 /** `bukit version` with a minimal environment; null if it cannot run or prints no version. */
-export function probeBukitVersion(bukitPath: string, tmpDir: string): Promise<string | null> {
+export async function probeBukitVersion(bukitPath: string, tmpDir: string): Promise<string | null> {
   fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
-  return new Promise((resolve) => {
-    let out = "";
-    const child = spawn(bukitPath, ["version"], {
-      env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", TMPDIR: tmpDir, DOTNET_CLI_TELEMETRY_OPTOUT: "1" },
-      stdio: ["ignore", "pipe", "ignore"],
-      shell: false,
-    });
-    const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (d: string) => {
-      if (out.length < 64 * 1024) out += d;
-    });
-    child.on("error", () => {
-      clearTimeout(timer);
-      resolve(null);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve(code === 0 ? parseBukitVersion(out) : null);
-    });
+  const result = await runProbe(bukitPath, ["version"], {
+    PATH: "/usr/bin:/bin",
+    LANG: "C.UTF-8",
+    TMPDIR: tmpDir,
+    DOTNET_CLI_TELEMETRY_OPTOUT: "1",
   });
+  return result.ok ? parseBukitVersion(result.stdout) : null;
 }
 
 export function versionState(version: string): "ok" | "old" | "unsupported" {
@@ -115,75 +102,33 @@ export async function locateBukit(opts: {
 
 // --- install job, polled through GET /api/bukit ---
 
-/** One install at a time; progress is read by polling (`progress`). */
-export class BukitInstaller {
-  progress: BukitInstallProgress = { state: "idle" };
-  private running: Promise<void> | null = null;
-
-  constructor(
-    private readonly opts: { home: string; tmpDir: string; fetchImpl?: typeof fetch; platform?: string; arch?: string },
-  ) {}
-
-  get busy(): boolean {
-    return this.running !== null;
-  }
-
-  /** Start installing; returns false if an install is already running. */
-  start(): boolean {
-    if (this.running) return false;
-    this.running = this.install().finally(() => {
-      this.running = null;
-    });
-    return true;
-  }
-
-  /** Resolves when the current install (if any) has finished. */
-  async wait(): Promise<void> {
-    await this.running;
-  }
-
-  private async install(): Promise<void> {
-    const pkg = packageForPlatform(this.opts.platform, this.opts.arch);
-    if (!pkg) {
-      this.progress = {
-        state: "failed",
-        code: "unsupported_platform",
-        message: "no official Bukit package for this platform",
-      };
-      return;
+/** Download, verify and install the official Bukit package for this platform. */
+export function bukitInstaller(opts: {
+  home: string;
+  tmpDir: string;
+  fetchImpl?: typeof fetch;
+  platform?: string;
+  arch?: string;
+}): InstallJob {
+  return new InstallJob(async (report) => {
+    const pkg = packageForPlatform(opts.platform, opts.arch);
+    if (!pkg) throw new InstallError("unsupported_platform", "no official Bukit package for this platform");
+    const data = await download(
+      packageUrl(pkg),
+      (received, total) => report({ state: "downloading", received, total }),
+      opts.fetchImpl,
+    );
+    report({ state: "verifying" });
+    verifySha256(data, pkg.sha256);
+    const files = readStrictTarGz(data, pkg.files);
+    const target = appBukitDir(opts.home);
+    installFiles(files, target, pkg.executable);
+    const version = await probeBukitVersion(path.join(target, pkg.executable), opts.tmpDir);
+    if (version !== BUKIT_VERSION) {
+      fs.rmSync(target, { recursive: true, force: true });
+      throw new InstallError("verify_failed", `bukit version printed ${version ?? "nothing"}`);
     }
-    try {
-      this.progress = { state: "downloading", received: 0, total: null };
-      const data = await download(
-        packageUrl(pkg),
-        (received, total) => {
-          this.progress = { state: "downloading", received, total };
-        },
-        this.opts.fetchImpl,
-      );
-      this.progress = { state: "verifying" };
-      verifySha256(data, pkg.sha256);
-      const files = readStrictTarGz(data, pkg.files);
-      const target = appBukitDir(this.opts.home);
-      installFiles(files, target, pkg.executable);
-      const version = await probeBukitVersion(path.join(target, pkg.executable), this.opts.tmpDir);
-      if (version !== BUKIT_VERSION) {
-        fs.rmSync(target, { recursive: true, force: true });
-        this.progress = {
-          state: "failed",
-          code: "verify_failed",
-          message: `bukit version printed ${version ?? "nothing"}`,
-        };
-        return;
-      }
-      this.progress = { state: "done" };
-    } catch (err) {
-      this.progress =
-        err instanceof InstallError
-          ? { state: "failed", code: err.code, message: err.message }
-          : { state: "failed", code: "install_failed", message: (err as Error).message };
-    }
-  }
+  });
 }
 
 /**
@@ -191,7 +136,7 @@ export class BukitInstaller {
  * probe starts a process. Call `invalidate()` after the custom path changes; an install does it itself.
  */
 export class BukitService {
-  readonly installer: BukitInstaller;
+  readonly installer: InstallJob;
   private cached: Promise<BukitStatus> | null = null;
 
   constructor(
@@ -203,7 +148,7 @@ export class BukitService {
       fetchImpl?: typeof fetch;
     },
   ) {
-    this.installer = new BukitInstaller({ home: opts.home, tmpDir: opts.tmpDir, fetchImpl: opts.fetchImpl });
+    this.installer = bukitInstaller({ home: opts.home, tmpDir: opts.tmpDir, fetchImpl: opts.fetchImpl });
   }
 
   status(): Promise<BukitStatus> {

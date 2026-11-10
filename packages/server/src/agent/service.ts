@@ -32,6 +32,8 @@ export interface AgentServiceOptions {
   resolveModel: (runtime: ModelRuntime, pi: PiModules) => Model<Api> | undefined;
   /** Called once on the new model runtime (tests register a fake provider). */
   setupRuntime?: (runtime: ModelRuntime, pi: PiModules) => void;
+  /** BukitJalil's rg is installed and verified; grep is refused otherwise (plan 6.3). */
+  rgReady: () => boolean;
   /** Dispose an unused AgentSession after this long; its file stays (plan 6.2). */
   idleMs?: number;
 }
@@ -338,7 +340,7 @@ export class AgentService {
       customTools: createGatedTools(pi, {
         cwd,
         gate: new PathGate(cwd),
-        rgPath: path.join(this.opts.paths.piBin, process.platform === "win32" ? "rg.exe" : "rg"),
+        rgReady: this.opts.rgReady,
       }),
       resourceLoader,
       sessionManager,

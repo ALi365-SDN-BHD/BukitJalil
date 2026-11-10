@@ -53,6 +53,8 @@ export const errorCodes = [
   "panel.too_large",
   "session.not_found",
   "agent.no_model",
+  "rg.install_running",
+  "rg.unsupported_platform",
 ] as const;
 
 export const ErrorCode = z.enum(errorCodes);

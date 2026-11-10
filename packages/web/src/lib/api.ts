@@ -17,6 +17,7 @@ import {
   type ImportSiteRequest,
   type PanelRef,
   type PreviewResponse,
+  type RgResponse,
   Settings,
   type SettingsPatch,
   type Site,
@@ -73,6 +74,8 @@ export const api = {
   identity: () => request<GitIdentityResponse>("/git/identity"),
   bukit: () => request<BukitResponse>("/bukit"),
   installBukit: () => post<unknown>("/bukit/install"),
+  rg: () => request<RgResponse>("/rg"),
+  installRg: () => post<unknown>("/rg/install"),
   dirs: (path: string | null, hidden = false) =>
     request<FsDirsResponse>(`/fs/dirs?${query({ ...(path ? { path } : {}), ...(hidden ? { hidden: "1" } : {}) })}`),
 
@@ -112,4 +115,5 @@ export const keys = {
   panel: (id: string, panel: string, ...rest: string[]) => ["panel", id, panel, ...rest] as const,
   builds: (id: string) => ["builds", id] as const,
   bukit: ["bukit"] as const,
+  rg: ["rg"] as const,
 };

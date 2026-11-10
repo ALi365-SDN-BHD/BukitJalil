@@ -21,11 +21,12 @@ import {
   readStrictTarGz,
   verifySha256,
 } from "../src/bukit/install.ts";
-import { appBukitDir, BukitInstaller, BukitService, locateBukit, versionState } from "../src/bukit/locate.ts";
+import { appBukitDir, BukitService, bukitInstaller, locateBukit, versionState } from "../src/bukit/locate.ts";
 import { BukitRunner, buildOutcome, checkPassed, parseBukitVersion, parseJsonLog } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
 import { commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
+import { tarEntry, tgz } from "./tar.ts";
 
 // Optional real-Bukit inputs: BUKIT_TARBALL (the official package for this platform) and BUKIT_BIN.
 const REAL_TARBALL = process.env.BUKIT_TARBALL;
@@ -411,26 +412,6 @@ describe("BukitRunner", () => {
 // --- install ---
 
 /** One ustar entry. */
-function tarEntry(name: string, data: Buffer | string, type = "0", mode = 0o755, prefix = ""): Buffer {
-  const body = Buffer.from(data);
-  const h = Buffer.alloc(512);
-  h.write(name, 0, 100, "utf8");
-  h.write(`${mode.toString(8).padStart(7, "0")}\0`, 100);
-  h.write("0000000\0", 108);
-  h.write("0000000\0", 116);
-  h.write(`${body.length.toString(8).padStart(11, "0")}\0`, 124);
-  h.write("00000000000\0", 136);
-  h.write("        ", 148);
-  h.write(type, 156);
-  h.write("ustar\0", 257);
-  h.write("00", 263);
-  h.write(prefix, 345, 155, "utf8");
-  let sum = 0;
-  for (const b of h) sum += b;
-  h.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148);
-  return Buffer.concat([h, body, Buffer.alloc((512 - (body.length % 512)) % 512)]);
-}
-const tgz = (...entries: Buffer[]) => zlib.gzipSync(Buffer.concat([...entries, Buffer.alloc(1024)]));
 const FILES = ["bukit", "libSkiaSharp.dylib"];
 const good = () => [
   tarEntry("./", "", "5"),
@@ -543,9 +524,9 @@ describe("install steps", () => {
   });
 });
 
-describe("BukitInstaller", () => {
+describe("bukitInstaller", () => {
   it("fails on an unsupported platform", async () => {
-    const inst = new BukitInstaller({ home: path.join(base, "i1"), tmpDir, platform: "darwin", arch: "x64" });
+    const inst = bukitInstaller({ home: path.join(base, "i1"), tmpDir, platform: "darwin", arch: "x64" });
     inst.start();
     await inst.wait();
     expect(inst.progress).toMatchObject({ state: "failed", code: "unsupported_platform" });
@@ -554,7 +535,7 @@ describe("BukitInstaller", () => {
   it("refuses a package with the wrong checksum and installs nothing", async () => {
     const home = path.join(base, "i2");
     const fetchImpl = (async () => new Response(tgz(...good()))) as typeof fetch;
-    const inst = new BukitInstaller({ home, tmpDir, fetchImpl, platform: "darwin", arch: "arm64" });
+    const inst = bukitInstaller({ home, tmpDir, fetchImpl, platform: "darwin", arch: "arm64" });
     expect(inst.start()).toBe(true);
     expect(inst.start()).toBe(false);
     await inst.wait();
@@ -567,7 +548,7 @@ describe("BukitInstaller", () => {
     fs.mkdirSync(home);
     fs.writeFileSync(path.join(home, "bin"), "not a directory");
     const data = fs.readFileSync(REAL_TARBALL as string);
-    const inst = new BukitInstaller({ home, tmpDir, fetchImpl: (async () => new Response(data)) as typeof fetch });
+    const inst = bukitInstaller({ home, tmpDir, fetchImpl: (async () => new Response(data)) as typeof fetch });
     inst.start();
     await inst.wait();
     expect(inst.progress).toMatchObject({ state: "failed", code: "install_failed" });
@@ -580,7 +561,7 @@ describe("BukitInstaller", () => {
       const data = fs.readFileSync(REAL_TARBALL as string);
       const fetchImpl = (async () =>
         new Response(data, { headers: { "content-length": String(data.length) } })) as typeof fetch;
-      const inst = new BukitInstaller({ home, tmpDir, fetchImpl });
+      const inst = bukitInstaller({ home, tmpDir, fetchImpl });
       inst.start();
       await inst.wait();
       expect(inst.progress).toEqual({ state: "done" });

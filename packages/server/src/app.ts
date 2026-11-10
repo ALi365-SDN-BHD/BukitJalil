@@ -1,9 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { type BukitResponse, type HealthResponse, SettingsPatch, sessionCookieName } from "@bukitjalil/shared";
+import {
+  type BukitResponse,
+  type HealthResponse,
+  type RgResponse,
+  SettingsPatch,
+  sessionCookieName,
+} from "@bukitjalil/shared";
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
+import type { RgService } from "./agent/rg.ts";
 import { buildRoutes } from "./api/builds.ts";
 import { panelRoutes } from "./api/panels.ts";
 import { siteRoutes } from "./api/sites.ts";
@@ -33,6 +40,7 @@ export interface AdminAppOptions {
   webDist: string | null;
   checkGit: () => Promise<GitHealth>;
   bukit: BukitService;
+  rg: RgService;
   sites: SiteService;
   panels: PanelService;
   builds: BuildService;
@@ -135,6 +143,17 @@ export function createAdminApp(opts: AdminAppOptions) {
     if (!(await opts.bukit.status()).installable) return apiError(c, 400, "bukit.unsupported_platform");
     if (!opts.bukit.install()) return apiError(c, 409, "bukit.install_running");
     return c.json({ install: opts.bukit.installer.progress }, 202);
+  });
+
+  // ripgrep for the AI's grep tool (plan 6.3): pinned version, checked by SHA-256, installed on request.
+  api.get("/rg", (c) => {
+    const body: RgResponse = { status: opts.rg.status(), install: opts.rg.installer.progress };
+    return c.json(body);
+  });
+  api.post("/rg/install", (c) => {
+    if (!opts.rg.status().installable) return apiError(c, 400, "rg.unsupported_platform");
+    if (!opts.rg.installer.start()) return apiError(c, 409, "rg.install_running");
+    return c.json({ install: opts.rg.installer.progress }, 202);
   });
 
   siteRoutes(api, { sites: opts.sites, builds: opts.builds, readIdentity: opts.readIdentity, userHome: opts.userHome });

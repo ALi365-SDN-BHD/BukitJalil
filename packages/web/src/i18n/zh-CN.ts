@@ -261,6 +261,17 @@ const zhCN = {
     verifying: "正在校验…",
     installDone: "安装完成",
     installFailed: "安装失败：{message}",
+    rg: "搜索工具（ripgrep）",
+    rgState: {
+      ok: "ripgrep {version} 已安装并通过校验",
+      missing: "没有安装 ripgrep",
+      mismatch: "已安装的 ripgrep 和 {version} 的校验值不一致",
+      unsupported: "当前平台没有固定版本的 ripgrep 安装包",
+    },
+    rgHint: "安装前 AI 不能使用 grep，只能用 find 和 read 查找内容。",
+    rgUnavailable: "这个平台上 AI 不能使用 grep，只能用 find 和 read 查找内容。",
+    rgInstall: "下载安装 ripgrep {version}",
+    rgInstallConfirm: "将从 GitHub 下载官方 ripgrep {version} 安装包，校验 SHA-256 后把 rg 安装到应用目录。",
     customPath: "自定义 Bukit 路径",
     customPathHint: "留空则使用应用安装的或 PATH 里的 Bukit",
   },
@@ -313,6 +324,8 @@ const zhCN = {
     "panel.too_large": "文件太大（上限 {max} 字节）",
     "session.not_found": "对话不存在",
     "agent.no_model": "还没有设置 AI 模型，请先在设置里选择模型并填写 API Key",
+    "rg.install_running": "ripgrep 正在安装中",
+    "rg.unsupported_platform": "当前平台没有固定版本的 ripgrep 安装包",
   },
 };
 

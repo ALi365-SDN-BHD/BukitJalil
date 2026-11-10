@@ -181,7 +181,11 @@ describe("gated tools", () => {
 
   beforeAll(() => {
     rgPath = path.join(piDir, "bin", "rg");
-    const list = createGatedTools(pi, { cwd: worktree, gate: new PathGate(worktree, [skills]), rgPath });
+    const list = createGatedTools(pi, {
+      cwd: worktree,
+      gate: new PathGate(worktree, [skills]),
+      rgReady: () => fs.existsSync(rgPath),
+    });
     tools = Object.fromEntries(list.map((t) => [t.name, t]));
   });
 
@@ -296,7 +300,11 @@ describe("gated tools", () => {
     const alias = path.join(root, "alias");
     fs.symlinkSync(path.join(root, "worktrees"), alias);
     const aliased = path.join(alias, "ai");
-    const list = createGatedTools(pi, { cwd: aliased, gate: new PathGate(aliased), rgPath });
+    const list = createGatedTools(pi, {
+      cwd: aliased,
+      gate: new PathGate(aliased),
+      rgReady: () => fs.existsSync(rgPath),
+    });
     const aliasFind = list.find((t) => t.name === "find") as ToolDefinition;
     const r = await aliasFind.execute("t", { pattern: "*.md" } as never, undefined, undefined, undefined as never);
     const text = r.content.map((c) => (c.type === "text" ? c.text : "")).join("");
@@ -309,7 +317,12 @@ describe("gated tools", () => {
     const many = path.join(worktree, "many");
     fs.mkdirSync(many);
     for (let i = 0; i <= 30; i++) fs.writeFileSync(path.join(many, `f${i}.txt`), "");
-    const small = createGatedTools(pi, { cwd: worktree, gate: new PathGate(worktree), rgPath, maxWalk: 30 });
+    const small = createGatedTools(pi, {
+      cwd: worktree,
+      gate: new PathGate(worktree),
+      rgReady: () => fs.existsSync(rgPath),
+      maxWalk: 30,
+    });
     const smallFind = small.find((t) => t.name === "find") as ToolDefinition;
     const findText = async (params: Record<string, unknown>) =>
       (await smallFind.execute("t", params as never, undefined, undefined, undefined as never)).content
