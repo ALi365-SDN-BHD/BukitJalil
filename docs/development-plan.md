@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.26（2026-11-10，写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.27（2026-11-11，M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -1228,6 +1228,28 @@ M5 分层实施（每层做完先审计、修复，再提交）：
   - 所以 deploy 的环境就是 7.3 的最小环境去掉 `GIT_CONFIG_COUNT` 一组，加上 `BUKIT_DEPLOY_TOKEN` 和提交身份，不需要另建临时 `HOME`；只在通过 8.5 检查的 `main/` 检出里执行，`TMPDIR` 指向 BukitJalil 自己的临时目录
   - 不加 `--skip-build` 时，deploy 会先在当前目录完整构建一次（实测在网站目录生成了 `dist/`）
 - 调用 `bukit deploy`，显示进度和结果；发布记录
+
+**2.0.12 发布实测（2026-11-11）**：用 starter 网站、`deploy.repo` 和一个把 `ls-remote` / `fetch` / `push` 的远程名换成本地裸仓库的 git 替身实测：
+- `site.yaml` 的 `deploy` 是顶层段，字段 `provider`（只有 `github-pages`）、`branch`、`message`、`repo`（`owner/name`，有格式校验）、`cname`、`keepHistory`
+- 构建输出已经带 `.bukit/publish-audit-report.json`（格式同 SEO 报告：`issues[]` 有 severity / code / route / message，另有 `summary`）；`bukit publish audit --dir <out>` 只读这份报告，找不到时提示先完整构建；`--output` 必须是相对路径
+- `deploy --dry-run` 打印目标仓库及来源、分支、提交说明、token 变量名；真正发布时新建 gh-pages 分支、复制输出、提交、推送，推送的内容**不含 `.bukit/`**，提交身份用传入的 `GIT_AUTHOR_*` / `GIT_COMMITTER_*`
+- Bukit 会核对临时远程的地址，`url.*.insteadOf` 或改过的地址都会让它拒绝发布，所以测试不能靠改地址，只能换网络命令里的远程名
+
+M6 分层实施（每层做完先审计、修复，再提交）：
+
+1. GitHub token：`settings/secrets.ts` 按 6.5 处理来源（`BUKITJALIL_GITHUB_TOKEN` 优先，否则 `secrets.json`，权限 600、原子写入；启动读取后从 `process.env` 删除 `BUKITJALIL_GITHUB_TOKEN` 和 `BUKITJALIL_NOTION_TOKEN`）；接口只返回来源和末四位；设置页填写、替换、删除，来自环境变量的只读。Notion token 只做来源读取和删除，界面和 Notion 构建留到之后
+2. 发布目标：读正式版本 `site.yaml` 的 `deploy`（仓库、分支、cname），接口返回目标、token 是否就绪、能否发布；没有设置时界面提供"让 AI 设置"，把预填的说明放进对话输入框，改动照常走审核；新技能 `publishing` 说明 `deploy` 段怎么写
+3. 发布服务：`deploys` 表和 `POST /api/sites/:id/deploys`。按顺序：8.5 安全检查 → `config check` → `doctor` → 在 `main/` 检出里构建到新的空目录 → `publish audit`（有错误就停）→ `deploy --skip-build --output <这个目录> --repo <deploy.repo> --branch <分支> --token-env BUKIT_DEPLOY_TOKEN`。token 和提交身份只在最后一步传；必须有 `deploy.repo`，不让 Bukit 退回去用网站仓库的 origin；同一网站一次只发布一个，和构建共用网站锁；记录每一步的结果，可以停止
+4. 发布界面：网站页的"发布"面板显示目标和 token 状态；确认对话框写明仓库、分支、要发布的版本；进度按步骤显示；发布记录带发布审计摘要和网站地址
+5. 测试和文档：真实 Bukit 加 git 替身推到本地裸仓库的单元测试、假 Bukit 的端到端测试；`docs/user-guide.md` 和 README 补发布；多语言网站 `publish.*_missing_route` 警告的结论
+6. 真实发布验收：发布到用户提供的 GitHub Pages 仓库 `3721-my/3721-my.github.io`。用户先在设置里填 token，确认后才推送；记录归档到 `docs/acceptance/`
+
+> M6 第 1 层实现说明（GitHub token）：
+> - `settings/secrets.ts` 的 `SecretStore` 在 `main.ts` 里紧跟 `ensureAppHome` 创建，早于任何子进程：读取 `BUKITJALIL_GITHUB_TOKEN`、`BUKITJALIL_NOTION_TOKEN`（去掉首尾空白，空值算没设）后立即从 `process.env` 删除。环境变量优先，界面里只读；否则用 `~/.bukitjalil/secrets.json`：先写同目录的临时文件（`wx`、600、fsync），再改名替换，启动时也收紧成 600；文件是符号链接、超过 64 KB、不是 JSON 都当作没有，保存时替换掉链接本身
+> - 接口 `GET /api/secrets`、`PUT` / `DELETE /api/secrets/github`：只返回来源、环境变量名和末四位（不超过 8 个字符的 token 不显示末四位）；来自环境变量时修改返回 409 `secret.from_environment`，其他名字 404 `secret.not_found`；token 格式同模型 Key（不含空白和控制字符，最长 4096）
+> - 设置对话框新增"GitHub token（发布用）"一节（`GitHubTokenSection.tsx`），交互同模型 Key；说明 token 只在点"发布"时交给 Bukit，需要目标仓库的 Contents 写权限
+> - Notion token 只做读取和从环境删除，界面和 Notion 构建之后再做
+> - 测试：新增 `secrets.test.ts`（环境变量优先并被删除、600 文件、链接 / 损坏 / 过大的文件、接口不返回 token、环境变量来源 409）；`e2e/sites.spec.ts` 补保存、显示末四位、删除
 
 ### M7 桌面版（4–5 天，MVP 之后）
 

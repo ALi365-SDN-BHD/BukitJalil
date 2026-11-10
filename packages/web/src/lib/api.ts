@@ -28,6 +28,8 @@ import {
   type ProviderTestResult,
   type RestoreResult,
   type RgResponse,
+  type SecretName,
+  type SecretsResponse,
   type SendMessageRequest,
   type SessionDetail,
   type SessionInfo,
@@ -145,6 +147,10 @@ export const api = {
     }),
   removeProviderKey: (provider: string) =>
     request<ProviderKey>(`/providers/${encodeURIComponent(provider)}/key`, { method: "DELETE" }),
+  secrets: () => request<SecretsResponse>("/secrets"),
+  setSecret: (name: SecretName, value: string) =>
+    request<SecretsResponse>(`/secrets/${name}`, { method: "PUT", body: JSON.stringify({ value }) }),
+  removeSecret: (name: SecretName) => request<SecretsResponse>(`/secrets/${name}`, { method: "DELETE" }),
   testProvider: (provider: string, model: string) =>
     post<ProviderTestResult>(`/providers/${encodeURIComponent(provider)}/test`, { model }),
 };
@@ -173,4 +179,5 @@ export const keys = {
   bukit: ["bukit"] as const,
   models: ["models"] as const,
   rg: ["rg"] as const,
+  secrets: ["secrets"] as const,
 };

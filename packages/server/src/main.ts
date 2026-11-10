@@ -24,6 +24,7 @@ import { PanelService } from "./panels/service.ts";
 import { ensureAppHome, resolveAppHome } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
+import { SecretStore } from "./settings/secrets.ts";
 import { SiteLocks } from "./sites/locks.ts";
 import { SiteService } from "./sites/service.ts";
 import { openDatabase } from "./store/db.ts";
@@ -74,6 +75,8 @@ if (values["dev-origin"] !== undefined) {
 }
 
 const paths = ensureAppHome(resolveAppHome());
+// Before anything starts a child process: the token variables leave process.env here (plan 6.5).
+const secrets = new SecretStore(paths.secrets);
 // Before anything can load Pi: it reads these when its modules load (plan 6.1).
 preparePiEnvironment(paths.pi);
 const logger = createLogger(paths.logs);
@@ -165,6 +168,7 @@ const app = createAdminApp({
   builds,
   agent,
   changes,
+  secrets,
   events,
   readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,

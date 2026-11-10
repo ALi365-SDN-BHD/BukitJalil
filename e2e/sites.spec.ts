@@ -270,3 +270,17 @@ test("settings show Bukit and the identity; dialogs start empty each time", asyn
   await page.getByTestId("new-site").click();
   await expect(page.locator("#site-name")).toHaveValue("");
 });
+
+test("the GitHub token is saved, shown by its last four characters and removed", async ({ page, server }) => {
+  await login(page, await server.loginUrl());
+  await page.getByTestId("open-settings").click();
+  const status = page.getByTestId("github-token-status");
+  await expect(status).toContainText(/GitHub token/i);
+  await page.getByTestId("github-token-input").fill("ghp_e2eexampletoken9876");
+  await page.getByTestId("github-token-input").press("Enter");
+  await expect(status).toContainText("9876");
+  await expect(page.getByTestId("github-token-input")).toHaveCount(0);
+  await expect(page.getByTestId("github-token-section")).not.toContainText("ghp_e2e");
+  await page.getByTestId("github-token-remove").click();
+  await expect(page.getByTestId("github-token-input")).toBeVisible();
+});

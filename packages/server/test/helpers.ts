@@ -20,6 +20,7 @@ import { PanelService } from "../src/panels/service.ts";
 import { ensureAppHome } from "../src/paths.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { LoginToken } from "../src/security/token.ts";
+import { SecretStore } from "../src/settings/secrets.ts";
 import { SiteLocks } from "../src/sites/locks.ts";
 import { SiteService } from "../src/sites/service.ts";
 import { openDatabase } from "../src/store/db.ts";
@@ -55,6 +56,8 @@ export function makeApp(
     /** Replay buffer size of the event hub. */
     replayBytes?: number;
     eventStream?: EventStreamOptions;
+    /** Environment the token store reads (and clears) its variables from. */
+    secretEnv?: NodeJS.ProcessEnv;
   } = {},
 ) {
   const db = openDatabase(":memory:");
@@ -98,6 +101,7 @@ export function makeApp(
     logger,
   });
   const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
+  const secrets = new SecretStore(paths.secrets, overrides.secretEnv ?? {});
   const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, changes, logger });
   const agent = new AgentService({
     db,
@@ -130,6 +134,7 @@ export function makeApp(
     builds,
     agent,
     changes,
+    secrets,
     events,
     eventStream: overrides.eventStream,
     modelTestTimeoutMs: overrides.modelTestTimeoutMs,
@@ -138,7 +143,23 @@ export function makeApp(
     version: "test",
     logger,
   });
-  return { app, db, loginToken, sites, paths, git, builds, previews, locks, changes, rg, bukit, agent, events };
+  return {
+    app,
+    db,
+    loginToken,
+    sites,
+    paths,
+    git,
+    builds,
+    previews,
+    locks,
+    changes,
+    rg,
+    bukit,
+    agent,
+    events,
+    secrets,
+  };
 }
 
 /** Build a request as the browser would send it to the admin port. */

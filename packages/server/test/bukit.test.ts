@@ -352,7 +352,8 @@ describe("BukitRunner", () => {
   it("stops on timeout with SIGINT first", async () => {
     const bin = fakeBukit("slow-bukit", "trap 'echo got-int; exit 130' INT\nwhile true; do sleep 0.05; done");
     const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
-    const result = await runner.run("check", [], { cwd: base, timeoutMs: 300 });
+    // Long enough for the shell to set its trap even on a busy machine (300 ms was not under a full run).
+    const result = await runner.run("check", [], { cwd: base, timeoutMs: 1500 });
     expect(result.stopped).toBe("timeout");
     expect(result.stdout).toContain("got-int");
     expect(checkPassed(result)).toBe(false);

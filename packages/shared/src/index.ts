@@ -7,6 +7,7 @@ export * from "./health.ts";
 export * from "./models.ts";
 export * from "./panels.ts";
 export * from "./rg.ts";
+export * from "./secrets.ts";
 export * from "./sessions.ts";
 export * from "./settings.ts";
 export * from "./sites.ts";

@@ -18,6 +18,7 @@ import { changeRoutes } from "./api/changes.ts";
 import { type EventStreamOptions, eventRoutes } from "./api/events.ts";
 import { modelRoutes } from "./api/models.ts";
 import { panelRoutes } from "./api/panels.ts";
+import { secretRoutes } from "./api/secrets.ts";
 import { sessionRoutes } from "./api/sessions.ts";
 import { siteRoutes } from "./api/sites.ts";
 import type { BuildService } from "./builds/service.ts";
@@ -31,6 +32,7 @@ import type { PanelService } from "./panels/service.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
 import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./security/headers.ts";
 import type { LoginToken } from "./security/token.ts";
+import type { SecretStore } from "./settings/secrets.ts";
 import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
 import { storageErrorCode } from "./storage-errors.ts";
@@ -55,6 +57,7 @@ export interface AdminAppOptions {
   builds: BuildService;
   agent: AgentService;
   changes: ChangeService;
+  secrets: SecretStore;
   /** How long a connection test waits for the model. */
   modelTestTimeoutMs?: number;
   events: EventHub;
@@ -180,6 +183,7 @@ export function createAdminApp(opts: AdminAppOptions) {
   siteRoutes(api, { sites: opts.sites, builds: opts.builds, readIdentity: opts.readIdentity, userHome: opts.userHome });
   panelRoutes(api, opts.panels);
   buildRoutes(api, opts.builds);
+  secretRoutes(api, opts.secrets);
   sessionRoutes(api, opts.agent);
   changeRoutes(api, { changes: opts.changes, agent: opts.agent, builds: opts.builds, logger: opts.logger });
   modelRoutes(

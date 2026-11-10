@@ -10,11 +10,12 @@ import { IdentityFields } from "@/features/sites/identity";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { formatSize } from "@/lib/format";
+import { GitHubTokenSection } from "./GitHubTokenSection";
 import { ModelSection } from "./ModelSection";
 
 /**
  * Settings (plan 10.1): the AI model and its key, commit identity, Bukit status and install, custom Bukit
- * path, rg status and install.
+ * path, rg status and install, the GitHub token for publishing (plan 6.5).
  */
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { m } = useI18n();
@@ -71,6 +72,7 @@ function SettingsForm() {
       <IdentityFields draft={{ name: draft.name, email: draft.email }} onChange={(d) => setDraft({ ...draft, ...d })} />
       <BukitSection />
       <RgSection />
+      <GitHubTokenSection />
       <Field label={m.settings.customPath} htmlFor="bukit-path" hint={m.settings.customPathHint}>
         <Input
           id="bukit-path"

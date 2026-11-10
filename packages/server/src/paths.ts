@@ -28,6 +28,8 @@ export interface AppPaths {
   piBin: string;
   /** Scratch space for git work that must not touch a user's directory. */
   tmp: string;
+  /** Deploy tokens set in the UI (plan 6.5), 0600. */
+  secrets: string;
 }
 
 export function ensureAppHome(home: string): AppPaths {
@@ -44,6 +46,7 @@ export function ensureAppHome(home: string): AppPaths {
     pi: path.join(home, "pi"),
     piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
+    secrets: path.join(home, "secrets.json"),
   };
   // mkdir's mode only applies to new directories, so existing ones are tightened as well. The database
   // is created empty with 0600 before SQLite opens it; SQLite gives -wal / -shm the same mode.
@@ -60,7 +63,13 @@ export function ensureAppHome(home: string): AppPaths {
   for (const file of [paths.db, paths.emptyGitConfig]) {
     if (!fs.existsSync(file)) fs.writeFileSync(file, "", { mode: 0o600 });
   }
-  for (const file of [paths.db, `${paths.db}-wal`, `${paths.db}-shm`, path.join(paths.logs, "server.log")]) {
+  for (const file of [
+    paths.db,
+    `${paths.db}-wal`,
+    `${paths.db}-shm`,
+    path.join(paths.logs, "server.log"),
+    paths.secrets,
+  ]) {
     if (fs.existsSync(file)) fs.chmodSync(file, 0o600);
   }
   // git hardening relies on these being empty; refuse to start rather than run git with them.

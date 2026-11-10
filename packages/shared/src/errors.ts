@@ -73,6 +73,8 @@ export const errorCodes = [
   "model.not_found",
   "model.key_unsupported",
   "model.key_from_environment",
+  "secret.not_found",
+  "secret.from_environment",
   "model.no_key",
   "rg.install_running",
   "rg.unsupported_platform",

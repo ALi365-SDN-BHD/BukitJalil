@@ -446,6 +446,17 @@ const en: Messages = {
       "Downloads the official ripgrep {version} package from GitHub, verifies its SHA-256 and installs rg in the app folder.",
     customPath: "Custom Bukit path",
     customPathHint: "Leave empty to use the app's copy or the one on PATH",
+    github: {
+      title: "GitHub token (for publishing)",
+      missing: "No GitHub token yet",
+      stored: "Token saved (ends in {last4})",
+      env: "The token comes from the environment variable {name} and cannot be changed here",
+      label: "GitHub token",
+      save: "Save token",
+      change: "Change",
+      remove: "Remove",
+      hint: "Handed to Bukit only when you click Publish, to push to the GitHub Pages repository; it needs Contents write access to that repository. Kept in secrets.json in the app folder on this computer (mode 600) and never shown in the UI.",
+    },
     model: {
       title: "AI model",
       current: "Current: {provider} / {model}",
@@ -547,6 +558,8 @@ const en: Messages = {
     "model.not_found": "No such model",
     "model.key_unsupported":
       "This provider needs several settings, not just an API key; set it up with environment variables",
+    "secret.not_found": "There is no such token",
+    "secret.from_environment": "This token comes from an environment variable and cannot be changed in the UI",
     "model.key_from_environment":
       "This provider's API key comes from an environment variable and cannot be changed here",
     "model.no_key": "This provider has no API key yet",
