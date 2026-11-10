@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Build, BuildListResponse, PreviewResponse, Site } from "@bukitjalil/shared";
+import type { Build, BuildListResponse, PreviewResponse, ServerEvent, Site } from "@bukitjalil/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KEEP_OUTPUTS } from "../src/builds/service.ts";
 import { BuildStore } from "../src/builds/store.ts";
@@ -146,6 +146,29 @@ describe("main builds (plan 8.3, 8.4)", () => {
     // Nothing is written into the site directory, and the temporary output is gone.
     expect(fs.existsSync(path.join(s.dir, ".bukitjalil-build"))).toBe(false);
     expect(fs.readdirSync(path.join(s.paths.worktrees, s.site.id, "main", ".bukitjalil-build"))).toEqual([]);
+  });
+
+  it("publishes build.start and build.end on the event stream", async () => {
+    const s = await setup("events");
+    const got: ServerEvent[] = [];
+    const sub = s.events.subscribe(
+      undefined,
+      (e) => got.push(e),
+      () => {},
+    );
+    try {
+      const b = await s.build();
+      const mine = got.filter((e) => e.type === "build.start" || e.type === "build.end");
+      expect(mine.map((e) => [e.type, "siteId" in e && e.siteId])).toEqual([
+        ["build.start", s.site.id],
+        ["build.end", s.site.id],
+      ]);
+      expect(mine[0]?.data).toMatchObject({ build: { id: b.id, status: "running" } });
+      // The end carries the finished record with its report.
+      expect(mine[1]?.data).toEqual({ build: b });
+    } finally {
+      sub.close();
+    }
   });
 
   it("serves the newest build on its own preview port and switches when a new one succeeds", async () => {

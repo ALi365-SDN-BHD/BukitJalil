@@ -323,6 +323,8 @@ const zhCN = {
     "panel.not_file": "这不是一个文件",
     "panel.too_large": "文件太大（上限 {max} 字节）",
     "session.not_found": "对话不存在",
+    "session.entry_not_found": "这条消息已不在对话里",
+    "session.unreadable": "对话文件已损坏，无法读取",
     "agent.no_model": "还没有设置 AI 模型，请先在设置里选择模型并填写 API Key",
     "rg.install_running": "ripgrep 正在安装中",
     "rg.unsupported_platform": "当前平台没有固定版本的 ripgrep 安装包",

@@ -57,6 +57,12 @@ export const buildArgs = (name: string) => [
   "json",
 ];
 
+/** A build started or ended; `build` is the record as the API shows it (with its report at the end). */
+export interface BuildEvent {
+  type: "build.start" | "build.end";
+  build: Build;
+}
+
 /**
  * Builds and previews (plan 8.3, 8.4). A main build runs in worktrees/<siteId>/main at the default
  * branch head, never in the site directory: the commit passes the pre-build guard, Bukit writes into a
@@ -68,6 +74,7 @@ export class BuildService {
   private readonly running = new Map<string, { promise: Promise<void>; abort: AbortController }>();
   /** Set by shutdown(): no new build may start once running builds are being stopped. */
   private closing = false;
+  private readonly listeners = new Set<(event: BuildEvent) => void>();
 
   constructor(private readonly opts: BuildServiceOptions) {
     this.store = new BuildStore(opts.db);
@@ -75,6 +82,25 @@ export class BuildService {
     if (interrupted > 0) opts.logger.log("warn", "build.interrupted", { count: interrupted });
     // The first preview build of a new or imported site (plan 5.2 step 5), whoever adds the site.
     opts.sites.onAdded((site) => this.startAfterAdd(site));
+  }
+
+  /** Listen to build starts and ends (for the event stream); returns the function that stops listening. */
+  onEvent(listener: (event: BuildEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private emit(type: BuildEvent["type"], id: string): void {
+    const record = this.store.get(id);
+    if (!record) return;
+    const build = publicBuild(record);
+    for (const listener of this.listeners) {
+      try {
+        listener({ type, build });
+      } catch (err) {
+        this.opts.logger.log("error", "build.listener_failed", { error: String(err) });
+      }
+    }
   }
 
   /** Newest first, without reports (they can be large and the UI polls this); see `get`. */
@@ -117,8 +143,10 @@ export class BuildService {
         .finally(() => {
           this.running.delete(id);
           release();
+          this.emit("build.end", id);
         });
       this.running.set(id, { promise, abort });
+      this.emit("build.start", id);
       return publicBuild(this.store.get(id) as BuildRecord);
     } catch (err) {
       release();

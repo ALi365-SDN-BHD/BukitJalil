@@ -11,6 +11,8 @@ import { AgentService } from "./agent/service.ts";
 import { createAdminApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
 import { BukitService } from "./bukit/locate.ts";
+import { connectEvents } from "./events/bridge.ts";
+import { EventHub } from "./events/hub.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
 import { GitRunner, resolveGitPath } from "./git/run.ts";
 import { checkGit } from "./git/version.ts";
@@ -118,6 +120,8 @@ const agent = new AgentService({
   bukit: new AiBukit({ git, paths, sites, bukit, locks }),
   skillsDir,
 });
+const events = new EventHub();
+connectEvents(events, agent, builds);
 const webDist = path.join(repoRoot, "packages/web/dist");
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
@@ -136,6 +140,8 @@ const app = createAdminApp({
   sites,
   panels,
   builds,
+  agent,
+  events,
   readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,
   logger,
@@ -182,6 +188,7 @@ function openBrowser(url: string) {
 }
 
 async function shutdown() {
+  events.closeAll();
   await agent.shutdown();
   await builds.shutdown();
   await previews.closeAll();

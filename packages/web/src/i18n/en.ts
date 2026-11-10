@@ -330,6 +330,8 @@ const en: Messages = {
     "panel.not_file": "This is not a file",
     "panel.too_large": "The file is too large (limit {max} bytes)",
     "session.not_found": "The conversation does not exist",
+    "session.entry_not_found": "That message is no longer in the conversation",
+    "session.unreadable": "The conversation file is damaged and cannot be read",
     "agent.no_model": "No AI model is set up yet. Choose a model and enter an API key in Settings first",
     "rg.install_running": "ripgrep is already being installed",
     "rg.unsupported_platform": "There is no pinned ripgrep package for this platform",

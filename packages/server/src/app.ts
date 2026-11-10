@@ -11,11 +11,15 @@ import {
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
 import type { RgService } from "./agent/rg.ts";
+import type { AgentService } from "./agent/service.ts";
 import { buildRoutes } from "./api/builds.ts";
+import { type EventStreamOptions, eventRoutes } from "./api/events.ts";
 import { panelRoutes } from "./api/panels.ts";
+import { sessionRoutes } from "./api/sessions.ts";
 import { siteRoutes } from "./api/sites.ts";
 import type { BuildService } from "./builds/service.ts";
 import type { BukitService } from "./bukit/locate.ts";
+import type { EventHub } from "./events/hub.ts";
 import type { GitIdentity } from "./git/identity.ts";
 import type { GitHealth } from "./git/version.ts";
 import type { Logger } from "./log.ts";
@@ -44,6 +48,10 @@ export interface AdminAppOptions {
   sites: SiteService;
   panels: PanelService;
   builds: BuildService;
+  agent: AgentService;
+  events: EventHub;
+  /** Ping interval and queue limit of the event stream (tests). */
+  eventStream?: EventStreamOptions;
   readIdentity: () => Promise<GitIdentity>;
   /** Overrides the home directory used by the directory picker (tests). */
   userHome?: string;
@@ -159,6 +167,8 @@ export function createAdminApp(opts: AdminAppOptions) {
   siteRoutes(api, { sites: opts.sites, builds: opts.builds, readIdentity: opts.readIdentity, userHome: opts.userHome });
   panelRoutes(api, opts.panels);
   buildRoutes(api, opts.builds);
+  sessionRoutes(api, opts.agent);
+  eventRoutes(api, opts.events, opts.eventStream);
 
   api.all("*", (c) => apiError(c, 404, "request.not_found"));
   app.route("/api", api);

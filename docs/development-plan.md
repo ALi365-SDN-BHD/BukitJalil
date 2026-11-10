@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.8（2026-11-10，写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.9（2026-11-10，写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。
 
@@ -687,6 +687,9 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | `run.settled` | Pi `agent_settled` | 结束加载状态 |
 | `change` | 改动集的完整状态快照：状态、快照树（审核指纹）、差异摘要、是否可应用 | 改动面板、文件树、审核卡片都按最新快照渲染 |
 | `build.start` / `build.end` | Bukit 构建 | 预览面板状态 |
+| `session.summary` | AI 调用 `summarize_changes` | 改动说明（M4 存进改动集） |
+| `session.updated` / `session.deleted` | 新建、重命名、分叉、删除会话 | 各标签页的会话列表 |
+| `resync` | 重连时缺了事件 | 重新拉取会话、消息和改动集 |
 
 - 改动集只用一个 `change` 事件推送完整状态，不再分 `updated` / `ready` / `invalidated` / `resolved` 四种：界面不需要按顺序拼状态，丢一条也不会错，下一条就是完整的
 - 断线重连：带 `Last-Event-ID`。服务端保留一个重放缓冲：`message.delta` 合并成每条消息的最新累计文本，`change` 每个网站只留最后一条，总大小上限 1 MB；超过上限或 `Last-Event-ID` 已不在缓冲里时，发一个 `resync` 事件，界面重新拉取会话消息和当前改动集
@@ -990,6 +993,18 @@ M3 分层实施（每层做完先审计、修复，再提交）：
 > - 会话：`DefaultResourceLoader` 仍设 `noSkills`，另传 `additionalSkillPaths: [skills/]`，Pi 只加载这里的技能；闸门的只读目录就是 `skills/`（可以 `read`，不能写，不能 `ls` / `grep` / `find`）。系统提示补充了命令和工具的对应，以及先 `site_info` 再修改、改完 `bukit_check` → `bukit_build` → `summarize_changes`
 > - 启动时检查 `skills/bukitjalil/site-editing/SKILL.md` 存在，缺少时直接退出并说明，不让每个会话都报内部错误
 > - 测试：快照（新提交、HEAD 前进、工作区干净、没变化时不建提交、提交者）；被忽略的新文件被删除并列出而已跟踪的文件照常提交、删掉再写回的 `site.yaml` 被删除、`.gitignore` 取消忽略的构建目录不进提交，`bukit_check` 结果里有 `removedIgnoredFiles`；中止工具调用会停止构建并释放锁；AI 构建期间删除网站成功；Bukit 版本变化后重新取 schema；`bukit_check` 两步都在 `ai/` 里跑、`doctor` 失败；`bukit_build` 的参数、页面数、输出删除、失败结果；构建前检查不通过（`build.output: ../outside`）和 Notion 源时 Bukit 一次都没被调用；锁被占用时立即拒绝、运行期间别的操作拿不到锁、结束后释放；没有 Bukit；`bukit_schema` 只问 Bukit 一次、取段落、截断；`site_info`（含解析失败和指向外部的符号链接）、`list_content`（集合过滤、坏的 front matter、跳过符号链接）、`summarize_changes`。会话测试里假模型调用建站工具：系统提示列出的技能正好是 `skills/` 下的 14 个，技能文件能读、不能写也不能列目录，发出 `summary` 事件，没有 Bukit 时 `bukit_check` 以工具错误返回；去掉闸门的技能只读目录后测试失败。有 `BUKIT_BIN` 时再用真实 Bukit 检查和构建 starter 网站（本机没有 Bukit，未运行）
+
+> M3 第 5 层实现说明（会话 API 和 SSE 事件流）：
+> - `src/api/sessions.ts`：9.1 表里的 8 个会话接口。会话返回 `SessionInfo`（不含会话文件路径，带内存里的状态 `idle` / `queued` / `running`）
+>   - `GET /api/sessions/:sessionId` 返回会话和当前分支的消息 `{entryId, message}`：会话在内存里时从 `AgentSession` 的会话管理器读（含正在运行的这次），否则从会话文件读（Pi 存下第一条用户消息时就写文件）；还没有文件时为空。文件不是有效的 Pi 会话时，查看、分叉和运行都返回 409 `session.unreadable`，文件保持原样。Pi 1.5.1 把系统提示也存成一条消息，接口和事件流都不返回 `system` 消息
+>   - `POST .../messages`：`{text, mode}`，`text` 不能为空、最多 10 万字；`prompt` 和 `steer` 相同（运行中作为 steer，空闲时开始一次运行），`followUp` 在运行中排到这次运行结束后；返回 202
+>   - `POST .../fork`：`{entryId}`。从会话文件读（Pi 在每条消息结束时就追加到文件，运行中也可以分叉），用 `createBranchedSession` 写出从开头到这条消息的路径，再改名为新会话自己的 `sessions/<siteId>/<新 id>.jsonl`；新会话沿用原标题。新建、重命名、分叉、删除会话都发 `session.updated`（带会话）或 `session.deleted`，各标签页据此更新列表。消息不存在或原会话还没有文件时返回 404 `session.entry_not_found`；网站只读时 409
+>   - 重命名的标题去掉首尾空白，1–200 字，不能有控制字符；`null` 清除标题
+> - `src/events/hub.ts` 的 `EventHub`：事件 id 为 `<启动时随机的 8 位十六进制>-<序号>`，服务重启后旧 id 一律视为未知。重放缓冲上限 1 MB：同一会话当前消息的 `message.delta` 合并成一条（重放时为 offset 0、到目前为止的全文，用最新的 id），文字按片段保存，接着上次结尾的增量只追加，不重新拼接和序列化；消息结束时删掉，因为 `message.end` 带完整消息；超过上限时从最旧的开始丢（文字也算在内）。重连时 `Last-Event-ID` 之后的事件有被丢掉的、id 属于别的启动、比最新的还大或格式不对，就只发一个 `resync`（id 为当前最新）。没有 `Last-Event-ID` 的新连接只收到正在生成的回复到目前为止的文字（这部分没有接口能取到），其余状态由界面自己拉取。`change` 每个网站只留最后一条随 M4 加入
+> - `message.delta` 的数据是 `{offset, text}`：当前助手消息从 `offset` 开始的文字。界面用 `text.slice(0, offset) + 新文字` 拼接，所以合并后的重放（offset 0）直接替换。只转发 `text_delta`；`message.end` 不带会话条目 id（Pi 在发出事件之后才写入），界面要分叉时在运行结束后重新拉取会话
+> - `src/events/bridge.ts` 把会话事件（状态、Pi 的消息和工具事件、`agent_settled`、`summary`）和构建服务新增的 `build.start` / `build.end`（带构建记录，结束时含报告）送进事件流；Pi 的轮次、排队、压缩、重试等事件不转发
+> - `GET /api/events`（`src/api/events.ts`）：先发 `retry: 2000`，再发重放，之后按顺序发新事件，每 25 秒发一行注释保持连接。每条连接有自己的发送队列，积压超过 4 MB 就中止这条连接（Hono 的写入在客户端不读时会一直等，而且吞掉错误，所以要中止而不是等写完；浏览器重连后从缓冲补齐或收到 `resync`）。浏览器断开时取消订阅；服务关闭时中止所有事件流
+> - 测试：事件流单元测试（id、重放、各种未知 id 时 `resync`、增量合并和消息结束时删除、新连接收到正在生成的文字、改写部分文字、长回复的文字超过上限后 `resync`、超过上限后的 `resync`、关闭）、事件转换（offset、过滤 `thinking_delta`、工具、`run.settled`、`session.summary`、会话列表事件、构建事件）；接口测试另有：会话列表事件、损坏的会话文件、运行中的 steer 和 followUp（steer 先于 followUp，都在同一次运行里）、空闲时的心跳、不读数据的客户端被断开且响应结束；接口测试用 Pi 的 faux 假模型（新建、列表、重命名、删除、404 和 400、没有模型、只读、发消息后事件流里的增量能拼出回复且每条事件都有 id、释放 `AgentSession` 后从文件读到相同的消息、断线重连的重放和 `resync`、停止、分叉后两个会话各自独立、浏览器断开和服务关闭时结束事件流、没有登录 cookie 时 401）；构建测试检查 `build.start` / `build.end`
 
 ### M4 改动审核与版本（6–8 天）
 

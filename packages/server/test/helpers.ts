@@ -3,10 +3,15 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { AiBukit } from "../src/agent/ai-bukit.ts";
 import { RgService } from "../src/agent/rg.ts";
+import { AgentService, type AgentServiceOptions } from "../src/agent/service.ts";
+import type { EventStreamOptions } from "../src/api/events.ts";
 import { createAdminApp } from "../src/app.ts";
 import { BuildService } from "../src/builds/service.ts";
 import { BukitService } from "../src/bukit/locate.ts";
+import { connectEvents } from "../src/events/bridge.ts";
+import { EventHub } from "../src/events/hub.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import type { GitHealth } from "../src/git/version.ts";
 import { type Logger, silentLogger } from "../src/log.ts";
@@ -24,6 +29,7 @@ export const ADMIN = `http://127.0.0.1:${PORT}`;
 export const TOKEN = "test-token-abcdefghijklmnopqrstuvwxyz";
 export const SESSION = "test-session-0123456789abcdefghijklmn";
 export const COOKIE = `bj_session_${PORT}`;
+export const SKILLS_DIR = path.resolve(import.meta.dirname, "../../../skills");
 
 export function makeApp(
   overrides: {
@@ -39,6 +45,11 @@ export function makeApp(
     userHome?: string;
     /** First preview port; tests that open previews pick their own range. */
     previewBase?: number;
+    /** Agent options; without a model, sending a message answers agent.no_model. */
+    agent?: Partial<Pick<AgentServiceOptions, "resolveModel" | "setupRuntime" | "idleMs" | "rgReady">>;
+    /** Replay buffer size of the event hub. */
+    replayBytes?: number;
+    eventStream?: EventStreamOptions;
   } = {},
 ) {
   const db = openDatabase(":memory:");
@@ -73,6 +84,19 @@ export function makeApp(
   });
   const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);
   const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, logger });
+  const agent = new AgentService({
+    db,
+    paths,
+    sites,
+    logger,
+    resolveModel: () => undefined,
+    rgReady: () => false,
+    bukit: new AiBukit({ git, paths, sites, bukit, locks }),
+    skillsDir: SKILLS_DIR,
+    ...overrides.agent,
+  });
+  const events = new EventHub(overrides.replayBytes);
+  connectEvents(events, agent, builds);
   const loginToken = new LoginToken(TOKEN);
   const app = createAdminApp({
     port: PORT,
@@ -87,12 +111,15 @@ export function makeApp(
     sites,
     panels: new PanelService({ git, sites }),
     builds,
+    agent,
+    events,
+    eventStream: overrides.eventStream,
     readIdentity: async () => ({ name: "Global Name", email: "global@example.com" }),
     userHome: overrides.userHome,
     version: "test",
     logger,
   });
-  return { app, db, loginToken, sites, paths, git, builds, previews, locks, rg, bukit };
+  return { app, db, loginToken, sites, paths, git, builds, previews, locks, rg, bukit, agent, events };
 }
 
 /** Build a request as the browser would send it to the admin port. */

@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import type { SessionInfo, SessionMessage, SessionStatus } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { AgentSession, AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Logger } from "../log.ts";
 import type { AppPaths } from "../paths.ts";
 import { SiteError } from "../sites/location.ts";
@@ -17,14 +18,17 @@ import { BUILTIN_TOOLS, createGatedTools } from "./tools.ts";
 
 const IDLE_MS = 10 * 60_000;
 
-export type SessionStatus = "idle" | "queued" | "running";
+export type { SessionStatus };
 
-/** What a session does, for the event stream: Pi's own events, and status changes. */
+/** What a session does, for the event stream: Pi's own events, status changes, and changes to the list. */
 export type AgentEvent = { siteId: string; sessionId: string } & (
   | { type: "pi"; event: AgentSessionEvent }
   | { type: "status"; status: SessionStatus; error?: string }
   /** summarize_changes: the AI's description of its changes, for the review (kept with the change set in M4). */
   | { type: "summary"; summary: string }
+  /** The session was created, renamed or forked from another. */
+  | { type: "session"; session: SessionInfo }
+  | { type: "deleted" }
 );
 
 export interface AgentServiceOptions {
@@ -107,9 +111,85 @@ export class AgentService {
   }
 
   status(id: string): SessionStatus {
-    const session = this.get(id);
-    if (this.running.get(session.siteId)?.sessionId === id) return "running";
-    return this.pending.get(session.siteId)?.some((p) => p.sessionId === id) ? "queued" : "idle";
+    return this.info(id).status;
+  }
+
+  /** A session as the API shows it: the record without its file path, and its status. */
+  info(id: string): SessionInfo {
+    return this.toInfo(this.get(id));
+  }
+
+  listInfo(siteId: string): SessionInfo[] {
+    return this.list(siteId).map((s) => this.toInfo(s));
+  }
+
+  private toInfo({ file: _, ...record }: SessionRecord): SessionInfo {
+    const run = this.running.get(record.siteId);
+    const queued = this.pending.get(record.siteId)?.some((p) => p.sessionId === record.id);
+    return { ...record, status: run?.sessionId === record.id ? "running" : queued ? "queued" : "idle" };
+  }
+
+  /**
+   * The messages of the session's current branch (plan 9.1), from its AgentSession when in memory (it
+   * also has the messages of the run in progress), else from its file. A session without a file has none.
+   */
+  async messages(id: string): Promise<SessionMessage[]> {
+    const record = this.get(id);
+    const live = this.live.get(id);
+    let entries: SessionEntry[];
+    if (live) {
+      entries = live.session.sessionManager.getBranch();
+    } else {
+      if (!fs.existsSync(record.file)) return [];
+      entries = (await this.openFile(record)).getBranch();
+    }
+    // The system prompt is stored as a message too; it is not part of the conversation the user sees.
+    return entries.flatMap((e) =>
+      e.type === "message" && e.message.role !== "system" ? [{ entryId: e.id, message: e.message as never }] : [],
+    );
+  }
+
+  /**
+   * A new session with the path from the start to `entryId` of this one (plan 6.2). Pi writes the branch
+   * to a file of its own naming in the site's session directory; it is renamed to the new session's file.
+   * The source is read from its file, where Pi appends each message as it ends, even while it runs.
+   */
+  async fork(id: string, entryId: string): Promise<SessionRecord> {
+    this.assertOpen();
+    const source = this.get(id);
+    const site = this.opts.sites.get(source.siteId);
+    if (site.readOnly) throw new SiteError("site.read_only", 409);
+    if (!fs.existsSync(source.file)) throw new SiteError("session.entry_not_found", 404);
+    const dir = this.sessionDir(site.id);
+    const manager = await this.openFile(source);
+    if (!manager.getEntry(entryId)) throw new SiteError("session.entry_not_found", 404);
+    this.assertOpen();
+    const newId = newSessionId();
+    const file = path.join(dir, `${newId}.jsonl`);
+    const written = manager.createBranchedSession(entryId);
+    // Pi writes the file only when the branch holds a conversation; otherwise the new session starts empty.
+    if (written && fs.existsSync(written)) fs.renameSync(written, file);
+    this.store.insert({ id: newId, siteId: site.id, file });
+    if (source.title) this.store.rename(newId, source.title);
+    return this.announce(newId);
+  }
+
+  /** A session's file in a Pi session manager; a file Pi cannot read is reported as such. */
+  private async openFile(record: SessionRecord, cwd?: string) {
+    const pi = await this.pi();
+    try {
+      return pi.pi.SessionManager.open(record.file, this.sessionDir(record.siteId), cwd);
+    } catch (err) {
+      this.opts.logger.log("warn", "agent.session_unreadable", { sessionId: record.id, error: String(err) });
+      throw new SiteError("session.unreadable", 409);
+    }
+  }
+
+  /** Tell the event stream about a new or changed session. */
+  private announce(id: string): SessionRecord {
+    const record = this.get(id);
+    this.emit({ siteId: record.siteId, sessionId: id, type: "session", session: this.toInfo(record) });
+    return record;
   }
 
   /** Record a new session; its AgentSession and file are made with the first message. */
@@ -118,13 +198,14 @@ export class AgentService {
     const site = this.opts.sites.get(siteId);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
     const id = newSessionId();
-    return this.store.insert({ id, siteId, file: path.join(this.sessionDir(siteId), `${id}.jsonl`) });
+    this.store.insert({ id, siteId, file: path.join(this.sessionDir(siteId), `${id}.jsonl`) });
+    return this.announce(id);
   }
 
   rename(id: string, title: string | null): SessionRecord {
     this.get(id);
     this.store.rename(id, title);
-    return this.get(id);
+    return this.announce(id);
   }
 
   /** Stop the session and wait for its run to end, then delete its record and file. */
@@ -136,6 +217,7 @@ export class AgentService {
     this.dispose(id);
     this.store.delete(id);
     fs.rmSync(session.file, { force: true });
+    this.emit({ siteId: session.siteId, sessionId: id, type: "deleted" });
   }
 
   /**
@@ -340,7 +422,7 @@ export class AgentService {
     const dir = this.sessionDir(site.id);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     // open() starts a new session when the file does not exist yet, and keeps this path.
-    const sessionManager = pi.pi.SessionManager.open(record.file, dir, cwd);
+    const sessionManager = await this.openFile(record, cwd);
     const { session } = await pi.pi.createAgentSession({
       cwd,
       agentDir: piDir,

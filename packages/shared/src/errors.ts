@@ -52,6 +52,8 @@ export const errorCodes = [
   "panel.not_file",
   "panel.too_large",
   "session.not_found",
+  "session.entry_not_found",
+  "session.unreadable",
   "agent.no_model",
   "rg.install_running",
   "rg.unsupported_platform",
