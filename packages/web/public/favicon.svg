@@ -1,1 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><title>BukitJalil</title><path d="M2 27 12 9l6 10 4-6 8 14Z" fill="#0b5fff"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><title>BukitJalil</title><defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82ff"/><stop offset="1" stop-color="#0a4fe6"/></linearGradient></defs><rect width="32" height="32" rx="7.2" fill="url(#s)"/><path d="M4.4 23.8 12.7 8.9l5 8.2 3.3-4.9 6.6 11.6Z" fill="#fff"/><path d="M21 12.2 27.6 23.8h-5.7l-2.8-4.7Z" fill="#d6e4ff"/></svg>

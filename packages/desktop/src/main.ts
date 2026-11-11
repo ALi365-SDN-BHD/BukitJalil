@@ -20,6 +20,9 @@ const repoRoot = path.resolve(__dirname, "../../..");
 // Packaged layout (plan M7 layer 4): Resources/app/{server.mjs, skills, templates, web}.
 const resources = packaged ? path.join(process.resourcesPath, "app") : repoRoot;
 const statusPage = path.join(__dirname, "status.html");
+// Window and taskbar icon on Windows and Linux (macOS takes the app's .icns). Next to main.cjs in the
+// package; from the sources while developing.
+const windowIcon = path.join(__dirname, packaged ? "icon.png" : "../assets/icon.png");
 const statusUrl = pathToFileURL(statusPage).href;
 const dataDir = path.resolve(process.env.BUKITJALIL_HOME || path.join(os.homedir(), ".bukitjalil"));
 const zh = () => app.getLocale().toLowerCase().startsWith("zh");
@@ -101,6 +104,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: "BukitJalil",
+    icon: windowIcon,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -214,6 +218,8 @@ if (!app.requestSingleInstanceLock()) {
     void server.stop().finally(() => app.quit());
   });
   void app.whenReady().then(() => {
+    // Run from the sources, the Dock would show Electron's own icon.
+    if (!packaged) app.dock?.setIcon(windowIcon);
     lockDown();
     buildMenu();
     createWindow();

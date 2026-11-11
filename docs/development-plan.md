@@ -1344,7 +1344,7 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > - 不用 asar（server 要从模板目录复制文件、对工作副本运行 git）
 > - **重新做临时签名**：Electron 自带的临时签名在加入应用文件后失效，`codesign --verify --strict` 不通过，下载的副本会被 macOS 说成"已损坏"。打包后对整个应用 `codesign --force --deep --sign -` 再验证；`spctl` 仍拒绝（没有 Developer ID），使用说明写允许打开的步骤
 > - 测试 `e2e/desktop/packaged.spec.ts`（打包后才运行）：只给系统 PATH（和从 Finder 打开一样）启动 `BukitJalil.app`，自动登录，用应用里的模板创建网站并提交（git），能开始对话（找到技能），Pi 的模型目录能读出（依赖完整），退出后释放锁。CI 的 macOS 任务打包后运行全部桌面测试
-> - 未做：Electron fuses（关闭 `RunAsNode` 等），等有 Developer ID 签名时一起做；应用图标用 Electron 默认图标
+> - 未做：Electron fuses（关闭 `RunAsNode` 等），等有 Developer ID 签名时一起做；应用图标用 Electron 默认图标（后来补上，见下面的应用图标）
 
 > M7 第 5 层实现说明（文档和验收）：
 > - 使用说明第 2 节加"桌面版（macOS）"：得到安装包、第一次打开时在"隐私与安全性"里允许、和终端运行的区别（自动登录、系统文件夹选择框、链接在浏览器打开、⌘Q 退出、共用数据目录但不能同时运行、读不到终端环境变量）；常见问题加数据目录被占和服务意外停止；限制一节更新。README 更新状态、路线图、开发命令和"现在能做什么"
@@ -1356,6 +1356,11 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > - `package.mjs` 按运行的平台打包（只接受 macOS arm64、Windows x64、Linux x64，和 Bukit 官方安装包的平台一致），再用 electron-builder 26.18.1 的 `prepackaged` 方式把打好的应用包成安装包，放在 `out/installers/`：macOS 是 dmg 和 zip（仍是临时签名，`mac.identity: null` 让 electron-builder 不再签名；已核对 dmg 和 zip 里的应用 `codesign --verify --deep --strict` 都通过），Windows 是 NSIS 安装程序（按用户安装，不需要管理员权限，可选目录），Linux 是 AppImage 和 deb。版本取 `BUKITJALIL_VERSION`（发布时是标签去掉 v）。electron-winstaller 的安装脚本在 `allowBuilds` 里关掉（只有 Squirrel 用）
 > - `.github/workflows/release.yml`：推送 `v*.*.*` 标签时三个平台各在自己的机器上打包（Electron 带原生依赖不能交叉打包），打包后运行 `packaged.spec.ts` 冒烟测试，再把安装包和 `SHA256SUMS.txt` 放进**草稿** Release，由人检查后发布；手动运行只产出 workflow artifacts。带 `-` 的版本标为预发布
 > - 冒烟测试改成三个平台通用（各平台的可执行文件路径；Windows 保留系统必需的环境变量；CI 的 Linux 用 xvfb 和 `--no-sandbox`）。macOS 和 Linux 必须通过；**Windows 是预览版**：服务端还有写死的 `/usr/bin:/bin`、给 Bukit 的 git 用符号链接等 Unix 假设，冒烟测试失败只报告、不挡发布，移植另做
+
+> 应用图标：
+> - 设计：蓝色渐变圆角方块上两座白色山丘（Bukit 是马来语的"山丘"，轮廓沿用原来的网页 favicon），小的那座背面颜色稍深，一条蓝色小路通到两座山之间的山口。源文件 `packages/desktop/assets/icon.svg`（整块，Windows / Linux / 窗口用）和 `icon-mac.svg`（按 macOS Big Sur 网格，1024 画布里 824 的圆角方块）
+> - `pnpm --filter @bukitjalil/desktop icons`（`scripts/icons.mjs`）用 Playwright 和本机 Chrome 渲染出 `icon.png`（1024）、`icon.ico`（16–256 七个 PNG 尺寸）、`icon.icns`（`iconutil`，只能在 macOS 上生成），生成的文件提交进仓库，CI 不用再生成
+> - 接入：packager 用 `.icns`（macOS 应用）和 `.ico`（Windows 可执行文件）；electron-builder 用于 dmg、NSIS 安装和卸载程序、Linux 桌面项；Windows / Linux 的窗口图标读应用目录里的 `icon.png`，从源码运行时 Dock 也换成这个图标。网页 favicon 换成同一设计，去掉了 16 像素下看不清的小路
 
 ### 里程碑总览
 

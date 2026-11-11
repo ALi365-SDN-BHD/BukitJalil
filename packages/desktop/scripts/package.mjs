@@ -94,6 +94,9 @@ fs.rmSync(deployed, { recursive: true, force: true });
 fs.cpSync(path.join(repo, "skills"), path.join(stage, "skills"), { recursive: true });
 fs.cpSync(path.join(repo, "templates/starter"), path.join(stage, "templates/starter"), { recursive: true });
 fs.cpSync(web, path.join(stage, "web"), { recursive: true });
+// The window icon on Windows and Linux, read next to main.cjs.
+const assets = path.join(desktop, "assets");
+fs.copyFileSync(path.join(assets, "icon.png"), path.join(stage, "icon.png"));
 
 const description = "Build and publish websites by talking to an AI";
 const homepage = "https://github.com/ALi365-SDN-BHD/BukitJalil";
@@ -116,6 +119,9 @@ const [appDir] = await packager({
   appBundleId: "my.ali365.bukitjalil",
   appCategoryType: "public.app-category.developer-tools",
   appVersion: version,
+  // The app and its executable: an .icns on macOS, an .ico on Windows (Linux takes the installers' icon).
+  ...(process.platform === "darwin" ? { icon: path.join(assets, "icon.icns") } : {}),
+  ...(process.platform === "win32" ? { icon: path.join(assets, "icon.ico") } : {}),
   // The server runs git and copies templates from these folders, so they stay plain files.
   asar: false,
   // The stage holds production dependencies only.
@@ -151,10 +157,22 @@ const files = await buildInstallers({
     artifactName: "BukitJalil-${version}-${os}-${arch}.${ext}",
     npmRebuild: false,
     // No Developer ID: keep the ad hoc signature made above.
-    mac: { identity: null, category: "public.app-category.developer-tools" },
+    mac: { identity: null, category: "public.app-category.developer-tools", icon: path.join(assets, "icon.icns") },
+    win: { icon: path.join(assets, "icon.ico") },
     // Per user, no administrator rights; the user may pick the folder.
-    nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true },
-    linux: { category: "Development", maintainer: "ALi365 SDN BHD", synopsis: description },
+    nsis: {
+      oneClick: false,
+      perMachine: false,
+      allowToChangeInstallationDirectory: true,
+      installerIcon: path.join(assets, "icon.ico"),
+      uninstallerIcon: path.join(assets, "icon.ico"),
+    },
+    linux: {
+      category: "Development",
+      maintainer: "ALi365 SDN BHD",
+      synopsis: description,
+      icon: path.join(assets, "icon.png"),
+    },
   },
 });
 fs.rmSync(stage, { recursive: true, force: true });
