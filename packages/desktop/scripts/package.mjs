@@ -133,6 +133,11 @@ const [appDir] = await packager({
 let prepackaged = appDir;
 if (process.platform === "darwin") {
   prepackaged = path.join(appDir, "BukitJalil.app");
+  // The packager keeps Electron's file name for the icon. macOS caches icons by that name, so a copy that
+  // once showed another picture (Electron's, or a broken render) kept showing it; our own name avoids that.
+  const contents = path.join(prepackaged, "Contents");
+  fs.renameSync(path.join(contents, "Resources/electron.icns"), path.join(contents, "Resources/BukitJalil.icns"));
+  run("plutil", ["-replace", "CFBundleIconFile", "-string", "BukitJalil.icns", path.join(contents, "Info.plist")]);
   // Apple Silicon only runs signed code. Without a Developer ID the app is signed ad hoc again as a whole:
   // Electron's own signature no longer matches once the app's files are added, and macOS would call a
   // downloaded copy damaged. Gatekeeper still asks the user to allow it (docs/user-guide.md).
