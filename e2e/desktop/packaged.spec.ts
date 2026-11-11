@@ -25,7 +25,13 @@ function launchEnv(home: string): Record<string, string> {
             process.env[k] ? [[k, process.env[k] as string]] : [],
           ),
         )
-      : { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}) };
+      : {
+          PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+          // The X display, under xvfb-run on CI: its address and the cookie file that lets the app connect.
+          ...Object.fromEntries(
+            ["DISPLAY", "XAUTHORITY"].flatMap((k) => (process.env[k] ? [[k, process.env[k] as string]] : [])),
+          ),
+        };
   return {
     ...base,
     HOME: home,

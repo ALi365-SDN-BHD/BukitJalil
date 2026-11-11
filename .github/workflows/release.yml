@@ -47,10 +47,11 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
-      # Same pinned corepack as CI (ci.yml explains the pin).
+      # Same pinned corepack as CI (ci.yml explains the pin). --force: Windows runners ship a global yarn shim
+      # that corepack's own yarn shim would otherwise collide with.
       - name: Enable corepack (pnpm from packageManager)
         run: |
-          npm install --global corepack@0.34.6
+          npm install --global --force corepack@0.34.6
           corepack enable
           pnpm --version
       - name: Locate the pnpm store
