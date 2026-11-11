@@ -1,0 +1,29 @@
+{
+  "name": "bukitjalil",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm --filter @bukitjalil/web build",
+    "start": "pnpm --filter @bukitjalil/server start",
+    "check": "biome check . && pnpm -r typecheck && tsc -p tsconfig.json",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.json",
+    "desktop": "pnpm build && pnpm --filter @bukitjalil/desktop start",
+    "e2e:desktop": "pnpm build && pnpm --filter @bukitjalil/desktop build && playwright test -c e2e/desktop/playwright.config.ts",
+    "package:desktop": "pnpm build && pnpm --filter @bukitjalil/desktop package"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.6",
+    "@playwright/test": "1.65.0",
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

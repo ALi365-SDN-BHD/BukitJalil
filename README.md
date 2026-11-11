@@ -1,361 +1,189 @@
 # 🏔️ BukitJalil
 
-> 当前可运行路线：**Electron + React + TypeScript + 独立 Bukit 进程**。
-> 桌面闭环位于 [`apps/desktop`](apps/desktop/README.md)：独立项目首页、持久 `site.yaml` 与网站基本信息、主题副本、生成审核和隔离副本预览、真实构建、版本差异与恢复。
-> 已接入 Codex 项目对话及受限修改请求路由，以及“生成副本 → 文件差异审核 → 确认应用 → Bukit 构建”流程。阶段一完成过一次真实模型验收；阶段二已通过模拟 Codex、真实 Bukit、原生零模型权限探测，以及真实模型生成后的应用与拒绝验收；统一输入的语义路由尚未调用真实模型验收。完整可视化编辑尚未实现。下文及既有 MAUI 源码保留为历史产品构想，不代表本次桌面实现的依赖或已完成功能。
+把**网站当作项目**来管理的系统。每个网站的配置、主题、文件、数据都在这里统一管理；建站和修改都通过和 AI 对话完成，用户不直接改代码。
 
-AI-native website builder control panel with a conversational UI for static site generation.
+> 状态：M0 工程骨架、M1 技术验证、M2 网站与只读面板、M3 AI 会话已完成；M4 审核与版本、M5 MVP 打磨已完成（真实模型验收见 [docs/acceptance](docs/acceptance/m5-real-model.md)）；M6 发布到 GitHub Pages 已完成（真实发布验收见 [docs/acceptance](docs/acceptance/m6-github-pages.md)）；M7 macOS 桌面版已完成（验收见 [docs/acceptance](docs/acceptance/m7-desktop.md)）。旧的 Electron + Codex 实现仍保留在 `main` 分支上。
+>
+> 使用方法见 [使用说明](docs/user-guide.md)。
 
-## 📌 Overview
+## 📌 定位
 
-BukitJalil is an AI-driven user interface and project management platform designed to simplify and automate the process of building static websites.
+BukitJalil 的界面和用法参考 [Pi Web](https://github.com/agegr/pi-web)（[Pi](https://github.com/earendil-works/pi) 编程助手的 Web 界面），区别在于管理的对象不同：
 
-It enables users to create, manage, and deploy websites through natural language interaction, reducing the need for traditional development workflows.
-
-BukitJalil works as the upper-layer control system of Bukit, forming a complete creation pipeline:
-
-```text
-Idea -> AI Generation -> Static Build -> Deployment
-```
-
-## 🎯 Vision
-
-BukitJalil aims to redefine website creation by transforming it from a technical process into a conversational experience.
-
-### 🧱 Traditional Model
-
-- 🎨 Design: manual design and iteration
-- 💻 Development: frontend implementation
-- 📝 Content: copywriting and editing
-- 🚀 Operations: deployment setup
-
-### ✨ BukitJalil Model
-
-- 💬 Intent: describe the website goal
-- 🧩 Structure: AI generates the site schema
-- 📝 Content: AI prepares editable content
-- 🚀 Delivery: system builds and deploys
-
-## 🏗️ System Architecture
+|                | Pi Web                    | BukitJalil                               |
+| -------------- | ------------------------- | ---------------------------------------- |
+| 一个"项目"是   | 一个代码仓库 / 开发目录   | 一个网站                                 |
+| 侧栏按项目分组 | 会话                      | 网站和它的会话                           |
+| 文件面板       | 浏览、预览源码和 Git 差异 | 浏览、预览网站文件，查看改动差异         |
+| 额外面板       | —                         | 网站配置、主题、数据（内容源）、构建预览 |
+| AI 的工作      | 写代码、跑命令            | 按建站规则改网站，交给 Bukit 构建        |
+| 用户直接改文件 | 可以                      | 不可以：界面只读，改动都经过 AI 和审核   |
 
 ```text
-BukitJalil (UI + AI Layer)
-  -> AI Agents + Workflow Engine
-  -> Bukit (Static Site Engine)
-  -> Generated HTML
-  -> Deployment (CDN / Server)
+用户描述需求 → AI 会话（Pi，建站规则约束） → 网站文件 / 配置 / 数据变更 → 用户审核差异 → Bukit 构建 → 预览 / 发布
 ```
 
-### 🧭 Layer Responsibilities
+## 🧭 核心概念
 
-| Layer | Responsibility |
-| --- | --- |
-| Control Panel | UI, AI interaction, project orchestration |
-| AI Layer | Content, template, and workflow generation |
-| Build Engine | Static site compilation through Bukit |
-| Deployment | Hosting and delivery |
+- **网站项目**：一个网站就是一个项目，有自己的目录、配置、主题、文件、数据和对话记录
+- **会话**：针对某个网站的一段 AI 对话，可以恢复、重命名、从某条消息分叉
+- **只读界面**：用户在界面里查看内容，但不直接编辑；想改什么就告诉 AI
+- **审核**：AI 的改动先显示差异，用户确认后才生效，可以撤回和恢复历史版本
+- **构建**：网站由 [Bukit](https://github.com/ALi365-SDN-BHD/Bukit.git) 构建成静态 HTML
 
-## ⚙️ Core Features
+## 🖥️ 界面
 
-### 📁 Project Management
-
-BukitJalil organizes websites into structured projects.
-
-Capabilities:
-
-- 📁 Projects: multi-project management
-- 🌐 Languages: multi-language support
-- 🟢 Publishing: draft and published states
-- 🧠 Context: project-level AI memory
-
-Example:
-
-```json
-{
-  "project_id": "proj_001",
-  "name": "Corporate Website",
-  "type": "service",
-  "languages": ["en", "zh"],
-  "template": "corporate",
-  "status": "draft"
-}
-```
-
-### 🧩 AI Template Generation
-
-Instead of selecting predefined templates, BukitJalil generates UI structures dynamically.
-
-Input:
+和 Pi Web 一样的三栏工作区：
 
 ```text
-Create a corporate website for professional services, clean and modern style.
+┌──────────────┬─────────────────────────────┬──────────────────────┐
+│ 网站列表      │ 对话                         │ 网站面板（只读）       │
+│  ├ 网站 A     │  用户：首页加一个 FAQ         │  [文件] [配置] [主题]  │
+│  │ ├ 会话 1   │  AI：已修改 3 个文件…         │  [数据] [改动] [预览]  │
+│  │ └ 会话 2   │  ┌ 改动审核 ─────────────┐   │                      │
+│  └ 网站 B     │  │ 确认应用 / 拒绝         │   │  site.yaml 内容…      │
+│              │  └───────────────────────┘   │                      │
+│ ＋ 新建网站    │  [输入框]                    │                      │
+└──────────────┴─────────────────────────────┴──────────────────────┘
 ```
 
-Output:
+| 面板 | 看什么                                                                    |
+| ---- | ------------------------------------------------------------------------- |
+| 文件 | 网站目录树，预览源码、Markdown、图片；HTML、SVG、PDF 在隔离的预览端口查看 |
+| 配置 | `site.yaml`：站点名称、语言、域名、导航、SEO 等                           |
+| 主题 | 当前主题、主题副本、样式变量                                              |
+| 数据 | `site.yaml` 里的内容源：Markdown 集合、data 数据源、Notion 源             |
+| 改动 | AI 每次改动的文件差异，版本历史和恢复                                     |
+| 预览 | Bukit 构建后的页面                                                        |
+| 设置 | 模型和 API Key、提交身份、Bukit 和 ripgrep 的安装或路径                   |
 
-```json
-{
-  "layout": "landing",
-  "sections": [
-    { "type": "hero", "title": "Professional Services" },
-    { "type": "features" },
-    { "type": "cta" }
-  ]
-}
-```
+## 🏗️ 架构
 
-Key concepts:
-
-- ✨ Generation: templates are generated, not selected
-- 🧾 Schema: UI is defined using structured data
-- 🎯 Rendering: output remains deterministic
-
-### 📝 AI Content Generation
-
-BukitJalil automatically generates structured, editable, and reusable website content from a project brief, page goal, target audience, brand tone, and language settings.
-
-Content types:
-
-- 🏢 Company profiles
-- 🛠️ Service descriptions
-- 📣 Marketing copy
-- 🔎 SEO articles
-- 🌐 Multi-language content
-- 🧭 Navigation labels
-- 🎯 Hero headlines and CTA copy
-- ❓ FAQ sections
-- 🧾 Metadata, titles, and descriptions
-- ✍️ Topic-based articles from user-provided themes
-
-Features:
-
-- 💬 Prompts: reusable prompt templates
-- 🧾 Data: JSON-structured output
-- ✏️ Editing: editable and regeneratable content
-- 🌐 Localization: generate, translate, and refine content per language
-- 🔎 SEO: produce search-friendly titles, descriptions, headings, and article outlines
-- 🧠 Context: keep project memory for consistent terminology and tone
-- ✅ Review: keep generated content in draft state until approved
-- ✍️ Article generation: create full articles from a user-entered topic, keyword, or content brief
-
-Content workflow:
+和 Pi Web 一样，用 [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md) 把 Pi 嵌进本地服务进程，而不是另外再起一个 CLI 子进程。
 
 ```text
-Project Brief -> Content Plan -> Structured Draft -> Human Review -> Publishable Content
+浏览器界面（只读视图 + 对话）
+        │ HTTP / 流式事件
+本地服务（Node）
+  ├ 网站项目管理：目录、配置、主题、数据、版本
+  ├ Pi SDK：每个会话一个 AgentSession
+  │   ├ 只开建站工具（读写网站文件、改配置、查数据、调用构建）
+  │   ├ 建站技能和提示模板
+  │   └ 读写都限制在网站的工作副本内
+  └ Bukit：构建、预览、发布
 ```
 
-Topic-based article workflow:
+### 接入方式：Pi SDK
+
+BukitJalil 通过 SDK（`@earendil-works/pi-coding-agent` 的 `createAgentSession()`）使用 Pi，不启动 `pi` CLI，也不使用 `--mode rpc`。
+
+- **为什么**：建站工具要直接用代码注册，工具白名单、可写路径、会话生命周期都要由 BukitJalil 精确控制；SDK 在同一个进程里，这些都能直接做到。Pi Web、Percho 等主流 Pi 界面也都是这么做的
+- **版本固定**：Pi SDK 作为项目依赖锁定版本，不依赖用户本机装的 `pi` 和它的全局配置
+- **只在服务端使用**：只有本地服务里的一个模块引用 Pi SDK，界面通过接口和事件流跟它通信，不直接接触 Pi
+
+Pi 的工作方式（模型请求、工具执行、会话树、技能、扩展）由 Pi 本身提供；BukitJalil 负责网站这个领域：项目结构、哪些工具可用、改动怎么审核、怎么构建发布。
+
+## 🧰 技术栈
+
+全部使用 TypeScript，开发统一用 Node 24 LTS（最低 22.19）、pnpm 12.18.0、TypeScript 7.0.2、Bukit 2.0.12。服务端和界面分开，本地 Web 应用支持 macOS 和 Linux，同一套服务和界面用 Electron 套成 macOS 桌面版。每个依赖的固定版本见[开发方案 · 固定技术栈](docs/development-plan.md#2-固定技术栈)。
+
+| 部分     | 技术                                                                                       | 说明                                                               |
+| -------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| 项目结构 | pnpm workspaces                                                                            | `shared` / `server` / `web` / `desktop` 四个包                     |
+| 本地服务 | Node 24 LTS + TypeScript + [Hono](https://hono.dev)                                        | 只有服务端引用 Pi SDK，也只有它调用 Bukit                          |
+| AI       | [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md) | 每个会话一个 `AgentSession`，版本锁定                              |
+| 实时推送 | SSE                                                                                        | AI 的流式输出、工具调用和改动事件                                  |
+| 界面     | React + Vite + Tailwind CSS + shadcn/ui                                                    | 三栏工作区                                                         |
+| 只读查看 | Shiki，以及 Markdown / 图片 / PDF 预览                                                     | 只能看，不能改                                                     |
+| 改动审核 | 差异查看组件                                                                               | 显示每次 AI 改动                                                   |
+| 版本     | 每个网站一个 git 仓库                                                                      | 差异、历史、恢复；直接调用系统 git（≥ 2.38，统一加固），不用封装库 |
+| 系统数据 | SQLite（`node:sqlite`）                                                                    | 网站列表、设置等；和网站自己的数据分开                             |
+| 构建     | Bukit（.NET Native AOT）子进程                                                             | 构建、预览、发布                                                   |
+| 测试     | Vitest + Playwright                                                                        | 单元测试和端到端测试                                               |
+| 桌面版   | Electron 45.2.3                                                                            | 启动同一个本地服务并加载同一个界面                                 |
+
+计划中的目录结构：
 
 ```text
-User Topic -> Article Outline -> Draft Article -> SEO Review -> Publishable Article
+BukitJalil/
+├── packages/
+│   ├── shared/   # 类型、接口约定、事件定义
+│   ├── server/   # Hono 服务：网站项目、Pi 会话、审核、版本、Bukit 调用
+│   └── web/      # React 界面：网站列表、对话、只读面板
+├── skills/       # 随应用发布的建站技能和提示模板
+└── docs/
 ```
 
-Example output:
+## 🔒 规则
 
-```json
-{
-  "page": "home",
-  "language": "en",
-  "tone": "professional",
-  "seo": {
-    "title": "Professional Services for Modern Businesses",
-    "description": "Build trust with clear service pages, strong messaging, and fast static delivery."
-  },
-  "sections": [
-    {
-      "type": "hero",
-      "headline": "Build a Better Business Website with AI",
-      "subheadline": "Generate structure, content, and deployment-ready pages from a single conversation.",
-      "cta": "Start a Project"
-    },
-    {
-      "type": "features",
-      "items": [
-        "AI-generated page structure",
-        "Editable business content",
-        "Multi-language publishing"
-      ]
-    }
-  ]
-}
+- 用户不在界面里直接编辑文件，所有改动都通过 AI 对话发起
+- AI 只能用建站相关的工具，不开放命令执行；每次构建前都检查插件、路径字段和网络设置，防止借 Bukit 间接执行代码或读取外部文件
+- AI 只能读写网站的工作副本，读不到密钥和系统文件；确认后才写入正式版本
+- 审核看到的就是将要提交的：每次审核绑定一份快照，内容变了必须重新审核；同一网站的会话、应用、恢复、构建互相排队，不会同时修改
+- 所有 git 调用（包括 Bukit 自己启动的 git）都关闭钩子、签名和外部程序，不读系统和全局配置；导入的仓库只允许已知无害的配置，否则只读
+- 构建和发布由系统调用 Bukit 完成；只有用户手动构建已审核的正式版本或发布时才传 Notion 等密钥
+- 预览页面和管理界面在不同端口隔离，两边都有内容安全策略和 Host 校验，管理接口另有防跨站请求校验，AI 生成的网页无法操作管理界面
+- 每次改动都有记录，可以对比和恢复
+
+## 🛣️ 路线图
+
+详细设计和每个阶段的任务、验收标准见 [开发方案与实施计划](docs/development-plan.md)。
+
+| 阶段             | 内容                                                                                      | 估算    |
+| ---------------- | ----------------------------------------------------------------------------------------- | ------- |
+| M0 工程骨架 ✅   | pnpm workspace、Hono 服务、三栏空界面、安全基础（防跨站请求、预览隔离）、CI               | 3–4 天  |
+| M1 技术验证 ✅   | 验证 Pi SDK 自定义工具 / 权限闸门 / 技能，Bukit 预览路径、插件与路径字段的安全行为        | 3–4 天  |
+| M2 网站与面板 ✅ | 新建 / 导入网站，starter 模板，构建前安全检查，git 加固，文件、配置、主题、数据、预览面板 | 7–9 天  |
+| M3 AI 会话 ✅    | Pi 会话、建站工具、权限闸门、流式对话、模型设置                                           | 8–10 天 |
+| M4 审核与版本 ✅ | 工作副本快照、网站操作锁、差异审核、应用 / 拒绝、历史与恢复                               | 6–8 天  |
+| M5 MVP ✅        | 端到端测试、错误处理、首次启动引导、文档、真实模型验收                                    | 4–5 天  |
+| M6 发布 ✅       | GitHub Pages（`bukit deploy`）                                                            | 3–4 天  |
+| M7 桌面版 ✅     | Electron 壳，macOS arm64 安装包                                                           | 4–5 天  |
+
+## 🛠️ 开发
+
+需要 Node ≥ 22.19（推荐 24 LTS）和 git ≥ 2.38。pnpm 版本由 `packageManager` 固定，通过 corepack 使用。
+
+```bash
+corepack enable
+pnpm install
+pnpm dev        # 服务端 + Vite，终端里打印一次性登录地址（按回车重启并换新地址）
+pnpm check      # Biome + 类型检查
+pnpm test       # 单元测试
+pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
+pnpm desktop        # 桌面版（Electron），从源码运行（先 pnpm --filter @bukitjalil/desktop exec install-electron）
+pnpm package:desktop     # 打包 macOS arm64 的 BukitJalil.app 和 zip，在 packages/desktop/out/
+pnpm e2e:desktop    # 桌面版测试；打包过时也测试打包后的应用
 ```
 
-Topic-based article example:
+`pnpm build && pnpm start` 运行构建好的版本（端口被占用时加 `--port <端口> --preview-port-base <端口>`）。登录地址只能用一次，需要新地址（换浏览器、会话失效）时在终端按回车。
 
-```json
-{
-  "topic": "How AI helps small businesses build websites faster",
-  "language": "en",
-  "article": {
-    "title": "How AI Helps Small Businesses Build Websites Faster",
-    "summary": "AI can reduce planning, writing, layout, and publishing time for small business websites.",
-    "outline": [
-      "Why small businesses need faster website creation",
-      "How AI turns a topic into page structure",
-      "How AI generates editable website content",
-      "How static site deployment keeps delivery fast"
-    ],
-    "status": "draft"
-  }
-}
-```
+端到端测试默认用一个替身 Bukit；设置 `BUKIT_BIN=/path/to/bukit` 时改用真实 Bukit 构建（单元测试里的真实 Bukit 用例同样读 `BUKIT_BIN`，下载安装的用例另外读 `BUKIT_TARBALL`，即本平台的官方安装包）。这两个文件可以用 `pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts <目录>` 下载（固定版本和校验和），它会输出两个变量的值；CI 就是这样做的。
 
-### 💬 Conversational Interface
+### 现在能做什么（M7）
 
-All operations are driven by natural language.
+1. 打开设置（顶栏齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）；没有 Bukit 或版本较旧时可以确认后下载安装官方 2.0.12（macOS arm64、Linux x64），其他平台填自建 Bukit 的路径。
+2. 在设置的"AI 模型"里选服务商和模型，填 API Key（只保存在本机 `~/.bukitjalil/pi/auth.json`，界面只显示末四位；也可以用服务商的环境变量），点"测试连接"确认可用，再点"使用这个模型"。
+3. 新建网站：填名称、选语言和位置，从 starter 模板创建并提交第一个版本，随后自动构建。
+4. 导入网站：选一个已有的 Bukit 网站文件夹，先检查再导入；还不是 git 仓库的会先列出要提交的文件，确认后才导入；不满足安全规则的仓库以只读方式导入，界面写明原因。
+5. 在网站主页开始对话：AI 在网站的工作副本里读写文件、运行 Bukit 检查和构建，回复流式显示，每次工具调用是一张可展开的卡片；运行中可以插话、排队或停止；会话可以重命名、删除、从任意一条消息分叉，刷新后恢复。AI 的改动先留在工作副本里。
+6. 审核：对话下方的审核卡片列出 AI 的改动说明和改动的文件，"改动"面板逐个文件看差异；预览面板切到"改动中"可以单独构建并预览改动。点"应用"后改动作为一个提交进入网站的默认分支（作者 BukitJalil AI，提交者是你），正式预览自动重新构建；点"拒绝"则网站目录不变。应用前会自动检查，正式版本在审核期间有新提交时会先合并、请你重新审核。
+7. 版本历史：网站主页列出默认分支的每个版本（AI 提交和恢复各有标记），点开看这个版本改了什么；"恢复到这个版本"生成一个恢复改动集，同样审核后应用。
+8. 右侧面板查看预览、改动、文件、配置、主题、数据，文件类面板也能切到"改动中"；中栏可以重新构建、查看构建报告、重新检查、归档、移除网站。
+9. 构建报告里有 SEO / GEO 摘要：问题按种类分组，缺网站网址时合成一条提示，并给出 GEO 得分；AI 每次构建也会拿到这份摘要。
+10. 首页的"开始使用"清单按顺序检查 git、Bukit、提交身份、模型和第一个网站；模型、构建、磁盘出错时界面写明是哪类问题和怎么处理。
+11. 发布到 GitHub Pages：在设置里填 GitHub token（只保存在本机 `~/.bukitjalil/secrets.json`，也可以用环境变量 `BUKITJALIL_GITHUB_TOKEN`），让 AI 在 `site.yaml` 设置发布目标并审核应用；网站主页点"发布"，确认仓库、分支和版本后，BukitJalil 依次做安全检查、配置检查、诊断、构建、发布审计，全部通过才推送，发布记录里有每一步的结果和发布审计摘要。
+12. 顶栏可以切换界面语言和外观（跟随系统 / 浅色 / 深色）；窄屏时三栏改为一次一栏；Enter 发送、Esc 停止、Alt+1…6 切换面板，按 ? 查看全部快捷键。
+13. 桌面版（macOS）：双击打开，窗口自动登录，用系统文件夹选择框选位置，网页链接在默认浏览器打开，⌘Q 退出时先停下会话和构建；和 `pnpm start` 共用 `~/.bukitjalil/`，但不能同时运行。
 
-Supported actions:
+不想用真实模型时，用 `BUKITJALIL_FAKE_MODEL=1 pnpm dev` 启动，设置里会多出一个脚本化的假模型 `bukitjalil-fake`，不联网，端到端测试也用它。平常的消息它只查看网站；消息里带 `#faq` 时会真的在 AI 工作副本里改标题、加 FAQ 页面（`#auth`、`#plugin` 用来演示被拒绝的读取和构建）。
 
-- ➕ Create: create a project
-- 🛠️ Modify: update layout and sections
-- ✨ Generate: produce structured content
-- 🚀 Publish: build and deploy the site
+## 🔗 相关项目
 
-Example flow:
-
-```text
-User: Build a professional services website in English and Chinese.
-
-System:
-- Project created
-- Template generated
-- Content generated
-- Ready for deployment
-```
-
-### 🚀 Deployment System
-
-BukitJalil integrates with the Bukit engine to generate static output and deploy it.
-
-Supported targets:
-
-- 🐙 GitHub: GitHub Pages
-- ☁️ Cloudflare: Cloudflare Pages
-- 🖥️ Server: self-hosted environments
-
-Pipeline:
-
-```text
-AI -> Schema -> Build -> Deploy
-```
-
-## 🤖 AI Agent Architecture
-
-BukitJalil uses a modular agent system:
-
-| Agent | Responsibility |
-| --- | --- |
-| Project Agent | Project creation and configuration |
-| Template Agent | UI schema generation |
-| Content Agent | Content generation |
-| Deploy Agent | Deployment orchestration |
-
-## 🧰 Technical Stack
-
-### 🖥️ Backend
-
-- ⚙️ .NET 10 LTS
-- 🌐 ASP.NET Core 10
-- 💻 C# 14
-- ⚡ Minimal APIs
-- 📦 Native AOT-ready services where appropriate
-- 🧭 .NET Aspire for cloud-native orchestration when needed
-
-### 🎨 Frontend
-
-- 🧱 Blazor Web App or React
-- 🧩 Component-based UI system
-- 🌐 Progressive enhancement for generated static output
-
-### 🧠 AI Layer
-
-- 🤖 OpenAI API or local LLM
-- 💬 Prompt templates
-- ✅ JSON Schema validation
-- 🧾 Structured outputs for deterministic workflows
-
-## 🗂️ Project Structure
-
-```text
-bukit-jalil/
-|-- src/
-|   |-- Api/
-|   |-- Core/
-|   |-- Agents/
-|   |-- Templates/
-|   `-- Renderer/
-|-- web/
-|-- prompts/
-|-- schemas/
-`-- docs/
-```
-
-## 🔗 Integration with Bukit
-
-BukitJalil does not directly render HTML. Instead, it:
-
-- 🧾 Schema: generates structured site definitions
-- 🔗 Handoff: passes schema to Bukit
-- 🏗️ Build: lets Bukit create static output
-
-Bukit library:
-
-- [Bukit](https://github.com/ALi365-SDN-BHD/Bukit.git)
-
-## 💼 Use Cases
-
-- 🏢 Corporate websites
-- 🛠️ Service business websites
-- 🎯 Landing pages
-- 🔎 SEO content generation
-- 🌐 Multi-language business sites
-- 🤖 AI-powered content systems
-
-## 🛣️ Roadmap
-
-### 🚧 V1: Current
-
-- 📁 Projects: project management
-- 🧩 UI: basic UI generation
-- 📝 Content: content generation
-
-### 🧪 V2
-
-- 💬 Conversation: conversational project creation
-- 🧩 Templates: advanced template system
-- 🌐 Localization: multi-language workflows
-
-### 🏢 V3
-
-- 🏢 SaaS: multi-user system
-- 🔐 Security: API key management
-- 💳 Billing: subscription billing
-
-### 🌍 V4
-
-- 🔎 SEO: automated site networks
-- 📝 Content: continuous content generation
-- 🧩 Ecosystem: template marketplace
-
-## ⚠️ Limitations
-
-- 👀 Review: AI-generated content requires human review
-- 🧾 Rendering: UI generation is schema-based, not arbitrary HTML
-- 🚀 Deployment: targets should be limited in early stages
-
-## 🤝 Contribution
-
-We welcome contributions in:
-
-- 🎨 Design: UI template design
-- 🤖 AI: prompt engineering
-- 🧠 Agents: agent architecture
-- 🔌 Extensions: plugin systems
+- [Bukit](https://github.com/ALi365-SDN-BHD/Bukit.git)：静态站点引擎
+- [Pi](https://github.com/earendil-works/pi)：可扩展的 AI agent 运行层和编程助手
+- [Pi Web](https://github.com/agegr/pi-web)：Pi 的 Web 界面，BukitJalil 界面的参考
 
 ## 📄 License
 
 MIT License
-
-## ✅ Summary
-
-BukitJalil transforms website creation from a development process into a conversational workflow, powered by AI and structured generation.

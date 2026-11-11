@@ -1,0 +1,94 @@
+import {
+  CreateSiteRequest,
+  type GitIdentityResponse,
+  ImportSiteRequest,
+  InspectImportRequest,
+  SitePatch,
+} from "@bukitjalil/shared";
+import type { Hono } from "hono";
+import type { AppEnv } from "../app.ts";
+import type { BuildService } from "../builds/service.ts";
+import type { GitIdentity } from "../git/identity.ts";
+import { apiError } from "../security/guard.ts";
+import { listDirs } from "../sites/location.ts";
+import type { SiteService } from "../sites/service.ts";
+import { body, handle } from "./common.ts";
+
+/** Sites, directory picker and identity defaults (plan 9.1). */
+export function siteRoutes(
+  api: Hono<AppEnv>,
+  deps: {
+    sites: SiteService;
+    builds: BuildService;
+    readIdentity: () => Promise<GitIdentity>;
+    userHome?: string;
+  },
+) {
+  const { sites, builds } = deps;
+
+  api.get("/fs/dirs", (c) =>
+    handle(c, () =>
+      c.json(listDirs(c.req.query("path"), { hidden: c.req.query("hidden") === "1", userHome: deps.userHome })),
+    ),
+  );
+
+  api.get("/git/identity", async (c) => {
+    const id: GitIdentityResponse = await deps.readIdentity();
+    return c.json(id);
+  });
+
+  api.get("/sites", (c) => c.json(sites.list()));
+
+  api.post("/sites", (c) =>
+    handle(c, async () => {
+      const req = await body(c, CreateSiteRequest);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      return c.json(await sites.create(req), 201);
+    }),
+  );
+
+  api.post("/sites/import/inspect", (c) =>
+    handle(c, async () => {
+      const req = await body(c, InspectImportRequest);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      return c.json(await sites.inspectImport(req.path));
+    }),
+  );
+
+  api.post("/sites/import", (c) =>
+    handle(c, async () => {
+      const req = await body(c, ImportSiteRequest);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      return c.json(await sites.import(req), 201);
+    }),
+  );
+
+  api.get("/sites/:siteId", (c) => handle(c, () => c.json(sites.get(c.req.param("siteId")))));
+
+  api.patch("/sites/:siteId", (c) =>
+    handle(c, async () => {
+      const req = await body(c, SitePatch);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      return c.json(sites.patch(c.req.param("siteId"), req));
+    }),
+  );
+
+  // Run the safety checks again, e.g. after the user fixed what made the site read-only.
+  api.post("/sites/:siteId/recheck", (c) => handle(c, async () => c.json(await sites.recheck(c.req.param("siteId")))));
+
+  api.post("/sites/:siteId/open", (c) =>
+    handle(c, () => {
+      sites.touch(c.req.param("siteId"));
+      return c.body(null, 204);
+    }),
+  );
+
+  api.delete("/sites/:siteId", (c) =>
+    handle(c, async () => {
+      const id = c.req.param("siteId");
+      const result = await sites.remove(id);
+      await builds.forgetSite(id);
+      return c.json(result);
+    }),
+  );
+}

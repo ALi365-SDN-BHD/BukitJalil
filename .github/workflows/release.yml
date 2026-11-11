@@ -1,0 +1,150 @@
+name: Release
+
+# Desktop installers for the three platforms Bukit ships for (plan 8.1): a dmg and a zip for macOS (Apple
+# Silicon), an NSIS setup for Windows (x64), an AppImage and a deb for Linux (x64). Electron apps with native
+# npm packages cannot be cross-built, so each platform builds on its own runner.
+#
+# Pushing a tag v1.2.3 builds version 1.2.3 and creates a draft GitHub Release with the installers and
+# SHA256SUMS.txt; publishing the draft is left to a person. Running the workflow by hand builds the
+# installers as workflow artifacts only, with the version entered (default 0.0.0-dev).
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, e.g. 1.2.3 or 1.2.3-beta.1"
+        required: false
+        default: "0.0.0-dev"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, platform: mac }
+          - { os: windows-latest, platform: win }
+          - { os: ubuntu-latest, platform: linux }
+    name: package / ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    # Windows is a preview (see the smoke test): when it fails, the release goes out without it.
+    continue-on-error: ${{ matrix.platform == 'win' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      # Same pinned corepack as CI (ci.yml explains the pin). --force: Windows runners ship a global yarn shim
+      # that corepack's own yarn shim would otherwise collide with.
+      - name: Enable corepack (pnpm from packageManager)
+        run: |
+          npm install --global --force corepack@0.34.6
+          corepack enable
+          pnpm --version
+      - name: Locate the pnpm store
+        run: |
+          store="$(pnpm store path --silent)"
+          echo "PNPM_STORE=$store" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: ${{ env.PNPM_STORE }}
+          key: pnpm-${{ runner.os }}-node24-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-node24-
+      - run: pnpm install --frozen-lockfile
+      # The version comes from the tag or the input through the environment, never pasted into the script.
+      - name: Version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then version="${GITHUB_REF_NAME#v}"; else version="${INPUT_VERSION:-0.0.0-dev}"; fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Not a version: $version"
+            exit 1
+          fi
+          echo "BUKITJALIL_VERSION=$version" >> "$GITHUB_ENV"
+      - name: Install Electron
+        run: pnpm --filter @bukitjalil/desktop exec install-electron
+      - name: Build the installers
+        run: pnpm package:desktop
+      # Opens the packaged app and creates a site with it. macOS and Linux are the supported platforms and
+      # must pass. Windows is a preview: its installer is built, but the server is not ported yet (fixed Unix
+      # paths, a symlink for Bukit's git), so a failure there is reported and does not stop the release.
+      - name: Linux libraries for Electron
+        if: runner.os == 'Linux'
+        run: pnpm exec playwright install-deps chromium
+      - name: Smoke test the packaged app
+        id: smoke
+        continue-on-error: ${{ runner.os == 'Windows' }}
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a pnpm exec playwright test -c e2e/desktop/playwright.config.ts packaged
+          else
+            pnpm exec playwright test -c e2e/desktop/playwright.config.ts packaged
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.platform }}
+          path: |
+            packages/desktop/out/installers/*.dmg
+            packages/desktop/out/installers/*.zip
+            packages/desktop/out/installers/*.exe
+            packages/desktop/out/installers/*.AppImage
+            packages/desktop/out/installers/*.deb
+          if-no-files-found: error
+          retention-days: 14
+      # Also when the Windows smoke test failed without failing the job.
+      - uses: actions/upload-artifact@v7
+        if: failure() || steps.smoke.outcome == 'failure'
+        with:
+          name: smoke-test-${{ matrix.platform }}
+          path: test-results/
+          retention-days: 7
+
+  release:
+    needs: package
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: installers-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      # A draft: nothing is public until someone reviews and publishes it on GitHub.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          notes="Desktop installers for BukitJalil ${TAG}.
+
+          - macOS (Apple Silicon): .dmg or .zip. Not signed with a Developer ID: the first time, right-click the app and choose Open.
+          - Linux (x64): .AppImage or .deb.
+          - Windows (x64): setup .exe. Preview only, not supported yet.
+
+          Check downloads against SHA256SUMS.txt."
+          gh release create "$TAG" dist/* --draft $prerelease --verify-tag --title "BukitJalil ${TAG}" --notes "$notes"

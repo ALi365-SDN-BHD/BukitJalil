@@ -1,0 +1,170 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": ["**", "!packages/server/spikes", "!docs", "!templates", "!skills"]
+  },
+  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
+  "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always" } },
+  "css": { "parser": { "tailwindDirectives": true } },
+  "linter": {
+    "enabled": true,
+    "rules": { "preset": "recommended" }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/server/src/**", "!packages/server/src/agent/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@earendil-works/*", "@earendil-works/**"],
+                    "message": "Pi is used only in src/agent/, which loads it after setting its environment (plan 6.1)"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/web/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": { "@bukitjalil/server": "web talks to server only over HTTP/SSE (plan 3.2)" },
+                "patterns": [
+                  {
+                    "group": [
+                      "node:*",
+                      "assert",
+                      "assert/*",
+                      "buffer",
+                      "child_process",
+                      "cluster",
+                      "crypto",
+                      "dgram",
+                      "dns",
+                      "dns/*",
+                      "events",
+                      "fs",
+                      "fs/*",
+                      "http",
+                      "http2",
+                      "https",
+                      "module",
+                      "net",
+                      "os",
+                      "path",
+                      "path/*",
+                      "process",
+                      "readline",
+                      "sqlite",
+                      "stream",
+                      "stream/*",
+                      "timers",
+                      "timers/*",
+                      "tls",
+                      "url",
+                      "util",
+                      "util/*",
+                      "v8",
+                      "vm",
+                      "worker_threads",
+                      "zlib",
+                      "@bukitjalil/server/**"
+                    ],
+                    "message": "web must not use Node modules or import server code (plan 3.2)"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/shared/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "react": "shared must stay runtime-neutral (plan 3.2)",
+                  "hono": "shared must stay runtime-neutral (plan 3.2)",
+                  "@bukitjalil/server": "shared must not depend on server",
+                  "@bukitjalil/web": "shared must not depend on web"
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "node:*",
+                      "assert",
+                      "assert/*",
+                      "buffer",
+                      "child_process",
+                      "cluster",
+                      "crypto",
+                      "dgram",
+                      "dns",
+                      "dns/*",
+                      "events",
+                      "fs",
+                      "fs/*",
+                      "http",
+                      "http2",
+                      "https",
+                      "module",
+                      "net",
+                      "os",
+                      "path",
+                      "path/*",
+                      "process",
+                      "readline",
+                      "sqlite",
+                      "stream",
+                      "stream/*",
+                      "timers",
+                      "timers/*",
+                      "tls",
+                      "url",
+                      "util",
+                      "util/*",
+                      "v8",
+                      "vm",
+                      "worker_threads",
+                      "zlib"
+                    ],
+                    "message": "shared must stay runtime-neutral (plan 3.2)"
+                  },
+                  {
+                    "group": [
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "hono/**",
+                      "@hono/**",
+                      "@bukitjalil/server/**",
+                      "@bukitjalil/web/**"
+                    ],
+                    "message": "shared must stay runtime-neutral and not depend on server or web (plan 3.2)"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

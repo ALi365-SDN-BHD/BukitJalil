@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>BukitJalil</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82ff"/>
+      <stop offset="1" stop-color="#0a4fe6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#sky)"/>
+  <!-- Bukit: two hills, the same outline as the web favicon -->
+  <path d="M142 760 L407 284 L566 548 L672 390 L884 760 Z" fill="#ffffff"/>
+  <!-- The far side of the small hill, a shade darker -->
+  <path d="M672 390 L884 760 L700 760 L610 610 Z" fill="#d6e4ff"/>
+  <!-- A path winding up to the pass between them -->
+  <path d="M400 760 C430 696 588 700 556 640 C534 600 508 590 548 552" fill="none" stroke="#0a4fe6" stroke-width="30" stroke-linecap="round"/>
+</svg>
