@@ -22,6 +22,15 @@ export async function putSettings(page: Page, body: Record<string, unknown>): Pr
   }, body);
 }
 
+/**
+ * Press "Start a new conversation" on the site page. With the keyboard, not a mouse click: the site's first
+ * build can end while the page settles, its line in the build list pushes the button down, and a click
+ * aimed at the old place lands beside it (seen in WebKit on CI).
+ */
+export async function startConversationButton(page: Page): Promise<void> {
+  await page.getByTestId("start-conversation").press("Enter");
+}
+
 /** A committed starter site in a temp folder, imported through the API; returns its id. */
 export async function importSite(page: Page, title = "Chat", language = "en-US"): Promise<string> {
   work ??= fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-sites-")));

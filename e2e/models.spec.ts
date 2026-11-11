@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.ts";
-import { importSite, putSettings, removeImportedSites } from "./site-helpers.ts";
+import { importSite, putSettings, removeImportedSites, startConversationButton } from "./site-helpers.ts";
 
 // M3 layer 7 (plan 6.5, 10.1): model settings, then a conversation that streams. The server runs with the
 // scripted model (BUKITJALIL_FAKE_MODEL=1, packages/server/src/agent/fake-model.ts), so nothing leaves the
@@ -43,7 +43,7 @@ test("model settings: save and remove a key, test the connection, choose the mod
   await page.keyboard.press("Escape");
 
   // A conversation: the reply streams in, the tool card fills in, the run ends without an error.
-  await page.getByTestId("start-conversation").click();
+  await startConversationButton(page);
   const input = page.getByTestId("composer-input");
   await input.fill("Change the home page title");
   await input.press("Enter");

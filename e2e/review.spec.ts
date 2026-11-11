@@ -5,7 +5,7 @@ import path from "node:path";
 import type { Page } from "@playwright/test";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { importSite, putSettings, removeImportedSites, siteFolder } from "./site-helpers.ts";
+import { importSite, putSettings, removeImportedSites, siteFolder, startConversationButton } from "./site-helpers.ts";
 
 // M4 acceptance (plan M4): conversation → review → change preview → apply → the main preview follows;
 // rejecting leaves the site folder alone; ignored local files survive an apply; restoring an old version
@@ -53,7 +53,7 @@ async function startConversation(page: Page, loginUrl: string, label: string, la
   await page.goto(`/sites/${siteId}`);
   // The import builds the main version once; wait for it, so the preview shows it.
   await expect(page.locator("header").getByTestId("build-status")).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
-  await page.getByTestId("start-conversation").click();
+  await startConversationButton(page);
   await expect(page.getByTestId("chat-view")).toBeVisible();
   const title = /^ {2}title: *(.+)$/m.exec(fs.readFileSync(path.join(folder, "site.yaml"), "utf8"))?.[1] ?? "";
   return { siteId, folder, title };

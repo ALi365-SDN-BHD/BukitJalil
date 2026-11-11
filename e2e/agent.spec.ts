@@ -4,7 +4,7 @@ import path from "node:path";
 import type { Page } from "@playwright/test";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { importSite, putSettings, removeImportedSites, siteFolder } from "./site-helpers.ts";
+import { importSite, putSettings, removeImportedSites, siteFolder, startConversationButton } from "./site-helpers.ts";
 
 // M3 acceptance (plan M3) with the scripted model (packages/server/src/agent/fake-model.ts), which picks its
 // steps from a tag in the request (#faq, #auth, #plugin): the AI changes only its working copy and passes
@@ -36,7 +36,7 @@ async function startConversation(page: Page, loginUrl: string, label: string): P
   await putSettings(page, { model: { provider: "bukitjalil-fake", id: "fake-1" }, bukitPath: bukitBin });
   const siteId = await importSite(page, label);
   await page.goto(`/sites/${siteId}`);
-  await page.getByTestId("start-conversation").click();
+  await startConversationButton(page);
   await expect(page.getByTestId("chat-view")).toBeVisible();
   return siteId;
 }

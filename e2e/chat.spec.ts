@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.ts";
-import { importSite, putSettings, removeImportedSites } from "./site-helpers.ts";
+import { importSite, putSettings, removeImportedSites, startConversationButton } from "./site-helpers.ts";
 
 // M3 layer 6 (plan 10.1, 10.2): conversations in the sidebar and the chat view, kept in step across tabs by
 // the event stream. No model is chosen here, so sending a message shows agent.no_model.
@@ -12,7 +12,7 @@ test("conversations: start, send, rename and delete, with a second tab kept in s
   await putSettings(page, { model: null });
   const siteId = await importSite(page);
   await page.goto(`/sites/${siteId}`);
-  await page.getByTestId("start-conversation").click();
+  await startConversationButton(page);
   await expect(page).toHaveURL(new RegExp(`/sites/${siteId}/sessions/[0-9a-f]{16}$`));
   await expect(page.getByTestId("chat-view")).toBeVisible();
   const items = page.getByTestId("session-list").getByTestId("session-item");
