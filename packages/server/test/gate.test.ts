@@ -231,6 +231,24 @@ describe("gated tools", () => {
     }
   });
 
+  it("read images as images and large files in parts", async () => {
+    // A 1x1 PNG.
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    fs.writeFileSync(path.join(worktree, "logo.png"), png);
+    const tool = tools.read as ToolDefinition;
+    const image = await tool.execute("t1", { path: "logo.png" } as never, undefined, undefined, undefined as never);
+    expect(image.content.some((c) => c.type === "image")).toBe(true);
+
+    fs.writeFileSync(path.join(worktree, "big.txt"), `${"line\n".repeat(200_000)}`);
+    const part = await run("read", { path: "big.txt", offset: 3, limit: 2 });
+    expect(part).toMatchObject({ ok: true, text: expect.stringContaining("line\nline") });
+    fs.rmSync(path.join(worktree, "logo.png"));
+    fs.rmSync(path.join(worktree, "big.txt"));
+  });
+
   it("write new files and refuse protected or outside paths", async () => {
     expect((await run("write", { path: "content/new/deep/page.md", content: "# New\n" })).ok).toBe(true);
     expect(fs.readFileSync(path.join(worktree, "content/new/deep/page.md"), "utf8")).toBe("# New\n");

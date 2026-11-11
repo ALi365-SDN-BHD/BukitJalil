@@ -93,6 +93,18 @@ describe("site location (plan 5.2)", () => {
     expect(() => checkSiteLocation(link, rules())).toThrow(SiteError);
   });
 
+  it("compares the names on disk, so a path typed in another case cannot dodge the rules", () => {
+    const dir = path.join(base, "CaseSite");
+    fs.mkdirSync(dir, { recursive: true });
+    const lower = path.join(base, "casesite");
+    // Only on a case-insensitive file system (macOS, Windows) is the other spelling the same folder.
+    if (!fs.existsSync(lower)) return;
+    expect(realPathOf(path.join(lower, "new"))).toBe(path.join(dir, "new"));
+    expect(() => checkSiteLocation(path.join(lower, "inner"), rules([{ name: "Case", path: dir }]))).toThrow(
+      /path_overlaps_site/,
+    );
+  });
+
   it("lists subdirectories only, without hidden ones or symlinks", () => {
     const dir = path.join(base, "picker");
     fs.mkdirSync(path.join(dir, "b"), { recursive: true });

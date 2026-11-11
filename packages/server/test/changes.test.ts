@@ -444,6 +444,26 @@ describe("applying and rejecting", () => {
     });
   });
 
+  it("refuses when the site folder leaves the default branch while the check runs", async () => {
+    const { s, view } = await reviewed();
+    const opts = (ctx.changes as unknown as { opts: { check: (siteId: string, cwd: string) => Promise<unknown> } })
+      .opts;
+    const check = opts.check;
+    opts.check = async (siteId, cwd) => {
+      s.git("switch", "-q", "-c", "wip");
+      return check(siteId, cwd);
+    };
+    try {
+      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash, force: true })).rejects.toMatchObject({
+        code: "change.wrong_branch",
+      });
+      expect(s.git("rev-parse", "wip")).toBe(s.git("rev-parse", "main"));
+    } finally {
+      opts.check = check;
+      s.git("switch", "-q", "main");
+    }
+  });
+
   it("refuses when the site folder is on another branch or has uncommitted changes", async () => {
     const { s, view } = await reviewed();
     s.git("switch", "-q", "-c", "other");
@@ -950,6 +970,19 @@ describe("history and restore", () => {
     expect(s.git("log", "-1", "--format=%B")).toBe(
       `Restore to ${init.slice(0, 7)}: init\n\nBukitJalil-Sessions: ${session.id}\nBukitJalil-Restore: ${init}`,
     );
+  });
+
+  it("keeps the AI as author of its edits on a restore after the conversation was deleted", async () => {
+    const { s, session, init } = await withHistory();
+    await ctx.changes.restore(s.id, init);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "extra.md"), "extra\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    await ctx.agent.delete(session.id);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(s.git("log", "-1", "--format=%an")).toBe("BukitJalil AI");
   });
 
   it("reports the pre-build guard's verdict on the restored version", async () => {

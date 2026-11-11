@@ -37,7 +37,7 @@ export function realPathOf(p: string): string {
   let current = path.resolve(p);
   for (;;) {
     try {
-      return path.join(fs.realpathSync(current), ...missing.reverse());
+      return path.join(fs.realpathSync.native(current), ...missing.reverse());
     } catch {
       const parent = path.dirname(current);
       if (parent === current) return path.resolve(p);
@@ -114,7 +114,7 @@ export function listDirs(dir: string | undefined, opts: { hidden?: boolean; user
   let real: string;
   let entries: fs.Dirent[];
   try {
-    real = fs.realpathSync(requested);
+    real = fs.realpathSync.native(requested);
     if (!fs.statSync(real).isDirectory()) throw new SiteError("fs.not_directory", 400);
     entries = fs.readdirSync(real, { withFileTypes: true });
   } catch (err) {

@@ -167,7 +167,7 @@ export class SiteService {
     const top = await this.toplevel(real);
     if (top === null) return { inspection: { kind: "not_git", path: real, files: await this.filesForInit(real) } };
     // git does not say where a repository it refuses starts, so require .git right here.
-    const isRoot = top === "dubious" ? fs.existsSync(path.join(real, ".git")) : fs.realpathSync(top) === real;
+    const isRoot = top === "dubious" ? fs.existsSync(path.join(real, ".git")) : fs.realpathSync.native(top) === real;
     if (!isRoot) throw new SiteError("site.not_repo_root", 400);
 
     const branch = await this.currentBranch(real);
@@ -384,8 +384,8 @@ export class SiteService {
       const [top, common] = splitLines(out);
       if (!top || !common) return false;
       return (
-        fs.realpathSync(top) === fs.realpathSync(dir) &&
-        fs.realpathSync(common) === fs.realpathSync(await this.commonDir(sitePath))
+        fs.realpathSync.native(top) === fs.realpathSync.native(dir) &&
+        fs.realpathSync.native(common) === fs.realpathSync.native(await this.commonDir(sitePath))
       );
     } catch {
       return false;

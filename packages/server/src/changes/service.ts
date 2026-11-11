@@ -211,19 +211,24 @@ export class ChangeService {
       if (!check.passed && !req.force)
         return { outcome: "check_failed", change: await this.toChangeSet(change), check };
 
-      // A restore is the user's own act, so they are its author too (plan 7.4); once a conversation has
-      // added to it, the AI wrote part of it.
+      // A restore is the user's own act, so they are its author too (plan 7.4); once the AI has changed
+      // anything on top of it, the AI wrote part of it. Judged by content, not by which conversations are
+      // still listed: deleting a conversation removes its row.
       const sessions = this.store.sessions(change.id);
-      const author =
-        change.restoreCommit && sessions.length === 0
-          ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
-          : AI_AUTHOR;
+      const pureRestore =
+        change.restoreCommit !== null && tree === (await this.treeOf(site.path, change.restoreCommit));
+      const author = pureRestore
+        ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
+        : AI_AUTHOR;
       const result = (
         await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change, sessions)], {
           cwd: site.path,
           config: { ...author, "committer.name": identity["user.name"], "committer.email": identity["user.email"] },
         })
       ).trim();
+      // The check can take minutes, and the site folder is the user's: it must still be on the default branch
+      // and clean, or the fast-forward would move whatever branch is checked out now.
+      await this.assertSiteReady(site);
       try {
         await git.run(["merge", "-q", "--ff-only", "--no-overwrite-ignore", "--end-of-options", result], {
           cwd: site.path,

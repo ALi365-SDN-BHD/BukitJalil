@@ -121,10 +121,14 @@ export function createGatedTools({ pi }: PiModules, opts: ToolOptions): ToolDefi
   const maxWalk = opts.maxWalk ?? MAX_WALK;
   const listable = (p: string) => gate.check(p, "list");
 
+  // All four operations Pi's read uses: without detectImageMimeType images come back as garbled text, and
+  // without createReadStream every read loads the whole file into memory first.
   const read = pi.createReadToolDefinition(cwd, {
     operations: {
       readFile: (p) => fsp.readFile(gate.check(p, "read")),
       access: (p) => fsp.access(gate.check(p, "read"), fs.constants.R_OK),
+      detectImageMimeType: (p) => pi.detectSupportedImageMimeTypeFromFile(gate.check(p, "read")),
+      createReadStream: (p, { signal }) => readChunks(gate.check(p, "read"), signal),
     },
   });
   const write = pi.createWriteToolDefinition(cwd, {
@@ -191,4 +195,19 @@ export function createGatedTools({ pi }: PiModules, opts: ToolOptions): ToolDefi
     };
   };
   return [read, write, edit, ls, find, grep] as ToolDefinition[];
+}
+
+/**
+ * A gate-checked file as a stream, read up to its size when opened (as Pi's own operation does). The last
+ * part is opened without following a symlink, so it cannot be swapped for one after the check.
+ */
+async function* readChunks(file: string, signal?: AbortSignal): AsyncGenerator<Buffer> {
+  const handle = await fsp.open(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  try {
+    const stats = await handle.stat();
+    const end = stats.isFile() && stats.size > 0 ? stats.size - 1 : undefined;
+    yield* handle.createReadStream({ end, signal, autoClose: false });
+  } finally {
+    await handle.close();
+  }
 }
