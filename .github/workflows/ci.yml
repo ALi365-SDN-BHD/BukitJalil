@@ -85,3 +85,45 @@ jobs:
           name: playwright-${{ matrix.os }}-node${{ matrix.node }}
           path: test-results/
           retention-days: 7
+
+  # The Windows desktop app (a preview: the server is not ported yet), packaged and opened on every push so
+  # the porting work can see what breaks. It does not fail CI.
+  desktop-windows:
+    name: windows-latest / desktop preview
+    runs-on: windows-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      # --force: Windows runners ship a global yarn shim that corepack's own would collide with.
+      - name: Enable corepack (pnpm from packageManager)
+        run: |
+          npm install --global --force corepack@0.34.6
+          corepack enable
+          pnpm --version
+      - name: Locate the pnpm store
+        run: |
+          store="$(pnpm store path --silent)"
+          echo "PNPM_STORE=$store" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: ${{ env.PNPM_STORE }}
+          key: pnpm-${{ runner.os }}-node24-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-node24-
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bukitjalil/desktop exec install-electron
+      - run: pnpm package:desktop
+      - run: pnpm exec playwright test -c e2e/desktop/playwright.config.ts packaged
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: desktop-windows
+          path: test-results/
+          retention-days: 7

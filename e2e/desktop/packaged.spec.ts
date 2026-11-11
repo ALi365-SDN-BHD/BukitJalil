@@ -52,7 +52,16 @@ test("the packaged app runs its bundled server and creates a site from its own f
     env: launchEnv(home),
   });
   const page = await electron.firstWindow();
-  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  // When the server does not start, the window shows the status page with its error and last output lines.
+  await expect(page.getByTestId("new-site"))
+    .toBeVisible({ timeout: 30_000 })
+    .catch(async (err: Error) => {
+      const shown = await page
+        .locator("body")
+        .innerText()
+        .catch(() => "(no page)");
+      throw new Error(`${err.message}\n\nThe window shows:\n${shown}`);
+    });
 
   const result = await page.evaluate(
     async (dir) => {
