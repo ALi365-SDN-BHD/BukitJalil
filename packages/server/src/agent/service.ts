@@ -433,11 +433,13 @@ export class AgentService {
         this.running.delete(siteId);
         release();
         // Messages that arrived after the last prompt ended, while the run was still finishing (Bukit
-        // stopping, the snapshot): they start the session's next run instead of being dropped.
-        if (run.extra.length > 0 && !run.cancelled && !this.closing)
-          this.requeue(siteId, run.sessionId, run.extra.splice(0));
+        // stopping, the snapshot): they start the session's next run instead of being dropped. Not after a
+        // failure: with no model or key, or a change set that could not open, the next run fails the same way.
+        const requeued = run.extra.length > 0 && !error && !run.cancelled && !this.closing;
+        if (requeued) this.requeue(siteId, run.sessionId, run.extra.splice(0));
         try {
-          this.emit(error ? { ...base, status: "idle", error } : { ...base, status: "idle" });
+          if (requeued) this.emit({ ...base, status: "queued" });
+          else this.emit(error ? { ...base, status: "idle", error } : { ...base, status: "idle" });
           // Whether the change set can be reviewed depends on the run: say so even when no file changed.
           if (run.cwd) this.opts.changes.notify(siteId);
           this.pump(siteId);

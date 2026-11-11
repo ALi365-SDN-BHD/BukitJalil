@@ -464,6 +464,30 @@ describe("applying and rejecting", () => {
     }
   });
 
+  it("refuses when the default branch is reset while the check runs, keeping the reset", async () => {
+    const { s, view } = await reviewed((dir, git) => {
+      fs.writeFileSync(path.join(dir, "later.md"), "later\n");
+      git("add", "-A");
+      git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "later");
+    });
+    const opts = (ctx.changes as unknown as { opts: { check: (siteId: string, cwd: string) => Promise<unknown> } })
+      .opts;
+    const check = opts.check;
+    const dropped = s.git("rev-parse", "HEAD");
+    opts.check = async (siteId, cwd) => {
+      s.git("reset", "-q", "--hard", "HEAD~1");
+      return check(siteId, cwd);
+    };
+    try {
+      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash, force: true })).rejects.toMatchObject({
+        code: "change.merge_failed",
+      });
+      expect(s.git("rev-parse", "HEAD")).toBe(s.git("rev-parse", `${dropped}~1`));
+    } finally {
+      opts.check = check;
+    }
+  });
+
   it("refuses when the site folder is on another branch or has uncommitted changes", async () => {
     const { s, view } = await reviewed();
     s.git("switch", "-q", "-c", "other");
@@ -983,6 +1007,21 @@ describe("history and restore", () => {
     if (!view) throw new Error("no change set");
     await ctx.changes.apply(view.id, { treeHash: view.treeHash });
     expect(s.git("log", "-1", "--format=%an")).toBe("BukitJalil AI");
+  });
+
+  it("keeps the user as author of a restore that was merged onto a default branch that moved", async () => {
+    const { s, init } = await withHistory();
+    const restored = await ctx.changes.restore(s.id, init);
+    fs.writeFileSync(path.join(s.dir, "outside.md"), "outside\n");
+    s.git("add", "-A");
+    s.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "outside BukitJalil");
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    const rebased = await ctx.changes.apply(restored.change.id, { treeHash: view.treeHash });
+    expect(rebased.outcome).toBe("rebased");
+    const applied = await ctx.changes.apply(restored.change.id, { treeHash: rebased.change.treeHash });
+    expect(applied.outcome).toBe("applied");
+    expect(s.git("log", "-1", "--format=%an|%cn")).toBe("Site Owner|Site Owner");
   });
 
   it("reports the pre-build guard's verdict on the restored version", async () => {

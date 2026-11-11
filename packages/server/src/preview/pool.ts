@@ -115,12 +115,20 @@ export class PreviewPool {
     throw new NoPreviewPortError(`no free preview port from ${this.base}`);
   }
 
-  async close(key: string): Promise<void> {
+  /**
+   * Stop serving `key`. A forced close (shutdown, site removal) also ends responses still being sent (a
+   * paused video, a stalled reader), which `server.close` would wait for. The idle sweep only stops
+   * listening and drops idle connections: a long download that outlived the idle limit finishes.
+   */
+  async close(key: string, opts: { force?: boolean } = {}): Promise<void> {
     const slot = this.slots.get(key);
     if (!slot) return;
     this.slots.delete(key);
     const closed = new Promise<void>((resolve) => slot.server.close(() => resolve()));
-    // close() waits for responses still being sent (a paused video, a stalled reader): end them.
+    if (!opts.force) {
+      slot.server.closeIdleConnections();
+      return;
+    }
     slot.server.closeAllConnections();
     await closed;
   }
@@ -128,12 +136,14 @@ export class PreviewPool {
   async closeAll(): Promise<void> {
     if (this.sweeper) clearInterval(this.sweeper);
     this.sweeper = null;
-    await Promise.all([...this.slots.keys()].map((k) => this.close(k)));
+    await Promise.all([...this.slots.keys()].map((k) => this.close(k, { force: true })));
   }
 
   /** Close every slot of a site (it was removed). */
   async closeSite(siteId: string): Promise<void> {
-    await Promise.all([...this.slots.keys()].filter((k) => k.startsWith(`${siteId}:`)).map((k) => this.close(k)));
+    await Promise.all(
+      [...this.slots.keys()].filter((k) => k.startsWith(`${siteId}:`)).map((k) => this.close(k, { force: true })),
+    );
   }
 
   list(): { key: string; port: number }[] {

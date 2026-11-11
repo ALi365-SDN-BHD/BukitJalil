@@ -14,6 +14,8 @@ export interface ChangeRecord {
   resolvedAt: string | null;
   resultCommit: string | null;
   restoreCommit: string | null;
+  /** A conversation took part at some point (kept when it is deleted or the change is rebased). */
+  aiJoined: boolean;
 }
 
 interface ChangeRow {
@@ -28,6 +30,7 @@ interface ChangeRow {
   resolved_at: string | null;
   result_commit: string | null;
   restore_commit: string | null;
+  ai_joined: number;
 }
 
 const toRecord = (row: ChangeRow): ChangeRecord => ({
@@ -42,6 +45,7 @@ const toRecord = (row: ChangeRow): ChangeRecord => ({
   resolvedAt: row.resolved_at,
   resultCommit: row.result_commit,
   restoreCommit: row.restore_commit,
+  aiJoined: row.ai_joined !== 0,
 });
 
 /** Change set ids are ref names (refs/bukitjalil/changes/<id>) and URL segments. */
@@ -120,6 +124,7 @@ export class ChangeStore {
     this.db
       .prepare("INSERT OR IGNORE INTO change_set_sessions (change_set_id, session_id, first_turn_at) VALUES (?, ?, ?)")
       .run(id, sessionId, new Date().toISOString());
+    this.db.prepare("UPDATE change_sets SET ai_joined = 1 WHERE id = ?").run(id);
   }
 
   sessions(id: string): string[] {

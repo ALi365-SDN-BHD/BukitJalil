@@ -254,14 +254,23 @@ function openBrowser(url: string) {
 /** Longest wait for site operations (apply, import, removal…) to finish during shutdown. */
 const SHUTDOWN_WAIT_MS = 15_000;
 
-let closing = false;
-async function shutdown() {
-  if (closing) {
-    // A second signal (another Ctrl-C, or the desktop app giving up): leave now.
-    releaseLock();
-    process.exit(1);
+/**
+ * A signal this long after shutdown began means "leave now". Sooner ones are the same request delivered
+ * twice: `pnpm dev` (tsx watch) passes the terminal's Ctrl-C on to a process that got it already.
+ */
+const FORCE_EXIT_AFTER_MS = 1_000;
+
+let closingSince: number | null = null;
+async function shutdown(signal = false) {
+  if (closingSince !== null) {
+    // Another Ctrl-C, or the desktop app giving up, while operations are still finishing.
+    if (signal && Date.now() - closingSince >= FORCE_EXIT_AFTER_MS) {
+      releaseLock();
+      process.exit(1);
+    }
+    return;
   }
-  closing = true;
+  closingSince = Date.now();
   try {
     server.close();
     events.closeAll();
@@ -279,5 +288,5 @@ async function shutdown() {
   releaseLock();
   process.exit(0);
 }
-process.on("SIGINT", () => void shutdown());
-process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => void shutdown(true));
+process.on("SIGTERM", () => void shutdown(true));

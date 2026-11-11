@@ -211,12 +211,10 @@ export class ChangeService {
       if (!check.passed && !req.force)
         return { outcome: "check_failed", change: await this.toChangeSet(change), check };
 
-      // A restore is the user's own act, so they are its author too (plan 7.4); once the AI has changed
-      // anything on top of it, the AI wrote part of it. Judged by content, not by which conversations are
-      // still listed: deleting a conversation removes its row.
+      // A restore is the user's own act, so they are its author too (plan 7.4); once a conversation has taken
+      // part, the AI wrote part of it. The flag outlives a deleted conversation and a rebase onto a newer main.
       const sessions = this.store.sessions(change.id);
-      const pureRestore =
-        change.restoreCommit !== null && tree === (await this.treeOf(site.path, change.restoreCommit));
+      const pureRestore = change.restoreCommit !== null && !change.aiJoined;
       const author = pureRestore
         ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
         : AI_AUTHOR;
@@ -229,6 +227,11 @@ export class ChangeService {
       // The check can take minutes, and the site folder is the user's: it must still be on the default branch
       // and clean, or the fast-forward would move whatever branch is checked out now.
       await this.assertSiteReady(site);
+      // The branch itself may have moved meanwhile too; after a `reset --hard HEAD~1` the fast-forward would
+      // quietly bring the dropped commit back. Applying again merges onto where it is now.
+      if ((await sites.headOf(site)) !== main) {
+        throw new SiteError("change.merge_failed", 409, { detail: `${site.defaultBranch} moved during the check` });
+      }
       try {
         await git.run(["merge", "-q", "--ff-only", "--no-overwrite-ignore", "--end-of-options", result], {
           cwd: site.path,

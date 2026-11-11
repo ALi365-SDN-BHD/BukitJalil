@@ -482,16 +482,60 @@ describe("AgentService", () => {
         return pi.ai.fauxAssistantMessage("two done");
       },
     ]);
-    const idles = () => events.filter((e) => e.sessionId === session.id && e.type === "status" && e.status === "idle");
+    const statuses = () => events.flatMap((e) => (e.sessionId === session.id && e.type === "status" ? [e.status] : []));
     await agent.send(session.id, "one");
     await reached;
     // The prompt loop has ended; the run is still finishing (Bukit settling, the snapshot).
     expect(agent.status(session.id)).toBe("running");
     await agent.send(session.id, "two");
     release();
-    await vi.waitFor(() => expect(idles()).toHaveLength(2), { timeout: 10_000 });
+    await vi.waitFor(() => expect(statuses().at(-1)).toBe("idle"), { timeout: 10_000 });
+    // Between the runs the session is waiting, not idle.
+    expect(statuses().filter((st) => st !== "queued")).toEqual(["running", "running", "idle"]);
+    expect(statuses()).toContain("queued");
     expect(contexts).toHaveLength(1);
     expect(contexts[0]).toContain("two");
+  });
+
+  it("does not start another run for a message sent while a failed run is finishing", async () => {
+    const s = await site();
+    let finishing!: () => void;
+    const reached = new Promise<void>((r) => {
+      finishing = r;
+    });
+    let release!: () => void;
+    const hold = new Promise<void>((r) => {
+      release = r;
+    });
+    const { agent, settled } = service({
+      settled: async () => {
+        finishing();
+        await hold;
+      },
+    });
+    const session = agent.create(s.id);
+    const begin = vi.spyOn(ctx.changes, "begin").mockRejectedValueOnce(new Error("disk full"));
+    const calls: string[] = [];
+    faux.setResponses([
+      () => {
+        calls.push("prompted");
+        return pi.ai.fauxAssistantMessage("should not run");
+      },
+    ]);
+    try {
+      const done = settled(session.id);
+      await agent.send(session.id, "one");
+      await reached;
+      await agent.send(session.id, "two");
+      release();
+      expect(await done).toMatchObject({ status: "idle", error: "server.internal" });
+      await new Promise((r) => setTimeout(r, 100));
+      expect(agent.status(session.id)).toBe("idle");
+      expect(begin).toHaveBeenCalledTimes(1);
+      expect(calls).toEqual([]);
+    } finally {
+      begin.mockRestore();
+    }
   });
 
   it("stops a session that is still opening before it prompts", async () => {
