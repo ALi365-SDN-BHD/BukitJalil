@@ -400,6 +400,8 @@ function AssistantMessage({ item }: { item: Extract<ChatItem, { kind: "assistant
 function Composer({ site, session }: { site: Site; session: SessionInfo }) {
   const { m, errorOf } = useI18n();
   const [text, setText] = useState(() => takeComposerDraft(session.id) ?? "");
+  const [failedText, setFailedText] = useState<string | null>(null);
+  const textRef = useRef(text);
   const running = session.status === "running";
   // The message leaves the box at once and shows as waiting until the session takes it in (the events
   // remove it); on failure it comes back to the box, unless something new was typed meanwhile.
@@ -408,12 +410,20 @@ function Composer({ site, session }: { site: Site; session: SessionInfo }) {
       api.sendMessage(session.id, { text: vars.text, mode: vars.mode }),
     onError: (_err, vars) => {
       liveStore.removePending(session.id, vars.pendingId);
-      setText((current) => (current === "" ? vars.text : current));
+      // With an empty box, put the message back as before. If the user has typed something else, keep it and
+      // offer the failed text as a retry instead of overwriting what they typed.
+      if (textRef.current === "") {
+        textRef.current = vars.text;
+        setText(vars.text);
+      } else {
+        setFailedText(vars.text);
+      }
     },
   });
   const submit = (mode: "prompt" | "steer" | "followUp") => {
     if (text.trim() === "" || send.isPending) return;
     const pendingId = liveStore.addPending(session.id, text);
+    textRef.current = "";
     setText("");
     send.mutate({ mode, text, pendingId });
   };
@@ -455,13 +465,37 @@ function Composer({ site, session }: { site: Site; session: SessionInfo }) {
             placeholder={running ? m.chat.placeholderRunning : m.chat.placeholder}
             aria-label={m.chat.placeholder}
             data-testid="composer-input"
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              textRef.current = e.target.value;
+              setText(e.target.value);
+            }}
             onKeyDown={onKeyDown}
           />
           <div className="flex items-center gap-2">
             {(send.error || stop.error) && (
               <p role="alert" className="min-w-0 flex-1 text-xs text-destructive" data-testid="composer-error">
                 {errorOf(send.error ?? stop.error)}
+              </p>
+            )}
+            {failedText && (
+              <p className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
+                <span className="min-w-0 flex-1">{m.chat.sendFailed}</span>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  data-testid="restore-failed-message"
+                  onClick={() => {
+                    textRef.current = failedText;
+                    setText(failedText);
+                    setFailedText(null);
+                  }}
+                >
+                  {m.common.retry}
+                </Button>
+                <Button type="button" size="xs" variant="ghost" onClick={() => setFailedText(null)}>
+                  {m.common.cancel}
+                </Button>
               </p>
             )}
             <div className="ml-auto flex items-center gap-2">

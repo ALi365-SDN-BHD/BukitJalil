@@ -83,6 +83,18 @@ describe("file panel (plan 5.3, 9.1)", () => {
     expect(statics.body.entries.find((e) => e.name === "img")?.kind).toBe("dir");
   });
 
+  it("caps a directory with more entries than the panel can show", async () => {
+    const ctx = await siteWithFiles("huge");
+    const huge = path.join(ctx.dir, "huge");
+    fs.mkdirSync(huge);
+    for (let i = 0; i < 2001; i++) fs.writeFileSync(path.join(huge, `f${i}.txt`), "");
+    raw(ctx.dir, "add", "-A");
+    raw(ctx.dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "huge");
+    const tree = await ctx.get<TreeResponse>(ctx.api("/tree?path=huge"));
+    expect(tree.body.entries).toHaveLength(2000);
+    expect(tree.body.truncated).toBe(true);
+  });
+
   it("refuses bad paths and explains missing ones", async () => {
     expect((await s.get(s.api("/tree?path=site.yaml"))).body).toEqual({ code: "panel.not_directory" });
     expect((await s.get(s.api("/tree?path=nope"))).body).toEqual({ code: "panel.not_found" });

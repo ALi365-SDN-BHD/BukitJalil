@@ -37,11 +37,22 @@ describe("data directory lock (plan M7)", () => {
     }
   });
 
-  it("takes over a lock left by a process that is gone, or one it cannot read", () => {
+  it("takes over a stale lock, but not one that is still being written", () => {
     const file = path.join(tmp(), "server.lock");
-    fs.writeFileSync(file, `${deadPid()}\n`);
+    const backdate = (content: string) => {
+      fs.writeFileSync(file, content);
+      const old = new Date(Date.now() - 10_000);
+      fs.utimesSync(file, old, old);
+    };
+    backdate(`${deadPid()}\n`);
     acquireHomeLock(file)();
-    fs.writeFileSync(file, "garbage");
+    backdate("garbage");
+    acquireHomeLock(file)();
+
+    // The file appears before its PID is written; a fresh empty file must not be deleted.
+    fs.writeFileSync(file, "");
+    expect(() => acquireHomeLock(file)).toThrow(HomeInUseError);
+    backdate("garbage");
     acquireHomeLock(file)();
     expect(fs.existsSync(file)).toBe(false);
   });

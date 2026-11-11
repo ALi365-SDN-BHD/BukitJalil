@@ -25,8 +25,6 @@ export const CreateSiteRequest = z
     /** The new site directory itself; it must not exist or be empty. */
     path: AbsolutePath,
     language: SiteLanguage,
-    /** Optional first message for the AI (plan 5.2 step 6; used from M3). */
-    description: z.string().max(4000).optional(),
   })
   .strict();
 export type CreateSiteRequest = z.infer<typeof CreateSiteRequest>;
@@ -70,6 +68,7 @@ export type SiteReasonCode =
   | "case_collision"
   | "repo_config"
   | "dubious_ownership"
+  | "git_symlink"
   /** The check has not finished yet (new row) or could not run to the end. */
   | "not_checked"
   /** The site directory is gone or no longer a git repository root. */

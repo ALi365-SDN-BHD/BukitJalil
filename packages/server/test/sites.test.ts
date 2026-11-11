@@ -377,6 +377,31 @@ describe("import a site (plan 5.1)", () => {
       params: { path: "vendor/lib" },
     });
   });
+
+  it("refuses a .git symlink instead of writing through it", async () => {
+    const ctx = setup();
+    const dir = path.join(userHome, "imp-git-link");
+    copyStarter(STARTER, dir, { title: "link", language: "en" });
+    const target = path.join(base, "git-link-target");
+    fs.symlinkSync(target, path.join(dir, ".git"));
+
+    const inspect = await ctx.call<{ code: string }>("POST", "/api/sites/import/inspect", { path: dir });
+    expect(inspect).toEqual({ status: 400, json: { code: "site.git_symlink" } });
+    expect(fs.existsSync(target)).toBe(false);
+
+    // If a link appears after the import's own inspection, initForImport must still refuse to run git init.
+    fs.rmSync(path.join(dir, ".git"));
+    const clean = await ctx.call<ImportInspection>("POST", "/api/sites/import/inspect", { path: dir });
+    if (clean.json.kind !== "not_git") throw new Error("expected not_git");
+    fs.symlinkSync(target, path.join(dir, ".git"));
+    const sites = ctx.sites as unknown as {
+      initForImport(real: string, files: string[], identity: Record<string, string>): Promise<void>;
+    };
+    await expect(
+      sites.initForImport(dir, clean.json.files, { "user.name": "Site Owner", "user.email": "owner@example.com" }),
+    ).rejects.toMatchObject({ code: "site.file_list_changed" });
+    expect(fs.existsSync(target)).toBe(false);
+  });
 });
 
 // --- details, patch, remove ---

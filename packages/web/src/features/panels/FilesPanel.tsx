@@ -95,11 +95,14 @@ function TreeLevel(props: {
       </p>
     );
   return (
-    <ul>
-      {tree.data.entries.map((e) => (
-        <TreeItem key={e.path} entry={e} {...props} />
-      ))}
-    </ul>
+    <>
+      <ul>
+        {tree.data.entries.map((e) => (
+          <TreeItem key={e.path} entry={e} {...props} />
+        ))}
+      </ul>
+      {tree.data.truncated && <p className="px-2 py-1 text-xs text-muted-foreground">{m.files.truncated}</p>}
+    </>
   );
 }
 

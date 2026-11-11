@@ -28,9 +28,8 @@ export const DEFAULT_TIMEOUTS: Record<BukitCommand, number> = {
 /** The only variables a caller may add; everything else in the environment is fixed here. */
 export interface BukitSecrets {
   NOTION_TOKEN?: string;
-  GITHUB_TOKEN?: string;
 }
-const SECRET_KEYS = ["NOTION_TOKEN", "GITHUB_TOKEN"] as const;
+const SECRET_KEYS = ["NOTION_TOKEN"] as const;
 
 /**
  * What `bukit deploy` gets on top of the minimal environment (plan 14 M6): the GitHub token under the name
@@ -319,11 +318,6 @@ export function buildOutcome(result: BukitRunResult): BuildOutcome {
 /** "bukit 2.0.11+9006a2b…" -> "2.0.11" */
 export function parseBukitVersion(output: string): string | null {
   return /^bukit\s+(\d+\.\d+\.\d+)/m.exec(output)?.[1] ?? null;
-}
-
-/** `--log-format json` lines from build: [{ts, level, msg}], ignoring anything that is not JSON. */
-export function parseJsonLog(stdout: string): { level: string; msg: string }[] {
-  return stdout.split("\n").flatMap((line) => logEntry(line) ?? []);
 }
 
 /** One `--log-format json` line, or null for anything else (text, the cli-error document, blank lines). */

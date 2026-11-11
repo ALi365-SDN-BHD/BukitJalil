@@ -21,6 +21,7 @@ import type { Logger } from "../log.ts";
 import { parseYaml } from "../panels/yaml.ts";
 import type { AppPaths } from "../paths.ts";
 import { NoPreviewPortError, PreviewPool } from "../preview/pool.ts";
+import type { SecretStore } from "../settings/secrets.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
@@ -37,6 +38,7 @@ export interface BuildServiceOptions {
   locks: SiteLocks;
   previews: PreviewPool;
   changes: ChangeService;
+  secrets: SecretStore;
   logger: Logger;
 }
 
@@ -171,7 +173,12 @@ export class BuildService {
         .finally(() => {
           this.running.delete(id);
           release();
-          this.emit("build.end", id);
+          try {
+            this.emit("build.end", id);
+          } catch (err) {
+            // A storage error while reading the final record must not become an unhandled rejection.
+            this.opts.logger.log("error", "build.end_failed", { id, error: String(err) });
+          }
         });
       this.running.set(id, { promise, abort });
       this.emit("build.start", id);
@@ -286,6 +293,9 @@ export class BuildService {
     ) => this.store.finish(id, { status, outcome, exitCode }, { messages: [], output: "", ...report }, outputDir);
 
     let temp: string | null = null;
+    // Unreviewed (change) builds never get the Notion token; a main build of the reviewed version may.
+    const notionToken = target.ref === "main" ? this.opts.secrets.get("notion") : null;
+    let passNotionToken = false;
     try {
       // The guard reads the commit's git objects, so it judges exactly what the checkout will hold.
       if (!guarded) {
@@ -295,15 +305,18 @@ export class BuildService {
         if (target.ref === "main" && (!guard.ok || guard.usesNotion))
           this.opts.sites.applyGuard(site.id, commit, guard);
         if (!guard.ok) return finish("failed", "refused", null, { reasons: guard.reasons });
-        // A main build may pass NOTION_TOKEN (plan 8.5), but tokens are only stored from M6; a change build
-        // never gets one.
-        if (guard.usesNotion) return finish("failed", "notion", null, {});
+        if (guard.usesNotion && notionToken === null) return finish("failed", "notion", null, {});
+        passNotionToken = guard.usesNotion;
       }
 
       const checkout = target.cwd ?? (await this.opts.sites.mainCheckout(site.id, site.path, commit));
       temp = path.join(checkout, BUILD_OUTPUT_PARENT, id);
       fs.rmSync(temp, { recursive: true, force: true });
-      const result = await runner.run("build", buildArgs(id), { cwd: checkout, signal });
+      const result = await runner.run("build", buildArgs(id), {
+        cwd: checkout,
+        signal,
+        ...(passNotionToken && notionToken !== null ? { env: { NOTION_TOKEN: notionToken } } : {}),
+      });
       const report = buildReport(result);
       const outcome = buildOutcome(result);
       if (outcome !== "ok") {
@@ -460,9 +473,11 @@ export function buildReport(result: BukitRunResult): BuildReport {
 export function limitMessages(messages: BuildReport["messages"], max: number): BuildReport["messages"] {
   if (messages.length <= max) return messages;
   const isError = (m: BuildReport["messages"][number]) => ERROR_LEVELS.has(m.level.toLowerCase());
-  const errors = messages.filter(isError).length;
-  let warningRoom = Math.max(0, max - errors);
-  let errorRoom = max - warningRoom;
+  const errors = messages.filter(isError);
+  // More errors than room: keep the last ones. The final error is usually the one that explains the failure.
+  if (errors.length >= max) return errors.slice(-max);
+  let warningRoom = max - errors.length;
+  let errorRoom = errors.length;
   return messages.filter((m) => {
     if (isError(m)) return errorRoom-- > 0;
     return warningRoom-- > 0;

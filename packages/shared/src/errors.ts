@@ -32,6 +32,7 @@ export const errorCodes = [
   "site.already_registered",
   "site.no_site_yaml",
   "site.not_repo_root",
+  "site.git_symlink",
   "site.not_git",
   "site.no_commits",
   "site.detached_head",

@@ -426,10 +426,8 @@ describe("applying and rejecting", () => {
     const rejected = await ctx.changes.reject(view.id);
     expect(rejected).toMatchObject({ status: "rejected", resultCommit: null });
     expect(s.git("rev-parse", "HEAD")).toBe(head);
-    // A closed change set can still be shown: its ref keeps the snapshot from garbage collection.
-    expect(s.git("rev-parse", changeRef(view.id))).toBe(rejected.snapshotCommit);
-    s.git("gc", "-q", "--prune=now");
-    expect((await ctx.changes.diff(view.id, "content/pages/faq.md")).patch).toContain("FAQ");
+    // A rejected snapshot is not part of the review history; its ref goes so Git can collect it.
+    expect(s.git("for-each-ref", changeRef(view.id))).toBe("");
     await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
       code: "change.not_open",
       params: { status: "rejected" },
@@ -586,6 +584,7 @@ describe("applying and rejecting", () => {
     expect(stale.outcome).toBe("stale");
     expect(stale.change.status).toBe("stale");
     expect(s.git("rev-parse", "HEAD")).toBe(main);
+    expect(s.git("for-each-ref", changeRef(view.id))).toBe("");
     // The next run starts over from the new default branch.
     const next = await ctx.changes.begin(s.id, session.id);
     expect(next.change.id).not.toBe(view.id);

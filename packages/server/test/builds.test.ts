@@ -29,6 +29,7 @@ case "$1" in
   build)
     out=""; prev=""
     for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
+    [ -n "$NOTION_TOKEN" ] && printf '%s' "$NOTION_TOKEN" > "\${0}.notion"
     mode=$(cat fake-mode 2>/dev/null)
     echo '{"ts":"t","level":"info","msg":"event=build.start"}'
     case "$mode" in
@@ -142,6 +143,50 @@ async function setup(name: string, opts: { mode?: string; bin?: string | null } 
 }
 
 const fetchPreview = (port: number) => httpGet(port);
+
+it("passes the Notion token to a main build but never to a change build", async () => {
+  const ctx = makeApp({
+    userHome,
+    appHome: fs.mkdtempSync(path.join(base, "app-notion-")),
+    bukit: bukitFor(fakeBin),
+    previewBase: nextPreviewBase(),
+    secretEnv: { BUKITJALIL_NOTION_TOKEN: "ntn_main_only" },
+  });
+  contexts.push(ctx);
+  const dir = path.join(userHome, "notion");
+  copyStarter(STARTER, dir, { title: "notion", language: "en-US" });
+  fs.writeFileSync(
+    path.join(dir, "site.yaml"),
+    "site:\n  name: notion\n  title: Notion\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n",
+  );
+  raw(dir, "init", "-q", "-b", "main");
+  commitAll(dir, "notion");
+  const site = await ctx.sites.import({ path: dir });
+  await ctx.builds.settled();
+  expect(site.configCheck).toBe("notion");
+  expect(ctx.secrets.get("notion")).toBe("ntn_main_only");
+
+  const tokenFile = `${fakeBin}.notion`;
+  fs.rmSync(tokenFile, { force: true });
+  await ctx.builds.start(site.id, "main");
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "succeeded", outcome: "ok" });
+  expect(fs.readFileSync(tokenFile, "utf8")).toBe("ntn_main_only");
+
+  // A change build is unreviewed: it must not run Bukit with the token.
+  const session = ctx.agent.create(site.id);
+  const { cwd } = await ctx.changes.begin(site.id, session.id);
+  fs.writeFileSync(path.join(cwd, "content", "pages", "new.md"), "---\ntitle: New\n---\n");
+  await ctx.changes.snapshot(site.id, cwd);
+  fs.rmSync(tokenFile, { force: true });
+  await ctx.builds.start(site.id, "change");
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id).find((b) => b.ref === "change")).toMatchObject({
+    status: "failed",
+    outcome: "notion",
+  });
+  expect(fs.existsSync(tokenFile)).toBe(false);
+});
 
 describe("main builds (plan 8.3, 8.4)", () => {
   it("builds in the main checkout and keeps the output under previews/", async () => {

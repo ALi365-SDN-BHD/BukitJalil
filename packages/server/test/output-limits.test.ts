@@ -68,7 +68,7 @@ describe("limitMessages", () => {
     expect(limitMessages(list, 20)).toBe(list);
     expect(limitMessages(list, 4)).toEqual([warn(0), warn(1), warn(2), { level: "Error", msg: "boom" }]);
     const errors = Array.from({ length: 5 }, (_, i) => ({ level: "error", msg: `e${i}` }));
-    expect(limitMessages([warn(0), ...errors], 3)).toEqual(errors.slice(0, 3));
+    expect(limitMessages([warn(0), ...errors], 3)).toEqual(errors.slice(-3));
   });
 
   it("is what buildReport uses", () => {

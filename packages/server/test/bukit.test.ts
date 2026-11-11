@@ -22,7 +22,7 @@ import {
   verifySha256,
 } from "../src/bukit/install.ts";
 import { appBukitDir, BukitService, bukitInstaller, locateBukit, versionState } from "../src/bukit/locate.ts";
-import { BukitRunner, buildOutcome, checkPassed, parseBukitVersion, parseJsonLog } from "../src/bukit/runner.ts";
+import { BukitRunner, buildOutcome, checkPassed, parseBukitVersion } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
 import { commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
@@ -370,7 +370,7 @@ describe("BukitRunner", () => {
     const fs2 = path.join(runner.binDir, "stray");
     fs.mkdirSync(runner.binDir, { recursive: true });
     fs.writeFileSync(fs2, "x");
-    const secrets = { GITHUB_TOKEN: "g", PATH: "/opt/evil", EVIL: "1" } as unknown as { GITHUB_TOKEN: string };
+    const secrets = { NOTION_TOKEN: "n", PATH: "/opt/evil", EVIL: "1" } as unknown as { NOTION_TOKEN: string };
     const result = await runner.run("build", [], { cwd: base, env: secrets });
     const lines = result.stdout.trim().split("\n");
     expect(lines[0]).toBe(`PATH=${runner.binDir}:/usr/bin:/bin`);
@@ -378,7 +378,7 @@ describe("BukitRunner", () => {
     expect(lines[2]).toBe(path.join(runner.binDir, "git"));
     expect(lines.slice(3)).toEqual(["git"]);
     expect(fs.readlinkSync(path.join(runner.binDir, "git"))).toBe(gitPath);
-    expect(runner.env({ GITHUB_TOKEN: "g" }).GITHUB_TOKEN).toBe("g");
+    expect(runner.env({ NOTION_TOKEN: "n" }).NOTION_TOKEN).toBe("n");
   });
 
   it("keeps multibyte characters split across output chunks", async () => {
@@ -408,9 +408,6 @@ describe("BukitRunner", () => {
     expect(checkPassed(r(2))).toBe(false);
     expect(parseBukitVersion("bukit 2.0.11+9006a2bd42290abea01f0e519607344983d9dd87\n")).toBe("2.0.11");
     expect(parseBukitVersion("nope")).toBeNull();
-    expect(parseJsonLog('noise\n{"ts":"t","level":"info","msg":"event=x"}\n{bad\n')).toEqual([
-      { level: "info", msg: "event=x" },
-    ]);
   });
 });
 

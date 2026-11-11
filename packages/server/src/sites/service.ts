@@ -16,7 +16,7 @@ import { type GuardResult, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { checkPassed, usableRunner } from "../bukit/runner.ts";
 import { resolveBranch } from "../git/objects.ts";
-import { GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
+import { clearIndexLock, GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
 import type { SettingsStore } from "../store/settings.ts";
 import { EXCLUDE_PATTERNS, IMPORT_INIT_PATTERNS, removeExcludeBlock, writeExcludeBlock } from "./exclude.ts";
@@ -161,6 +161,7 @@ export class SiteService {
   private async inspect(target: string): Promise<{ inspection: ImportInspection; checked?: Prechecked }> {
     const real = checkSiteLocation(target, this.rules());
     assertDirectory(real);
+    assertNoGitSymlink(real);
     const siteYaml = path.join(real, "site.yaml");
     if (!fs.existsSync(siteYaml) || !fs.lstatSync(siteYaml).isFile()) throw new SiteError("site.no_site_yaml", 400);
 
@@ -205,8 +206,10 @@ export class SiteService {
   /** `git init` an existing directory after the user confirmed exactly which files go into the first commit. */
   private async initForImport(real: string, confirmed: string[], identity: Record<string, string>) {
     const { git } = this.opts;
-    // Rolling back removes .git, so it must be ours: refuse if one appeared since the inspection.
-    if (fs.existsSync(path.join(real, ".git"))) throw new SiteError("site.file_list_changed", 409);
+    // Rolling back removes .git, so it must be ours: refuse if one appeared since the inspection, including
+    // a symbolic link (existsSync would follow a dangling link and let git init write into its target).
+    if (fs.lstatSync(path.join(real, ".git"), { throwIfNoEntry: false }))
+      throw new SiteError("site.file_list_changed", 409);
     try {
       await git.run(["init", "-q", "-b", "main"], { cwd: real, repoCheck: false });
       // The exclude block goes in first: once dist/, .bukit/ or .env are tracked, ignoring no longer helps.
@@ -362,13 +365,18 @@ export class SiteService {
     // made again instead of failing every check from now on.
     if (fs.existsSync(dir) && !(await this.isCheckoutOf(dir, sitePath)))
       fs.rmSync(dir, { recursive: true, force: true });
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });
-      await git.run(["worktree", "prune"], { cwd: sitePath });
-      await git.run(["worktree", "add", "-q", "--detach", dir, commit], { cwd: sitePath });
-    } else {
-      await git.run(["checkout", "-q", "--detach", "--force", commit], { cwd: dir });
-      await git.run(["clean", "-q", "-fdx", "-e", ".bukit", "-e", ".cache"], { cwd: dir });
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });
+        await git.run(["worktree", "prune"], { cwd: sitePath });
+        await git.run(["worktree", "add", "-q", "--detach", dir, commit], { cwd: sitePath });
+      } else {
+        await git.run(["checkout", "-q", "--detach", "--force", commit], { cwd: dir });
+        await git.run(["clean", "-q", "-fdx", "-e", ".bukit", "-e", ".cache"], { cwd: dir });
+      }
+    } catch (err) {
+      if (err instanceof GitError && err.kind === "timeout") await clearIndexLock(git, dir);
+      throw err;
     }
     return dir;
   }
@@ -447,7 +455,9 @@ export class SiteService {
       } else {
         leftovers.push("worktree_registrations", "refs");
       }
-      const common = fs.existsSync(site.path) ? await this.commonDir(site.path).catch(() => null) : null;
+      // A .git link may point at another repository; never write its exclude block through it.
+      const common =
+        !gitSymlink(site.path) && fs.existsSync(site.path) ? await this.commonDir(site.path).catch(() => null) : null;
       // The block is shared too: it stays while another registered site uses the same repository.
       const shared =
         common !== null &&
@@ -472,6 +482,7 @@ export class SiteService {
 
   /** Repository config allowlist result (plan 7.3) as site reasons; [] when the repository is acceptable. */
   private async repoReasons(cwd: string): Promise<SiteReason[]> {
+    if (gitSymlink(cwd)) return [{ code: "git_symlink" }];
     try {
       const check = await this.opts.git.checkRepo(cwd);
       return check.reasons.map((r) =>
@@ -539,6 +550,14 @@ function siteTitle(dir: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** A .git link can point the repository at another folder; never read or write through it. */
+const gitSymlink = (dir: string): boolean =>
+  fs.lstatSync(path.join(dir, ".git"), { throwIfNoEntry: false })?.isSymbolicLink() === true;
+
+function assertNoGitSymlink(real: string): void {
+  if (gitSymlink(real)) throw new SiteError("site.git_symlink", 400);
 }
 
 /** HEAD of a repository git refuses to open (dubious ownership): "ref: refs/heads/<branch>". */

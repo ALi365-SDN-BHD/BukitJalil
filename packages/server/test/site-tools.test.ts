@@ -334,6 +334,7 @@ describe("bukit_schema", () => {
     const out = schemaText(big);
     expect(out.length).toBeLessThan(61_000);
     expect(out).toContain("ask for one section: a, b");
+    expect(schemaText({ properties: { a: {} } }, "toString")).toContain('No section "toString"');
   });
 });
 

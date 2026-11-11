@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { segmentKey } from "../agent/gate.ts";
-import type { GitRunner } from "../git/run.ts";
+import { clearIndexLock, GitError, type GitRunner } from "../git/run.ts";
 import { BUILD_DIRS } from "../sites/exclude.ts";
 
 /** Committer of snapshot commits; they stay inside BukitJalil (the applied commit gets the user's identity). */
@@ -44,7 +44,13 @@ export async function snapshotCheckout(git: GitRunner, cwd: string): Promise<Sna
     if (!abs.startsWith(cwd + path.sep)) throw new Error(`git listed a path outside the checkout: ${rel}`);
     fs.rmSync(abs, { recursive: true, force: true });
   }
-  await git.run(["add", "-A", "--", ".", ...[...IGNORED_OK].flatMap(excludeTopLevel)], { cwd });
+  try {
+    await git.run(["add", "-A", "--", ".", ...[...IGNORED_OK].flatMap(excludeTopLevel)], { cwd });
+  } catch (err) {
+    // git add writes the index; a timeout kills it with SIGKILL and leaves index.lock behind.
+    if (err instanceof GitError && err.kind === "timeout") await clearIndexLock(git, cwd);
+    throw err;
+  }
   const tree = (await git.text(["write-tree"], { cwd })).trim();
   const head = (await git.text(["rev-parse", "--verify", "HEAD"], { cwd })).trim();
   const headTree = (await git.text(["rev-parse", "--verify", "HEAD^{tree}"], { cwd })).trim();

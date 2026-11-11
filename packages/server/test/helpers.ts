@@ -105,7 +105,7 @@ export function makeApp(
   });
   const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
   const secrets = new SecretStore(paths.secrets, overrides.secretEnv ?? {});
-  const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, changes, logger });
+  const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, changes, secrets, logger });
   const agent = new AgentService({
     db,
     paths,

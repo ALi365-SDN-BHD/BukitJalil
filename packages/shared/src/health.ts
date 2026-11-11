@@ -13,7 +13,5 @@ export const HealthResponse = z.object({
   ok: z.boolean(),
   version: z.string(),
   git: GitHealth,
-  bukit: z.object({ ok: z.boolean(), detail: z.literal("not_checked_yet") }),
-  pi: z.object({ ok: z.boolean(), detail: z.literal("not_checked_yet") }),
 });
 export type HealthResponse = z.infer<typeof HealthResponse>;

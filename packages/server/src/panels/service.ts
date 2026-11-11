@@ -44,6 +44,8 @@ const MAX_DATA_FILE_BYTES = 256 * 1024;
 /** Enough bytes to recognize any of the bitmap types. */
 const SNIFF_BYTES = 16;
 const MAX_DATA_ITEMS = 500;
+/** Entries a single directory listing returns; a huge directory must not freeze the file panel. */
+const MAX_TREE_ENTRIES = 2000;
 
 /** What the file route sends: JSON, or bytes for as=raw / as=download. */
 export type FileResult =
@@ -83,11 +85,13 @@ export class PanelService {
         const entry = await this.entryAt(v, dir);
         throw entry ? new SiteError("panel.not_directory", 400) : new SiteError("panel.not_found", 404);
       }
+      const views = entries.map(toView).sort((a, b) => kindOrder(a) - kindOrder(b) || compare(a.name, b.name));
       return {
         ref,
         commit: v.commit,
         path: dir,
-        entries: entries.map(toView).sort((a, b) => kindOrder(a) - kindOrder(b) || compare(a.name, b.name)),
+        entries: views.slice(0, MAX_TREE_ENTRIES),
+        truncated: views.length > MAX_TREE_ENTRIES,
       };
     });
   }

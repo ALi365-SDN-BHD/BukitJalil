@@ -179,7 +179,7 @@ export function schemaText(schema: unknown, section?: string): string {
   let value = schema;
   if (section) {
     const props = isRecord(schema) && isRecord(schema.properties) ? schema.properties : {};
-    if (!(section in props)) {
+    if (!Object.hasOwn(props, section)) {
       return `No section "${section}". Sections: ${Object.keys(props).join(", ") || "(none)"}`;
     }
     value = props[section];

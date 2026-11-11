@@ -100,9 +100,8 @@ export class PreviewPool {
   }
 
   private async bind(key: string, root: string, entry: string | undefined): Promise<{ port: number; url: string }> {
-    for (let port = this.base, attempts = 0; attempts < MAX_PORT_ATTEMPTS; port++) {
+    for (let port = this.base, attempts = 0; attempts < MAX_PORT_ATTEMPTS && port <= 65535; port++, attempts++) {
       if (this.reserved.has(port) || [...this.slots.values()].some((s) => s.port === port)) continue;
-      attempts++;
       const slot: Slot = { key, port, root, entry, server: http.createServer(), usedAt: Date.now() };
       slot.server.on("request", (req, res) => this.handle(slot, req, res));
       const bound = await listen(slot.server, port);
@@ -195,6 +194,11 @@ function listen(server: http.Server, port: number): Promise<boolean> {
     };
     server.once("error", onError);
     server.once("listening", onListening);
-    server.listen(port, "127.0.0.1");
+    try {
+      server.listen(port, "127.0.0.1");
+    } catch {
+      // A port outside 1..65535 throws synchronously; the pool tries the next one or gives up.
+      resolve(false);
+    }
   });
 }

@@ -96,9 +96,14 @@ export class PathGate {
       throw new GateError(`Path not allowed: ${abs} is outside the site's working copy`);
     }
     const parts = path.relative(this.root, real).split(path.sep).filter(Boolean);
+    const keys = parts.map(segmentKey);
     if (parts.some(isGitName)) throw new GateError(`Path not allowed: .git is off limits (${abs})`);
+    // A tracked .env (an imported Git repository can have one) holds secrets too: reading it would send the
+    // values to the model provider, and grep would return its lines. The write rule below already protects it.
+    if ((mode === "read" || mode === "list") && keys.some((key) => key.startsWith(".env"))) {
+      throw new GateError(`Path not allowed: ${parts.join("/")} is protected and cannot be read or listed`);
+    }
     if (mode === "write") {
-      const keys = parts.map(segmentKey);
       const top = keys[0];
       const name = keys.at(-1) ?? "";
       if (

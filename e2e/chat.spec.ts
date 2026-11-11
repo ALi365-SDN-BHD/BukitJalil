@@ -6,6 +6,28 @@ import { importSite, putSettings, removeImportedSites, startConversationButton }
 
 test.afterAll(removeImportedSites);
 
+test("a failed send keeps text typed while it was in flight", async ({ page, server }) => {
+  await page.goto(await server.loginUrl());
+  await putSettings(page, { model: null });
+  const siteId = await importSite(page);
+  await page.goto(`/sites/${siteId}`);
+  await startConversationButton(page);
+
+  // Hold the request so the second message is typed before the first one is refused.
+  await page.route("**/api/sessions/*/messages", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.continue();
+  });
+  const input = page.getByTestId("composer-input");
+  await input.fill("First message");
+  await input.press("Enter");
+  await input.fill("Second message");
+  await expect(page.getByTestId("composer-error")).toHaveText(/model|模型/, { timeout: 20_000 });
+  await expect(input).toHaveValue("Second message");
+  await page.getByTestId("restore-failed-message").click();
+  await expect(input).toHaveValue("First message");
+});
+
 test("conversations: start, send, rename and delete, with a second tab kept in step", async ({ page, server }) => {
   await page.goto(await server.loginUrl());
   // The server is shared by the project's tests; another one may have chosen a model.

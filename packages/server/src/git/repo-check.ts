@@ -25,6 +25,8 @@ const EXACT = new Set([
   "submodule.active",
   "lfs.repositoryformatversion",
   "extensions.worktreeconfig",
+  // A SHA-256 repository is otherwise a normal repository; ObjectId accepts its 64-character ids.
+  "extensions.objectformat",
 ]);
 
 /** Patterns for keys with a user-chosen middle part (remote name, branch name, LFS URL). */

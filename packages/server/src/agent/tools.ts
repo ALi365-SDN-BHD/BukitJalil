@@ -15,8 +15,8 @@ const SKIP_ANYWHERE = new Set([".git", "node_modules"]);
 const SKIP_TOP = new Set<string>(BUILD_DIRS);
 /** Entries `find` looks at before it stops, so a huge tree cannot stall a run. */
 export const MAX_WALK = 20_000;
-/** rg glob that leaves out every file or directory named .git, in any case. */
-const NO_GIT_GLOB = "!.[gG][iI][tT]";
+/** rg glob that leaves out every file or directory named .git or .env*, in any case. */
+const NO_GIT_GLOB = "!**/{.[gG][iI][tT],.[eE][nN][vV]*}";
 
 /** Set by a find call whose walk stopped at MAX_WALK, so its result can say so. */
 const findRun = new AsyncLocalStorage<{ stopped: boolean }>();
@@ -49,12 +49,18 @@ export function checkToolPath(value: unknown): void {
 
 const GREP_LINE = /^(.+?)(?::\d+: |-\d+- )/;
 
-/** Grep output without lines from .git files and directories (rg searches them because Pi passes --hidden). */
+/**
+ * Grep output without lines from .git or .env* files and directories. Pi passes --hidden to rg, and a model
+ * can pass its own glob, so the output is filtered even when the search itself did not exclude them.
+ */
 export function dropGitLines(text: string): string {
   const lines = text.split("\n");
   const kept = lines.filter((line) => {
     const file = GREP_LINE.exec(line)?.[1];
-    return !file?.split(/[/\\]/).some((part) => part.toLowerCase() === ".git");
+    return !file?.split(/[/\\]/).some((part) => {
+      const name = part.toLowerCase();
+      return name === ".git" || name.startsWith(".env");
+    });
   });
   if (kept.length === lines.length) return text;
   return kept.some((line) => GREP_LINE.test(line)) ? kept.join("\n") : "No matches found";

@@ -121,7 +121,7 @@ export class DeployService {
   async status(siteId: string): Promise<DeployStatusResponse> {
     const site = this.opts.sites.get(siteId);
     const { commit, config } = await this.opts.panels.config(siteId, "main");
-    const target = deployTarget(isRecord(config) ? config : null);
+    const target = this.sourceBranchTarget(site, deployTarget(isRecord(config) ? config : null));
     const token = this.opts.secrets.get("github") !== null;
     return { commit, target, token, ready: target.problem === null && token && site.readOnly === null };
   }
@@ -157,7 +157,7 @@ export class DeployService {
       // Under the lock: what is published is the head now, and it must be what the user confirmed.
       const head = await this.opts.sites.headOf(site);
       if (head !== commit) throw new SiteError("deploy.commit_changed", 409, { commit: head });
-      const target = await this.targetAt(site, head);
+      const target = this.sourceBranchTarget(site, await this.targetAt(site, head));
       if (target.problem !== null || !target.repo) {
         throw new SiteError("deploy.no_target", 409, { problem: target.problem ?? "not_configured" });
       }
@@ -171,8 +171,16 @@ export class DeployService {
         .finally(() => {
           this.running.delete(id);
           release();
-          this.emit(id);
-          this.store.prune(siteId, KEEP_RECORDS);
+          try {
+            this.emit(id);
+          } catch (err) {
+            this.opts.logger.log("error", "deploy.end_failed", { id, error: String(err) });
+          }
+          try {
+            this.store.prune(siteId, KEEP_RECORDS);
+          } catch (err) {
+            this.opts.logger.log("error", "deploy.prune_failed", { id, error: String(err) });
+          }
         });
       this.running.set(id, { promise, abort });
       this.emit(id);
@@ -223,6 +231,12 @@ export class DeployService {
         this.opts.logger.log("error", "deploy.listener_failed", { error: String(err) });
       }
     }
+  }
+
+  /** A publish branch equal to the source branch would overwrite the source; refuse it. */
+  private sourceBranchTarget(site: Site, target: DeployTarget): DeployTarget {
+    if (target.problem === null && target.branch === site.defaultBranch) return { ...target, problem: "source_branch" };
+    return target;
   }
 
   /** The target in site.yaml at `commit` (what is about to be published, not what a panel last showed). */

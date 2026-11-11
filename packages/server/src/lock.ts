@@ -7,7 +7,9 @@ export class HomeInUseError extends Error {
     readonly pid: number,
   ) {
     super(
-      `Another BukitJalil (process ${pid}) is using this data directory. Quit it first, or delete ${file} if it is gone.`,
+      pid > 0
+        ? `Another BukitJalil (process ${pid}) is using this data directory. Quit it first, or delete ${file} if it is gone.`
+        : `Another BukitJalil is starting with this data directory. Try again in a moment, or delete ${file} if it is gone.`,
     );
   }
 }
@@ -32,6 +34,13 @@ function holder(file: string): number | null {
 }
 
 /**
+ * A lock file becomes visible as soon as it is opened, before its PID is written. A second process can read
+ * it in that tiny window. Treat a fresh but empty/unreadable file as held for this long instead of deleting
+ * the first process's lock; a lock from a crashed process can be taken over after this.
+ */
+const LOCK_WRITE_GRACE_MS = 2_000;
+
+/**
  * Take the data directory for this process (plan M7): the desktop app and `pnpm start` share
  * ~/.bukitjalil, and two servers on it would fight over app.db and the working copies. A lock left by a
  * process that no longer runs is taken over. Returns a function that releases it.
@@ -51,7 +60,11 @@ export function acquireHomeLock(file: string, pid = process.pid): () => void {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
       const other = holder(file);
       if (other !== null && other !== pid && alive(other)) throw new HomeInUseError(file, other);
-      // Stale (or unreadable, or our own pid from a previous life): remove and try once more.
+      // A lock written just now may still be mid-write (even a readable, not-yet-dead PID can be partial).
+      // Wait for the grace period before taking it over; a crashed process's lock can be removed after it.
+      const stat = fs.statSync(file, { throwIfNoEntry: false });
+      if (stat && Date.now() - stat.mtimeMs < LOCK_WRITE_GRACE_MS) throw new HomeInUseError(file, other ?? 0);
+      // Stale (or our own pid from a previous life): remove and try once more.
       fs.rmSync(file, { force: true });
     }
   }

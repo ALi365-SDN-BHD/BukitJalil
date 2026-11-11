@@ -42,8 +42,10 @@ export interface TreeResponse {
   ref: PanelRef;
   commit: string;
   path: string;
-  /** Directories first, then by name. */
+  /** Directories first, then by name; at most the server's per-directory cap. */
   entries: TreeEntryView[];
+  /** More entries exist in this directory than `entries` holds. */
+  truncated: boolean;
 }
 
 interface FileBase {

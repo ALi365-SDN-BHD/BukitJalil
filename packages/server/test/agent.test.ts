@@ -54,7 +54,13 @@ async function site(files: Record<string, string> = {}) {
 }
 
 function service(
-  opts: { model?: boolean; idleMs?: number; rgReady?: () => boolean; settled?: () => Promise<void> } = {},
+  opts: {
+    model?: boolean;
+    idleMs?: number;
+    shutdownMs?: number;
+    rgReady?: () => boolean;
+    settled?: () => Promise<void>;
+  } = {},
 ) {
   const aiBukit = new AiBukit({
     git: ctx.git,
@@ -84,6 +90,7 @@ function service(
     bukit: aiBukit,
     skillsDir: SKILLS,
     idleMs: opts.idleMs,
+    shutdownMs: opts.shutdownMs,
   });
   services.push(agent);
   const events: AgentEvent[] = [];
@@ -698,6 +705,49 @@ describe("AgentService", () => {
     await closing;
     expect(statuses(session.id)).toEqual(["running", "idle"]);
     await expect(agent.send(session.id, "again")).rejects.toMatchObject({ code: "server.shutting_down" });
+  });
+
+  it("does not crash when a session cannot be disposed", () => {
+    const { agent } = service();
+    const internals = agent as unknown as {
+      live: Map<string, { siteId: string; session: { dispose(): void }; unsubscribe: () => void; idleTimer: null }>;
+      dispose(id: string): void;
+    };
+    internals.live.set("fake", {
+      siteId: "site",
+      session: {
+        dispose() {
+          throw new Error("disk full");
+        },
+      },
+      unsubscribe: () => {},
+      idleTimer: null,
+    });
+    expect(() => internals.dispose("fake")).not.toThrow();
+    expect(internals.live.has("fake")).toBe(false);
+  });
+
+  it("stops waiting for a run that ignores abort", async () => {
+    const s = await site();
+    const { agent } = service({ shutdownMs: 20 });
+    const session = agent.create(s.id);
+    const internals = agent as unknown as {
+      running: Map<
+        string,
+        { sessionId: string; cancelled: boolean; extra: string[]; cwd: string | null; done: Promise<void> }
+      >;
+    };
+    internals.running.set(s.id, {
+      sessionId: session.id,
+      cancelled: false,
+      extra: [],
+      cwd: null,
+      done: new Promise<void>(() => {}),
+    });
+    const started = Date.now();
+    await agent.shutdown();
+    expect(Date.now() - started).toBeLessThan(1000);
+    internals.running.delete(s.id);
   });
 
   it("gives read-only sites no sessions", async () => {

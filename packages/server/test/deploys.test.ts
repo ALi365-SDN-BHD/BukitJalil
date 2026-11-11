@@ -86,6 +86,20 @@ describe("GET /api/sites/:id/deploy", () => {
     fs.appendFileSync(path.join(dir, "site.yaml"), "\n# local\n");
     expect((await status()).commit).toBe(head);
   });
+
+  it("refuses the site's source branch as the publish branch", async () => {
+    const ctx = makeApp({ appHome: path.join(base, "app-source"), userHome: base });
+    const dir = path.join(base, "site-source");
+    copyStarter(STARTER, dir, { title: "Source", language: "en-US" });
+    rawGit(base, dir, "init", "-q", "-b", "main");
+    fs.appendFileSync(path.join(dir, "site.yaml"), "\ndeploy:\n  repo: someone/source\n  branch: main\n");
+    commitAllAs(base, dir, "deploy");
+    const site = await ctx.sites.import({ path: dir });
+    const status = (await (await ctx.app.fetch(req(`/api/sites/${site.id}/deploy`))).json()) as DeployStatusResponse;
+
+    expect(status).toMatchObject({ target: { repo: "someone/source", branch: "main", problem: "source_branch" } });
+    expect(status.ready).toBe(false);
+  });
 });
 
 /**
@@ -128,7 +142,7 @@ afterEach(async () => {
 });
 
 let counter = 0;
-async function publishable(opts: { fail?: string } = {}) {
+async function publishable(opts: { fail?: string; branch?: string } = {}) {
   const name = `pub${++counter}`;
   const fakeDir = path.join(base, `${name}-bin`);
   fs.mkdirSync(fakeDir);
@@ -148,7 +162,10 @@ async function publishable(opts: { fail?: string } = {}) {
   contexts.push(ctx);
   const dir = path.join(base, name);
   copyStarter(STARTER, dir, { title: name, language: "en-US" });
-  fs.appendFileSync(path.join(dir, "site.yaml"), "\ndeploy:\n  repo: someone/blog\n");
+  fs.appendFileSync(
+    path.join(dir, "site.yaml"),
+    `\ndeploy:\n  repo: someone/blog\n  branch: ${opts.branch ?? "gh-pages"}\n`,
+  );
   if (opts.fail) fs.writeFileSync(path.join(dir, "fake-fail"), opts.fail);
   rawGit(base, dir, "init", "-q", "-b", "main");
   commitAllAs(base, dir, "init");
@@ -187,6 +204,15 @@ async function publishable(opts: { fail?: string } = {}) {
 }
 
 describe("publishing (M6 layer 3)", () => {
+  it("refuses the site's source branch as the publish branch", async () => {
+    const p = await publishable({ branch: "main" });
+    const res = await p.call("POST", "/deploys", { commit: p.head });
+    expect(res).toEqual({
+      status: 409,
+      json: { code: "deploy.no_target", params: { problem: "source_branch" } },
+    });
+  });
+
   it("checks, builds, audits and deploys exactly that output, with the token only on deploy", async () => {
     const p = await publishable();
     const events: Deploy[] = [];

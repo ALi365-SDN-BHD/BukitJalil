@@ -5,7 +5,15 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readGlobalIdentity } from "../src/git/identity.ts";
 import { checkRepoConfig, isAllowedConfigKey } from "../src/git/repo-check.ts";
-import { assertOid, GitError, GitRunner, isOid, isValidBranchName, resolveGitPath } from "../src/git/run.ts";
+import {
+  assertOid,
+  clearIndexLock,
+  GitError,
+  GitRunner,
+  isOid,
+  isValidBranchName,
+  resolveGitPath,
+} from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
 import { rawGit } from "./helpers.ts";
 
@@ -168,6 +176,16 @@ describe("hardened git runner (plan 7.3)", () => {
     expect((await git.checkRepo(dir)).reasons).toEqual(["config:core.sshcommand"]);
   });
 
+  it("accepts a SHA-256 repository", async () => {
+    const dir = path.join(base, "sha256");
+    fs.mkdirSync(dir);
+    raw(dir, "init", "-q", "--object-format=sha256", "-b", "main");
+    fs.writeFileSync(path.join(dir, "a.md"), "hello\n");
+    raw(dir, "-c", "user.name=t", "-c", "user.email=t@t", "add", "-A");
+    raw(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init");
+    expect(await git.checkRepo(dir)).toEqual({ ok: true, reasons: [] });
+  });
+
   it("accepts the config found in ordinary repositories", async () => {
     const dir = repo("ordinary");
     raw(dir, "remote", "add", "origin", "https://github.com/x/y.git");
@@ -227,6 +245,14 @@ describe("hardened git runner (plan 7.3)", () => {
     const top = await git.text(["rev-parse", "--show-toplevel"], { cwd: inner, repoCheck: false, discover: true });
     expect(top.trim()).toBe(outer);
     expect((await git.text(["rev-parse", "--show-toplevel"], { cwd: outer })).trim()).toBe(outer);
+  });
+
+  it("clears an index lock left by a killed git command", async () => {
+    const dir = repo("index-lock");
+    const lock = path.join(dir, ".git", "index.lock");
+    fs.writeFileSync(lock, "");
+    await clearIndexLock(git, dir);
+    expect(fs.existsSync(lock)).toBe(false);
   });
 
   it("reports failures with the exit code", async () => {

@@ -33,7 +33,7 @@ import { SiteService } from "./sites/service.ts";
 import { openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
 
-const VERSION = "0.0.0";
+const VERSION = process.env.BUKITJALIL_VERSION?.trim() || "0.0.0";
 
 /** Set with --desktop: the desktop app's main process started this server (plan M7). */
 let desktop: DesktopChannel | null = null;
@@ -151,7 +151,7 @@ const changes = new ChangeService({
   logger,
 });
 const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
-const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, changes, logger });
+const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, changes, secrets, logger });
 const agent = new AgentService({
   db,
   paths,

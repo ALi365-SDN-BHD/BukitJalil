@@ -143,8 +143,6 @@ export function createAdminApp(opts: AdminAppOptions) {
       ok: git.ok,
       version: opts.version,
       git,
-      bukit: { ok: false, detail: "not_checked_yet" },
-      pi: { ok: false, detail: "not_checked_yet" },
     };
     return c.json(body);
   });

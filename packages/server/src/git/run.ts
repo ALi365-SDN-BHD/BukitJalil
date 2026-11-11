@@ -273,6 +273,19 @@ function readIfExists(file: string): string {
   }
 }
 
+/**
+ * Remove the index lock a killed git command may leave behind. The caller holds the site lock, so no other
+ * BukitJalil operation can be using this checkout. Best effort: a failure to find git must not mask the timeout.
+ */
+export async function clearIndexLock(git: GitRunner, cwd: string): Promise<void> {
+  try {
+    const pathInRepo = (await git.text(["rev-parse", "--git-path", "index.lock"], { cwd, repoCheck: false })).trim();
+    if (pathInRepo !== "") fs.rmSync(path.resolve(cwd, pathInRepo), { force: true });
+  } catch {
+    // The timeout is the error the caller needs.
+  }
+}
+
 /** Find `git` on PATH once at startup and return its real absolute path (plan 7.3). */
 export function resolveGitPath(envPath = process.env.PATH ?? ""): string | null {
   for (const dir of envPath.split(path.delimiter)) {

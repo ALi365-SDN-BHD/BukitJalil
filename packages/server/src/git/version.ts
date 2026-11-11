@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
 import { MIN_GIT_VERSION } from "@bukitjalil/shared";
+import { runProbe } from "../probe.ts";
 
 export interface GitHealth {
   ok: boolean;
@@ -28,22 +28,14 @@ export function parseGitVersion(output: string): string | null {
  * `git --version` with a minimal environment, for /api/health. It touches no repository, so it does not
  * go through GitRunner (git/run.ts), which every repository operation uses.
  */
-export function checkGit(gitPath = "git", envPath = process.env.PATH ?? "/usr/bin:/bin"): Promise<GitHealth> {
-  return new Promise((resolve) => {
-    let out = "";
-    const child = spawn(gitPath, ["--version"], {
-      env: { PATH: envPath, LANG: "C", GIT_CONFIG_NOSYSTEM: "1" },
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    child.stdout.on("data", (d: Buffer) => {
-      out += d.toString("utf8");
-    });
-    child.on("error", () => resolve({ ok: false, version: null, problem: "missing" }));
-    child.on("close", () => {
-      const version = parseGitVersion(out);
-      if (!version) return resolve({ ok: false, version: null, problem: "missing" });
-      const ok = versionAtLeast(version, MIN_GIT_VERSION);
-      resolve({ ok, version, problem: ok ? null : "too_old" });
-    });
+export async function checkGit(gitPath = "git", envPath = process.env.PATH ?? "/usr/bin:/bin"): Promise<GitHealth> {
+  const result = await runProbe(gitPath, ["--version"], {
+    PATH: envPath,
+    LANG: "C",
+    GIT_CONFIG_NOSYSTEM: "1",
   });
+  const version = result.ok ? parseGitVersion(result.stdout) : null;
+  if (!version) return { ok: false, version: null, problem: "missing" };
+  const ok = versionAtLeast(version, MIN_GIT_VERSION);
+  return { ok, version, problem: ok ? null : "too_old" };
 }

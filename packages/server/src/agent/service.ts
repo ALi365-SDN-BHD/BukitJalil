@@ -21,6 +21,8 @@ import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./s
 import { BUILTIN_TOOLS, createGatedTools } from "./tools.ts";
 
 const IDLE_MS = 10 * 60_000;
+/** Longest shutdown waits for a model request that ignores abort. */
+const SHUTDOWN_WAIT_MS = 10_000;
 
 export type { SessionStatus };
 
@@ -61,6 +63,8 @@ export interface AgentServiceOptions {
   skillsDir: string;
   /** Dispose an unused AgentSession after this long; its file stays (plan 6.2). */
   idleMs?: number;
+  /** Longest shutdown waits for runs that ignore abort (tests set it short). */
+  shutdownMs?: number;
 }
 
 interface Live {
@@ -312,7 +316,18 @@ export class AgentService {
     this.pending.clear();
     const runs = [...this.running.values()];
     await Promise.all(runs.map((run) => this.cancel(run)));
-    await Promise.all(runs.map((run) => run.done));
+    if (runs.length > 0) {
+      let timer: NodeJS.Timeout | undefined;
+      const ended = await Promise.race([
+        Promise.all(runs.map((run) => run.done)).then(() => true),
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => resolve(false), this.opts.shutdownMs ?? SHUTDOWN_WAIT_MS);
+          timer.unref();
+        }),
+      ]);
+      clearTimeout(timer);
+      if (!ended) this.opts.logger.log("warn", "agent.shutdown_timeout", { runs: runs.length });
+    }
     for (const id of [...this.live.keys()]) this.dispose(id);
   }
 
@@ -586,8 +601,17 @@ export class AgentService {
     if (!live) return;
     this.live.delete(id);
     if (live.idleTimer) clearTimeout(live.idleTimer);
-    live.unsubscribe();
-    live.session.dispose();
+    // This runs from an idle timer and during shutdown: a throw here must not take the process down.
+    try {
+      live.unsubscribe();
+    } catch (err) {
+      this.opts.logger.log("error", "agent.unsubscribe_failed", { sessionId: id, error: String(err) });
+    }
+    try {
+      live.session.dispose();
+    } catch (err) {
+      this.opts.logger.log("error", "agent.dispose_failed", { sessionId: id, error: String(err) });
+    }
   }
 }
 

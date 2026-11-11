@@ -185,7 +185,7 @@ export class ChangeService {
         const merged = await this.mergeTree(site.path, main, change.snapshotCommit);
         // On conflicts, or when the default branch already has all of it, there is nothing to review again.
         if (merged === null || merged === (await this.treeOf(site.path, main))) {
-          this.close(change, "stale");
+          await this.close(change, "stale");
           return { outcome: "stale", change: await this.toChangeSet(this.get(id)), check: null };
         }
         const commit = (
@@ -242,7 +242,7 @@ export class ChangeService {
         const detail = (err.details.stderr?.trim() || err.message).slice(0, 500);
         throw new SiteError("change.merge_failed", 409, { detail });
       }
-      this.close(change, "applied", result);
+      await this.close(change, "applied", result);
       return { outcome: "applied", change: await this.toChangeSet(this.get(id)), check };
     });
   }
@@ -251,7 +251,7 @@ export class ChangeService {
   async reject(id: string): Promise<ChangeSet> {
     const { siteId } = this.get(id);
     return this.opts.locks.run(siteId, "reject", async () => {
-      this.close(this.openChange(id), "rejected");
+      await this.close(this.openChange(id), "rejected");
       return this.toChangeSet(this.get(id));
     });
   }
@@ -307,7 +307,7 @@ export class ChangeService {
       const guard = await guardCommit(git, site.path, commit);
       const entry = await historyEntry(git, site.path, commit);
 
-      if (open) this.close(open, "rejected");
+      if (open) await this.close(open, "rejected");
       const snapshot = (
         await git.text(["commit-tree", tree, "-p", main, "-m", "BukitJalil restore snapshot"], {
           cwd: site.path,
@@ -399,11 +399,22 @@ export class ChangeService {
   }
 
   /**
-   * Close the change set. Its ref stays, so the snapshot can still be shown (history) and is never
-   * garbage-collected; refs/bukitjalil/ goes when the site is removed from BukitJalil.
+   * Close the change set. An applied snapshot stays pinned by its ref; the applied commit already shares its
+   * tree, and the ref is part of the review history. Rejected and stale snapshots have no UI and are not
+   * worth keeping forever: their ref goes, so Git can collect the work. The refs/bukitjalil/ area also goes
+   * when the site is removed.
    */
-  private close(change: ChangeRecord, status: "applied" | "rejected" | "stale", result?: string): void {
+  private async close(change: ChangeRecord, status: "applied" | "rejected" | "stale", result?: string): Promise<void> {
     this.store.resolve(change.id, status, result ?? null);
+    if (status !== "applied") {
+      try {
+        const site = this.opts.sites.get(change.siteId);
+        await this.opts.git.run(["update-ref", "-d", changeRef(change.id)], { cwd: site.path });
+      } catch (err) {
+        // Closing must not fail because the ref was already gone or the repository is no longer writable.
+        this.opts.logger.log("warn", "changes.ref_delete_failed", { changeId: change.id, error: String(err) });
+      }
+    }
     this.emit(change.siteId);
   }
 

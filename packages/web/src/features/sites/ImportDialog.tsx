@@ -99,12 +99,17 @@ export function ImportDialog({
             <div className="flex flex-col gap-2 text-sm" data-testid="inspect-result">
               <p>{t(m.importSite.notGit, { count: inspection.files.length })}</p>
               <ul className="max-h-40 overflow-y-auto rounded-md border p-2 font-mono text-xs">
-                {inspection.files.map((f) => (
+                {inspection.files.slice(0, 500).map((f) => (
                   <li key={f} className="truncate">
                     {f}
                   </li>
                 ))}
               </ul>
+              {inspection.files.length > 500 && (
+                <p className="text-xs text-muted-foreground">
+                  {t(m.importSite.moreFiles, { count: inspection.files.length })}
+                </p>
+              )}
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"

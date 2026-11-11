@@ -51,7 +51,10 @@ const server = new ServerProcess({
   entry: packaged ? path.join(resources, "server.mjs") : path.join(__dirname, "dev-server.mjs"),
   execArgv: [],
   cwd: packaged ? resources : path.join(repoRoot, "packages/server"),
-  env: { ...process.env, ...(packaged ? { BUKITJALIL_RESOURCES: resources } : {}) },
+  env: {
+    ...process.env,
+    ...(packaged ? { BUKITJALIL_RESOURCES: resources, BUKITJALIL_VERSION: app.getVersion() } : {}),
+  },
   firstPort: Number(process.env.BUKITJALIL_DESKTOP_PORT) || DEFAULT_PORT,
 });
 

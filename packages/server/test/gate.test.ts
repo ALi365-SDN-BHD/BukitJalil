@@ -38,6 +38,9 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(outside, "secret.txt"), SECRET);
   fs.writeFileSync(path.join(worktree, "index.md"), "# Hello\nfind-me here\n");
   fs.writeFileSync(path.join(worktree, ".git"), `gitdir: /site/.git/worktrees/ai find-me ${SECRET}\n`);
+  fs.writeFileSync(path.join(worktree, ".env"), `find-me ${SECRET}\n`);
+  fs.mkdirSync(path.join(worktree, "content"), { recursive: true });
+  fs.writeFileSync(path.join(worktree, "content", ".env.local"), `find-me ${SECRET}\n`);
   fs.mkdirSync(path.join(worktree, "content", ".GIT"), { recursive: true });
   fs.writeFileSync(path.join(worktree, "content", ".GIT", "config"), `find-me ${SECRET}\n`);
   fs.writeFileSync(path.join(worktree, "content", "post.md"), "find-me in a post\n");
@@ -93,6 +96,14 @@ describe("PathGate", () => {
       "x/node_modules./a",
     ]) {
       refused(path.join(worktree, p), "write");
+    }
+  });
+
+  it("refuses to read .env files like it refuses to write them", () => {
+    for (const mode of ["read", "list"] as const) {
+      refused(path.join(worktree, ".env"), mode);
+      refused(path.join(worktree, "content", ".env.local"), mode);
+      refused(path.join(worktree, ".env", "nested"), mode);
     }
   });
 
@@ -162,11 +173,13 @@ describe("checkToolPath", () => {
 });
 
 describe("dropGitLines", () => {
-  it("drops matches and context lines from .git paths", () => {
+  it("drops matches and context lines from .git and .env paths", () => {
     const text = [
       "index.md:2: find-me",
       ".git:1: gitdir",
       "content/.GIT/config-1- x",
+      ".env:1: TOP-SECRET-VALUE",
+      "content/.env.local-2- TOP-SECRET-VALUE",
       "content/post.md:1: find-me",
     ].join("\n");
     expect(dropGitLines(text)).toBe("index.md:2: find-me\ncontent/post.md:1: find-me");
@@ -225,7 +238,9 @@ describe("gated tools", () => {
       "linkdir/secret.txt",
       ".git",
       "content/.GIT/config",
-      "index .md",
+      ".env",
+      "content/.env.local",
+      "index .md",
     ]) {
       await expectRefused("read", { path: p });
     }
@@ -373,8 +388,12 @@ describe("gated tools", () => {
       expect(r.text).toContain("index.md");
       expect(r.text).toContain("content/post.md");
       expect(r.text).not.toMatch(/\.git/i);
+      expect(r.text).not.toContain(".env");
       expect(r.text).not.toContain(SECRET);
       expect((await run("grep", { pattern: SECRET })).text).toBe("No matches found");
+      // A model-provided glob cannot bring .env lines back: the output filter drops them too.
+      const env = await run("grep", { pattern: SECRET, glob: "**/.env*" });
+      expect(env.text).toBe("No matches found");
       // .git is left out of the search, so its lines do not take the place of real matches.
       const one = await run("grep", { pattern: "find-me", limit: 1 });
       expect(one.text).toMatch(/^(index\.md|content\/post\.md):/);

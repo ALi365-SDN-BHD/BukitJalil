@@ -243,7 +243,7 @@ BukitJalil/
 
 ### 5.2 新建网站
 
-1. 用户在界面填写：网站名、目录位置、主语言、可选的一句话描述
+1. 用户在界面填写：网站名、目录位置、主语言
    - **目录位置每次由用户选择**，没有默认目录。浏览器拿不到本机文件夹的绝对路径（File System Access API 只给句柄），所以用服务端提供的目录选择器：`GET /api/fs/dirs?path=` 只返回某个目录下一层的子目录名（不返回文件，不跟随符号链接，隐藏目录默认不显示），从主目录开始逐级打开；也可以直接粘贴绝对路径。上次选择的父目录记在设置里，作为下次的起点
    - 新网站的目标目录必须不存在或为空；不能位于 `~/.bukitjalil/` 内、不能是主目录或根目录本身，也不能在另一个已登记网站的目录里。导入网站用同一个选择器
    - M7 桌面版改用系统原生的文件夹选择对话框
@@ -251,7 +251,7 @@ BukitJalil/
 3. 用表单值替换 `site.name`、`site.title`、`site.language`
 4. `git init -b main`（git 不读全局配置后，`init.defaultBranch` 不生效，不写 `-b` 会得到 `master`）、写入排除规则、首次提交 "Initial site from BukitJalil starter"；提交需要设置页里的身份（7.2），没有填写时先引导填写
 5. 对首次提交跑构建前安全检查（8.5），再创建 `worktrees/<siteId>/main/` 检出并执行 `bukit config check` 和预览构建（8.3），确认可以构建；不在用户的网站目录里调用 Bukit，网站目录不会出现 `dist/`。M2 第 4 层实现了 `config check`，第 6 层接上了预览构建：新建或导入的网站可用且 `config check` 通过时，接口返回前就启动第一次正式版本构建，构建在后台进行；结果存在 `sites` 表（迁移 002：`read_only_reasons`、`checked_commit`、`config_check`，后者为 `ok` / `failed` / `not_run`（找不到可用的 Bukit）/ `notion`）。新建和导入失败时撤销已做的步骤（删除复制的文件或新建的 `.git`）。提交身份存在设置的 `commitName` / `commitEmail`，界面可用 `GET /api/git/identity` 读到的全局 git 身份预填
-6. 如果填写了描述，自动打开第一个会话，把描述作为第一条消息发给 AI
+6. 创建完成后由用户从网站主页开始第一个会话；创建接口不接受首条消息
 
 ### 5.3 面板数据来源
 
@@ -1088,7 +1088,7 @@ M4 分层实施（每层做完先审计、修复，再提交）：
 >   6. `git commit-tree <指纹> -p <main>` 生成结果提交：作者固定为 `BukitJalil AI <ai@bukitjalil.local>`，提交者是设置里的身份（`-c author.* -c committer.*`）；提交信息是 AI 的改动说明（没有时用默认说明）加一行 `BukitJalil-Sessions: <会话 ID…>`
 >   7. 在网站目录里 `git merge --ff-only --no-overwrite-ignore <结果提交>`；git 拒绝时（例如会覆盖网站目录里被忽略的本地文件）返回 409 `change.merge_failed`，带 git 的说明，改动集保持 `open`
 >   8. 改动集标为 `applied`，记下 `result_commit`
-> - 关闭的改动集（`applied` / `rejected` / `stale`）保留 `refs/bukitjalil/changes/<id>`，快照不会被 gc 清掉，历史里还能看差异；从 BukitJalil 移除网站时才删除
+> - 关闭的改动集：`applied` 保留 `refs/bukitjalil/changes/<id>`（结果提交已共享同一棵树）；`rejected` / `stale` 关闭时删除引用，让 git 可以回收，从 BukitJalil 移除网站时删除剩余引用
 > - 返回 `{outcome, change, check}`，`outcome` 为 `applied` / `rebased` / `stale` / `check_failed`
 > - `reject(changeId)`：同样持锁（操作名 `reject`），只改状态为 `rejected`；工作副本在下一轮开新改动集时重置
 > - 应用后正式预览的重新构建在第 3 层的接口里触发
