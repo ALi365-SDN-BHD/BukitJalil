@@ -202,7 +202,10 @@ const app = createAdminApp({
 
 const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
 server.on("error", (err: NodeJS.ErrnoException) => {
-  if (err.code === "EADDRINUSE") fail(`Port ${port} is in use. Start with --port <another port>.`, "port_in_use");
+  // EACCES: Windows reserves port ranges (Hyper-V, WSL, Docker) that no program may listen on. Either way the
+  // port cannot be used, and the desktop app moves on to the next one.
+  if (err.code === "EADDRINUSE" || err.code === "EACCES")
+    fail(`Port ${port} is in use or reserved. Start with --port <another port>.`, "port_in_use");
   fail(`Cannot start server: ${err.message}`);
 });
 
