@@ -1,3 +1,4 @@
+import { ABSOLUTE_PATH } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUp, Folder, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -132,11 +133,15 @@ function PathInput({
         // Inside a form, Enter would submit it.
         e.preventDefault();
         const path = text.trim();
-        if (path.startsWith("/") && path !== current) onSubmit(path);
+        if (ABSOLUTE_PATH.test(path) && path !== current) onSubmit(path);
       }}
       onBlur={() => setText(current ?? "")}
     />
   );
 }
 
-export const joinPath = (dir: string, name: string) => (dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`);
+/** `dir` + `name` with the separator `dir` already uses (a backslash for a Windows path such as C:\Users). */
+export const joinPath = (dir: string, name: string) => {
+  const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
+  return dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
+};

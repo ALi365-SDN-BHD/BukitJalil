@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SUPPORTED_LOCALES } from "./constants.ts";
+import { AbsolutePath } from "./sites.ts";
 
 export const Locale = z.enum(SUPPORTED_LOCALES);
 export type Locale = z.infer<typeof Locale>;
@@ -25,7 +26,7 @@ export const Settings = z.object({
   /** Parent directory chosen last time in the site directory picker (plan 5.2). */
   lastParentDir: z.string().nullable(),
   /** Custom Bukit executable (plan 8.1), e.g. a self-built one on Intel Mac; null uses the app copy or PATH. */
-  bukitPath: z.string().max(4096).regex(/^\//, "must be an absolute path").nullable(),
+  bukitPath: AbsolutePath.nullable(),
   /** Committer identity for commits BukitJalil makes (plan 7.2); the UI suggests the global git identity. */
   commitName: z
     .string()

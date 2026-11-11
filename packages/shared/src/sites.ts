@@ -2,7 +2,13 @@ import { z } from "zod";
 
 /** Sites, directory picker and import (plan 5.1, 5.2, 9.1). */
 
-const AbsolutePath = z.string().min(1).max(4096).regex(/^\//, "must be an absolute path");
+/**
+ * An absolute path as the server's platform writes it: "/…" on macOS and Linux, "C:\…" (or "C:/…") and UNC
+ * "\\server\share\…" on Windows. Shared with the browser, so no node:path; the server resolves and checks the
+ * real path again (sites/location.ts).
+ */
+export const ABSOLUTE_PATH = /^(?:\/|[A-Za-z]:[\\/]|\\\\[^\\/])/;
+export const AbsolutePath = z.string().min(1).max(4096).regex(ABSOLUTE_PATH, "must be an absolute path");
 /** Display name: also written into site.yaml as site.title. Control and format characters are refused. */
 export const SiteName = z
   .string()

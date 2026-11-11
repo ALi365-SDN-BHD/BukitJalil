@@ -106,7 +106,7 @@ export function NewSiteDialog({
             <Input
               id="site-folder"
               required
-              pattern="[^\/]+"
+              pattern="[^\/\\]+"
               value={folderName}
               onChange={(e) => setFolder(e.target.value)}
             />

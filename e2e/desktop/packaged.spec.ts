@@ -58,6 +58,7 @@ test("the packaged app runs its bundled server and creates a site from its own f
     .catch(async (err: Error) => {
       const shown = await page
         .locator("body")
+        // biome-ignore lint/performance/useDomNodeTextContent: the text as shown, not hidden template text
         .innerText()
         .catch(() => "(no page)");
       throw new Error(`${err.message}\n\nThe window shows:\n${shown}`);
