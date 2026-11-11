@@ -47,6 +47,12 @@ export interface RunOptions {
   timeoutMs?: number;
   /** Exit codes treated as success besides 0 (e.g. 1 for `diff --quiet`). */
   okCodes?: number[];
+  /**
+   * Let git look for the repository above `cwd` (default false). Normally git may only use a repository
+   * at `cwd` itself: a site whose .git went missing must fail, not fall through to an enclosing repository
+   * such as a dotfiles repo in the home folder.
+   */
+  discover?: boolean;
 }
 
 export interface RunResult {
@@ -93,8 +99,12 @@ export class GitRunner {
     ].flatMap((kv) => ["-c", kv]);
   }
 
-  /** The environment of every hardened git process. */
-  env(): Record<string, string> {
+  /**
+   * The environment of every hardened git process. With `cwd`, its parent becomes a ceiling directory too,
+   * so git finds only a repository at `cwd` itself (RunOptions.discover).
+   */
+  env(cwd?: string): Record<string, string> {
+    const ceilings = [...(this.opts.ceilingDirs ?? []), ...(cwd ? [path.dirname(path.resolve(cwd))] : [])];
     return {
       PATH: [path.dirname(this.opts.gitPath), "/usr/bin", "/bin"].join(path.delimiter),
       HOME: this.opts.home,
@@ -103,7 +113,7 @@ export class GitRunner {
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_GLOBAL: this.opts.emptyFile,
       GIT_TERMINAL_PROMPT: "0",
-      ...(this.opts.ceilingDirs?.length ? { GIT_CEILING_DIRECTORIES: this.opts.ceilingDirs.join(path.delimiter) } : {}),
+      ...(ceilings.length ? { GIT_CEILING_DIRECTORIES: ceilings.join(path.delimiter) } : {}),
     };
   }
 
@@ -184,7 +194,7 @@ export class GitRunner {
     return new Promise((resolve, reject) => {
       const child = spawn(this.opts.gitPath, fullArgs, {
         cwd: opts.cwd,
-        env: this.env(),
+        env: this.env(opts.discover ? undefined : opts.cwd),
         stdio: ["pipe", "pipe", "pipe"],
         shell: false,
       });

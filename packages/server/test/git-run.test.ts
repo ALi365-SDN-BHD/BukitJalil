@@ -215,6 +215,20 @@ describe("hardened git runner (plan 7.3)", () => {
     });
   });
 
+  it("uses only a repository at cwd itself, never an enclosing one", async () => {
+    const outer = repo("outer");
+    const inner = path.join(outer, "site");
+    fs.mkdirSync(path.join(inner, ".git"), { recursive: true });
+    // An empty or missing .git must fail instead of falling through to the outer repository.
+    await expect(git.text(["rev-parse", "--show-toplevel"], { cwd: inner })).rejects.toBeInstanceOf(GitError);
+    fs.rmSync(path.join(inner, ".git"), { recursive: true });
+    await expect(git.text(["rev-parse", "HEAD"], { cwd: inner })).rejects.toBeInstanceOf(GitError);
+    // Asked for explicitly, discovery still finds it (import tells "inside a repository" apart).
+    const top = await git.text(["rev-parse", "--show-toplevel"], { cwd: inner, repoCheck: false, discover: true });
+    expect(top.trim()).toBe(outer);
+    expect((await git.text(["rev-parse", "--show-toplevel"], { cwd: outer })).trim()).toBe(outer);
+  });
+
   it("reports failures with the exit code", async () => {
     const dir = repo("fail");
     const err = await git.run(["rev-parse", "--verify", "nope"], { cwd: dir }).catch((e: unknown) => e);

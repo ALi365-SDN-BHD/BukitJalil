@@ -232,6 +232,7 @@ export class SiteService {
     try {
       const { git } = this.opts;
       await git.run(["init", "-q", "--bare", scratch], { cwd: this.opts.paths.tmp, repoCheck: false });
+      fs.mkdirSync(path.join(scratch, "info"), { recursive: true });
       fs.writeFileSync(
         path.join(scratch, "info", "exclude"),
         `${[...EXCLUDE_PATTERNS, ...IMPORT_INIT_PATTERNS].join("\n")}\n`,
@@ -469,7 +470,10 @@ export class SiteService {
   /** Top level of the repository containing `dir`; null when it is not in one; "dubious" when git refuses it. */
   private async toplevel(dir: string): Promise<string | null> {
     try {
-      return (await this.opts.git.text(["rev-parse", "--show-toplevel"], { cwd: dir, repoCheck: false })).trim();
+      // Upward on purpose: a folder inside a repository is reported as not its root.
+      return (
+        await this.opts.git.text(["rev-parse", "--show-toplevel"], { cwd: dir, repoCheck: false, discover: true })
+      ).trim();
     } catch (err) {
       if (err instanceof GitError && err.kind === "dubious_ownership") return "dubious";
       if (err instanceof GitError && /not a git repository/i.test(err.details.stderr ?? "")) return null;

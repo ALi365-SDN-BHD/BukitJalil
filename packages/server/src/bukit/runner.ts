@@ -120,6 +120,47 @@ export class StreamCapture {
     this.omitted = true;
   }
 }
+
+/**
+ * Replaces secret values in a stream of text before anything keeps or cuts it, so a secret split across
+ * chunks, or across the capture's head/tail cut, never survives in part. Holds back the last
+ * (longest secret - 1) characters until more text or the end arrives.
+ */
+export class SecretScrubber {
+  private readonly secrets: string[];
+  private readonly keep: number;
+  private pending = "";
+
+  constructor(
+    secrets: readonly string[],
+    private readonly mask = "[token]",
+  ) {
+    // Short values would mask ordinary words; the tokens BukitJalil passes are far longer.
+    this.secrets = [...new Set(secrets.filter((s) => s.length >= 8))].sort((a, b) => b.length - a.length);
+    this.keep = this.secrets.reduce((n, s) => Math.max(n, s.length - 1), 0);
+  }
+
+  push(chunk: string): string {
+    if (this.secrets.length === 0) return chunk;
+    const text = this.clean(this.pending + chunk);
+    const cut = Math.max(0, text.length - this.keep);
+    this.pending = text.slice(cut);
+    return text.slice(0, cut);
+  }
+
+  flush(): string {
+    const text = this.clean(this.pending);
+    this.pending = "";
+    return text;
+  }
+
+  private clean(text: string): string {
+    let out = text;
+    for (const secret of this.secrets) out = out.split(secret).join(this.mask);
+    return out;
+  }
+}
+
 const KILL_GRACE_MS = 10_000;
 
 export class BukitRunner {
@@ -190,6 +231,13 @@ export class BukitRunner {
       });
       const stdout = new StreamCapture();
       const stderr = new StreamCapture();
+      // The secrets this process was given never reach the result, whatever Bukit or its git prints.
+      const secretValues = [
+        ...SECRET_KEYS.map((key) => opts.env?.[key]),
+        command === "deploy" ? opts.deploy?.token : undefined,
+      ].filter((v): v is string => typeof v === "string");
+      const outScrub = new SecretScrubber(secretValues);
+      const errScrub = new SecretScrubber(secretValues);
       let stopped: BukitRunResult["stopped"] = null;
       let killTimer: NodeJS.Timeout | undefined;
 
@@ -208,8 +256,8 @@ export class BukitRunner {
       // Decode as streams so multibyte characters split across chunks stay intact.
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (d: string) => stdout.push(d));
-      child.stderr.on("data", (d: string) => stderr.push(d));
+      child.stdout.on("data", (d: string) => stdout.push(outScrub.push(d)));
+      child.stderr.on("data", (d: string) => stderr.push(errScrub.push(d)));
       child.on("error", (err) => {
         clearTimeout(timer);
         clearTimeout(killTimer);
@@ -220,6 +268,8 @@ export class BukitRunner {
         clearTimeout(timer);
         clearTimeout(killTimer);
         opts.signal?.removeEventListener("abort", onAbort);
+        stdout.push(outScrub.flush());
+        stderr.push(errScrub.flush());
         resolve({
           exitCode: code ?? (signal ? 128 : -1),
           stdout: stdout.text(),

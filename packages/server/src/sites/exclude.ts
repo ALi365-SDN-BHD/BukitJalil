@@ -8,7 +8,7 @@ import path from "node:path";
 const BEGIN = "# BukitJalil begin";
 const END = "# BukitJalil end";
 /** Build output and caches at the top of a checkout: ignored by git, never written by the AI (plan 6.3). */
-export const BUILD_DIRS = ["dist", ".bukit", ".cache", ".bukitjalil-build"] as const;
+export const BUILD_DIRS = ["dist", ".bukit", ".cache", ".bukitjalil-build", ".bukitjalil-deploy"] as const;
 export const EXCLUDE_PATTERNS = BUILD_DIRS.map((dir) => `${dir}/`);
 /** Extra patterns for a directory that was not a git repository before import (plan 5.1). */
 export const IMPORT_INIT_PATTERNS = [".env*", "node_modules/"];
@@ -34,12 +34,26 @@ export function withBlock(content: string, patterns: string[] | null): string {
   return text ? `${text}\n` : "";
 }
 
-/** Write or replace the block in `<commonDir>/info/exclude`. */
+/** The patterns in our block of `content`. */
+export function blockPatterns(content: string): string[] {
+  const lines = content.split("\n").map((line) => line.trim());
+  const begin = lines.indexOf(BEGIN);
+  if (begin < 0) return [];
+  const end = lines.indexOf(END, begin);
+  return lines.slice(begin + 1, end < 0 ? undefined : end).filter(Boolean);
+}
+
+/**
+ * Write the block in `<commonDir>/info/exclude` with `patterns` added. Patterns already in the block stay:
+ * the import of a plain folder adds `.env*` and `node_modules/` (plan 5.1), and a later recheck must not
+ * drop them again.
+ */
 export function writeExcludeBlock(commonDir: string, patterns: string[] = EXCLUDE_PATTERNS): void {
   const file = path.join(commonDir, "info", "exclude");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-  const next = withBlock(current, patterns);
+  const kept = blockPatterns(current).filter((p) => !patterns.includes(p));
+  const next = withBlock(current, [...patterns, ...kept]);
   if (next !== current) fs.writeFileSync(file, next);
 }
 

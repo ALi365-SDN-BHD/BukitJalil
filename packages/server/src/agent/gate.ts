@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { foldName } from "../names.ts";
 import { BUILD_DIRS } from "../sites/exclude.ts";
 
 /** A refused file operation; Pi returns the message to the model as the tool's error. */
@@ -27,13 +28,12 @@ export type GateMode = "read" | "list" | "write";
 
 const within = (p: string, base: string) => p === base || p.startsWith(base + path.sep);
 /**
- * A path segment as the file system may store it: lower case (macOS and Windows ignore case), without
+ * A path segment as the file system may store it: case-folded (macOS and Windows ignore case, names.ts), without
  * an NTFS stream suffix (".git::$INDEX_ALLOCATION") or the trailing dots and spaces Windows drops
  * (".git." is .git). Applied on every platform, so the rules do not depend on where the server runs.
  */
 export const segmentKey = (name: string) =>
-  name
-    .toLowerCase()
+  foldName(name)
     .split(":")[0]
     ?.replace(/[. ]+$/, "") ?? "";
 const isGitName = (name: string) => segmentKey(name) === ".git";

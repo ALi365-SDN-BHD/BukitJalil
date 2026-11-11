@@ -163,7 +163,7 @@ describe("create a site (plan 5.2)", () => {
     );
     expect(raw(target, "status", "--porcelain")).toBe("");
     expect(fs.readFileSync(path.join(target, ".git/info/exclude"), "utf8")).toContain(
-      "# BukitJalil begin\ndist/\n.bukit/\n.cache/\n.bukitjalil-build/\n# BukitJalil end",
+      "# BukitJalil begin\ndist/\n.bukit/\n.cache/\n.bukitjalil-build/\n.bukitjalil-deploy/\n# BukitJalil end",
     );
     const checkout = path.join(paths.worktrees, site.id, "main");
     expect(fs.existsSync(path.join(checkout, "site.yaml"))).toBe(true);
@@ -345,6 +345,13 @@ describe("import a site (plan 5.1)", () => {
     expect(tracked).not.toContain(".env");
     expect(tracked.some((f) => f.startsWith("dist/"))).toBe(false);
     expect(fs.readFileSync(path.join(dir, ".env"), "utf8")).toBe("SECRET=1\n");
+    // The check after import keeps the import's own excludes: .env stays ignored in the user's folder.
+    expect(raw(dir, "status", "--porcelain")).not.toContain(".env");
+    await call("POST", `/api/sites/${res.json.id}/recheck`, {});
+    const exclude = fs.readFileSync(path.join(dir, ".git", "info", "exclude"), "utf8");
+    expect(exclude).toContain(".env*");
+    expect(exclude).toContain("node_modules/");
+    expect(exclude).toContain(".bukitjalil-deploy/");
   });
 
   it("refuses a plain directory that contains another repository", async () => {

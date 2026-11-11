@@ -1,6 +1,7 @@
 import { parseDocument } from "yaml";
 import { listTree, readBlob, SYMLINK_MODE, type TreeEntry } from "../git/objects.ts";
 import { GitError, type GitRunner } from "../git/run.ts";
+import { foldName } from "../names.ts";
 
 /**
  * Pre-build safety check (plan 8.5), run before every Bukit call on a commit. It reads git objects, not a
@@ -107,11 +108,12 @@ export async function guardCommit(git: GitRunner, repo: string, commit: string):
   const entries = await listTree(git, repo, commit, { recursive: true });
 
   // Checkouts on macOS (APFS) and Windows are case-insensitive: Bukit opening "plugins/x/plugin.yaml" or
-  // "site.yaml" also gets "Plugins/x/PLUGIN.YAML" or "SITE.yaml". So names are compared in lower case, and
-  // paths that differ only in case are refused, because which one lands on disk depends on checkout order.
+  // "site.yaml" also gets "Plugins/x/PLUGIN.YAML", "SITE.yaml" or "ſite.yaml". So names are compared
+  // case-folded (names.ts), and paths that differ only in case are refused, because which one lands on disk
+  // depends on checkout order.
   const seen = new Map<string, string>();
   for (const e of entries) {
-    const lower = e.path.toLowerCase();
+    const lower = foldName(e.path);
     const other = seen.get(lower);
     if (other !== undefined) reasons.push({ code: "case_collision", where: e.path, detail: other });
     seen.set(lower, e.path);
@@ -247,7 +249,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
  */
 async function checkLfs(git: GitRunner, repo: string, entries: TreeEntry[]): Promise<GuardReason[]> {
   for (const e of entries) {
-    const lower = e.path.toLowerCase();
+    const lower = foldName(e.path);
     if (e.type !== "blob" || (lower !== ".gitattributes" && !lower.endsWith("/.gitattributes"))) continue;
     const blob = await readLimited(git, repo, e, MAX_GITATTRIBUTES);
     if (blob === null) return [{ code: "lfs", where: e.path, detail: `larger than ${MAX_GITATTRIBUTES} bytes` }];

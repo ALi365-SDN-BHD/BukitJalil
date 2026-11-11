@@ -1,10 +1,32 @@
 import { describe, expect, it } from "vitest";
 import { buildReport, limitMessages } from "../src/builds/service.ts";
-import { CAPTURE_GAP, StreamCapture } from "../src/bukit/runner.ts";
+import { CAPTURE_GAP, SecretScrubber, StreamCapture } from "../src/bukit/runner.ts";
 
 // Bukit 2.0.x logs everything to stderr; a large build must still report the error at its end.
 
 const warn = (i: number) => ({ level: "Warn", msg: `w${i}` });
+
+describe("SecretScrubber", () => {
+  it("masks a secret split across chunks and never lets part of it through", () => {
+    const secret = "ghp_abcdefghijklmnop";
+    const s = new SecretScrubber([secret]);
+    let out = "";
+    const text = `remote https://x:${secret}@github.com/a/b\nend ${secret}`;
+    for (let i = 0; i < text.length; i += 3) {
+      const piece = s.push(text.slice(i, i + 3));
+      expect(piece).not.toContain("ghp_abc");
+      out += piece;
+    }
+    out += s.flush();
+    expect(out).toBe("remote https://x:[token]@github.com/a/b\nend [token]");
+  });
+
+  it("passes text through unchanged without secrets", () => {
+    const s = new SecretScrubber(["short"]);
+    expect(s.push("short text")).toBe("short text");
+    expect(s.flush()).toBe("");
+  });
+});
 
 describe("StreamCapture", () => {
   it("keeps everything under the cap", () => {

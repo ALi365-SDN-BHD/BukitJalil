@@ -271,6 +271,10 @@ describe("guardCommit", () => {
     expect(codes).toEqual(
       ["case_collision@site.yaml", "plugin_files@.BUKIT/Plugins.yaml", "plugin_files@Plugins/x/PLUGIN.YAML"].sort(),
     );
+    // JavaScript's toLowerCase leaves "ſ" (U+017F) alone, but APFS folds it to "s": the second file would
+    // land on site.yaml at checkout.
+    const folded = treeRepo("fold", { "site.yaml": SITE, "\u017fite.yaml": "theme:\n  static: /etc\n" });
+    expect((await guardCommit(git, folded, head(folded))).reasons.map((r) => r.code)).toContain("case_collision");
     const upper = siteRepo("upper", { "Site.yaml": SITE });
     expect((await guardCommit(git, upper, head(upper))).reasons.map((r) => r.code)).toEqual(["missing_site_yaml"]);
   });
