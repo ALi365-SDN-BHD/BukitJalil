@@ -24,18 +24,28 @@ function alive(pid: number): boolean {
   }
 }
 
-function holder(file: string): number | null {
+interface Holder {
+  pid: number | null;
+  /** The whole `${pid}\n` line is there, so the PID is not a partial write. */
+  complete: boolean;
+}
+
+function read(file: string): Holder {
   try {
-    const pid = Number(fs.readFileSync(file, "utf8").trim());
-    return Number.isInteger(pid) && pid > 0 ? pid : null;
+    const text = fs.readFileSync(file, "utf8");
+    const pid = Number(text.trim());
+    const valid = Number.isInteger(pid) && pid > 0;
+    return { pid: valid ? pid : null, complete: valid && text.endsWith("\n") };
   } catch {
-    return null;
+    return { pid: null, complete: false };
   }
 }
 
+const holder = (file: string): number | null => read(file).pid;
+
 /**
  * A lock file becomes visible as soon as it is opened, before its PID is written. A second process can read
- * it in that tiny window. Treat a fresh but empty/unreadable file as held for this long instead of deleting
+ * it in that tiny window. Treat a fresh but incomplete file as held for this long instead of deleting
  * the first process's lock; a lock from a crashed process can be taken over after this.
  */
 const LOCK_WRITE_GRACE_MS = 2_000;
@@ -58,12 +68,15 @@ export function acquireHomeLock(file: string, pid = process.pid): () => void {
       };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      const other = holder(file);
+      const { pid: other, complete } = read(file);
       if (other !== null && other !== pid && alive(other)) throw new HomeInUseError(file, other);
-      // A lock written just now may still be mid-write (even a readable, not-yet-dead PID can be partial).
-      // Wait for the grace period before taking it over; a crashed process's lock can be removed after it.
+      // A lock written just now may still be mid-write: without its closing newline even a readable PID can
+      // be partial. Wait for the grace period before taking such a lock over. A complete line naming a dead
+      // process is a crash left behind and is taken over at once, so "Start again" works right after a crash.
       const stat = fs.statSync(file, { throwIfNoEntry: false });
-      if (stat && Date.now() - stat.mtimeMs < LOCK_WRITE_GRACE_MS) throw new HomeInUseError(file, other ?? 0);
+      if (!complete && stat && Date.now() - stat.mtimeMs < LOCK_WRITE_GRACE_MS) {
+        throw new HomeInUseError(file, other ?? 0);
+      }
       // Stale (or our own pid from a previous life): remove and try once more.
       fs.rmSync(file, { force: true });
     }

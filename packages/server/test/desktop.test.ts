@@ -57,6 +57,18 @@ describe("data directory lock (plan M7)", () => {
     expect(fs.existsSync(file)).toBe(false);
   });
 
+  it("takes over a fresh lock of a crashed process at once, but not a fresh partial PID", () => {
+    const file = path.join(tmp(), "server.lock");
+    // Right after a crash the lock is still new; "Start again" must not wait for the grace period.
+    fs.writeFileSync(file, `${deadPid()}\n`);
+    acquireHomeLock(file)();
+    expect(fs.existsSync(file)).toBe(false);
+
+    // Without its newline the PID may still be mid-write.
+    fs.writeFileSync(file, String(deadPid()));
+    expect(() => acquireHomeLock(file)).toThrow(HomeInUseError);
+  });
+
   it("does not remove a lock another process has taken over since", () => {
     const file = path.join(tmp(), "server.lock");
     const release = acquireHomeLock(file);
