@@ -1,7 +1,10 @@
-// Builds BukitJalil.app for macOS arm64 (plan M7 layer 4) into packages/desktop/out/, with a zip next to it.
-// Run `pnpm build` (the web UI) first; `pnpm package:desktop` does both.
+// Builds the desktop app for the platform it runs on (plan M7) into packages/desktop/out/, then its installers
+// into out/installers/: a dmg and a zip on macOS (arm64), an NSIS setup on Windows (x64), an AppImage and a deb
+// on Linux (x64). Electron cannot be packaged for another platform reliably (npm packages with native code),
+// so the release workflow runs this once per platform. Run `pnpm build` (the web UI) first;
+// `pnpm package:desktop` does both. BUKITJALIL_VERSION sets the version (the release tag without its "v").
 //
-// The app folder (Contents/Resources/app) holds:
+// The app folder (BukitJalil.app/Contents/Resources/app, resources/app elsewhere) holds:
 //   main.cjs, preload.cjs, status.*   the desktop shell (scripts/build.mjs)
 //   server.mjs, migrations/            BukitJalil's server code, bundled; npm packages stay outside the
 //                                      bundle because Pi SDK reads files next to its own modules
@@ -12,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { packager } from "@electron/packager";
+import { Arch, build as buildInstallers, Platform } from "electron-builder";
 import { build } from "esbuild";
 
 const desktop = path.resolve(import.meta.dirname, "..");
@@ -19,7 +23,29 @@ const repo = path.resolve(desktop, "../..");
 const server = path.join(repo, "packages/server");
 const out = path.join(desktop, "out");
 const stage = fs.mkdtempSync(path.join(os.tmpdir(), "bukitjalil-app-"));
-const run = (cmd, args, cwd = repo) => execFileSync(cmd, args, { cwd, stdio: "inherit" });
+// pnpm is a .cmd script on Windows, which Node only starts through a shell; paths with spaces (a user name
+// in the temporary folder) are quoted for it.
+const run = (cmd, args, cwd = repo) => {
+  const shell = process.platform === "win32" && cmd === "pnpm";
+  const argv = shell ? args.map((a) => (/[\s&^|<>()]/.test(a) ? `"${a}"` : a)) : args;
+  execFileSync(cmd, argv, { cwd, stdio: "inherit", shell });
+};
+
+const TARGETS = {
+  darwin: { arch: "arm64", builder: Platform.MAC, formats: ["dmg", "zip"] },
+  win32: { arch: "x64", builder: Platform.WINDOWS, formats: ["nsis"] },
+  linux: { arch: "x64", builder: Platform.LINUX, formats: ["AppImage", "deb"] },
+};
+const target = TARGETS[process.platform];
+// Bukit's official builds (plan 8.1) are the same three; elsewhere the app could not build any site.
+if (!target || process.arch !== target.arch) {
+  throw new Error(`Packaging runs on macOS arm64, Windows x64 or Linux x64, not ${process.platform} ${process.arch}`);
+}
+const version =
+  process.env.BUKITJALIL_VERSION ||
+  JSON.parse(fs.readFileSync(path.join(repo, "package.json"), "utf8")).version ||
+  "0.0.0";
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`Not a version: ${version}`);
 
 const web = path.join(repo, "packages/web/dist");
 if (!fs.existsSync(path.join(web, "index.html"))) throw new Error("Build the web UI first: pnpm build");
@@ -69,10 +95,11 @@ fs.cpSync(path.join(repo, "skills"), path.join(stage, "skills"), { recursive: tr
 fs.cpSync(path.join(repo, "templates/starter"), path.join(stage, "templates/starter"), { recursive: true });
 fs.cpSync(web, path.join(stage, "web"), { recursive: true });
 
-const version = JSON.parse(fs.readFileSync(path.join(repo, "package.json"), "utf8")).version ?? "0.0.0";
+const description = "Build and publish websites by talking to an AI";
+const homepage = "https://github.com/ALi365-SDN-BHD/BukitJalil";
 fs.writeFileSync(
   path.join(stage, "package.json"),
-  `${JSON.stringify({ name: "bukitjalil", productName: "BukitJalil", version, main: "main.cjs", private: true }, null, 2)}\n`,
+  `${JSON.stringify({ name: "bukitjalil", productName: "BukitJalil", version, description, homepage, author: "ALi365 SDN BHD", main: "main.cjs", private: true }, null, 2)}\n`,
 );
 
 const electronVersion = JSON.parse(
@@ -83,8 +110,8 @@ const [appDir] = await packager({
   dir: stage,
   out,
   name: "BukitJalil",
-  platform: "darwin",
-  arch: "arm64",
+  platform: process.platform,
+  arch: target.arch,
   electronVersion,
   appBundleId: "my.ali365.bukitjalil",
   appCategoryType: "public.app-category.developer-tools",
@@ -96,14 +123,40 @@ const [appDir] = await packager({
   overwrite: true,
   quiet: true,
 });
-fs.rmSync(stage, { recursive: true, force: true });
 
-const app = path.join(appDir, "BukitJalil.app");
-// Apple Silicon only runs signed code. Without a Developer ID the app is signed ad hoc again as a whole:
-// Electron's own signature no longer matches once the app's files are added, and macOS would call a
-// downloaded copy damaged. Gatekeeper still asks the user to allow it (docs/user-guide.md).
-run("codesign", ["--force", "--deep", "--sign", "-", app]);
-run("codesign", ["--verify", "--deep", "--strict", app]);
-const zip = path.join(out, `BukitJalil-${version}-mac-arm64.zip`);
-run("ditto", ["-c", "-k", "--keepParent", app, zip]);
-console.log(`${app}\n${zip}`);
+let prepackaged = appDir;
+if (process.platform === "darwin") {
+  prepackaged = path.join(appDir, "BukitJalil.app");
+  // Apple Silicon only runs signed code. Without a Developer ID the app is signed ad hoc again as a whole:
+  // Electron's own signature no longer matches once the app's files are added, and macOS would call a
+  // downloaded copy damaged. Gatekeeper still asks the user to allow it (docs/user-guide.md).
+  run("codesign", ["--force", "--deep", "--sign", "-", prepackaged]);
+  run("codesign", ["--verify", "--deep", "--strict", prepackaged]);
+}
+
+// The installers wrap the app built above as it is: electron-builder does not package or sign it again.
+const installers = path.join(out, "installers");
+const files = await buildInstallers({
+  prepackaged,
+  projectDir: stage,
+  targets: target.builder.createTarget(target.formats, Arch[target.arch]),
+  publish: "never",
+  config: {
+    appId: "my.ali365.bukitjalil",
+    productName: "BukitJalil",
+    executableName: "BukitJalil",
+    electronVersion,
+    directories: { output: installers },
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder fills in these macros
+    artifactName: "BukitJalil-${version}-${os}-${arch}.${ext}",
+    npmRebuild: false,
+    // No Developer ID: keep the ad hoc signature made above.
+    mac: { identity: null, category: "public.app-category.developer-tools" },
+    // Per user, no administrator rights; the user may pick the folder.
+    nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true },
+    linux: { category: "Development", maintainer: "ALi365 SDN BHD", synopsis: description },
+  },
+});
+fs.rmSync(stage, { recursive: true, force: true });
+const made = files.filter((f) => !f.endsWith(".blockmap") && !f.endsWith(".yml"));
+console.log([prepackaged, ...made].join("\n"));

@@ -23,3 +23,5 @@ allowBuilds:
   # mismatched versions. Neither is needed.
   "@google/genai": false
   protobufjs: false
+  # Via electron-builder: Squirrel.Windows installers, which BukitJalil does not build (NSIS instead).
+  electron-winstaller: false

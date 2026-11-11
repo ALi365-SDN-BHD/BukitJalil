@@ -34,13 +34,16 @@ pnpm start
 
 停止 BukitJalil：在终端按 Ctrl+C。正在运行的 AI 会话和构建会被停下，没完成的构建下次启动时标记为"服务重启时中断"；对话记录和 AI 已经做的修改都保留。
 
-### 桌面版（macOS）
+### 桌面版
 
 桌面版是同一个 BukitJalil 装在一个窗口里，双击就能用，不需要终端和 Node。
 
-1. 得到安装包：在仓库目录运行 `pnpm package:desktop`，生成 `packages/desktop/out/BukitJalil-<版本>-mac-arm64.zip`（目前还没有公开下载）
-2. 解压，把 `BukitJalil.app` 拖进"应用程序"
-3. 第一次打开：安装包没有 Apple 开发者签名，macOS 会说"无法验证开发者"或"Apple 无法检查其是否包含恶意软件"。先点"完成"，到"系统设置 → 隐私与安全性"，在下面找到 BukitJalil，点"仍要打开"并确认。之后就能正常双击打开
+1. 得到安装包：从 GitHub Releases 下载对应平台的文件，可以用同一页的 `SHA256SUMS.txt` 核对；也可以在仓库目录运行 `pnpm package:desktop`，在 `packages/desktop/out/installers/` 里生成本机平台的安装包
+   - macOS（Apple Silicon）：`BukitJalil-<版本>-mac-arm64.dmg`（或 `.zip`）
+   - Linux（x64）：`.AppImage`（加上执行权限后直接运行）或 `.deb`（`sudo apt install ./BukitJalil-<版本>-linux-amd64.deb`）
+   - Windows（x64）：`BukitJalil-<版本>-win-x64.exe`，**预览版**：服务端还没有移植到 Windows，网站功能可能用不了
+2. macOS：打开 dmg，把 `BukitJalil.app` 拖进"应用程序"（zip 先解压）
+3. macOS 第一次打开：安装包没有 Apple 开发者签名，macOS 会说"无法验证开发者"或"Apple 无法检查其是否包含恶意软件"。先点"完成"，到"系统设置 → 隐私与安全性"，在下面找到 BukitJalil，点"仍要打开"并确认。之后就能正常双击打开
 
 和在终端里运行的区别：
 

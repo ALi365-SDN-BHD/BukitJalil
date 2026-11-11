@@ -1352,6 +1352,11 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 
 > M7 结果：macOS arm64 桌面版完成。server 在 Electron 的 utility process 里以桌面模式运行，窗口自动登录、锁定导航和权限，新建 / 导入网站用系统文件夹选择框；`pnpm package:desktop` 生成临时签名的 `.app` 和 zip。没有 Developer ID 签名、公证、自动更新和自定义图标，没有 Linux / Windows 安装包
 
+> M7 之后：三个平台的安装包和发布流程：
+> - `package.mjs` 按运行的平台打包（只接受 macOS arm64、Windows x64、Linux x64，和 Bukit 官方安装包的平台一致），再用 electron-builder 26.18.1 的 `prepackaged` 方式把打好的应用包成安装包，放在 `out/installers/`：macOS 是 dmg 和 zip（仍是临时签名，`mac.identity: null` 让 electron-builder 不再签名；已核对 dmg 和 zip 里的应用 `codesign --verify --deep --strict` 都通过），Windows 是 NSIS 安装程序（按用户安装，不需要管理员权限，可选目录），Linux 是 AppImage 和 deb。版本取 `BUKITJALIL_VERSION`（发布时是标签去掉 v）。electron-winstaller 的安装脚本在 `allowBuilds` 里关掉（只有 Squirrel 用）
+> - `.github/workflows/release.yml`：推送 `v*.*.*` 标签时三个平台各在自己的机器上打包（Electron 带原生依赖不能交叉打包），打包后运行 `packaged.spec.ts` 冒烟测试，再把安装包和 `SHA256SUMS.txt` 放进**草稿** Release，由人检查后发布；手动运行只产出 workflow artifacts。带 `-` 的版本标为预发布
+> - 冒烟测试改成三个平台通用（各平台的可执行文件路径；Windows 保留系统必需的环境变量；CI 的 Linux 用 xvfb 和 `--no-sandbox`）。macOS 和 Linux 必须通过；**Windows 是预览版**：服务端还有写死的 `/usr/bin:/bin`、给 Bukit 的 git 用符号链接等 Unix 假设，冒烟测试失败只报告、不挡发布，移植另做
+
 ### 里程碑总览
 
 ```text
