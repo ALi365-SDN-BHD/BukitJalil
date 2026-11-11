@@ -8,6 +8,8 @@ import { SiteError } from "./location.ts";
 export class SiteLocks {
   private readonly held = new Map<string, string>();
   private readonly waiters = new Map<string, (() => void)[]>();
+  private closed = false;
+  private idleWaiters: (() => void)[] = [];
 
   async run<T>(siteId: string, operation: string, fn: () => Promise<T>): Promise<T> {
     const release = this.acquire(siteId, operation);
@@ -23,6 +25,7 @@ export class SiteLocks {
    * started it (a build answers 202 and keeps running). Throws site.busy like `run`.
    */
   acquire(siteId: string, operation: string): () => void {
+    if (this.closed) throw new SiteError("server.shutting_down", 503);
     const current = this.held.get(siteId);
     if (current !== undefined) throw new SiteError("site.busy", 409, { operation: current });
     this.held.set(siteId, operation);
@@ -34,7 +37,25 @@ export class SiteLocks {
       const waiting = this.waiters.get(siteId) ?? [];
       this.waiters.delete(siteId);
       for (const wake of waiting) wake();
+      if (this.held.size === 0) for (const wake of this.idleWaiters.splice(0)) wake();
     };
+  }
+
+  /** Shutdown (main.ts): refuse every new operation from now on. */
+  close(): void {
+    this.closed = true;
+  }
+
+  /** Resolves once no site operation holds a lock, or after `timeoutMs`; true when they all ended. */
+  idle(timeoutMs: number): Promise<boolean> {
+    if (this.held.size === 0) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), timeoutMs);
+      this.idleWaiters.push(() => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
   }
 
   /** The operation holding the site's lock, or null. */

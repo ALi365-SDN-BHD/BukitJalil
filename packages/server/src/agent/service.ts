@@ -7,7 +7,7 @@ import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from
 import type { ChangeService } from "../changes/service.ts";
 import type { Logger } from "../log.ts";
 import type { AppPaths } from "../paths.ts";
-import { SiteError } from "../sites/location.ts";
+import { asSiteError, SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode } from "../storage-errors.ts";
@@ -427,14 +427,33 @@ export class AgentService {
         await this.opts.bukit.settled(siteId);
         return (await this.snapshotAfter(siteId, run)) ?? error;
       })
+      // execute and snapshotAfter do not reject, but if anything in them does, the lock is still released.
+      .catch((err: unknown) => runErrorCode(err))
       .then((error) => {
         this.running.delete(siteId);
         release();
-        this.emit(error ? { ...base, status: "idle", error } : { ...base, status: "idle" });
-        // Whether the change set can be reviewed depends on the run: say so even when no file changed.
-        if (run.cwd) this.opts.changes.notify(siteId);
-        this.pump(siteId);
+        // Messages that arrived after the last prompt ended, while the run was still finishing (Bukit
+        // stopping, the snapshot): they start the session's next run instead of being dropped.
+        if (run.extra.length > 0 && !run.cancelled && !this.closing)
+          this.requeue(siteId, run.sessionId, run.extra.splice(0));
+        try {
+          this.emit(error ? { ...base, status: "idle", error } : { ...base, status: "idle" });
+          // Whether the change set can be reviewed depends on the run: say so even when no file changed.
+          if (run.cwd) this.opts.changes.notify(siteId);
+          this.pump(siteId);
+        } catch (err) {
+          this.opts.logger.log("error", "agent.after_run_failed", { sessionId: run.sessionId, error: String(err) });
+        }
       });
+  }
+
+  /** Put messages first in line for `sessionId`, joined with any it already has waiting. */
+  private requeue(siteId: string, sessionId: string, texts: string[]): void {
+    const queue = this.pending.get(siteId) ?? [];
+    this.pending.set(siteId, queue);
+    const waiting = queue.find((p) => p.sessionId === sessionId);
+    if (waiting) waiting.texts.unshift(...texts);
+    else queue.unshift({ sessionId, texts });
   }
 
   /**
@@ -448,7 +467,7 @@ export class AgentService {
       return undefined;
     } catch (err) {
       this.opts.logger.log("error", "agent.snapshot_failed", { sessionId: run.sessionId, error: String(err) });
-      return err instanceof SiteError ? err.code : (storageErrorCode(err) ?? "server.internal");
+      return runErrorCode(err);
     }
   }
 
@@ -478,7 +497,7 @@ export class AgentService {
       return undefined;
     } catch (err) {
       this.opts.logger.log("error", "agent.run_failed", { sessionId: id, error: String(err) });
-      return err instanceof SiteError ? err.code : (storageErrorCode(err) ?? "server.internal");
+      return runErrorCode(err);
     } finally {
       if (live && this.live.get(id) === live) {
         if (this.store.get(id) && !this.closing) {
@@ -568,4 +587,9 @@ export class AgentService {
     live.unsubscribe();
     live.session.dispose();
   }
+}
+
+/** The error code a failed run reports in its idle status. */
+function runErrorCode(err: unknown): string {
+  return asSiteError(err)?.code ?? storageErrorCode(err) ?? "server.internal";
 }

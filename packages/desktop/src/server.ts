@@ -137,8 +137,11 @@ export class ServerProcess {
     });
   }
 
-  /** Ask the server to shut down; end it after `timeoutMs`. */
-  stop(timeoutMs = 10_000): Promise<void> {
+  /**
+   * Ask the server to shut down; end it after `timeoutMs`. The server stops its Bukit processes (up to 10 s
+   * each, in parallel) and waits up to 15 s for site operations, so the budget is above both.
+   */
+  stop(timeoutMs = 30_000): Promise<void> {
     const child = this.child;
     if (!child) return Promise.resolve();
     this.stopping = true;

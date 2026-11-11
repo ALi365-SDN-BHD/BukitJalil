@@ -53,7 +53,24 @@ async function site(files: Record<string, string> = {}) {
   return ctx.sites.import({ path: dir });
 }
 
-function service(opts: { model?: boolean; idleMs?: number; rgReady?: () => boolean } = {}) {
+function service(
+  opts: { model?: boolean; idleMs?: number; rgReady?: () => boolean; settled?: () => Promise<void> } = {},
+) {
+  const aiBukit = new AiBukit({
+    git: ctx.git,
+    paths: ctx.paths,
+    sites: ctx.sites,
+    bukit: ctx.bukit,
+    changes: ctx.changes,
+  });
+  if (opts.settled) {
+    const own = aiBukit.settled.bind(aiBukit);
+    const hook = opts.settled;
+    aiBukit.settled = async (siteId: string) => {
+      await hook();
+      return own(siteId);
+    };
+  }
   const agent = new AgentService({
     db: ctx.db,
     paths: ctx.paths,
@@ -64,7 +81,7 @@ function service(opts: { model?: boolean; idleMs?: number; rgReady?: () => boole
     resolveModel: () => (opts.model === false ? undefined : (faux.getModel() as Model<Api>)),
     setupRuntime: (runtime) => runtime.registerNativeProvider(faux.provider),
     rgReady: opts.rgReady ?? (() => false),
-    bukit: new AiBukit({ git: ctx.git, paths: ctx.paths, sites: ctx.sites, bukit: ctx.bukit, changes: ctx.changes }),
+    bukit: aiBukit,
     skillsDir: SKILLS,
     idleMs: opts.idleMs,
   });
@@ -435,6 +452,46 @@ describe("AgentService", () => {
     expect(contexts).toHaveLength(2);
     expect(contexts[1]).toContain("one done");
     expect(contexts[1]).toContain("two");
+  });
+
+  it("runs a message sent while the run is finishing instead of dropping it", async () => {
+    const s = await site();
+    let finishing!: () => void;
+    const reached = new Promise<void>((r) => {
+      finishing = r;
+    });
+    let release!: () => void;
+    const hold = new Promise<void>((r) => {
+      release = r;
+    });
+    let first = true;
+    const { agent, events } = service({
+      settled: async () => {
+        if (!first) return;
+        first = false;
+        finishing();
+        await hold;
+      },
+    });
+    const session = agent.create(s.id);
+    const contexts: string[] = [];
+    faux.setResponses([
+      pi.ai.fauxAssistantMessage("one done"),
+      (context) => {
+        contexts.push(JSON.stringify(context));
+        return pi.ai.fauxAssistantMessage("two done");
+      },
+    ]);
+    const idles = () => events.filter((e) => e.sessionId === session.id && e.type === "status" && e.status === "idle");
+    await agent.send(session.id, "one");
+    await reached;
+    // The prompt loop has ended; the run is still finishing (Bukit settling, the snapshot).
+    expect(agent.status(session.id)).toBe("running");
+    await agent.send(session.id, "two");
+    release();
+    await vi.waitFor(() => expect(idles()).toHaveLength(2), { timeout: 10_000 });
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]).toContain("two");
   });
 
   it("stops a session that is still opening before it prompts", async () => {

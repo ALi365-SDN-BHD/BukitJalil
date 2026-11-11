@@ -35,6 +35,7 @@ import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
 import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./security/headers.ts";
 import type { LoginToken } from "./security/token.ts";
 import type { SecretStore } from "./settings/secrets.ts";
+import { asSiteError } from "./sites/location.ts";
 import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
 import { storageErrorCode } from "./storage-errors.ts";
@@ -93,6 +94,8 @@ export function createAdminApp(opts: AdminAppOptions) {
 
   // Errors never leak details: /api answers with a code (plan 10.1), the log gets the stack (plan 13).
   app.onError((err, c) => {
+    const known = new URL(c.req.url).pathname.startsWith("/api/") ? asSiteError(err) : null;
+    if (known) return apiError(c, known.status, known.code, known.params);
     opts.logger.log("error", "request.failed", {
       method: c.req.method,
       path: new URL(c.req.url).pathname,

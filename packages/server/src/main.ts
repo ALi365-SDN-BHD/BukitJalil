@@ -251,19 +251,33 @@ function openBrowser(url: string) {
   child.unref();
 }
 
+/** Longest wait for site operations (apply, import, removal…) to finish during shutdown. */
+const SHUTDOWN_WAIT_MS = 15_000;
+
 let closing = false;
 async function shutdown() {
-  if (closing) return;
+  if (closing) {
+    // A second signal (another Ctrl-C, or the desktop app giving up): leave now.
+    releaseLock();
+    process.exit(1);
+  }
   closing = true;
-  events.closeAll();
-  await agent.shutdown();
-  await builds.shutdown();
-  await deploys.shutdown();
-  await previews.closeAll();
-  server.close();
-  db.close();
+  try {
+    server.close();
+    events.closeAll();
+    // All at once: each may wait for a Bukit process to stop. The services refuse new work first, then the
+    // locks refuse every other site operation, and operations already running get to finish.
+    const stopping = Promise.all([agent.shutdown(), builds.shutdown(), deploys.shutdown()]);
+    locks.close();
+    await stopping;
+    if (!(await locks.idle(SHUTDOWN_WAIT_MS))) logger.log("warn", "server.shutdown_timeout", {});
+    await previews.closeAll();
+    db.close();
+  } catch (err) {
+    logger.log("error", "server.shutdown_failed", { error: String(err) });
+  }
   releaseLock();
   process.exit(0);
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => void shutdown());
+process.on("SIGTERM", () => void shutdown());

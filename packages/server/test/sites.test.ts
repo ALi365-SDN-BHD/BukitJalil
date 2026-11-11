@@ -419,6 +419,43 @@ describe("manage a site", () => {
     expect(fs.readFileSync(path.join(dir, ".git", "info", "exclude"), "utf8")).not.toContain("BukitJalil");
   });
 
+  it("removes a site whose folder is no longer a git repository", async () => {
+    const { call } = setup();
+    const dir = starterRepo("rm-nogit");
+    const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
+    fs.rmSync(path.join(dir, ".git"), { recursive: true, force: true });
+    const res = await call<{ leftovers: string[] }>("DELETE", `/api/sites/${site.id}`);
+    expect(res.status).toBe(200);
+    expect(res.json.leftovers).toEqual(["worktree_registrations", "refs", "exclude_block"]);
+    expect((await call<Site[]>("GET", "/api/sites")).json).toEqual([]);
+  });
+
+  it("keeps the refs of change sets that belong to another site", async () => {
+    const { call, db } = setup();
+    const dir = starterRepo("rm-shared");
+    const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
+    const other = (await call<Site>("POST", "/api/sites/import", { path: starterRepo("rm-other") })).json;
+    const head = raw(dir, "rev-parse", "HEAD").trim();
+    db.prepare(
+      "INSERT INTO change_sets (id, site_id, base_commit, status, created_at) VALUES (?, ?, ?, 'open', '2026-01-01')",
+    ).run("theirs1", other.id, head);
+    raw(dir, "update-ref", "refs/bukitjalil/changes/theirs1", "HEAD");
+    raw(dir, "update-ref", "refs/bukitjalil/changes/mine1", "HEAD");
+    await call("DELETE", `/api/sites/${site.id}`);
+    expect(raw(dir, "for-each-ref", "--format=%(refname)", "refs/bukitjalil/").trim()).toBe(
+      "refs/bukitjalil/changes/theirs1",
+    );
+  });
+
+  it("answers a repository whose config stopped passing the check with site.repo_unsafe", async () => {
+    const { call } = setup();
+    const dir = starterRepo("hist-unsafe");
+    const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
+    raw(dir, "config", "core.fsmonitor", "/bin/false");
+    const res = await call("GET", `/api/sites/${site.id}/history`);
+    expect(res).toEqual({ status: 409, json: { code: "site.repo_unsafe" } });
+  });
+
   it("answers the directory picker and identity defaults", async () => {
     const { call } = setup();
     fs.mkdirSync(path.join(userHome, "picker-dir"), { recursive: true });

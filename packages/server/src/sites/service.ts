@@ -430,19 +430,37 @@ export class SiteService {
       const leftovers: string[] = [];
       for (const hook of this.removingHooks) await hook(id);
       fs.rmSync(path.join(this.opts.paths.worktrees, id), { recursive: true, force: true });
-      const repoOk = fs.existsSync(site.path) && (await this.repoReasons(site.path)).length === 0;
+      // A folder that is no longer a git repository (or fails the check) only leaves leftovers: removal must
+      // always succeed, since that is what the user does about such a site.
+      const repoOk = fs.existsSync(site.path) && (await this.repoReasons(site.path).catch(() => null))?.length === 0;
       if (repoOk) {
+        // Another registered site can share this repository (a linked worktree): its change refs stay.
+        const owner = this.opts.db.prepare("SELECT site_id FROM change_sets WHERE id = ?");
         const refs = splitLines(
           await git.text(["for-each-ref", "--format=%(refname)", "refs/bukitjalil/"], { cwd: site.path }),
-        );
+        ).filter((ref) => {
+          const row = owner.get(ref.slice(ref.lastIndexOf("/") + 1)) as { site_id: string } | undefined;
+          return !row || row.site_id === id;
+        });
         for (const ref of refs) await git.run(["update-ref", "-d", ref], { cwd: site.path });
         await git.run(["worktree", "prune"], { cwd: site.path });
       } else {
         leftovers.push("worktree_registrations", "refs");
       }
       const common = fs.existsSync(site.path) ? await this.commonDir(site.path).catch(() => null) : null;
-      if (common) removeExcludeBlock(common);
-      else leftovers.push("exclude_block");
+      // The block is shared too: it stays while another registered site uses the same repository.
+      const shared =
+        common !== null &&
+        (
+          await Promise.all(
+            this.store
+              .list()
+              .filter((other) => other.id !== id && fs.existsSync(other.path))
+              .map((other) => this.commonDir(other.path).catch(() => null)),
+          )
+        ).includes(common);
+      if (common && !shared) removeExcludeBlock(common);
+      else if (!common) leftovers.push("exclude_block");
       fs.rmSync(path.join(this.opts.paths.sessions, id), { recursive: true, force: true });
       fs.rmSync(path.join(this.opts.paths.previews, id), { recursive: true, force: true });
       this.store.delete(id);

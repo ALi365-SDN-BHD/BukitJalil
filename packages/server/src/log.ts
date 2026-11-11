@@ -12,10 +12,25 @@ export interface Logger {
 export function createLogger(logDir: string | null): Logger {
   const file = logDir ? path.join(logDir, "server.log") : null;
   return {
+    // Logging never throws: it runs in catch blocks and error handlers, and a full disk (the very error being
+    // reported) or a removed logs folder must not turn a handled failure into a crash.
     log(level, event, fields = {}) {
-      const line = `${JSON.stringify({ ts: new Date().toISOString(), level, event, ...fields })}\n`;
-      if (file) fs.appendFileSync(file, line, { mode: 0o600 });
-      if (level !== "debug") process.stderr.write(line);
+      let line: string;
+      try {
+        line = `${JSON.stringify({ ts: new Date().toISOString(), level, event, ...fields })}\n`;
+      } catch {
+        line = `${JSON.stringify({ ts: new Date().toISOString(), level, event })}\n`;
+      }
+      try {
+        if (file) fs.appendFileSync(file, line, { mode: 0o600 });
+      } catch {
+        // Nowhere else to put it.
+      }
+      try {
+        if (level !== "debug") process.stderr.write(line);
+      } catch {
+        // stderr closed.
+      }
     },
   };
 }

@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { z } from "zod";
 import { apiError } from "../security/guard.ts";
-import { SiteError } from "../sites/location.ts";
+import { asSiteError } from "../sites/location.ts";
 
 /** Parse a JSON body with a zod schema; null (and a 400 already chosen by the caller) when invalid. */
 export async function body<T extends z.ZodType>(c: Context, schema: T): Promise<z.infer<T> | null> {
@@ -18,7 +18,8 @@ export async function handle(c: Context, fn: () => Promise<Response> | Response)
   try {
     return await fn();
   } catch (err) {
-    if (err instanceof SiteError) return apiError(c, err.status, err.code, err.params);
+    const known = asSiteError(err);
+    if (known) return apiError(c, known.status, known.code, known.params);
     throw err;
   }
 }

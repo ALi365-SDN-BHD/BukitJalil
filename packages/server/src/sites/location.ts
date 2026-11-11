@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ErrorCode, FsDirsResponse } from "@bukitjalil/shared";
+import { GitError } from "../git/run.ts";
 
 /** An expected failure with an API error code (plan 10.1); the route maps it to a JSON error. */
 export class SiteError extends Error {
@@ -13,6 +14,18 @@ export class SiteError extends Error {
     super(code);
     this.name = "SiteError";
   }
+}
+
+/**
+ * The API error behind `err`, when it is one the user can act on: a SiteError, or a repository whose config
+ * stopped passing the allowlist (plan 7.3) on any git call, not only in the services that check first.
+ */
+export function asSiteError(err: unknown): SiteError | null {
+  if (err instanceof SiteError) return err;
+  if (err instanceof GitError && (err.kind === "unsafe_repo" || err.kind === "dubious_ownership")) {
+    return new SiteError("site.repo_unsafe", 409);
+  }
+  return null;
 }
 
 /**

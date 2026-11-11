@@ -119,7 +119,10 @@ export class PreviewPool {
     const slot = this.slots.get(key);
     if (!slot) return;
     this.slots.delete(key);
-    await new Promise<void>((resolve) => slot.server.close(() => resolve()));
+    const closed = new Promise<void>((resolve) => slot.server.close(() => resolve()));
+    // close() waits for responses still being sent (a paused video, a stalled reader): end them.
+    slot.server.closeAllConnections();
+    await closed;
   }
 
   async closeAll(): Promise<void> {
