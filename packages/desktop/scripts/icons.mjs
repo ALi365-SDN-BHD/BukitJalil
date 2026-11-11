@@ -15,17 +15,23 @@ const assets = path.resolve(import.meta.dirname, "../assets");
 const svg = (name) => fs.readFileSync(path.join(assets, name), "utf8");
 
 const browser = await chromium.launch({ channel: process.env.ICON_BROWSER_CHANNEL || "chrome" });
-const page = await browser.newPage({ deviceScaleFactor: 1 });
+// One fixed viewport for every size: resizing it between screenshots let one capture a half-updated frame
+// (the 256 px image came out split in two, and the Retina Dock shows exactly that one).
+const page = await browser.newPage({ viewport: { width: 1100, height: 1100 }, deviceScaleFactor: 1 });
 
 /** PNG of `source` at `size` px, transparent around the tile. */
 async function render(source, size) {
-  await page.setViewportSize({ width: size, height: size });
   const data = Buffer.from(source).toString("base64");
   await page.setContent(
     `<body style="margin:0"><img src="data:image/svg+xml;base64,${data}" width="${size}" height="${size}" style="display:block"></body>`,
   );
-  await page.locator("img").evaluate((img) => img.decode());
-  return page.screenshot({ omitBackground: true, clip: { x: 0, y: 0, width: size, height: size } });
+  const img = page.locator("img");
+  await img.evaluate((el) => el.decode());
+  const png = await img.screenshot({ omitBackground: true });
+  // A check against the same failure: the picture must be the requested size and match a second capture.
+  if (png.readUInt32BE(16) !== size || png.readUInt32BE(20) !== size) throw new Error(`icon ${size}: wrong size`);
+  if (!png.equals(await img.screenshot({ omitBackground: true }))) throw new Error(`icon ${size}: unstable render`);
+  return png;
 }
 
 /** An ICO file whose entries are PNG images (Windows Vista and later read these). */
