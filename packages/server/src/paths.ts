@@ -56,8 +56,6 @@ export interface AppPaths {
   piBin: string;
   /** Scratch space for git work that must not touch a user's directory. */
   tmp: string;
-  /** Deploy tokens set in the UI (plan 6.5), 0600. */
-  secrets: string;
   /** Per-data-source Notion tokens, 0600. */
   dataSourceTokens: string;
   /** Per-publishing-account GitHub tokens, 0600. */
@@ -80,7 +78,6 @@ export function ensureAppHome(home: string): AppPaths {
     pi: path.join(home, "pi"),
     piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
-    secrets: path.join(home, "secrets.json"),
     dataSourceTokens: path.join(home, "data-source-tokens.json"),
     publishAccountTokens: path.join(home, "publish-account-tokens.json"),
     lock: path.join(home, "server.lock"),
@@ -105,7 +102,6 @@ export function ensureAppHome(home: string): AppPaths {
     `${paths.db}-wal`,
     `${paths.db}-shm`,
     path.join(paths.logs, "server.log"),
-    paths.secrets,
     paths.dataSourceTokens,
     paths.publishAccountTokens,
   ]) {

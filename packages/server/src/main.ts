@@ -35,7 +35,6 @@ import { LoginToken, randomSecret } from "./security/token.ts";
 import { SiteLocks } from "./sites/locks.ts";
 import { SiteService } from "./sites/service.ts";
 import { openDatabase } from "./store/db.ts";
-import { cleanupLegacyTempFiles, migrateLegacyTokens } from "./store/legacy-tokens.ts";
 import { SettingsStore } from "./store/settings.ts";
 
 const VERSION = process.env.BUKITJALIL_VERSION?.trim() || "0.0.0";
@@ -102,13 +101,6 @@ try {
   throw err;
 }
 process.on("exit", () => releaseLock());
-// Before anything starts a child process: the token variables leave process.env here (plan 6.5).
-// Publishing and Notion tokens now belong to saved accounts/data sources; the migration below imports
-// the old values and then they must not linger in the environment.
-const legacyGithub = process.env.BUKITJALIL_GITHUB_TOKEN?.trim() || null;
-const legacyNotion = process.env.BUKITJALIL_NOTION_TOKEN?.trim() || null;
-delete process.env.BUKITJALIL_GITHUB_TOKEN;
-delete process.env.BUKITJALIL_NOTION_TOKEN;
 // Before anything can load Pi: it reads these when its modules load (plan 6.1).
 preparePiEnvironment(paths.pi);
 const logger = createLogger(paths.logs);
@@ -199,12 +191,9 @@ const builds = new BuildService({
 });
 const customModels = new CustomModelStore(path.join(paths.pi, "custom-models.json"));
 // A killed write can leave a temp file and then a token entry with no account. Remove both before
-// anything reads the stores or the migration runs again.
+// anything reads the stores.
 const staleTemps =
-  publishAccounts.cleanupTempFiles() +
-  dataSources.cleanupTempFiles() +
-  customModels.cleanupTempFiles() +
-  cleanupLegacyTempFiles(paths.home);
+  publishAccounts.cleanupTempFiles() + dataSources.cleanupTempFiles() + customModels.cleanupTempFiles();
 if (staleTemps > 0) logger.log("warn", "storage.temps_removed", { count: staleTemps });
 try {
   const accounts = publishAccounts.pruneUnknownTokens();
@@ -234,21 +223,6 @@ const agent = new AgentService({
   disabledSkills: () => settingsStore.get().disabledSkills,
 });
 const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
-// One-time import of the old global tokens; it only creates data when the site lists can be read.
-try {
-  await migrateLegacyTokens({
-    db,
-    paths,
-    sites,
-    panels,
-    publishAccounts,
-    dataSources,
-    logger,
-    env: { github: legacyGithub, notion: legacyNotion },
-  });
-} catch (err) {
-  logger.log("warn", "tokens.migration_failed", { error: String(err) });
-}
 const deploys = new DeployService({ sites, panels, accounts: publishAccounts, git, bukit, locks, paths, logger, db });
 const events = new EventHub();
 connectEvents(events, { agent, builds, changes, deploys, logger });

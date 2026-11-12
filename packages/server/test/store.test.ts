@@ -22,7 +22,6 @@ describe("SQLite store (plan 4.2)", () => {
         "change_sets",
         "data_sources",
         "deploys",
-        "legacy_token_imports",
         "publish_accounts",
         "schema_migrations",
         "sessions",

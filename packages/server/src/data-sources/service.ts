@@ -95,19 +95,6 @@ export class DataSourceService {
     this.opts.db.prepare("DELETE FROM data_sources WHERE id = ?").run(id);
   }
 
-  /** Remove a token without touching the database (used when a migration transaction rolls back). */
-  discardToken(id: string): void {
-    this.removeToken(id);
-  }
-
-  /** Give an existing tokenless data source its legacy token; the migration transaction owns the rollback. */
-  adoptToken(id: string, token: string): void {
-    this.row(id);
-    const value = token.trim();
-    if (!value) throw new SiteError("datasource.no_token", 400);
-    this.writeToken(id, value);
-  }
-
   /** Remove token entries whose data source no longer exists; returns the number removed. */
   pruneUnknownTokens(): number {
     const rows = this.opts.db.prepare("SELECT id FROM data_sources").all() as { id: string }[];

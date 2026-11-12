@@ -60,7 +60,6 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 - 已做：
   - "设置 → 数据源"可以添加 Notion 数据源，每个数据源有自己的 token，显示后四位，可以替换、删除。token 存在 `data-source-tokens.json`（权限 600），接口不返回 token 本身。
-  - 旧的 `BUKITJALIL_NOTION_TOKEN` 只在启动时导入一次。
   - 新建网站时可以选一个 Notion 数据源，BukitJalil 调 Notion `/search` 列出这个 token 能读的数据库，选中的写进 `site.yaml`。
   - 正式构建会传 `NOTION_TOKEN`（`builds/service.ts`）。
 - 还缺：

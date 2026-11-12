@@ -96,19 +96,6 @@ export class PublishAccountService {
     this.opts.db.prepare("DELETE FROM publish_accounts WHERE id = ?").run(id);
   }
 
-  /** Remove a token without touching the database (used when a migration transaction rolls back). */
-  discardToken(id: string): void {
-    this.removeToken(id);
-  }
-
-  /** Give an existing tokenless account its legacy token; the migration transaction owns the rollback. */
-  adoptToken(id: string, token: string): void {
-    this.row(id);
-    const value = token.trim();
-    if (!value) throw new SiteError("publish.no_token", 400);
-    this.writeToken(id, value);
-  }
-
   /** Remove token entries whose account no longer exists; returns the number removed. */
   pruneUnknownTokens(): number {
     const rows = this.opts.db.prepare("SELECT id FROM publish_accounts").all() as { id: string }[];
