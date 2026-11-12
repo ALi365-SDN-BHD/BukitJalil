@@ -208,7 +208,8 @@ describe("session API", () => {
 
     const mine = stream.of(session.id);
     const types = mine.map((e) => e.type);
-    expect(types[0]).toBe("session.status");
+    expect(types[0]).toBe("session.updated");
+    expect(types).toContain("session.status");
     expect(types).toContain("message.delta");
     expect(types).toContain("run.settled");
     expect(types.at(-1)).toBe("session.status");

@@ -3,18 +3,22 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import type { InstallProgress } from "@bukitjalil/shared";
+import { unzipSync } from "fflate";
 
 /**
- * Bukit 2.0.12 install (plan 8.1): official package for this platform, SHA-256 pinned in code (the
- * downloaded checksum files are not trusted), extracted by a strict reader that accepts only the
- * expected entries, staged in a temp directory and moved into place in one rename.
+ * Bukit install (plan 8.1): official package for this platform, downloaded from the latest GitHub release and
+ * verified with the SHA-256 GitHub reports for that asset. `BUKIT_VERSION` is the built-in fallback release
+ * used when GitHub cannot be reached; the settings page asks for the latest release when it opens.
  */
 
-export const BUKIT_VERSION = "2.0.12";
+export const BUKIT_VERSION = "2.0.15";
 /** The oldest Bukit that works (`deploy --token-env` and the other 2.0.11 behaviour, plan 8.1). */
 export const MIN_BUKIT_VERSION = "2.0.11";
 /** Earlier app-managed installs (~/.bukitjalil/bin/bukit-<version>), still used until an upgrade replaces them. */
-export const PREVIOUS_APP_VERSIONS: readonly string[] = ["2.0.11"];
+export const PREVIOUS_APP_VERSIONS: readonly string[] = ["2.0.12", "2.0.11"];
+/** How long a fetched release is reused before the automatic settings check asks GitHub again. */
+export const RELEASE_CACHE_MS = 10 * 60_000;
+export const BUKIT_RELEASE_API = "https://api.github.com/repos/ALi365-SDN-BHD/Bukit/releases/latest";
 
 export interface BukitPackage {
   file: string;
@@ -24,22 +28,44 @@ export interface BukitPackage {
   executable: string;
 }
 
+export interface BukitReleaseAsset extends BukitPackage {
+  url: string;
+}
+
+export interface BukitRelease {
+  version: string;
+  assets: Record<string, BukitReleaseAsset>;
+}
+
 const RELEASE_URL = `https://github.com/ALi365-SDN-BHD/Bukit/releases/download/v${BUKIT_VERSION}`;
 
-/** Official packages by `${process.platform}-${process.arch}`. Windows is not an MVP platform (plan 1.2). */
+/** Official packages by `-`: macOS arm64, Linux x64 and Windows x64. */
 export const PACKAGES: Record<string, BukitPackage> = {
   "darwin-arm64": {
     file: `bukit-${BUKIT_VERSION}-osx-arm64.tar.gz`,
-    sha256: "0be48b9da79569988257650028517833a73907e1cd49c76d60fbcb243621c33a",
+    sha256: "c1bf7fd8573f7fbfcc5cb755e01646f010f4b6beef92509a29b1b3429618df99",
     files: ["bukit", "libSkiaSharp.dylib"],
     executable: "bukit",
   },
   "linux-x64": {
     file: `bukit-${BUKIT_VERSION}-linux-x64.tar.gz`,
-    sha256: "1dbb37c0227570c25e71fd1ff9574c95f9217ded6c681add31f19e8653479823",
+    sha256: "41fce998b56cdddeb42c143580733470128b2dc06898b955d79a91068f22ca7d",
     files: ["bukit", "libSkiaSharp.so"],
     executable: "bukit",
   },
+  "win32-x64": {
+    file: `bukit-${BUKIT_VERSION}-win-x64.zip`,
+    sha256: "a76489043d56093d4995c3390a2930f071a6dc8cfd158d5ca83a0d19afe1d2e0",
+    files: ["bukit.exe", "libSkiaSharp.dll"],
+    executable: "bukit.exe",
+  },
+};
+
+export const FALLBACK_RELEASE: BukitRelease = {
+  version: BUKIT_VERSION,
+  assets: Object.fromEntries(
+    Object.entries(PACKAGES).map(([key, pkg]) => [key, { ...pkg, url: `${RELEASE_URL}/${pkg.file}` }]),
+  ),
 };
 
 export function packageForPlatform(
@@ -50,6 +76,54 @@ export function packageForPlatform(
 }
 
 export const packageUrl = (pkg: BukitPackage) => `${RELEASE_URL}/${pkg.file}`;
+
+/**
+ * The latest official release from GitHub. Uses the asset digest GitHub reports for the uploaded file;
+ * falls back to the checksums built into this app when the API cannot be reached or has no usable asset.
+ */
+export async function fetchLatestRelease(fetchImpl: typeof fetch = fetch, timeoutMs = 8_000): Promise<BukitRelease> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(BUKIT_RELEASE_API, {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "BukitJalil" },
+      signal: controller.signal,
+    });
+    if (!res.ok) return FALLBACK_RELEASE;
+    const json = (await res.json()) as {
+      tag_name?: string;
+      assets?: { name?: string; browser_download_url?: string; digest?: string | null }[];
+    };
+    const version = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(json.tag_name ?? "")?.[1];
+    if (!version || version === "0.0.0") return FALLBACK_RELEASE;
+
+    const assets: Record<string, BukitReleaseAsset> = {};
+    for (const [key, suffix, ext] of [
+      ["darwin-arm64", "osx-arm64", "tar.gz"],
+      ["linux-x64", "linux-x64", "tar.gz"],
+      ["win32-x64", "win-x64", "zip"],
+    ] as const) {
+      const file = `bukit-${version}-${suffix}.${ext}`;
+      const asset = json.assets?.find((a) => a.name === file);
+      const sha256 = asset?.digest?.startsWith("sha256:") ? asset.digest.slice("sha256:".length) : "";
+      if (!asset?.browser_download_url || !/^[0-9a-f]{64}$/.test(sha256)) continue;
+      const layout = PACKAGES[key];
+      if (!layout) continue;
+      assets[key] = {
+        file,
+        sha256,
+        files: layout.files,
+        executable: layout.executable,
+        url: asset.browser_download_url,
+      };
+    }
+    return Object.keys(assets).length > 0 ? { version, assets } : FALLBACK_RELEASE;
+  } catch {
+    return FALLBACK_RELEASE;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Why an install failed; the codes are the shared InstallProgress ones. */
 export type InstallFailure = Extract<InstallProgress, { state: "failed" }>["code"];
@@ -190,8 +264,95 @@ export function readStrictTarGz(
 
 /**
  * Write the files into a fresh staging directory next to `target`, then replace `target` with one rename.
- * `target` is e.g. ~/.bukitjalil/bin/bukit-2.0.12.
+ * `target` is e.g. ~/.bukitjalil/bin/bukit-2.0.15.
  */
+/**
+ * Strict ZIP reader for the Windows Bukit package: only the expected files, no traversal, and a cap on
+ * the unpacked size. The archive is small and its SHA-256 was checked before this runs.
+ */
+export function readStrictZip(data: Buffer, allowed: readonly string[]): Map<string, { mode: number; data: Buffer }> {
+  const files = new Map<string, { mode: number; data: Buffer }>();
+  let total = 0;
+  let entries: Record<string, Uint8Array>;
+  try {
+    entries = unzipSync(new Uint8Array(data), {
+      filter: (file) => {
+        if (file.name.endsWith("/")) return false;
+        total += file.originalSize;
+        if (total > MAX_UNPACKED) throw new InstallError("too_large", "package is too large when unpacked");
+        if (!allowed.includes(file.name)) throw new InstallError("bad_archive", `unexpected file: ${file.name}`);
+        return true;
+      },
+    });
+  } catch (err) {
+    if (err instanceof InstallError) throw err;
+    throw new InstallError("bad_archive", `cannot decompress: ${(err as Error).message}`);
+  }
+  for (const [name, bytes] of Object.entries(entries)) {
+    files.set(name, { mode: 0o644, data: Buffer.from(bytes) });
+  }
+  for (const name of allowed) if (!files.has(name)) throw new InstallError("bad_archive", `missing file: ${name}`);
+  return files;
+}
+
+const MAX_ZIP_FILES = 5000;
+
+/** Strict ZIP tree reader for Git for Windows MinGit: safe relative names, bounded file count and size. */
+export function readZipTree(data: Buffer): Map<string, { mode: number; data: Buffer }> {
+  const files = new Map<string, { mode: number; data: Buffer }>();
+  let total = 0;
+  let count = 0;
+  let entries: Record<string, Uint8Array>;
+  try {
+    entries = unzipSync(new Uint8Array(data), {
+      filter: (file) => {
+        if (file.name.endsWith("/")) return false;
+        if (
+          file.name.length > 1024 ||
+          file.name.includes("\\") ||
+          file.name.includes("\0") ||
+          file.name.startsWith("/") ||
+          file.name.split("/").some((part) => part === "" || part === "." || part === "..")
+        ) {
+          throw new InstallError("bad_archive", `unsafe entry name: ${file.name}`);
+        }
+        count++;
+        if (count > MAX_ZIP_FILES) throw new InstallError("too_large", "too many files in the archive");
+        total += file.originalSize;
+        if (total > MAX_UNPACKED) throw new InstallError("too_large", "package is too large when unpacked");
+        return true;
+      },
+    });
+  } catch (err) {
+    if (err instanceof InstallError) throw err;
+    throw new InstallError("bad_archive", `cannot decompress: ${(err as Error).message}`);
+  }
+  if (Object.keys(entries).length === 0) throw new InstallError("bad_archive", "archive is empty");
+  for (const [name, bytes] of Object.entries(entries)) {
+    files.set(name, { mode: 0o644, data: Buffer.from(bytes) });
+  }
+  return files;
+}
+
+/** Write a validated ZIP tree into `target`, replacing an earlier app-managed copy. */
+export function installTree(files: Map<string, { mode: number; data: Buffer }>, target: string): void {
+  const parent = path.dirname(target);
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  const staging = fs.mkdtempSync(path.join(parent, `.staging-${path.basename(target)}-`));
+  try {
+    for (const [name, file] of files) {
+      const filePath = path.join(staging, name);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o755 });
+      fs.writeFileSync(filePath, file.data, { mode: name.endsWith(".exe") ? 0o755 : 0o644, flag: "wx" });
+    }
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.renameSync(staging, target);
+  } catch (err) {
+    fs.rmSync(staging, { recursive: true, force: true });
+    throw err;
+  }
+}
+
 export function installFiles(
   files: Map<string, { mode: number; data: Buffer }>,
   target: string,

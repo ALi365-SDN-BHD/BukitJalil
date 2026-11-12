@@ -54,4 +54,5 @@ files with their front matter; `read`, `ls`, `find`, `grep`, `edit` and
 If a tool says the site is busy, wait for the user's next message instead of
 retrying in a loop. If it says the site uses Notion, explain that Bukit cannot
 check or build unreviewed changes for Notion sites, and continue with the
-files.
+files. The Notion token belongs to the data source chosen when the site was
+created; never put a token in `site.yaml`.

@@ -7,7 +7,7 @@ import { BukitService } from "../src/bukit/locate.ts";
 import { deployTarget, pagesUrl } from "../src/deploys/target.ts";
 import { resolveGitPath } from "../src/git/run.ts";
 import { copyStarter } from "../src/sites/template.ts";
-import { ADMIN, commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, installAppBukit, makeApp, rawGit, req } from "./helpers.ts";
 
 // M6 (plan 14): where a site is published, read from site.yaml on the default branch.
 
@@ -70,18 +70,26 @@ describe("GET /api/sites/:id/deploy", () => {
     const status = async () =>
       (await (await ctx.app.fetch(req(`/api/sites/${site.id}/deploy`))).json()) as DeployStatusResponse;
 
-    expect(await status()).toMatchObject({ target: { problem: "not_configured" }, token: false, ready: false });
+    expect(await status()).toMatchObject({ target: { problem: "not_configured" }, account: null, ready: false });
     fs.appendFileSync(path.join(dir, "site.yaml"), "\ndeploy:\n  repo: someone/blog\n  branch: pages\n");
     commitAllAs(base, dir, "deploy");
     const head = rawGit(base, dir, "rev-parse", "HEAD").trim();
     expect(await status()).toMatchObject({
       commit: head,
       target: { repo: "someone/blog", branch: "pages", url: "https://someone.github.io/blog/", problem: null },
-      token: false,
+      account: null,
       ready: false,
     });
-    ctx.secrets.set("github", "ghp_testtokentesttoken");
-    expect(await status()).toMatchObject({ token: true, ready: true });
+    const account = ctx.publishAccounts.create({
+      platform: "github",
+      name: "GitHub",
+      token: "ghp_testtokentesttoken",
+    });
+    ctx.sites.setPublishAccountId(site.id, account.id);
+    expect(await status()).toMatchObject({
+      account: { id: account.id, name: "GitHub", hasToken: true },
+      ready: true,
+    });
     // Uncommitted edits in the site folder are not what gets published.
     fs.appendFileSync(path.join(dir, "site.yaml"), "\n# local\n");
     expect((await status()).commit).toBe(head);
@@ -149,14 +157,14 @@ async function publishable(opts: { fail?: string; branch?: string } = {}) {
   const log = path.join(fakeDir, "calls.log");
   const bin = path.join(fakeDir, "bukit");
   fs.writeFileSync(bin, FAKE(log), { mode: 0o755 });
+  const home = path.join(base, `${name}-bk`);
+  installAppBukit(home, bin);
   const ctx = makeApp({
     appHome: path.join(base, `${name}-app`),
     userHome: base,
     bukit: new BukitService({
-      home: path.join(base, `${name}-bk`),
+      home,
       tmpDir: path.join(base, `${name}-bk-tmp`),
-      customPath: () => bin,
-      envPath: "",
     }),
   });
   contexts.push(ctx);
@@ -175,7 +183,12 @@ async function publishable(opts: { fail?: string; branch?: string } = {}) {
   ctx.db
     .prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('commitName', ?), ('commitEmail', ?)")
     .run(JSON.stringify("Site Owner"), JSON.stringify("owner@example.com"));
-  ctx.secrets.set("github", "ghp_deploytokendeploytoken");
+  const account = ctx.publishAccounts.create({
+    platform: "github",
+    name: "Deploy GitHub",
+    token: "ghp_deploytokendeploytoken",
+  });
+  ctx.sites.setPublishAccountId(site.id, account.id);
   const head = rawGit(base, dir, "rev-parse", "HEAD").trim();
   const call = async (method: string, p: string, body?: unknown) => {
     const res = await ctx.app.fetch(
@@ -200,7 +213,7 @@ async function publishable(opts: { fail?: string; branch?: string } = {}) {
       .trim()
       .split("\n")
       .filter((l) => l && !l.startsWith("version"));
-  return { ctx, site, dir, head, call, publish, calls, log };
+  return { ctx, site, account, dir, head, call, publish, calls, log };
 }
 
 describe("publishing (M6 layer 3)", () => {
@@ -320,7 +333,7 @@ describe("publishing (M6 layer 3)", () => {
     expect(d.report?.messages.some((m) => m.msg === "token [token]")).toBe(true);
   });
 
-  it("refuses what the user did not confirm, a missing token, target or identity", async () => {
+  it("refuses what the user did not confirm, a missing account, target or identity", async () => {
     const p = await publishable();
     const other = "0".repeat(40);
     expect(await p.call("POST", "/deploys", { commit: other })).toMatchObject({
@@ -329,9 +342,9 @@ describe("publishing (M6 layer 3)", () => {
     });
     expect((await p.call("POST", "/deploys", { commit: "HEAD" })).status).toBe(400);
 
-    p.ctx.secrets.remove("github");
-    expect((await p.call("POST", "/deploys", { commit: p.head })).json).toMatchObject({ code: "deploy.no_token" });
-    p.ctx.secrets.set("github", "ghp_deploytokendeploytoken");
+    p.ctx.sites.setPublishAccountId(p.site.id, null);
+    expect((await p.call("POST", "/deploys", { commit: p.head })).json).toMatchObject({ code: "deploy.no_account" });
+    p.ctx.sites.setPublishAccountId(p.site.id, p.account.id);
 
     p.ctx.db.prepare("DELETE FROM settings WHERE key = 'commitName'").run();
     expect((await p.call("POST", "/deploys", { commit: p.head })).json).toMatchObject({
@@ -420,15 +433,15 @@ exec "${realGit}" "$@"
 `,
       { mode: 0o755 },
     );
+    const home = path.join(base, "real-bk");
+    installAppBukit(home, REAL_BIN as string);
     const ctx = makeApp({
       appHome: path.join(base, "real-app"),
       userHome: base,
       gitPath: wrapper,
       bukit: new BukitService({
-        home: path.join(base, "real-bk"),
+        home,
         tmpDir: path.join(base, "real-bk-tmp"),
-        customPath: () => REAL_BIN as string,
-        envPath: "",
       }),
     });
     contexts.push(ctx);
@@ -445,7 +458,12 @@ exec "${realGit}" "$@"
     ctx.db
       .prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('commitName', ?), ('commitEmail', ?)")
       .run(JSON.stringify("Site Owner"), JSON.stringify("owner@example.com"));
-    ctx.secrets.set("github", "ghp_notarealtokennotarealtoken");
+    const account = ctx.publishAccounts.create({
+      platform: "github",
+      name: "Real GitHub",
+      token: "ghp_notarealtokennotarealtoken",
+    });
+    ctx.sites.setPublishAccountId(site.id, account.id);
     const head = rawGit(base, dir, "rev-parse", "HEAD").trim();
 
     const started = await ctx.deploys.start(site.id, head);

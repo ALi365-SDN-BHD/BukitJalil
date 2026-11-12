@@ -1,12 +1,9 @@
 import type { ErrorCode, SessionInfo, Site } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitFork, Loader2, Pencil, Send, Square, Trash2 } from "lucide-react";
-import { type FormEvent, type KeyboardEvent, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { GitFork, Loader2, Send, Square } from "lucide-react";
+import { type KeyboardEvent, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { ReviewCard } from "@/features/changes/ReviewCard";
 import { MarkdownView } from "@/features/panels/MarkdownView";
 import { useI18n } from "@/i18n";
@@ -14,7 +11,7 @@ import { api, keys } from "@/lib/api";
 import { takeComposerDraft } from "./drafts";
 import { type PendingMessage, unseen } from "./live";
 import { type ChatItem, chatItems, latestSummary, mergeMessages, modelErrorKind, tailSignature } from "./model";
-import { StatusDot, sessionPath } from "./sessions";
+import { sessionPath } from "./sessions";
 import { liveStore, useDeleted, useLive } from "./store";
 import { ToolCard } from "./ToolCard";
 
@@ -78,7 +75,6 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="chat-view">
-      <ChatHeader site={site} session={session} />
       <MessageList
         site={site}
         session={session}
@@ -90,138 +86,6 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
       />
       <ReviewCard siteId={site.id} />
       <Composer site={site} session={session} />
-    </div>
-  );
-}
-
-function ChatHeader({ site, session }: { site: Site; session: SessionInfo }) {
-  const { m, errorOf } = useI18n();
-  const queryClient = useQueryClient();
-  const [dialog, setDialog] = useState<"rename" | "delete" | null>(null);
-  const [title, setTitle] = useState("");
-  const rename = useMutation({
-    mutationFn: (next: string | null) => api.renameSession(session.id, next),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(keys.session(session.id), (d: { session: SessionInfo } | undefined) =>
-        d ? { ...d, session: updated } : d,
-      );
-      void queryClient.invalidateQueries({ queryKey: keys.sessions(site.id) });
-      setDialog(null);
-    },
-  });
-  const remove = useMutation({
-    mutationFn: () => api.deleteSession(session.id),
-    // The view leaves on its own once the session is marked deleted, without fetching it again.
-    onSuccess: () => {
-      liveStore.markDeleted(session.id);
-      queryClient.setQueryData<SessionInfo[]>(keys.sessions(site.id), (list) =>
-        list?.filter((s) => s.id !== session.id),
-      );
-      queryClient.removeQueries({ queryKey: keys.session(session.id) });
-    },
-  });
-  const submitRename = (e: FormEvent) => {
-    e.preventDefault();
-    rename.mutate(title.trim() === "" ? null : title.trim());
-  };
-
-  return (
-    <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
-      <StatusDot status={session.status} />
-      <h2 className="min-w-0 truncate text-sm font-medium" data-testid="chat-title">
-        {session.title ?? m.chat.untitled}
-      </h2>
-      {session.status !== "idle" && (
-        <Badge tone={session.status === "running" ? "busy" : "warn"} data-testid="chat-status">
-          {m.chat.status[session.status]}
-        </Badge>
-      )}
-      <div className="ml-auto flex items-center gap-1">
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label={m.chat.rename}
-          title={m.chat.rename}
-          data-testid="rename-session"
-          onClick={() => {
-            setTitle(session.title ?? "");
-            rename.reset();
-            setDialog("rename");
-          }}
-        >
-          <Pencil />
-        </Button>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label={m.chat.delete}
-          title={m.chat.delete}
-          data-testid="delete-session"
-          onClick={() => {
-            remove.reset();
-            setDialog("delete");
-          }}
-        >
-          <Trash2 />
-        </Button>
-      </div>
-
-      <Dialog open={dialog === "rename"} onOpenChange={(o) => !o && setDialog(null)}>
-        <DialogContent closeLabel={m.common.close}>
-          <DialogTitle>{m.chat.rename}</DialogTitle>
-          <form className="flex flex-col gap-3" onSubmit={submitRename}>
-            <label htmlFor="session-title" className="text-sm">
-              {m.chat.renameLabel}
-            </label>
-            <Input
-              id="session-title"
-              value={title}
-              maxLength={200}
-              autoFocus
-              data-testid="rename-input"
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            {rename.error && (
-              <p role="alert" className="text-sm text-destructive">
-                {errorOf(rename.error)}
-              </p>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setDialog(null)}>
-                {m.common.cancel}
-              </Button>
-              <Button type="submit" disabled={rename.isPending} data-testid="rename-save">
-                {rename.isPending ? m.common.saving : m.common.save}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={dialog === "delete"} onOpenChange={(o) => !o && setDialog(null)}>
-        <DialogContent closeLabel={m.common.close}>
-          <DialogTitle>{m.chat.deleteTitle}</DialogTitle>
-          <DialogDescription>{m.chat.deleteBody}</DialogDescription>
-          {remove.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {errorOf(remove.error)}
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setDialog(null)}>
-              {m.common.cancel}
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={remove.isPending}
-              data-testid="delete-confirm"
-              onClick={() => remove.mutate()}
-            >
-              {remove.isPending ? m.chat.deleting : m.chat.delete}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

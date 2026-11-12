@@ -23,7 +23,7 @@ import { changeRef, commitText } from "../src/changes/service.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
-import { ADMIN, commitAllAs, httpGet, makeApp, rawGit, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, httpGet, installAppBukit, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
 
 // M4 layers 1 to 3, 5 and 6 (plan 7.2, 7.4, 8.4, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
 // works in the ai/ checkout, and its result is snapshotted into the change set; the site folder only
@@ -60,12 +60,12 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(base, "home"));
   const fakeBin = path.join(base, "fake-bukit");
   fs.writeFileSync(fakeBin, FAKE_BUKIT, { mode: 0o755 });
+  const home = path.join(base, "bk");
+  installAppBukit(home, fakeBin);
   ctx = makeApp({
     bukit: new BukitService({
-      home: path.join(base, "bk"),
+      home,
       tmpDir: path.join(base, "bk-tmp"),
-      customPath: () => fakeBin,
-      envPath: "",
     }),
     userHome: path.join(base, "home"),
     appHome: path.join(base, "app"),
@@ -1035,6 +1035,93 @@ describe("history and restore", () => {
     expect(restored.guard.ok).toBe(false);
     expect(restored.guard.reasons.map((r) => r.code)).toContain("plugin_files");
     expect(restored.change.restoreOf).toBe(unsafe);
+  });
+});
+
+describe("built-in plugin switches (Settings → site Config)", () => {
+  it("creates a reviewable site.yaml change and leaves the site unchanged when rejected", async () => {
+    const s = await site();
+    const before = fs.readFileSync(path.join(s.dir, "site.yaml"), "utf8");
+    const result = await ctx.changes.setPlugin(s.id, "related-content", false);
+    expect(result.change?.files).toEqual([expect.objectContaining({ path: "site.yaml", status: "modified" })]);
+    expect(result.change?.summary).toBe("Plugin settings: related-content off");
+    const diff = await ctx.changes.diff(result.change?.id ?? "", "site.yaml");
+    expect(diff.patch).toContain("related-content");
+    expect(diff.patch).toContain("false");
+    await ctx.changes.reject(result.change?.id ?? "");
+    expect(fs.readFileSync(path.join(s.dir, "site.yaml"), "utf8")).toBe(before);
+    expect(ctx.changes.store.open(s.id)).toBeNull();
+  });
+
+  it("applies as the user and keeps a site.plugins entry", async () => {
+    const s = await site();
+    const change = (await ctx.changes.setPlugin(s.id, "related-content", false)).change;
+    const applied = await ctx.changes.apply(change?.id ?? "", { treeHash: change?.treeHash ?? "" });
+    expect(applied.outcome).toBe("applied");
+    expect(s.git("show", "HEAD:site.yaml")).toContain("related-content: false");
+    expect(s.git("log", "-1", "--format=%an|%cn")).toBe("Site Owner|Site Owner");
+    expect(s.git("log", "-1", "--format=%s")).toBe("Plugin settings: related-content off");
+  });
+
+  it("exposes the toggle through the API", async () => {
+    const s = await site();
+    const res = await ctx.app.fetch(req(`/api/sites/${s.id}/plugins/related-content`, jsonPut({ enabled: false })));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as CurrentChange;
+    expect(body.change?.files).toContainEqual(expect.objectContaining({ path: "site.yaml" }));
+    await ctx.changes.reject(body.change?.id ?? "");
+  });
+
+  it("rejects an invalid site.plugins without leaving a change set", async () => {
+    const s = await site();
+    fs.writeFileSync(
+      path.join(s.dir, "site.yaml"),
+      "site:\n  name: bad\n  title: Bad\n  plugins: bad\ncontent:\n  sources: []\n",
+    );
+    commitAllAs(base, s.dir, "bad plugins");
+    await expect(ctx.changes.setPlugin(s.id, "related-content", false)).rejects.toMatchObject({
+      code: "config.plugins_invalid",
+    });
+    expect(ctx.changes.store.open(s.id)).toBeNull();
+  });
+
+  it("refuses read-only and busy sites before writing", async () => {
+    const readOnly = await site();
+    ctx.sites.store.setState(readOnly.id, {
+      readOnly: [{ code: "missing_site_yaml" }],
+      checkedCommit: null,
+      configCheck: null,
+    });
+    await expect(ctx.changes.setPlugin(readOnly.id, "related-content", false)).rejects.toMatchObject({
+      code: "site.read_only",
+    });
+
+    const busy = await site();
+    const release = ctx.locks.acquire(busy.id, "build");
+    try {
+      await expect(ctx.changes.setPlugin(busy.id, "related-content", false)).rejects.toMatchObject({
+        code: "site.busy",
+      });
+    } finally {
+      release();
+    }
+  });
+
+  it("does not create a change set for a no-op toggle", async () => {
+    const s = await site();
+    const result = await ctx.changes.setPlugin(s.id, "related-content", true);
+    expect(result.change).toBeNull();
+    expect(ctx.changes.store.open(s.id)).toBeNull();
+  });
+
+  it("joins an existing AI change set", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { change } = await ctx.changes.begin(s.id, session.id);
+    const result = await ctx.changes.setPlugin(s.id, "related-content", false);
+    expect(result.change?.id).toBe(change.id);
+    expect(result.change?.sessionIds).toContain(session.id);
+    await ctx.changes.reject(change.id);
   });
 });
 

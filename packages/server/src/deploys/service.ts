@@ -3,6 +3,7 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type {
   Deploy,
+  DeployConfigRequest,
   DeployOutcome,
   DeployReport,
   DeployStatusResponse,
@@ -11,6 +12,7 @@ import type {
   DeployTarget,
   Site,
 } from "@bukitjalil/shared";
+import { parseDocument } from "yaml";
 import { readPublishAudit } from "../builds/audit.ts";
 import { buildReport, checkoutLanguage, findSymlink, previewEntry } from "../builds/service.ts";
 import { guardCommit, isRecord } from "../bukit/guard.ts";
@@ -29,18 +31,18 @@ import type { Logger } from "../log.ts";
 import type { PanelService } from "../panels/service.ts";
 import { parseYaml } from "../panels/yaml.ts";
 import type { AppPaths } from "../paths.ts";
-import type { SecretStore } from "../settings/secrets.ts";
+import type { PublishAccountService } from "../publish/accounts.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
 import { DeployStore, newDeployId } from "./store.ts";
-import { deployTarget } from "./target.ts";
+import { deployTarget, pagesSiteAddress } from "./target.ts";
 
 export interface DeployServiceOptions {
   sites: SiteService;
   panels: PanelService;
-  secrets: SecretStore;
+  accounts: PublishAccountService;
   git: GitRunner;
   bukit: BukitService;
   locks: SiteLocks;
@@ -122,8 +124,98 @@ export class DeployService {
     const site = this.opts.sites.get(siteId);
     const { commit, config } = await this.opts.panels.config(siteId, "main");
     const target = this.sourceBranchTarget(site, deployTarget(isRecord(config) ? config : null));
-    const token = this.opts.secrets.get("github") !== null;
-    return { commit, target, token, ready: target.problem === null && token && site.readOnly === null };
+    const accountId = this.opts.sites.publishAccountId(siteId);
+    const account = accountId ? this.accountOrNull(accountId) : null;
+    return {
+      commit,
+      target,
+      account,
+      ready: target.problem === null && account?.hasToken === true && site.readOnly === null,
+    };
+  }
+
+  /**
+   * Save the account and GitHub Pages target in the deploy area: validate them, check that the account's
+   * token can push to the repository, write repo/branch/cname (and the matching site URL) into site.yaml,
+   * commit it as the user, and remember the account for this site.
+   */
+  async saveConfig(siteId: string, req: DeployConfigRequest): Promise<DeployStatusResponse> {
+    const site = this.opts.sites.get(siteId);
+    if (site.readOnly) throw new SiteError("site.read_only", 409);
+    const account = this.accountOrNull(req.accountId);
+    if (!account) throw new SiteError("publish.not_found", 404);
+    if (!account.hasToken) throw new SiteError("publish.no_token", 409);
+    const target = this.sourceBranchTarget(
+      site,
+      deployTarget({
+        deploy: {
+          provider: "github-pages",
+          repo: req.repo,
+          branch: req.branch,
+          cname: req.cname ?? undefined,
+        },
+      }),
+    );
+    if (target.problem !== null || !target.repo) throw new SiteError("deploy.config_invalid", 400);
+    const repo = target.repo;
+    await this.opts.accounts.verifyRepo(account.id, repo);
+
+    return this.opts.locks.run(siteId, "deploy-config", async () => {
+      const current = this.opts.sites.get(siteId);
+      if (current.readOnly) throw new SiteError("site.read_only", 409);
+      await this.assertCheckoutReady(current);
+      const head = await this.opts.sites.headOf(current);
+      const checkout = await this.opts.sites.mainCheckout(siteId, current.path, head);
+      try {
+        const file = path.join(checkout, "site.yaml");
+        const text = await fs.promises.readFile(file, "utf8");
+        const doc = parseDocument(text, { uniqueKeys: true });
+        if (doc.errors.length > 0 || !isRecord(doc.get("site"))) {
+          throw new SiteError("deploy.config_invalid", 409);
+        }
+        const deploy = doc.get("deploy");
+        if (deploy !== undefined && !isRecord(deploy)) throw new SiteError("deploy.config_invalid", 409);
+        doc.setIn(["deploy", "provider"], "github-pages");
+        doc.setIn(["deploy", "repo"], repo);
+        doc.setIn(["deploy", "branch"], target.branch);
+        if (target.cname) doc.setIn(["deploy", "cname"], target.cname);
+        else doc.deleteIn(["deploy", "cname"]);
+        const address = pagesSiteAddress(repo, target.cname);
+        doc.setIn(["site", "url"], address.url);
+        doc.setIn(["site", "baseUrl"], address.baseUrl);
+        await fs.promises.writeFile(file, doc.toString());
+
+        const { git } = this.opts;
+        await git.run(["add", "--", "site.yaml"], { cwd: checkout });
+        const tree = (await git.text(["write-tree"], { cwd: checkout })).trim();
+        const identity = this.opts.sites.commitIdentity();
+        const commit = (
+          await git.text(["commit-tree", tree, "-p", head, "-m", "Configure GitHub Pages deployment"], {
+            cwd: current.path,
+            config: {
+              "author.name": identity["user.name"],
+              "author.email": identity["user.email"],
+              "committer.name": identity["user.name"],
+              "committer.email": identity["user.email"],
+            },
+          })
+        ).trim();
+        await this.assertCheckoutReady(current);
+        if ((await this.opts.sites.headOf(current)) !== head) throw new SiteError("deploy.commit_changed", 409);
+        try {
+          await git.run(["merge", "-q", "--ff-only", "--no-overwrite-ignore", "--end-of-options", commit], {
+            cwd: current.path,
+            config: identity,
+          });
+        } catch {
+          throw new SiteError("deploy.config_failed", 409);
+        }
+        this.opts.sites.setPublishAccountId(siteId, account.id);
+        return await this.status(siteId);
+      } finally {
+        await this.opts.git.run(["reset", "-q", "--hard", head], { cwd: checkout }).catch(() => {});
+      }
+    });
   }
 
   list(siteId: string): Deploy[] {
@@ -147,7 +239,9 @@ export class DeployService {
     const site = this.opts.sites.get(siteId);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
     const identity = this.opts.sites.commitIdentity();
-    const token = this.opts.secrets.get("github");
+    const accountId = this.opts.sites.publishAccountId(siteId);
+    if (!accountId) throw new SiteError("deploy.no_account", 409);
+    const token = this.opts.accounts.token(accountId);
     if (!token) throw new SiteError("deploy.no_token", 409);
     const runner = await usableRunner(this.opts.bukit, this.runnerOpts());
     if (!runner) throw new SiteError("build.bukit_missing", 409);
@@ -161,6 +255,8 @@ export class DeployService {
       if (target.problem !== null || !target.repo) {
         throw new SiteError("deploy.no_target", 409, { problem: target.problem ?? "not_configured" });
       }
+      // The saved account may have lost access since it was configured; fail before anything is built.
+      await this.opts.accounts.verifyRepo(accountId, target.repo);
       this.assertOpen();
       const id = newDeployId();
       this.store.insert({ id, siteId, commit, repo: target.repo, branch: target.branch, url: target.url });
@@ -214,6 +310,27 @@ export class DeployService {
 
   private assertOpen(): void {
     if (this.closing) throw new SiteError("server.shutting_down", 503);
+  }
+
+  private accountOrNull(id: string) {
+    try {
+      return this.opts.accounts.get(id);
+    } catch {
+      return null;
+    }
+  }
+
+  /** The site folder must be on its default branch and clean before a config commit can fast-forward it. */
+  private async assertCheckoutReady(site: Site): Promise<void> {
+    const { git } = this.opts;
+    const branch = (await git.run(["symbolic-ref", "-q", "HEAD"], { cwd: site.path, okCodes: [1] })).stdout
+      .toString("utf8")
+      .trim();
+    if (branch !== `refs/heads/${site.defaultBranch}`) {
+      throw new SiteError("deploy.config_wrong_branch", 409, { branch: site.defaultBranch });
+    }
+    const dirty = await git.text(["status", "--porcelain=v1", "-z", "--untracked-files=no"], { cwd: site.path });
+    if (dirty !== "") throw new SiteError("deploy.config_dirty", 409);
   }
 
   private runnerOpts() {

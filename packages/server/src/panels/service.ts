@@ -13,6 +13,7 @@ import type {
   TreeResponse,
 } from "@bukitjalil/shared";
 import { isRecord, pathProblem } from "../bukit/guard.ts";
+import { pluginStatesFromConfig } from "../bukit/plugins.ts";
 import {
   listTree,
   readBlob,
@@ -43,7 +44,8 @@ const MAX_DATA_BYTES = 32 * 1024 * 1024;
 const MAX_DATA_FILE_BYTES = 256 * 1024;
 /** Enough bytes to recognize any of the bitmap types. */
 const SNIFF_BYTES = 16;
-const MAX_DATA_ITEMS = 500;
+// The panel shows one row as an example; sending more only slows it down.
+const MAX_DATA_ITEMS = 1;
 /** Entries a single directory listing returns; a huge directory must not freeze the file panel. */
 const MAX_TREE_ENTRIES = 2000;
 
@@ -384,6 +386,7 @@ export function summarizeConfig(config: Record<string, unknown>): ConfigSummary 
     build: { output: str(build.output), draft: bool(build.draft), clean: bool(build.clean) },
     theme: { name: str(theme.name) },
     plugins: isRecord(site.plugins) ? Object.keys(site.plugins) : [],
+    pluginStates: pluginStatesFromConfig(config),
     otherSections: Object.keys(config).filter((k) => !["site", "content", "build", "theme"].includes(k)),
   };
 }

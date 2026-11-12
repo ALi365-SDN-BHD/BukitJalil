@@ -100,10 +100,12 @@ function MarkdownSource({ source: s }: { source: Extract<DataSource, { type: "ma
       )}
       {s.items.length > 0 && (
         <Section title={m.data.items}>
-          {s.itemsTruncated && <p className="text-xs text-muted-foreground">{m.data.itemsTruncated}</p>}
+          {(s.items.length > 1 || s.itemsTruncated) && (
+            <p className="text-xs text-muted-foreground">{m.data.itemsDemo}</p>
+          )}
           <Table
             head={[m.data.file, ...columns]}
-            rows={s.items.map((item) => [
+            rows={s.items.slice(0, 1).map((item) => [
               <code key="f" className="text-xs">
                 {item.file}
               </code>,

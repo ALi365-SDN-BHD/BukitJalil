@@ -21,7 +21,6 @@ import type { Logger } from "../log.ts";
 import { parseYaml } from "../panels/yaml.ts";
 import type { AppPaths } from "../paths.ts";
 import { NoPreviewPortError, PreviewPool } from "../preview/pool.ts";
-import type { SecretStore } from "../settings/secrets.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
@@ -38,7 +37,8 @@ export interface BuildServiceOptions {
   locks: SiteLocks;
   previews: PreviewPool;
   changes: ChangeService;
-  secrets: SecretStore;
+  /** The Notion token of the site's saved data source, or null when it has none. */
+  notionToken: (siteId: string) => string | null;
   logger: Logger;
 }
 
@@ -293,8 +293,8 @@ export class BuildService {
     ) => this.store.finish(id, { status, outcome, exitCode }, { messages: [], output: "", ...report }, outputDir);
 
     let temp: string | null = null;
-    // Unreviewed (change) builds never get the Notion token; a main build of the reviewed version may.
-    const notionToken = target.ref === "main" ? this.opts.secrets.get("notion") : null;
+    // The token is read only for a main build whose commit uses Notion, after the guard says so.
+    let notionToken: string | null = null;
     let passNotionToken = false;
     try {
       // The guard reads the commit's git objects, so it judges exactly what the checkout will hold.
@@ -305,8 +305,17 @@ export class BuildService {
         if (target.ref === "main" && (!guard.ok || guard.usesNotion))
           this.opts.sites.applyGuard(site.id, commit, guard);
         if (!guard.ok) return finish("failed", "refused", null, { reasons: guard.reasons });
-        if (guard.usesNotion && notionToken === null) return finish("failed", "notion", null, {});
-        passNotionToken = guard.usesNotion;
+        if (guard.usesNotion) {
+          // Unreviewed change builds never get the Notion token; they cannot be built here.
+          if (target.ref !== "main") return finish("failed", "notion", null, {});
+          try {
+            notionToken = this.opts.notionToken(site.id);
+          } catch {
+            return finish("failed", "error", null, { detail: "the saved Notion token cannot be read" });
+          }
+          if (notionToken === null) return finish("failed", "notion", null, {});
+          passNotionToken = true;
+        }
       }
 
       const checkout = target.cwd ?? (await this.opts.sites.mainCheckout(site.id, site.path, commit));

@@ -58,6 +58,10 @@ export interface AppPaths {
   tmp: string;
   /** Deploy tokens set in the UI (plan 6.5), 0600. */
   secrets: string;
+  /** Per-data-source Notion tokens, 0600. */
+  dataSourceTokens: string;
+  /** Per-publishing-account GitHub tokens, 0600. */
+  publishAccountTokens: string;
   /** Pid of the server using this directory (plan M7). */
   lock: string;
 }
@@ -77,6 +81,8 @@ export function ensureAppHome(home: string): AppPaths {
     piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
     secrets: path.join(home, "secrets.json"),
+    dataSourceTokens: path.join(home, "data-source-tokens.json"),
+    publishAccountTokens: path.join(home, "publish-account-tokens.json"),
     lock: path.join(home, "server.lock"),
   };
   // mkdir's mode only applies to new directories, so existing ones are tightened as well. The database
@@ -100,8 +106,11 @@ export function ensureAppHome(home: string): AppPaths {
     `${paths.db}-shm`,
     path.join(paths.logs, "server.log"),
     paths.secrets,
+    paths.dataSourceTokens,
+    paths.publishAccountTokens,
   ]) {
-    if (fs.existsSync(file)) fs.chmodSync(file, 0o600);
+    // lstat, not exists: a symlink must not make startup chmod a file outside the app home.
+    if (fs.lstatSync(file, { throwIfNoEntry: false })?.isFile()) fs.chmodSync(file, 0o600);
   }
   // git hardening relies on these being empty; refuse to start rather than run git with them.
   if (fs.lstatSync(paths.emptyGitConfig).size !== 0 || !fs.lstatSync(paths.emptyGitConfig).isFile()) {

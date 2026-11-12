@@ -26,8 +26,9 @@ test("the setup guide shows what is missing and follows the settings", async ({ 
     .getByRole("button", { name: /Open settings|打开设置/ })
     .first()
     .click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/\/settings\?section=/);
+  await expect(page.getByTestId("settings-page")).toBeVisible();
+  await page.getByTestId("settings-close").click();
 
   await putSettings(page, {
     model: { provider: "bukitjalil-fake", id: "fake-1" },
@@ -39,7 +40,7 @@ test("the setup guide shows what is missing and follows the settings", async ({ 
   );
   await page.reload();
   await Promise.all(loaded);
-  // Both steps are done; when nothing else is left (Bukit on PATH, sites from other files) the guide is gone.
+  // Both steps are done; when nothing else is left (Bukit in the app folder, sites from other files) the guide is gone.
   for (const step of ["setup-identity", "setup-model"])
     await expect(page.locator(`[data-testid=${step}]:not([data-state=done])`)).toHaveCount(0);
 });

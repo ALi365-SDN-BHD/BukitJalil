@@ -11,8 +11,13 @@ import {
   CSRF_HEADER,
   CSRF_HEADER_VALUE,
   type CurrentChange,
+  type CustomModelProvider,
+  type CustomModelRequest,
+  type CustomModelsResponse,
   type DataResponse,
+  type DataSourceRequest,
   type Deploy,
+  type DeployConfigRequest,
   type DeployListResponse,
   type DeployStatusResponse,
   type ErrorCode,
@@ -20,19 +25,24 @@ import {
   type FileResponse,
   type FsDirsResponse,
   type GitIdentityResponse,
+  type GitResponse,
   HealthResponse,
   type HistoryResponse,
   type ImportInspection,
   type ImportSiteRequest,
   type ModelsResponse,
+  type NotionDatabasesResponse,
   type PanelRef,
+  type PiStatus,
   type PreviewResponse,
   type ProviderKey,
+  type ProviderLoginStatus,
   type ProviderTestResult,
+  type PublishAccount,
+  type PublishAccountRequest,
   type RestoreResult,
   type RgResponse,
-  type SecretName,
-  type SecretsResponse,
+  type SavedDataSource,
   type SendMessageRequest,
   type SessionDetail,
   type SessionInfo,
@@ -40,6 +50,7 @@ import {
   type SettingsPatch,
   type Site,
   type SitePatch,
+  type SkillsResponse,
   type ThemeResponse,
   type TreeResponse,
   type VersionDiff,
@@ -90,11 +101,21 @@ export const api = {
   settings: () => request("/settings", {}, Settings),
   updateSettings: (patch: SettingsPatch) =>
     request("/settings", { method: "PUT", body: JSON.stringify(patch) }, Settings),
+  skills: () => request<SkillsResponse>("/skills"),
   identity: () => request<GitIdentityResponse>("/git/identity"),
-  bukit: () => request<BukitResponse>("/bukit"),
+  bukit: (refresh = false, force = false) => {
+    const params = new URLSearchParams();
+    if (refresh) params.set("refresh", "1");
+    if (force) params.set("force", "1");
+    const search = params.toString();
+    return request<BukitResponse>(`/bukit${search ? `?${search}` : ""}`);
+  },
   installBukit: () => post<unknown>("/bukit/install"),
   rg: () => request<RgResponse>("/rg"),
   installRg: () => post<unknown>("/rg/install"),
+  git: (refresh = false) => request<GitResponse>(`/git${refresh ? "?refresh=1" : ""}`),
+  installGit: () => post<unknown>("/git/install"),
+  pi: (refresh = false) => request<PiStatus>(`/pi${refresh ? "?refresh=1" : ""}`),
   dirs: (path: string | null, hidden = false) =>
     request<FsDirsResponse>(`/fs/dirs?${query({ ...(path ? { path } : {}), ...(hidden ? { hidden: "1" } : {}) })}`),
 
@@ -121,6 +142,11 @@ export const api = {
   openPreview: (id: string, ref: PanelRef = "main") => post<PreviewResponse>(`/sites/${id}/preview`, { ref }),
 
   currentChange: (siteId: string) => request<CurrentChange>(`/sites/${siteId}/changes/current`),
+  setSitePlugin: (siteId: string, pluginId: string, enabled: boolean) =>
+    request<CurrentChange>(`/sites/${siteId}/plugins/${pluginId}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
   changeDiff: (changeId: string, path: string) => request<FileDiff>(`/changes/${changeId}/diff?${query({ path })}`),
   applyChange: (changeId: string, req: ApplyRequest) => post<ApplyResult>(`/changes/${changeId}/apply`, req),
   rejectChange: (changeId: string) => post<ChangeSet>(`/changes/${changeId}/reject`),
@@ -134,6 +160,8 @@ export const api = {
   sessions: (siteId: string) => request<SessionInfo[]>(`/sites/${siteId}/sessions`),
   createSession: (siteId: string) => post<SessionInfo>(`/sites/${siteId}/sessions`),
   deployStatus: (siteId: string) => request<DeployStatusResponse>(`/sites/${siteId}/deploy`),
+  saveDeployConfig: (siteId: string, req: DeployConfigRequest) =>
+    request<DeployStatusResponse>(`/sites/${siteId}/deploy`, { method: "PUT", body: JSON.stringify(req) }),
   deploys: (siteId: string) => request<DeployListResponse>(`/sites/${siteId}/deploys`),
   deploy: (siteId: string, deployId: string) => request<Deploy>(`/sites/${siteId}/deploys/${deployId}`),
   startDeploy: (siteId: string, commit: string) => post<Deploy>(`/sites/${siteId}/deploys`, { commit }),
@@ -155,12 +183,48 @@ export const api = {
     }),
   removeProviderKey: (provider: string) =>
     request<ProviderKey>(`/providers/${encodeURIComponent(provider)}/key`, { method: "DELETE" }),
-  secrets: () => request<SecretsResponse>("/secrets"),
-  setSecret: (name: SecretName, value: string) =>
-    request<SecretsResponse>(`/secrets/${name}`, { method: "PUT", body: JSON.stringify({ value }) }),
-  removeSecret: (name: SecretName) => request<SecretsResponse>(`/secrets/${name}`, { method: "DELETE" }),
+  dataSources: () => request<SavedDataSource[]>("/data-sources"),
+  createDataSource: (req: DataSourceRequest) => post<SavedDataSource>("/data-sources", req),
+  updateDataSource: (id: string, req: DataSourceRequest) =>
+    request<SavedDataSource>(`/data-sources/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(req),
+    }),
+  deleteDataSource: (id: string) => request<null>(`/data-sources/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  notionDatabases: (id: string) =>
+    request<NotionDatabasesResponse>(`/data-sources/${encodeURIComponent(id)}/notion/databases`),
+  publishAccounts: () => request<PublishAccount[]>("/publish-accounts"),
+  createPublishAccount: (req: PublishAccountRequest) => post<PublishAccount>("/publish-accounts", req),
+  updatePublishAccount: (id: string, req: PublishAccountRequest) =>
+    request<PublishAccount>(`/publish-accounts/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(req),
+    }),
+  deletePublishAccount: (id: string) =>
+    request<null>(`/publish-accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
   testProvider: (provider: string, model: string) =>
     post<ProviderTestResult>(`/providers/${encodeURIComponent(provider)}/test`, { model }),
+  startProviderLogin: (provider: string) => post<{ id: string }>(`/providers/${encodeURIComponent(provider)}/oauth`),
+  providerLogin: (provider: string, id: string) =>
+    request<ProviderLoginStatus>(`/providers/${encodeURIComponent(provider)}/oauth/${encodeURIComponent(id)}`),
+  answerProviderLogin: (provider: string, id: string, value: string) =>
+    post<ProviderLoginStatus>(`/providers/${encodeURIComponent(provider)}/oauth/${encodeURIComponent(id)}/answer`, {
+      value,
+    }),
+  cancelProviderLogin: (provider: string, id: string) =>
+    request<ProviderLoginStatus>(`/providers/${encodeURIComponent(provider)}/oauth/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+  logoutProvider: (provider: string) =>
+    request<null>(`/providers/${encodeURIComponent(provider)}/oauth`, { method: "DELETE" }),
+  customModels: () => request<CustomModelsResponse>("/custom-models"),
+  createCustomModel: (req: CustomModelRequest) => post<CustomModelProvider>("/custom-models", req),
+  updateCustomModel: (id: string, req: CustomModelRequest) =>
+    request<CustomModelProvider>(`/custom-models/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(req),
+    }),
+  deleteCustomModel: (id: string) => request<null>(`/custom-models/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
 
 /** Address of a file as bytes: `raw` for verified bitmaps (an <img> source), `download` for any file. */
@@ -171,6 +235,7 @@ export function fileUrl(siteId: string, ref: PanelRef, path: string, as: "raw" |
 /** Query keys, so mutations can invalidate exactly what they change. */
 export const keys = {
   settings: ["settings"] as const,
+  skills: ["skills"] as const,
   sites: ["sites"] as const,
   site: (id: string) => ["site", id] as const,
   deploy: (siteId: string) => ["deploy", siteId] as const,
@@ -189,5 +254,9 @@ export const keys = {
   bukit: ["bukit"] as const,
   models: ["models"] as const,
   rg: ["rg"] as const,
-  secrets: ["secrets"] as const,
+  git: ["git"] as const,
+  pi: ["pi"] as const,
+  dataSources: ["data-sources"] as const,
+  publishAccounts: ["publish-accounts"] as const,
+  customModels: ["custom-models"] as const,
 };

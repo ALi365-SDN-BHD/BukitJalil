@@ -1,30 +1,37 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { BukitSource, BukitStatus } from "@bukitjalil/shared";
+import type { BukitStatus } from "@bukitjalil/shared";
 import { versionAtLeast } from "../git/version.ts";
 import { runProbe } from "../probe.ts";
 import {
   BUKIT_VERSION,
+  type BukitRelease,
   download,
+  FALLBACK_RELEASE,
+  fetchLatestRelease,
   InstallError,
   InstallJob,
   installFiles,
   MIN_BUKIT_VERSION,
   PREVIOUS_APP_VERSIONS,
   packageForPlatform,
-  packageUrl,
+  RELEASE_CACHE_MS,
   readStrictTarGz,
+  readStrictZip,
   verifySha256,
 } from "./install.ts";
 import { parseBukitVersion } from "./runner.ts";
 
 /**
- * Where Bukit comes from (plan 8.1): the custom path from settings, then the app-managed copy in
- * ~/.bukitjalil/bin/bukit-2.0.12/ (or an earlier app install), then `bukit` on the user's PATH.
+ * Where Bukit comes from (plan 8.1): only the copies BukitJalil itself installed, newest first, in
+ * ~/.bukitjalil/bin/bukit-<version>/ (including earlier app versions).
  */
 
 export const appBukitDir = (home: string, version: string = BUKIT_VERSION) =>
   path.join(home, "bin", `bukit-${version}`);
+
+/** The executable name inside an app-managed package. */
+export const BUKIT_EXE = process.platform === "win32" ? "bukit.exe" : "bukit";
 
 function executableFile(file: string): boolean {
   try {
@@ -33,15 +40,6 @@ function executableFile(file: string): boolean {
   } catch {
     return false;
   }
-}
-
-function findOnPath(envPath: string): string | null {
-  for (const dir of envPath.split(path.delimiter)) {
-    if (!dir || !path.isAbsolute(dir)) continue;
-    const candidate = path.join(dir, "bukit");
-    if (executableFile(candidate)) return fs.realpathSync(candidate);
-  }
-  return null;
 }
 
 /** `bukit version` with a minimal environment; null if it cannot run or prints no version. */
@@ -62,124 +60,121 @@ export function versionState(version: string): "ok" | "old" | "unsupported" {
 }
 
 export async function locateBukit(opts: {
-  customPath: string | null;
   home: string;
   tmpDir: string;
-  envPath?: string;
+  latestVersion?: string;
+  installable?: boolean;
 }): Promise<BukitStatus> {
-  const installable = packageForPlatform() !== null;
-  let customProblem: BukitStatus["customProblem"] = null;
-  const candidates: [BukitSource, string | null][] = [
-    ["app", path.join(appBukitDir(opts.home), "bukit")],
-    ...PREVIOUS_APP_VERSIONS.map((v): [BukitSource, string] => ["app", path.join(appBukitDir(opts.home, v), "bukit")]),
-    ["path", findOnPath(opts.envPath ?? process.env.PATH ?? "")],
-  ];
+  const latestVersion = opts.latestVersion ?? BUKIT_VERSION;
+  const installable = opts.installable ?? packageForPlatform() !== null;
+  const appVersions = [...new Set([latestVersion, BUKIT_VERSION, ...PREVIOUS_APP_VERSIONS])];
 
-  if (opts.customPath) {
-    if (!path.isAbsolute(opts.customPath) || !executableFile(opts.customPath)) {
-      customProblem = "not_found";
-    } else {
-      const version = await probeBukitVersion(opts.customPath, opts.tmpDir);
-      if (version)
-        return {
-          path: opts.customPath,
-          source: "custom",
-          version,
-          state: versionState(version),
-          customProblem,
-          installable,
-          // A custom build is the user's own choice.
-          upgradable: false,
-        };
-      customProblem = "broken";
+  let broken: string | null = null;
+  for (const version of appVersions) {
+    const file = path.join(appBukitDir(opts.home, version), BUKIT_EXE);
+    if (!executableFile(file)) continue;
+    const found = await probeBukitVersion(file, opts.tmpDir);
+    if (found) {
+      const state = versionState(found);
+      // An older working copy may be replaced by the latest release; a newer one is never "upgraded" down.
+      const upgradable = installable && state === "ok" && !versionAtLeast(found, latestVersion);
+      return { path: file, version: found, latestVersion, state, installable, upgradable };
     }
+    broken ??= file;
   }
-
-  let broken: { path: string; source: BukitSource } | null = null;
-  for (const [source, file] of candidates) {
-    if (!file || !executableFile(file)) continue;
-    const version = await probeBukitVersion(file, opts.tmpDir);
-    if (version) {
-      const state = versionState(version);
-      // An older working copy may be replaced by the pinned version; a newer one is never "upgraded" down.
-      const upgradable = installable && state === "ok" && !versionAtLeast(version, BUKIT_VERSION);
-      return { path: file, source, version, state, customProblem, installable, upgradable };
-    }
-    broken ??= { path: file, source };
-  }
-  if (broken) return { ...broken, version: null, state: "broken", customProblem, installable, upgradable: false };
-  return {
-    path: null,
-    source: null,
-    version: null,
-    state: "missing",
-    customProblem,
-    installable,
-    upgradable: false,
-  };
+  if (broken) return { path: broken, version: null, latestVersion, state: "broken", installable, upgradable: false };
+  return { path: null, version: null, latestVersion, state: "missing", installable, upgradable: false };
 }
 
 // --- install job, polled through GET /api/bukit ---
 
-/** Download, verify and install the official Bukit package for this platform. */
+/** Download, verify and install the latest official Bukit package for this platform. */
 export function bukitInstaller(opts: {
   home: string;
   tmpDir: string;
   fetchImpl?: typeof fetch;
   platform?: string;
   arch?: string;
+  /** Latest release lookup; defaults to the built-in fallback so tests and offline use never hit the network. */
+  release?: () => Promise<BukitRelease>;
 }): InstallJob {
   return new InstallJob(async (report) => {
-    const pkg = packageForPlatform(opts.platform, opts.arch);
-    if (!pkg) throw new InstallError("unsupported_platform", "no official Bukit package for this platform");
+    const release = await (opts.release ?? (() => Promise.resolve(FALLBACK_RELEASE)))();
+    const key = `${opts.platform ?? process.platform}-${opts.arch ?? process.arch}`;
+    const asset = release.assets[key];
+    if (!asset) throw new InstallError("unsupported_platform", "no official Bukit package for this platform");
     const data = await download(
-      packageUrl(pkg),
+      asset.url,
       (received, total) => report({ state: "downloading", received, total }),
       opts.fetchImpl,
     );
     report({ state: "verifying" });
-    verifySha256(data, pkg.sha256);
-    const files = readStrictTarGz(data, pkg.files);
-    const target = appBukitDir(opts.home);
-    installFiles(files, target, pkg.executable);
-    const version = await probeBukitVersion(path.join(target, pkg.executable), opts.tmpDir);
-    if (version !== BUKIT_VERSION) {
+    verifySha256(data, asset.sha256);
+    const files = asset.file.endsWith(".zip") ? readStrictZip(data, asset.files) : readStrictTarGz(data, asset.files);
+    const target = appBukitDir(opts.home, release.version);
+    installFiles(files, target, asset.executable);
+    const version = await probeBukitVersion(path.join(target, asset.executable), opts.tmpDir);
+    if (version !== release.version) {
       fs.rmSync(target, { recursive: true, force: true });
       throw new InstallError("verify_failed", `bukit version printed ${version ?? "nothing"}`);
     }
-    // The upgrade replaces earlier app installs.
-    for (const v of PREVIOUS_APP_VERSIONS) fs.rmSync(appBukitDir(opts.home, v), { recursive: true, force: true });
+    // The upgrade replaces every earlier app install, without touching the new one.
+    const parent = path.dirname(target);
+    for (const entry of fs.readdirSync(parent, { withFileTypes: true })) {
+      const dir = path.join(parent, entry.name);
+      if (entry.isDirectory() && entry.name.startsWith("bukit-") && dir !== target)
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 }
 
 /**
  * Bukit status for the API: located once and cached, because the UI polls during an install and each
- * probe starts a process. Call `invalidate()` after the custom path changes; an install does it itself.
+ * probe starts a process. The latest release is cached separately for ten minutes; the settings page
+ * asks for a fresh status when it opens, and its manual button also refreshes the release.
  */
 export class BukitService {
   readonly installer: InstallJob;
   private cached: Promise<BukitStatus> | null = null;
+  private release: Promise<BukitRelease> | null = null;
+  private releaseAt = 0;
 
   constructor(
     private readonly opts: {
       home: string;
       tmpDir: string;
-      customPath: () => string | null;
-      envPath?: string;
+      /** Omitted by tests and offline callers: the built-in fallback release is used. */
       fetchImpl?: typeof fetch;
     },
   ) {
-    this.installer = bukitInstaller({ home: opts.home, tmpDir: opts.tmpDir, fetchImpl: opts.fetchImpl });
+    this.installer = bukitInstaller({
+      home: opts.home,
+      tmpDir: opts.tmpDir,
+      fetchImpl: opts.fetchImpl,
+      release: () => this.latestRelease(),
+    });
+  }
+
+  latestRelease(force = false): Promise<BukitRelease> {
+    if (!this.opts.fetchImpl) return Promise.resolve(FALLBACK_RELEASE);
+    if (force || !this.release || Date.now() - this.releaseAt > RELEASE_CACHE_MS) {
+      this.releaseAt = Date.now();
+      this.release = fetchLatestRelease(this.opts.fetchImpl);
+    }
+    return this.release;
   }
 
   status(): Promise<BukitStatus> {
     if (!this.cached) {
-      const located = locateBukit({
-        customPath: this.opts.customPath(),
-        home: this.opts.home,
-        tmpDir: this.opts.tmpDir,
-        envPath: this.opts.envPath,
-      });
+      const located = (async () => {
+        const release = await this.latestRelease();
+        return locateBukit({
+          home: this.opts.home,
+          tmpDir: this.opts.tmpDir,
+          latestVersion: release.version,
+          installable: release.assets[`${process.platform}-${process.arch}`] !== undefined,
+        });
+      })();
       this.cached = located;
       // A failed lookup is not cached: the next request tries again.
       located.catch(() => {
@@ -189,8 +184,13 @@ export class BukitService {
     return this.cached;
   }
 
-  invalidate(): void {
+  /** Drop the located status; `forceRelease` also makes the next check ask GitHub again. */
+  invalidate(forceRelease = false): void {
     this.cached = null;
+    if (forceRelease) {
+      this.release = null;
+      this.releaseAt = 0;
+    }
   }
 
   install(): boolean {

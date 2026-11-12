@@ -25,6 +25,13 @@ export const CreateSiteRequest = z
     /** The new site directory itself; it must not exist or be empty. */
     path: AbsolutePath,
     language: SiteLanguage,
+    /**
+     * The optional saved Notion source for the new site. Omit (or leave empty) to keep the starter's
+     * default Markdown sources, which are created automatically with the project.
+     */
+    dataSourceIds: z.array(z.string().min(1).max(100)).max(1).optional(),
+    /** The Notion database picked from the selected Notion data source. */
+    notionDatabaseId: z.string().trim().min(1).max(100).optional(),
   })
   .strict();
 export type CreateSiteRequest = z.infer<typeof CreateSiteRequest>;

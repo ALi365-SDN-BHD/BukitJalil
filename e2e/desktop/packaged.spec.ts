@@ -39,6 +39,7 @@ function launchEnv(home: string): Record<string, string> {
     BUKITJALIL_HOME: path.join(home, ".bukitjalil"),
     BUKITJALIL_DESKTOP_PROFILE: path.join(home, "profile"),
     BUKITJALIL_DESKTOP_PORT: "49850",
+    BUKITJALIL_OFFLINE: "1",
   };
 }
 
@@ -63,6 +64,24 @@ test("the packaged app runs its bundled server and creates a site from its own f
         .catch(() => "(no page)");
       throw new Error(`${err.message}\n\nThe window shows:\n${shown}`);
     });
+
+  // The settings page works in the packaged app: footer entry, model OAuth entry, appearance, close.
+  await page.getByTestId("open-settings").click();
+  await expect(page.getByTestId("settings-page")).toBeVisible();
+  await page.getByTestId("settings-nav-model").click();
+  await expect(page.getByTestId("model-provider-anthropic")).toBeVisible();
+  await page.getByTestId("model-provider-anthropic").click();
+  await expect(page.getByTestId("provider-oauth-sign-in")).toBeVisible();
+  await page.getByTestId("model-back").click();
+  await page.getByTestId("local-models-open").click();
+  await expect(page.getByTestId("local-models")).toBeVisible();
+  await page.getByTestId("local-back").click();
+  await page.getByTestId("settings-nav-general").click();
+  await page.getByTestId("appearance-dark").click();
+  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+  await page.getByTestId("appearance-system").click();
+  await page.getByTestId("settings-close").click();
+  await expect(page.getByTestId("new-site")).toBeVisible();
 
   const result = await page.evaluate(
     async (dir) => {

@@ -10,31 +10,40 @@ import {
 } from "@bukitjalil/shared";
 import { Hono } from "hono";
 import { setCookie } from "hono/cookie";
+import type { CustomModelStore } from "./agent/custom-models.ts";
 import { ModelService } from "./agent/models.ts";
+import { PiStatusService } from "./agent/pi-status.ts";
 import type { RgService } from "./agent/rg.ts";
 import type { AgentService } from "./agent/service.ts";
 import { buildRoutes } from "./api/builds.ts";
 import { changeRoutes } from "./api/changes.ts";
+import { customModelRoutes } from "./api/custom-models.ts";
+import { dataSourceRoutes } from "./api/data-sources.ts";
 import { deployRoutes } from "./api/deploys.ts";
 import { type EventStreamOptions, eventRoutes } from "./api/events.ts";
+import { gitRoutes } from "./api/git.ts";
 import { modelRoutes } from "./api/models.ts";
 import { panelRoutes } from "./api/panels.ts";
-import { secretRoutes } from "./api/secrets.ts";
+import { pluginRoutes } from "./api/plugins.ts";
+import { publishAccountRoutes } from "./api/publish-accounts.ts";
 import { sessionRoutes } from "./api/sessions.ts";
 import { siteRoutes } from "./api/sites.ts";
+import { skillRoutes } from "./api/skills.ts";
 import type { BuildService } from "./builds/service.ts";
 import type { BukitService } from "./bukit/locate.ts";
 import type { ChangeService } from "./changes/service.ts";
+import type { DataSourceService } from "./data-sources/service.ts";
 import type { DeployService } from "./deploys/service.ts";
 import type { EventHub } from "./events/hub.ts";
 import type { GitIdentity } from "./git/identity.ts";
+import type { GitService } from "./git/service.ts";
 import type { GitHealth } from "./git/version.ts";
 import type { Logger } from "./log.ts";
 import type { PanelService } from "./panels/service.ts";
+import type { PublishAccountService } from "./publish/accounts.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
 import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./security/headers.ts";
 import type { LoginToken } from "./security/token.ts";
-import type { SecretStore } from "./settings/secrets.ts";
 import { asSiteError } from "./sites/location.ts";
 import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
@@ -59,9 +68,14 @@ export interface AdminAppOptions {
   panels: PanelService;
   builds: BuildService;
   agent: AgentService;
+  gitStatus: GitService;
   changes: ChangeService;
-  secrets: SecretStore;
+  customModels: CustomModelStore;
+  dataSources: DataSourceService;
+  publishAccounts: PublishAccountService;
   deploys: DeployService;
+  /** npm lookup for Pi's latest release; null (tests, `BUKITJALIL_OFFLINE=1`) leaves it unknown. */
+  piFetch?: typeof fetch | null;
   /** How long a connection test waits for the model. */
   modelTestTimeoutMs?: number;
   events: EventHub;
@@ -83,6 +97,10 @@ export function createAdminApp(opts: AdminAppOptions) {
   const settings = new SettingsStore(opts.db);
   const cookieName = sessionCookieName(opts.port);
   const app = new Hono<AppEnv>();
+  const piStatus = new PiStatusService({
+    modules: () => opts.agent.piModules(),
+    fetchImpl: opts.piFetch ?? null,
+  });
 
   app.use("*", async (c, next) => {
     await next();
@@ -158,15 +176,16 @@ export function createAdminApp(opts: AdminAppOptions) {
     const patch = SettingsPatch.safeParse(body);
     if (!patch.success) return apiError(c, 400, "request.invalid_body");
     const updated = settings.update(patch.data);
-    if (patch.data.bukitPath !== undefined) opts.bukit.invalidate();
     return c.json(updated);
   });
 
   api.get("/bukit", async (c) => {
+    // The settings page asks for a fresh look when it opens; `force` also refreshes the latest release.
+    if (c.req.query("refresh") === "1") opts.bukit.invalidate(c.req.query("force") === "1");
     const body: BukitResponse = { status: await opts.bukit.status(), install: opts.bukit.installer.progress };
     return c.json(body);
   });
-  // Install Bukit 2.0.12 (plan 8.1) after the user confirmed in the UI. Progress is polled from GET /bukit.
+  // Install the latest official Bukit (plan 8.1) after the user confirmed in the UI. Progress is polled from GET /bukit.
   api.post("/bukit/install", async (c) => {
     if (!(await opts.bukit.status()).installable) return apiError(c, 400, "bukit.unsupported_platform");
     if (!opts.bukit.install()) return apiError(c, 409, "bukit.install_running");
@@ -184,12 +203,19 @@ export function createAdminApp(opts: AdminAppOptions) {
     return c.json({ install: opts.rg.installer.progress }, 202);
   });
 
+  // The Pi runtime bundled with the app (plan 6.1); the settings page refreshes npm's latest release.
+  api.get("/pi", async (c) => c.json(await piStatus.status(c.req.query("refresh") === "1")));
+
   siteRoutes(api, { sites: opts.sites, builds: opts.builds, readIdentity: opts.readIdentity, userHome: opts.userHome });
   panelRoutes(api, opts.panels);
+  pluginRoutes(api, { changes: opts.changes, agent: opts.agent });
   buildRoutes(api, opts.builds);
-  secretRoutes(api, opts.secrets);
+  dataSourceRoutes(api, opts.dataSources);
+  publishAccountRoutes(api, opts.publishAccounts);
   deployRoutes(api, opts.deploys);
+  gitRoutes(api, opts.gitStatus);
   sessionRoutes(api, opts.agent);
+  skillRoutes(api, opts.agent);
   changeRoutes(api, { changes: opts.changes, agent: opts.agent, builds: opts.builds, logger: opts.logger });
   modelRoutes(
     api,
@@ -199,8 +225,10 @@ export function createAdminApp(opts: AdminAppOptions) {
       settings,
       piDir: opts.agent.piDir,
       testTimeoutMs: opts.modelTestTimeoutMs,
+      customProviderIds: () => opts.customModels.ids(),
     }),
   );
+  customModelRoutes(api, opts.customModels, () => opts.agent.models());
   eventRoutes(api, opts.events, opts.eventStream);
 
   api.all("*", (c) => apiError(c, 404, "request.not_found"));

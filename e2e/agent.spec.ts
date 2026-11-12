@@ -24,16 +24,22 @@ test.beforeAll(() => {
 test.afterAll(async ({ browser, server }) => {
   const page = await browser.newPage();
   await page.goto(await server.loginUrl());
-  await putSettings(page, { model: null, bukitPath: null });
+  await putSettings(page, { model: null });
   await page.close();
   removeImportedSites();
   fs.rmSync(work, { recursive: true, force: true });
 });
 
 /** Log in, choose the scripted model and the test Bukit, open a new conversation on a fresh site. */
-async function startConversation(page: Page, loginUrl: string, label: string): Promise<string> {
-  await page.goto(loginUrl);
-  await putSettings(page, { model: { provider: "bukitjalil-fake", id: "fake-1" }, bukitPath: bukitBin });
+async function startConversation(
+  page: Page,
+  server: { loginUrl(): Promise<string>; setBukit(source: string): void },
+  label: string,
+): Promise<string> {
+  await page.goto(await server.loginUrl());
+  server.setBukit(bukitBin);
+  await page.evaluate(() => fetch("/api/bukit?refresh=1"));
+  await putSettings(page, { model: { provider: "bukitjalil-fake", id: "fake-1" } });
   const siteId = await importSite(page, label);
   await page.goto(`/sites/${siteId}`);
   await startConversationButton(page);
@@ -63,7 +69,7 @@ async function cardResult(page: Page, tool: string): Promise<string> {
 test.describe.configure({ timeout: 90_000 });
 
 test("the AI changes only its working copy, passes the check and sums up", async ({ page, server }) => {
-  const siteId = await startConversation(page, await server.loginUrl(), "Agent edit");
+  const siteId = await startConversation(page, server, "Agent edit");
   const folder = siteFolder(siteId);
   const siteYaml = fs.readFileSync(path.join(folder, "site.yaml"), "utf8");
 
@@ -87,7 +93,7 @@ test("the AI changes only its working copy, passes the check and sums up", async
 });
 
 test("reading Pi's auth.json outside the working copy is refused", async ({ page, server }) => {
-  await startConversation(page, await server.loginUrl(), "Agent read");
+  await startConversation(page, server, "Agent read");
   await ask(page, "#auth Show me what is in auth.json");
   await expect(card(page, "read")).toHaveAttribute("data-state", "error");
   // The refused path is the app's own pi/auth.json, not some other outside path.
@@ -97,7 +103,7 @@ test("reading Pi's auth.json outside the working copy is refused", async ({ page
 });
 
 test("a plugin that is not built in stops the AI's build", async ({ page, server }) => {
-  await startConversation(page, await server.loginUrl(), "Agent plugin");
+  await startConversation(page, server, "Agent plugin");
   await ask(page, "#plugin Add a plugin to the site and build it");
   // The plugin goes in, the build is refused, the plugin comes out again.
   await expect(card(page, "edit")).toHaveCount(2);
@@ -112,7 +118,7 @@ test("a plugin that is not built in stops the AI's build", async ({ page, server
 test("a provider's error is explained in plain words, with its own text kept", async ({ page, server }) => {
   // Pi retries rate limits and network failures a few times with a growing wait before giving up.
   test.setTimeout(240_000);
-  await startConversation(page, await server.loginUrl(), "Agent errors");
+  await startConversation(page, server, "Agent errors");
   const input = page.getByTestId("composer-input");
   for (const [tag, kind, text] of [
     ["#fail-key", "auth", /API key|API Key/],

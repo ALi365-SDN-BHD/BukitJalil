@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type { SessionInfo, SessionMessage, SessionStatus, ThinkingLevel } from "@bukitjalil/shared";
+import type { SessionInfo, SessionMessage, SessionStatus, SkillsResponse, ThinkingLevel } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ChangeService } from "../changes/service.ts";
@@ -17,7 +17,9 @@ import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
 import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
 import { createSiteTools, SITE_TOOLS } from "./site-tools.ts";
+import { listSkills, skillReadRoots } from "./skills.ts";
 import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./store.ts";
+import { autoTitle } from "./title.ts";
 import { BUILTIN_TOOLS, createGatedTools } from "./tools.ts";
 
 const IDLE_MS = 10 * 60_000;
@@ -61,6 +63,8 @@ export interface AgentServiceOptions {
   bukit: AiBukit;
   /** BukitJalil's skills (plan 6.4): listed in the system prompt, readable but never writable by the AI. */
   skillsDir: string;
+  /** Optional skills turned off in Settings; read before every session opens. */
+  disabledSkills?: () => readonly string[];
   /** Dispose an unused AgentSession after this long; its file stays (plan 6.2). */
   idleMs?: number;
   /** Longest shutdown waits for runs that ignore abort (tests set it short). */
@@ -122,6 +126,12 @@ export class AgentService {
   /** Pi's modules, loaded on first use. */
   piModules(): Promise<PiModules> {
     return this.pi();
+  }
+
+  /** The skills loaded from BukitJalil's directory, with the current on/off setting. */
+  async skills(): Promise<SkillsResponse> {
+    const pi = await this.pi();
+    return listSkills(pi, this.opts.skillsDir, this.opts.paths.pi, this.opts.disabledSkills?.() ?? []);
   }
 
   /** The one model runtime (catalog and keys) every session and the model settings use. */
@@ -271,6 +281,14 @@ export class AgentService {
     this.assertOpen();
     const session = this.get(id);
     if (this.opts.sites.get(session.siteId).readOnly) throw new SiteError("site.read_only", 409);
+    // The first message names the conversation; manual rename can still replace it later.
+    if (!session.title) {
+      const title = autoTitle(text);
+      if (title) {
+        this.store.rename(id, title);
+        this.announce(id);
+      }
+    }
     const run = this.running.get(session.siteId);
     if (run?.sessionId === id && !run.cancelled) {
       const live = this.live.get(id);
@@ -546,8 +564,6 @@ export class AgentService {
     const [modelRuntime, model] = await Promise.all([this.modelRuntime(), this.model()]);
     if (gone()) return null;
     const settingsManager = createSettings(pi);
-    // Skills are the one place outside the working copy the AI may read (plan 6.3).
-    const gate = new PathGate(cwd, [this.opts.skillsDir]);
     const piDir = this.opts.paths.pi;
     const resourceLoader = await createResourceLoader(pi, {
       cwd,
@@ -555,7 +571,16 @@ export class AgentService {
       settings: settingsManager,
       systemPrompt: buildSystemPrompt(site),
       skillsDir: this.opts.skillsDir,
+      disabledSkills: this.opts.disabledSkills?.() ?? [],
     });
+    // Skills are the one place outside the working copy the AI may read (plan 6.3). Only the enabled
+    // skills' real directories are readable; a disabled skill cannot be read in a new conversation.
+    const gate = new PathGate(
+      cwd,
+      skillReadRoots(resourceLoader.getSkills().skills, this.opts.skillsDir, (name, reason) =>
+        this.opts.logger.log("warn", "agent.skill_read_root_skipped", { skill: name, reason }),
+      ),
+    );
     if (gone()) return null;
     const dir = this.sessionDir(site.id);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });

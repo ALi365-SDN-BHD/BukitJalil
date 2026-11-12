@@ -57,7 +57,7 @@ export function RightPanel({ siteId, readOnly }: { siteId: string | null; readOn
     );
   else if (tab === "preview") body = <PreviewPanel siteId={siteId} readOnly={readOnly} />;
   else if (tab === "files") body = <FilesPanel siteId={siteId} />;
-  else if (tab === "config") body = <ConfigPanel siteId={siteId} />;
+  else if (tab === "config") body = <ConfigPanel siteId={siteId} readOnly={readOnly} />;
   else if (tab === "theme") body = <ThemePanel siteId={siteId} />;
   else if (tab === "data") body = <DataPanel siteId={siteId} />;
   else body = <ChangesPanel siteId={siteId} />;

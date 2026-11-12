@@ -184,6 +184,8 @@ describe("config, theme and data panels (plan 5.3)", () => {
       plugins: [],
       otherSections: ["logging"],
     });
+    expect(body.summary?.pluginStates).toHaveLength(10);
+    expect(body.summary?.pluginStates?.every((plugin) => plugin.enabled && !plugin.configured)).toBe(true);
   });
 
   it("lists the theme manifest and files", async () => {
@@ -212,6 +214,19 @@ describe("config, theme and data panels (plan 5.3)", () => {
         data: expect.objectContaining({ type: "features", order: 10, enabled: true }),
       },
     ]);
+  });
+
+  it("shows one data item as an example and says there are more", async () => {
+    const ctx = await siteWithFiles("data-items");
+    raw(ctx.dir, "checkout", "-q", "--", "site.yaml"); // drop the working tree change
+    fs.writeFileSync(path.join(ctx.dir, "data", "second.md"), "---\ntitle: Second\n---\nbody\n");
+    raw(ctx.dir, "add", "data/second.md");
+    raw(ctx.dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "second");
+    const { body } = await ctx.get<DataResponse>(ctx.api("/data"));
+    const modules = body.sources[2];
+    if (modules?.type !== "markdown") throw new Error("expected a markdown source");
+    expect(modules.items.map((i) => i.file)).toEqual(["data/features-10.md"]);
+    expect(modules.itemsTruncated).toBe(true);
   });
 
   it("shows Notion sources by their configuration only", async () => {

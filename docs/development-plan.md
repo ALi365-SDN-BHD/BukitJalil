@@ -36,7 +36,7 @@
 | 包含 | 不包含 |
 | --- | --- |
 | 本地单用户 Web 应用（只监听 127.0.0.1） | 多用户、远程访问、账号体系 |
-| 平台：macOS（Apple Silicon）和 Linux x64，CI 覆盖这两个平台 | Windows（M7 桌面版再验证；设计上已避免依赖 `/dev/null` 等 Unix 专属路径） |
+| 平台：macOS（Apple Silicon）和 Linux x64，CI 覆盖这两个平台 | Windows（M7 之后补了 NSIS 安装包和 CI 里不阻塞的打包冒烟测试，仍是预览状态，见 M7；设计上已避免依赖 `/dev/null` 等 Unix 专属路径） |
 | 新建网站（基于从 Bukit 源码复制的 starter 主题）、导入已有 Bukit 网站 | 克隆其他网站、HTML 导入（Bukit 也未支持）；Bukit 外部插件（用了它们的网站只能只读导入，见 5.1） |
 | 每个网站多个 AI 会话：对话、流式输出、恢复、分叉 | 子代理、计划模式 |
 | 只读面板：文件、配置、主题、数据、改动、预览 | 可视化编辑器、直接改文件 |
@@ -46,9 +46,10 @@
 
 ### 1.3 后续版本
 
-- **M6 发布**：GitHub Pages（Bukit 原生支持 `bukit deploy`）
-- **M7 桌面版**：Electron 壳
-- 之后：Notion 数据源管理、按代码块部分应用、SEO/GEO 报告面板、Cloudflare Pages 和自有服务器发布
+- **M6 发布**（已完成）：GitHub Pages（Bukit 原生支持 `bukit deploy`）；之后改为"发布账号"管理 token（见 6.5、M6）
+- **M7 桌面版**（已完成）：Electron 壳；之后补了 Windows / Linux 安装包和自定义图标（见 M7）
+- M7 之后已做：Notion 数据源管理（按数据源保存 token，见 6.5）、OAuth 模型登录、自定义模型、设置页（替代设置对话框）
+- 待做（见 AGENTS.md）：按代码块部分应用、SEO/GEO 报告面板、Cloudflare Pages 和自有服务器发布、素材上传（设计见 [plans/2026-11-12-media-upload-design.md](plans/2026-11-12-media-upload-design.md)）
 
 ---
 
@@ -63,15 +64,16 @@
 | Node.js | **24 LTS**（`engines: ">=22.19.0"`） | Pi SDK 要求 ≥ 22.19。开发统一用 24 LTS；Node 22 在 2027-04-30 停止维护，本机现在是 22.22.3，可以运行但建议升级 |
 | pnpm | **12.18.0** | 写进根 `package.json` 的 `packageManager` 字段，由 corepack 自动使用（本机是 10.5.0，执行 `corepack enable` 即可） |
 | TypeScript | **7.0.2** | 只用来做类型检查（`tsc --noEmit`），打包和运行由 Vite / tsx 负责。TypeScript 7 是 Go 重写的版本，部分旧 tsconfig 选项已移除。**M0 已确认**与 Vite 8、Vitest 5、Biome、shadcn 配合正常；唯一要改的是 `baseUrl` 已被移除，路径别名直接写 `paths` |
-| Bukit | **2.0.12**（最低 2.0.11） | .NET Native AOT 单文件程序，官方提供 osx-arm64、linux-x64、win-x64（没有 Intel Mac 版，见 8.1） |
+| Bukit | **2.0.15**（内置兜底版本；安装时取 GitHub 上的最新正式版，最低 2.0.11，见 8.1） | .NET Native AOT 单文件程序，官方提供 osx-arm64、linux-x64、win-x64（没有 Intel Mac 版，见 8.1） |
 
 ### 2.2 服务端（`packages/server`）
 
 | 包 | 版本 | 用途 |
 | --- | --- | --- |
-| `@earendil-works/pi-coding-agent` | 1.5.1 | Pi SDK：会话、工具、技能、模型（M3 开始时从 1.5.0 升级，差异见 6.1 末尾） |
-| `@earendil-works/pi-ai` | 1.5.1 | 模型目录与提供商（随 SDK） |
-| `@earendil-works/pi-agent-core` | 1.5.1 | Agent 核心（随 SDK，不直接依赖） |
+| `@earendil-works/pi-coding-agent` | 1.5.2 | Pi SDK：会话、工具、技能、模型（M3 开始时从 1.5.0 升到 1.5.1，差异见 6.1 末尾；之后升到 1.5.2） |
+| `@earendil-works/pi-ai` | 1.5.2 | 模型目录与提供商（随 SDK） |
+| `@earendil-works/pi-agent-core` | 1.5.2 | Agent 核心（随 SDK，不直接依赖） |
+| `fflate` | 0.8.3 | 解压 Windows 版 Bukit 的 zip 安装包（`bukit/install.ts`）。注意：`package.json` 现在写的是 `^0.8.3`，不符合本节"精确版本"的规定，应改成 `0.8.3` |
 | `hono` | 4.13.17 | HTTP 路由、SSE |
 | `@hono/node-server` | 2.1.6 | Node 运行 Hono、静态文件 |
 | `zod` | 4.6.7 | 请求、配置、事件的校验和类型 |
@@ -92,12 +94,12 @@
 | `shadcn`（CLI） | 4.23.0 | 生成 UI 组件源码（Radix 基础） |
 | `lucide-react` | 1.70.0 | 图标 |
 | `@tanstack/react-query` | 5.107.1 | 服务端数据获取和缓存 |
-| `zustand` | 5.1.0 | 界面本地状态（选中网站、面板、会话流） |
 | `react-router` | 8.5.1 | 路由：`/sites/:siteId/sessions/:sessionId` |
 | `react-resizable-panels` | 4.21.0 | 三栏可拖动布局 |
 | `shiki` | 4.6.0 | 只读代码高亮 |
-| `react-markdown` | 10.1.0 | Markdown 预览、AI 消息渲染 |
-| `react-diff-view` + `diff` | 3.3.3 + 9.0.0 | 改动差异显示 |
+| `react-markdown` / `remark-gfm` | 10.1.0 / 4.0.1 | Markdown 预览、AI 消息渲染（表格、删除线等 GFM 语法） |
+| `get-nonce` | 1.0.1 | 把 CSP nonce 交给 Radix 运行时插入的样式（见 11） |
+| `@types/react` / `@types/react-dom` | 19.3.0 | React 类型 |
 | `radix-ui` / `class-variance-authority` / `cn` / `tw-animate-css` | 1.8.1 / 0.7.1 / 0.5.2 / 1.4.0 | shadcn 初始化时加入的组件依赖（M0）；`cn` 是 shadcn 官方维护的类名合并包，替代 clsx + tailwind-merge |
 
 ### 2.4 工具链
@@ -108,7 +110,11 @@
 | `@playwright/test` | 1.65.0 | 端到端测试 |
 | `@biomejs/biome` | 2.6.6 | 代码格式化和检查（替代 ESLint + Prettier） |
 | `@types/node` | 24.19.2 | Node 类型，与 Node 24 对齐 |
-| `electron` | 45.2.3 | M7 桌面版才引入 |
+| `electron` | 45.2.3 | M7 桌面版（`packages/desktop`） |
+| `esbuild` | 0.28.2 | 桌面版打包时把 server 和桌面壳打成单个模块 |
+| `@electron/packager` / `electron-builder` | 20.3.0 / 26.18.1 | 桌面版应用打包和安装包（dmg、zip、NSIS、AppImage、deb） |
+
+> 改动差异由界面自己的 `FileDiffView` 渲染统一差异文本，没有引入 `react-diff-view` / `diff`；界面本地状态用 React 状态和 TanStack Query，没有引入 `zustand`。这两项早期计划里列过，实际没用。
 
 ---
 
@@ -122,14 +128,20 @@
   ▼
 本地服务（packages/server，Hono；管理界面与 API 127.0.0.1:47880，预览 127.0.0.1:47881 起的端口池）
   ├─ api/            路由、请求校验、SSE
-  ├─ sites/          网站项目：创建、导入、读取配置/主题/文件/数据
-  ├─ agent/          Pi SDK：会话管理、建站工具、权限闸门、技能加载
+  ├─ security/       管理端口的 token Cookie、防跨站校验、安全响应头（11）
+  ├─ sites/          网站项目：创建、导入、网站锁、排除规则
+  ├─ panels/         只读面板：文件、配置、主题、数据
+  ├─ agent/          Pi SDK：会话管理、建站工具、权限闸门、技能加载、模型和自定义模型
   ├─ changes/        改动集：工作树、差异、审核指纹、应用、拒绝、历史、恢复
-  ├─ git/            唯一的 git 调用入口：固定加固参数、最小环境变量、仓库配置检查（7.3）
-  ├─ bukit/          Bukit 程序管理与调用：check、doctor、build、报告解析
+  ├─ git/            唯一的 git 调用入口：固定加固参数、最小环境变量、仓库配置检查（7.3）；全局身份读取（identity.ts）
+  ├─ bukit/          Bukit 程序安装、查找与调用，构建前安全检查（8.5）
+  ├─ builds/         构建记录、构建与 SEO/GEO 审计
   ├─ preview/        构建结果的静态托管（每份预览一个独立端口，CSP sandbox）
-  ├─ store/          SQLite（系统数据）
-  └─ settings/       模型、密钥、Bukit 路径
+  ├─ deploys/        发布到 GitHub Pages（M6）
+  ├─ publish/        发布账号和它们的 GitHub token（6.5）
+  ├─ data-sources/   Notion 数据源和它们的 token（6.5）
+  ├─ events/         SSE 事件总线
+  └─ store/          SQLite（系统数据）、设置、旧 token 迁移
   │
   ├──► Pi SDK（同进程）
   ├──► git（子进程）
@@ -147,7 +159,8 @@ BukitJalil/
 ├── packages/
 │   ├── shared/             # 只放类型、zod schema、事件定义、API 约定；不依赖 Node 或 DOM
 │   ├── server/             # 依赖 shared；唯一引用 Pi SDK、git、bukit 的地方
-│   └── web/                # 依赖 shared；只通过 HTTP/SSE 访问 server
+│   ├── web/                # 依赖 shared；只通过 HTTP/SSE 访问 server
+│   └── desktop/            # M7 Electron 壳：启动 server 子进程、加载 web；不 import server 或 web 的源码
 ├── skills/                 # 随应用发布的建站技能（见 6.4）
 ├── templates/              # 新建网站用的初始模板
 ├── scripts/                # 下载 Bukit、开发辅助脚本
@@ -159,7 +172,7 @@ BukitJalil/
 
 ### 3.3 运行方式
 
-- 开发：`pnpm dev` 同时启动 server（tsx watch）和 web（Vite，代理 `/api` 到 server）；开发脚本启动 Vite 时只传白名单里的环境变量，Vite 进程拿不到 `BUKITJALIL_*_TOKEN`、模型密钥等任何密钥
+- 开发：`pnpm dev` 同时启动 server（tsx watch）和 web（Vite，代理 `/api` 到 server）；开发脚本启动 Vite 时只传白名单里的环境变量，Vite 进程拿不到 `BUKITJALIL_*_TOKEN`（现在只在启动时迁移一次，见 6.5）、模型密钥等任何密钥
   - Vite 固定监听 `127.0.0.1:47890`（`strictPort: true`，端口被占用直接报错，不会悄悄换端口）
   - 浏览器里的页面来自 Vite，代理转发的请求 `Origin` 是 `http://127.0.0.1:47890`。所以 server 以 `--dev-origin http://127.0.0.1:47890` 启动时（只有 `pnpm dev` 会传，`pnpm start` 不接受这个参数），防跨站校验允许的 Origin 换成这个地址，`Host` 校验同时接受 Vite 转发的 `127.0.0.1:47880`
   - token 打开流程同样走 Vite：打印 `http://127.0.0.1:47890/?token=…`，Vite 开发配置把带 `token` 参数的首页请求代理给 server，和生产一样校验后设置 Cookie 并重定向；Cookie 按主机 `127.0.0.1` 生效、不区分端口，之后经 Vite 代理的 `/api` 请求都会带上它。开发时在终端按回车，tsx watch 会重启 server 并打印新的登录地址（重启后旧会话失效）
@@ -176,12 +189,18 @@ BukitJalil/
 ```text
 ~/.bukitjalil/                      # 应用数据目录（可用 BUKITJALIL_HOME 覆盖）
 ├── app.db                          # SQLite：网站列表、会话索引、改动集、构建记录、设置（不含密钥）
-├── secrets.json                    # Notion / GitHub token（权限 600；设置了对应环境变量时不使用，见 6.5）
-├── bin/bukit-2.0.12/               # 应用管理的 Bukit：bukit 和 libSkiaSharp.dylib 等随包文件
+├── publish-account-tokens.json     # 每个发布账号的 GitHub token（0600，见 6.5）
+├── data-source-tokens.json         # 每个 Notion 数据源的 token（0600，见 6.5）
+├── server.lock                     # 同一数据目录只允许一个 server 运行
+├── logs/server.log                 # 服务端日志（不含密钥）
+├── tmp/                            # 临时文件；tmp/bukit/ 是 Bukit 子进程的 TMPDIR
+├── bin/bukit-<版本>/               # 应用管理的 Bukit：bukit 和 libSkiaSharp.dylib 等随包文件（见 8.1）
 ├── empty-gitconfig                 # 空文件，git 调用的全局配置和属性文件都指向它（见 7.3）
+├── empty-hooks/                    # 空目录，git 的 core.hooksPath 指向它（见 7.3）
 ├── pi/                             # 给 Pi 用的独立目录（agentDir + PI_CODING_AGENT_DIR），不读用户 ~/.pi
 │   ├── auth.json                   # 模型 API Key / OAuth（权限 600）
 │   ├── models.json
+│   ├── custom-models.json          # 用户添加的自定义模型和它们的密钥（0600）
 │   └── bin/                        # BukitJalil 安装的固定版本 rg（见 6.3）
 ├── sessions/<siteId>/*.jsonl       # Pi 会话文件
 ├── worktrees/<siteId>/
@@ -207,12 +226,16 @@ BukitJalil/
 
 | 表 | 主要字段 | 说明 |
 | --- | --- | --- |
-| `sites` | `id`, `name`, `path`, `default_branch`, `created_at`, `last_opened_at`, `archived` | 网站列表；`path` 是网站目录绝对路径；`default_branch` 是网站的正式分支（新建为 `main`，导入时读取当前默认分支） |
+| `sites` | `id`, `name`, `path`, `default_branch`, `created_at`, `last_opened_at`, `archived`；`read_only_reasons`, `checked_commit`, `config_check`（002）；`notion_data_source_id`（006）；`publish_account_id`（007） | 网站列表；`path` 是网站目录绝对路径；`default_branch` 是网站的正式分支（新建为 `main`，导入时读取当前默认分支）；后加的列记录安全检查结果、选用的 Notion 数据源和发布账号 |
 | `sessions` | `id`, `site_id`, `pi_session_file`, `title`, `created_at`, `updated_at`, `status` | 会话索引；正文在 Pi 的 JSONL 里 |
-| `change_sets` | `id`, `site_id`, `created_by_session_id`, `base_commit`, `snapshot_commit`, `status`, `summary`, `created_at`, `resolved_at`, `result_commit` | 改动集，状态：`open` / `applied` / `rejected` / `stale`；`base_commit` 是当前基于的正式版本，main 前进并重新合并后会更新；`snapshot_commit` 是最近一次快照（见 7.2）；"待审核"不单独存，由"open + 没有会话在运行 + 快照树 ≠ base 树"推出 |
+| `change_sets` | `id`, `site_id`, `created_by_session_id`, `base_commit`, `snapshot_commit`, `status`, `summary`, `created_at`, `resolved_at`, `result_commit`；`restore_commit`（003）；`ai_joined`（005） | 改动集；`restore_commit` 标出恢复类改动集（7.4），`ai_joined` 表示有会话参与过，决定提交作者（7.2），状态：`open` / `applied` / `rejected` / `stale`；`base_commit` 是当前基于的正式版本，main 前进并重新合并后会更新；`snapshot_commit` 是最近一次快照（见 7.2）；"待审核"不单独存，由"open + 没有会话在运行 + 快照树 ≠ base 树"推出 |
 | `change_set_sessions` | `change_set_id`, `session_id`, `first_turn_at` | 参与过这个改动集的所有会话（多个会话可以共用一个改动集） |
 | `builds` | `id`, `site_id`, `change_set_id`, `commit`, `kind`, `status`, `exit_code`, `output_dir`, `report_json`, `started_at`, `finished_at` | 构建记录；`kind`：`check` / `doctor` / `build` |
-| `settings` | `key`, `value_json` | 全局设置：默认模型、思考级别、Bukit 路径 |
+| `deploys` | `id`, `site_id`, `commit`, `repo`, `branch`, `url`, `status`, `step`, `outcome`, `report_json`, `started_at`, `finished_at` | 发布记录（004，M6） |
+| `data_sources` | `id`, `name`, `platform`, `config_json`, `created_at` | 保存的 Notion 数据源（006；008 删掉了非 Notion 的行）；token 不在表里，在 `data-source-tokens.json` |
+| `publish_accounts` | `id`, `name`, `platform`, `created_at` | 发布账号（007，目前只有 `github`）；token 在 `publish-account-tokens.json` |
+| `settings` | `key`, `value_json` | 全局设置：默认模型、思考级别、提交身份 `commitName` / `commitEmail`、上次选择的父目录、关闭的技能 `disabledSkills` 等（不含密钥） |
+| `legacy_token_imports` | `kind`, `row_id`, `status`, `updated_at` | 旧全局 GitHub/Notion token 的一次性迁移状态；只记行 id 和 `imported` / `adopted`，不存 token。重命名不影响补链接，删除导入行后环境变量也不会再导入 |
 | `schema_migrations` | `version`, `applied_at` | 数据库迁移 |
 
 迁移脚本放在 `packages/server/src/store/migrations/NNN_name.sql`，启动时按顺序执行。
@@ -239,11 +262,11 @@ BukitJalil/
 
 > 限制：Bukit 的外部插件（如官方的 IndexNow、WechatSync、Import）在 BukitJalil 里不被支持，使用了它们的网站只能以只读方式导入。
 >
-> 限制：使用 Notion 数据源的网站，Bukit 的 `config check`、`doctor`、`build` 在没有 `NOTION_TOKEN` 时直接报错（已核对 2.0.8 和 2.0.11 源码 `ProviderValidators.cs`、`DoctorCommand.cs`），而未审核内容的构建按 8.5 不传密钥。所以这类网站的 AI 检查、AI 构建和改动集预览在 MVP 里不可用：`bukit_check` / `bukit_build` 直接返回"此网站使用 Notion 数据源，AI 构建不可用"，不调用 Bukit，避免 AI 反复处理它修不了的错误；正式版本由用户手动构建（传 token）。M1 已确认不行：Notion 源有 `cacheMode: readonly`，但 Bukit 在读取缓存模式之前就要求 token（源码 `ContentProviderFactory.cs`），2.0.8 和 2.0.11 实测 `cacheMode: readonly` 且没有 token 时 check / doctor / build 仍分别返回 1 / 1 / 2。
+> 限制：使用 Notion 数据源的网站，Bukit 的 `config check`、`doctor`、`build` 在没有 `NOTION_TOKEN` 时直接报错（已核对 2.0.8 和 2.0.11 源码 `ProviderValidators.cs`、`DoctorCommand.cs`），而未审核内容的构建按 8.5 不传密钥。所以这类网站的 AI 检查、AI 构建和改动集预览在 MVP 里不可用：`bukit_check` / `bukit_build` 直接返回"此网站使用 Notion 数据源，AI 构建不可用"，不调用 Bukit，避免 AI 反复处理它修不了的错误；正式版本的构建传 token。（M7 之后：token 按 Notion 数据源保存，网站在 `sites.notion_data_source_id` 里选用一个数据源；正式版本的每次构建都会传这个 token，包括用户点"应用"后的自动重建——应用本身是用户操作。见 6.5。）M1 已确认不行：Notion 源有 `cacheMode: readonly`，但 Bukit 在读取缓存模式之前就要求 token（源码 `ContentProviderFactory.cs`），2.0.8 和 2.0.11 实测 `cacheMode: readonly` 且没有 token 时 check / doctor / build 仍分别返回 1 / 1 / 2。
 
 ### 5.2 新建网站
 
-1. 用户在界面填写：网站名、目录位置、主语言
+1. 用户在界面填写：网站名、目录位置、主语言；可选：选一个已保存的 Notion 数据源（`dataSourceIds`，最多 1 个）和 Notion 数据库 ID（`notionDatabaseId`），用于从 Notion 读取内容
    - **目录位置每次由用户选择**，没有默认目录。浏览器拿不到本机文件夹的绝对路径（File System Access API 只给句柄），所以用服务端提供的目录选择器：`GET /api/fs/dirs?path=` 只返回某个目录下一层的子目录名（不返回文件，不跟随符号链接，隐藏目录默认不显示），从主目录开始逐级打开；也可以直接粘贴绝对路径。上次选择的父目录记在设置里，作为下次的起点
    - 新网站的目标目录必须不存在或为空；不能位于 `~/.bukitjalil/` 内、不能是主目录或根目录本身，也不能在另一个已登记网站的目录里。导入网站用同一个选择器
    - M7 桌面版改用系统原生的文件夹选择对话框
@@ -260,7 +283,7 @@ BukitJalil/
 | 文件 | 正式版本的提交，或当前改动集的快照（都从 git 对象读取） | 目录树接口（按目录懒加载）+ 文件内容接口；从 git 对象读取，网站目录里未跟踪或被忽略的文件（如 `.env`）不会出现；文件内容的返回方式见 9.1 |
 | 配置 | `site.yaml` | `yaml` 解析成结构化视图（站点信息、语言、集合、内容源、构建、主题、部署），同时提供原文 |
 | 主题 | `themes/<theme.name>/theme.yaml` 和目录 | 主题清单、布局文件列表、assets、params |
-| 数据 | `site.yaml` 的 `content.sources[]` | 每个源一张卡片：Markdown 集合（文件数、frontmatter 字段汇总）、`mode: data` 源（按 `dataIndex` 的 scope/key/value 显示成表格）、Notion 源（只显示配置，MVP 不连 Notion） |
+| 数据 | `site.yaml` 的 `content.sources[]` | 每个源一张卡片：Markdown 集合（文件数、frontmatter 字段汇总）、`mode: data` 源（按 `dataIndex` 的 scope/key/value 显示成表格）、Notion 源（只显示配置；面板不连 Notion，连接 Notion 的是数据源设置和正式版本构建） |
 | 改动 | `change_sets` + git | 见第 7 节 |
 | 预览 | 最新一次成功构建 | 见第 8.4 节 |
 
@@ -293,7 +316,7 @@ BukitJalil/
 ```text
 创建会话 ──► 记录 sessions 行，生成 Pi 会话文件路径（还不创建 AgentSession）
 发送消息 ──► 网站已有其他会话在运行：排队，等它结束
-          ──► 若没有 open 的改动集：把工作副本重置到默认分支最新提交，开一个新改动集（见 7.2）；如果这个会话之前已经有过改动集，在用户消息前附一段说明："工作副本已重置到最新正式版本，你之前的改动已被应用 / 拒绝（按实际情况），修改前请重新读取文件"
+          ──► 若没有 open 的改动集：把工作副本重置到默认分支最新提交，开一个新改动集（见 7.2）；原计划：如果这个会话之前已经有过改动集，在用户消息前附一段说明："工作副本已重置到最新正式版本，你之前的改动已被应用 / 拒绝（按实际情况），修改前请重新读取文件"。**这段说明没有实现**（`agent/service.ts` 直接发送用户原文）；6.6 的实测说明缺了它也不会写坏文件，只是模型可能多一次失败的 `edit`。是否补上见 16
           ──► createAgentSession({ cwd: worktree, tools: [6 个内置工具名 + 6 个自定义工具名], customTools, resourceLoader, sessionManager, settingsManager, modelRuntime, model })
           ──► session.subscribe(事件 → SSE)
           ──► session.prompt(text)（正在运行时用 steer / followUp）
@@ -327,7 +350,7 @@ BukitJalil/
 
   安装包本身在 M3 实现安装时下载、解压后再核对一次（M3 第 3 层已核对：4 个 macOS / Linux 安装包的摘要一致，压缩包结构相同，另外写死了每个包里 `rg` 程序本身的 SHA-256，见 M3 第 3 层实现说明）。Windows 安装包不装：Windows 不是 MVP 平台，`grep` 在 Windows 上不可用。安装复用 Bukit 的安装模块（8.1，同样需要用户确认、同样检查压缩包条目）安装到 `~/.bukitjalil/pi/bin/`；`PI_OFFLINE=1` 保证 Pi 不再下载
 - 因为 Pi 会退回系统 `PATH`，`grep` 工具（M3 第 2 层起由 BukitJalil 包装的 `execute`，见下）在 `~/.bukitjalil/pi/bin/rg` 不存在或校验不通过时**直接阻止 `grep`**，返回"搜索工具未安装"，不让 Pi 去用系统里的 rg
-- **`grep` 结果过滤 `.git`**（M1 实测）：Pi 调用 rg 时固定带 `--hidden`，会搜索工作副本根目录的 `.git` 文件（内容是 `gitdir: <网站仓库>/.git/worktrees/ai`）和任何嵌套的 `.git` 目录，参数由 Pi 写死，`operations` 管不到 rg 本身。所以 `grep` 工具定义再包一层：执行后丢掉路径里含 `.git` 段（不分大小写）的匹配行。rg 默认不跟随符号链接，搜索根目录又先经过闸门（`isDirectory`），工作副本外的文件读不到（已实测）
+- **`grep` 结果过滤 `.git`**（M1 实测）：Pi 调用 rg 时固定带 `--hidden`，会搜索工作副本根目录的 `.git` 文件（内容是 `gitdir: <网站仓库>/.git/worktrees/ai`）和任何嵌套的 `.git` 目录，参数由 Pi 写死，`operations` 管不到 rg 本身。所以 `grep` 工具定义再包一层：执行后丢掉路径里含 `.git` 段（不分大小写）的匹配行。实际实现另外给 rg 加了排除 glob `!**/{.[gG][iI][tT],.[eE][nN][vV]*}`，输出过滤同时丢掉 `.env*` 的行（`agent/tools.ts`）。rg 默认不跟随符号链接，搜索根目录又先经过闸门（`isDirectory`），工作副本外的文件读不到（已实测）
 
 **自定义工具**（通过 `customTools` / 内联扩展注册）：
 
@@ -338,7 +361,7 @@ BukitJalil/
 | `bukit_build` | 在工作副本里构建到临时输出目录 | 是否成功、页面数、错误、SEO/GEO 报告摘要 |
 | `bukit_schema` | 返回 `bukit config schema` 输出的 JSON Schema（缓存） | JSON Schema |
 | `list_content` | 按集合列出内容文件和 frontmatter 摘要 | 列表 |
-| `summarize_changes` | AI 在完成一轮修改后调用，提交给用户审核的说明 | 写入改动集 `summary`；AI 没调用时，服务端按差异自动生成一行摘要（如"修改 3 个文件：site.yaml、content/faq.md…"） |
+| `summarize_changes` | AI 在完成一轮修改后调用，提交给用户审核的说明 | 写入改动集 `summary`；AI 没调用时，提交信息用固定文本 `Changes made with BukitJalil AI`（`changes/service.ts` 的 `DEFAULT_MESSAGE`）。原计划"按差异自动生成一行摘要"没有实现 |
 
 **权限闸门**放在**文件操作这一层**，不在工具参数这一层：
 
@@ -346,10 +369,11 @@ BukitJalil/
 - **做法**：用 Pi 的 `createReadToolDefinition` / `createWriteToolDefinition` / `createEditToolDefinition` / `createLsToolDefinition` / `createGrepToolDefinition` / `createFindToolDefinition` 生成同名工具，传入自己的 `operations`（`readFile`、`writeFile`、`mkdir`、`access`、`stat`、`exists`、`isDirectory`、`glob` 等），通过 `customTools` 注册（同名会替换内置工具）。Pi 调用 `operations` 时传的是**最终的绝对路径**，`edit` / `write` 传的是**最终写入的内容**，闸门在这里检查，不需要复刻 Pi 的路径改写和 `edit` 的匹配逻辑
 - 第一层快速拒绝（M1 原型放在 `tool_call` 处理器里，M3 第 2 层改为包装每个工具定义的 `execute`：工具定义本来就由 BukitJalil 生成，不需要再加扩展）：路径以 `@`、`~`、`file:` 开头，或含 Unicode 空格，直接阻止并告诉 AI 用相对路径
 - **所有带路径的操作**都必须落在工作副本内；读也要限制：否则 AI 可以读到 `~/.bukitjalil/pi/auth.json`（模型密钥）、`~/.ssh` 等，再借提示词注入写进网站文件带出去
-- **唯一的例外：技能文件只读**。Pi 只在系统提示里给出技能文件的绝对路径，让模型用 `read` 去加载（已核对 `dist/core/skills.js`），所以 `readFile` / `access` 允许读取应用自带的 `skills/` 目录（取 `realpath` 后比较），不允许写，也不允许 `ls` / `grep` / `find` 它之外的目录
+- **唯一的例外：技能文件只读**。Pi 只在系统提示里给出技能文件的绝对路径，让模型用 `read` 去加载（已核对 `dist/core/skills.js`），所以 `readFile` / `access` 允许读取应用自带 `skills/` 下**已启用技能**的目录（取 `realpath` 后比较；真实路径不在 `skills/` 里的技能目录，例如符号链接出去的，直接跳过；用户在设置里关闭的技能 `disabledSkills` 不加载也不可读），不允许写，也不允许 `ls` / `grep` / `find` 它之外的目录
 - 路径检查：对已存在的路径取 `realpath.native`（macOS 上会返回磁盘上的真实大小写）；不存在的路径（新建文件）逐级找到最近的已存在上级目录取 `realpath.native`，再拼回剩余部分；最终结果必须以工作副本的 `realpath` 加路径分隔符开头（防符号链接和 `..` 逃逸）
 - 禁止读写：路径中**任何一级**名为 `.git`（不区分大小写），包括嵌套目录里的 `.git`：工作副本根目录的 `.git` 是指向网站仓库的文件，被改写就能把 git 指到 AI 准备的目录；嵌套的 `.git` 会让 `git add -A` 失败或把内容变成看不见的子模块
-- 禁止写：`dist/**`、`.bukit/**`、`.cache/**`、`.bukitjalil-build/**`、`node_modules/**`、任何以 `.env` 开头的文件
+- 禁止写：构建目录 `dist/**`、`.bukit/**`、`.cache/**`、`.bukitjalil-build/**`、`.bukitjalil-deploy/**`（代码里统一用 `sites/exclude.ts` 的 `BUILD_DIRS`）、`node_modules/**`、任何以 `.env` 开头的文件
+- 禁止读和列出：路径中任何一级以 `.env` 开头（导入的仓库可能跟踪了 `.env`，读到就会把密钥发给模型提供商；`grep` 也排除它们，见上）
 - 禁止写插件相关文件：`plugins/**` 以及任何 `plugin.yaml` / `plugin.json`（插件按 `plugins/<id>/plugin.yaml` 启动；外部插件配置在 `.bukit/plugins.yaml`，已在上一条的 `.bukit/**` 里禁止；M1 已核对源码，见 8.5）；`site.yaml` 的插件配置在构建前另行检查（见 8.5）
 - `grep` / `find` 的 glob 只在根目录下匹配；根目录在 `operations.isDirectory` / `glob` 里检查
 - 自定义工具只接受集合名、语言代码等受限参数，不接受任意路径；有路径参数的（如以后的素材工具）走同一个解析函数
@@ -358,12 +382,14 @@ BukitJalil/
 
 ### 6.4 技能与提示
 
-- **Bukit 官方技能**：Bukit 仓库 `guide/skills/` 下已有 14 个面向 AI 的技能（`using-bukit`、`bukit-config`、`bukit-content`、`bukit-theme`、`bukit-templating`、`bukit-i18n`、`bukit-seo`、`bukit-geo` 等）。按 Bukit 2.0.11 对应的版本复制到 `skills/bukit/`，记录来源 commit，升级 Bukit 时同步（M3 第 4 层：复制了其中 11 个；`bukit-dev`、`bukit-preview`、`bukit-deploy` 讲的是 AI 不能做的事，不复制；来源和改动记在 `skills/sources.yaml`）
+- **Bukit 官方技能**：Bukit 仓库 `guide/skills/` 下已有 14 个面向 AI 的技能（`using-bukit`、`bukit-config`、`bukit-content`、`bukit-theme`、`bukit-templating`、`bukit-i18n`、`bukit-seo`、`bukit-geo` 等）。按对应的 Bukit 版本复制到 `skills/bukit/`，记录来源 commit，升级 Bukit 时同步，来源和改动记在 `skills/sources.yaml`。M3 第 4 层按 2.0.11 复制了其中 11 个，当时 `bukit-dev`、`bukit-preview`、`bukit-deploy` 讲的是 AI 不能做的事，不复制。**现状**：已同步到 Bukit v2.0.15（commit `83ba56a6`），共 18 个，包括 `bukit-local-server`、`bukit-publish-deploy`、`bukit-troubleshooting`（`bukit-debug` 已被上游改名移除）。这两个讲本地服务器和发布的技能也复制了，因为它们解释了"链接为什么和线上不同""发布配置怎么写"等 AI 回答问题时需要的背景；每个技能开头的说明仍然告诉 AI 预览、开发服务器、发布由 BukitJalil 处理，不要尝试
 - **BukitJalil 技能**（`skills/bukitjalil/`）：
   - `site-editing`：工作规则——只改网站文件；改完先 `bukit_check`，再 `bukit_build`；最后调用 `summarize_changes`。**同时说明命令和工具的对应关系**：Bukit 官方技能里写的是 `bukit config check`、`bukit doctor`、`bukit build` 等命令，而 AI 没有执行命令的工具，要改用 `bukit_check`、`bukit_build`、`bukit_schema`；官方技能里涉及 `dev`、`preview`、`deploy`、插件和 Labs 的部分由 BukitJalil 处理，AI 不要尝试
   - 复制官方技能时去掉 Labs 相关内容，并在每个技能开头加一行说明上述对应关系
   - `content-writing`：公司介绍、服务页、首屏文案、FAQ、SEO 标题描述、按主题写文章的写法和 frontmatter 约定
   - `multilingual`：按 `site.languages` 生成和对齐多语言内容
+  - `publishing`（M6 之后加入）：说明 AI 不能发布，发布由用户在发布面板完成；解释 `site.yaml` 的 `deploy` 段（仓库、分支、自定义域名）
+  - 可选技能可以在设置里关闭（`disabledSkills`）
 - **系统提示**：自定义 `getSystemPrompt()`，说明身份（BukitJalil 建站助手）、当前网站名和路径、可用工具、"不要执行命令、不要改网站目录以外的东西"、回答用用户的语言
 - 不加载 `AGENTS.md` / `CLAUDE.md` 等上下文文件
 - 技能文件在工作副本外，靠 6.3 的"技能目录只读"例外让 AI 读到；M1 验证 AI 确实会 `read` 这些路径并成功
@@ -376,16 +402,21 @@ BukitJalil/
 - 设置面板支持：选择提供商和模型、填写 API Key（界面只显示末四位）、思考级别、"测试连接"
 - 密钥永远不通过 API 返回给浏览器
 
-**其他密钥（Notion token、GitHub token）的来源**，由 `packages/server/src/settings/secrets.ts` 统一处理：
+- **OAuth 登录**（M7 之后）：支持 OAuth 的提供商（如 OpenAI Codex）即使还没有模型也会列出，设置页可以发起 OAuth 登录、回答提供商的提问、取消或登出（`/api/providers/:provider/oauth…`，见 9.1）；凭据由 Pi 写入 `auth.json`
+- **自定义模型**（M7 之后）：用户可以添加兼容 OpenAI / Anthropic 接口的自定义模型，配置和密钥存在 `~/.bukitjalil/pi/custom-models.json`（0600），启动时注册到 `ModelRuntime`
 
-1. **环境变量优先**：启动时读取 `BUKITJALIL_NOTION_TOKEN`、`BUKITJALIL_GITHUB_TOKEN`。设置了就使用，设置页显示"来自环境变量"，不能在界面里修改或删除。适合 CI、无界面服务器、不想把 token 写到磁盘的用户
-2. **否则用设置页填写的值**：保存在 `~/.bukitjalil/secrets.json`（权限 600，写入时先写临时文件再原子替换）
-3. **读完立即从进程环境里删除**：服务启动读取后，马上从 `process.env` 中删除这两个变量，只保存在内存里，避免被 git、Bukit 等子进程继承
-4. **传给 Bukit 的规则不变**：每次调用 Bukit 都显式构造环境变量（8.5），只在需要时放入对应 token——Notion token 只在用户手动构建正式版本或发布时传，GitHub token 只在发布时传
+**其他密钥（Notion token、GitHub token）**，现行设计（2026-11-12）：
 
-不只用环境变量的原因：从 Finder / Dock 启动的桌面版（M7）读不到 shell 里设置的环境变量；界面里没法修改；而且放在进程环境里的密钥默认会被所有子进程继承。在防 AI 这一点上两者等价：AI 没有执行命令的工具，读写又限制在工作副本内，读不到环境变量，也读不到 `secrets.json`。
+1. **GitHub token 按发布账号保存**：设置页的"发布账号"里添加账号和 token，存在 `~/.bukitjalil/publish-account-tokens.json`（`publish/accounts.ts`）；网站在 `sites.publish_account_id` 里选用一个账号
+2. **Notion token 按数据源保存**：设置页的"数据源"里添加，存在 `~/.bukitjalil/data-source-tokens.json`（`data-sources/service.ts`）；网站在 `sites.notion_data_source_id` 里选用一个数据源
+3. **环境变量只在启动时迁移一次**：`BUKITJALIL_GITHUB_TOKEN`、`BUKITJALIL_NOTION_TOKEN` 和旧的 `secrets.json` 只作为迁移来源（`store/legacy-tokens.ts`），读完立即从 `process.env` 删除，迁移成功后删除 `secrets.json`。环境变量不再"优先"，也不再在界面里显示为只读
+4. **token 的用途**：每次调用 Bukit 都显式构造环境变量（8.5），只在需要时放入对应 token——Notion token 在正式版本的构建和发布时传（不传给 AI 工作副本和改动集的构建），GitHub token 在发布时传；另外 GitHub token 会用来调用 GitHub API 检查账号对目标仓库的权限（保存部署设置时和每次发布前，见 M6）；数据源设置会用 Notion token 调用 Notion API 列出数据库
 
-系统钥匙串（macOS Keychain / Windows 凭据管理器）作为 M7 桌面版的可选改进，MVP 不做（Node 常用的钥匙串库已停止维护，会增加原生依赖和打包成本）。
+早期设计（M6 时）是"环境变量优先，否则 `secrets.json`，由 `settings/secrets.ts` 统一处理"，这些文件和接口（`/api/secrets`）都已删除。不只用环境变量的原因仍然成立：从 Finder / Dock 启动的桌面版（M7）读不到 shell 里设置的环境变量；界面里没法修改；而且放在进程环境里的密钥默认会被所有子进程继承。AI 没有执行命令的工具，读写又限制在工作副本内，读不到这些文件。
+
+系统钥匙串（macOS Keychain / Windows 凭据管理器）仍未采用（Node 常用的钥匙串库已停止维护，会增加原生依赖和打包成本）。
+
+> **存储细节（2026-11-12）**：上面三个文件和自定义模型文件都是 0600 明文，应用目录 0700。启动时把旧 `secrets.json` 和环境变量里的 token 迁移到对应账号/数据源，成功后删除旧文件；迁移状态记在数据库的 `legacy_token_imports`（只记行 id 和 `imported` / `adopted`，不存 token），所以重命名导入行不影响后续补链接，删除导入行后环境变量也不会再把它导入回来；唯一的无 token 账号/数据源会直接填入旧 token，不创建第二个。这套存储防的是其他系统用户和 AI 越权读取，不防同一用户下的 malware、管理员/root、备份/云同步，也不防没有全盘加密的磁盘；Windows 上 `chmod(0600)` 只影响只读属性，不是完整的 NTFS ACL。JSON 写入使用临时文件、fsync、rename 和目录 fsync；启动时清理无主 token 和残留临时文件。`lstat` 到读取之间的 TOCTOU 在当前威胁模型下接受：能改应用目录的同一用户本来就能直接读这些文件。
 
 ### 6.6 待验证（M1 技术验证）
 
@@ -393,10 +424,10 @@ BukitJalil/
 
 - [x] **闸门写在 `operations` 里**（`pi-gate.mjs`，35 项全部通过）：`create*ToolDefinition(worktree, { operations })` 生成的工具通过 `customTools` 传入后，会话里实际生效的就是带闸门的版本。`~/…`、`@~/…`、`@/绝对路径`、`file://`、`../`、绝对路径、Unicode 空格、指向外部的符号链接文件和目录、任意层级的 `.git`（含 `.GIT`）都被拒绝；工作副本内正常读写、`@index.md`、新建深层目录、技能目录只读都正常；写入超过 1 MB 被拒绝。`ls` / `find` / `grep` 的根目录都经过闸门
 - [x] **`tools` 白名单**（同上）：只列内置工具名时自定义工具确实被丢掉；同时列出自定义工具名后正常注册，且没有 `bash`
-- [x] **`tool_call` 快速拒绝**（`pi-session.mjs`）：内联扩展 `{ name, factory: (api) => api.on("tool_call", e => ({ block: true, reason })) }` 通过 `DefaultResourceLoader` 的 `extensionFactories` 传入；`~/secret.txt` 和 `bin/rg` 缺失时的 `grep` 都被拦下，`reason` 作为工具错误结果返回给模型，秘密内容没有出现在任何事件里
+- [x] **`tool_call` 快速拒绝**（`pi-session.mjs`；这是 M1 原型，M3 第 2 层起改为包装工具定义的 `execute`，并传 `noExtensions: true`，见 6.3）：内联扩展 `{ name, factory: (api) => api.on("tool_call", e => ({ block: true, reason })) }` 通过 `DefaultResourceLoader` 的 `extensionFactories` 传入；`~/secret.txt` 和 `bin/rg` 缺失时的 `grep` 都被拦下，`reason` 作为工具错误结果返回给模型，秘密内容没有出现在任何事件里
 - [x] **技能**（同上）：`additionalSkillPaths` 指向技能目录后，`session.systemPrompt` 里列出技能名、描述和 `SKILL.md` 的绝对路径；模型按这个路径 `read` 能拿到正文。是否"真的会去读"取决于真实模型，M3 用真实模型再观察
 - [x] 会话文件放在自定义目录：已核对 1.5.0 类型定义，`SessionManager.create(cwd, sessionDir)`、`SessionManager.open(path, sessionDir, cwdOverride)` 都支持；从指定消息分叉用 `createBranchedSession(entryId)`（`forkFrom` 会复制整个会话）；实际行为已跑通（`pi-session.mjs`）：会话文件写在指定目录，`SessionManager.open` 重新打开后条目数一致，`createBranchedSession(第一条用户消息)` 生成新的、更短的会话文件
-- [x] **reset 后续用会话**（`pi-session-reset.mjs`，7 项通过）：Pi 的读写工具不记录文件状态，`edit` 每次重新读文件按原文匹配。模型按记忆里的旧内容 `edit` 时返回工具错误（"Could not find the exact text"），文件不被改动；模型重新 `read` 后能改到重置后的内容。同一个会话对象继续用、或从会话文件重新打开后继续用，模型都拿到完整历史，新消息追加在同一个文件里。旧上下文只会让模型多走一步，不会写坏文件；开新改动集时附一段说明（第 6 节会话流程）减少这一步
+- [x] **reset 后续用会话**（`pi-session-reset.mjs`，7 项通过）：Pi 的读写工具不记录文件状态，`edit` 每次重新读文件按原文匹配。模型按记忆里的旧内容 `edit` 时返回工具错误（"Could not find the exact text"），文件不被改动；模型重新 `read` 后能改到重置后的内容。同一个会话对象继续用、或从会话文件重新打开后继续用，模型都拿到完整历史，新消息追加在同一个文件里。旧上下文只会让模型多走一步，不会写坏文件；原计划开新改动集时附一段说明（第 6 节会话流程）减少这一步，但没有实现（见 6.2）
 - [x] **事件字段**（同上）：`tool_execution_start` 有 `toolCallId`、`toolName`、`args`；`tool_execution_end` 有 `toolCallId`、`toolName`、`result`、`isError`；`message_update` 有 `message`、`assistantMessageEvent`；`agent_settled` 有 `aborted`，在一轮结束时只发一次且是最后一个事件
 - [x] **不联网**（同上）：用 Pi 自带的 faux 假模型（`fauxProvider` + `ModelRuntime.create({ allowModelNetwork: false, refreshOnCreate: false })` + `registerNativeProvider`）跑完 4 步会话，`fetch` 调用 0 次，`$HOME/.pi` 没有被创建
 - [x] **顺序执行**（同上）：同一批里两个普通自定义工具并行执行（对照组）；`bukit_build` 设 `executionMode: "sequential"` 后，同批的 `write` 在它结束之后才开始
@@ -449,20 +480,20 @@ AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukit
   - 会话开始运行时当前审核卡片立即失效，界面禁用"应用"，等这一轮结束、新的快照生成后再启用
 - **正式版本已前进时**：应用前发现 `main` 不再等于 `base_commit`（用户在 BukitJalil 外提交过，或做过恢复），用 `git merge-tree --write-tree <main 的 OID> <快照>`（git ≥ 2.38，只读，不碰索引和工作区）计算合并结果：
   - 成功：得到新树 T'，`git commit-tree T' -p <main>` 作为新快照，在工作副本里 `git reset --hard` 到它，`base_commit` 更新为 main；**不自动合入**，重新生成差异和指纹，用户再确认一次
-  - 有冲突：标记 `stale`，让 AI 基于新版本重做；没有任何进行到一半的 git 操作需要清理（不用 `git rebase`：冲突时它会把工作副本留在 rebase 状态，之后所有 `git switch` 都失败）
+  - 有冲突，或合并结果和 main 的树相同（main 已经包含全部改动）：标记 `stale`，让 AI 基于新版本重做；没有任何进行到一半的 git 操作需要清理（不用 `git rebase`：冲突时它会把工作副本留在 rebase 状态，之后所有 `git switch` 都失败）
 - **应用**：拿锁 → 校验指纹 → main 已前进时按上一条处理 → 自动跑一次 `bukit_check`（失败时允许用户坚持应用，但要明确提示）→ `git commit-tree <指纹> -p <main>` 生成结果提交 → 在网站目录里 `git merge --ff-only --no-overwrite-ignore <结果提交 OID>` → 状态 `applied`、记录 `result_commit`、删除引用。合入前检查，任一不满足就拒绝并提示用户先处理：
   - 网站目录当前检出的分支就是 `sites.default_branch`（用户可能在 BukitJalil 外切到了别的分支）
   - 网站目录没有未提交的改动
   - `--no-overwrite-ignore`：改动里如果有网站目录中被忽略的同名本地文件，合并中止而不是悄悄覆盖（已实验确认不加这个参数会直接覆盖）
 - **拒绝**：只改状态、删除引用；工作副本在下次开新改动集时统一 `reset --hard` + `clean`
 - **清理被忽略的文件**：AI 可以改 `.gitignore`，把文件藏起来——被忽略的文件不出现在差异里、不会被提交，但会留在工作副本里。M1 实测（`git-worktrees.sh` 和单语言 starter 网站）：AI 在 `.gitignore` 里加上 `content/posts/hidden.md` 后，这篇文章不在快照里，但单语言网站在 `ai/` 里的构建照样把它渲染进预览（多语言网站从 HEAD 的提交构建，不受影响）。所以：
-  - **每次快照之后**立即 `git clean -fdx -e .bukit -e .cache -e .bukitjalil-build`，让工作区和快照完全一致，再进行任何构建；被删掉的文件名写进快照结果返回给 AI（"以下文件被 .gitignore 忽略，已删除，不会进入审核"），避免 AI 以为文件还在
-  - 开新改动集时同样 `git clean -fdx -e .bukit -e .cache`
+  - **每次快照时**，在 `git add -A` **之前**用 `git ls-files -z --others --ignored --exclude-standard --directory` 列出被忽略的文件，除构建目录（`BUILD_DIRS`）和 `node_modules` 外全部删除，让工作区和快照完全一致，再进行任何构建；`git add -A` 另外用 `:(exclude,icase,glob)` 路径规则把这些顶层目录排除在外，即使 `.gitignore` 取消了对它们的忽略也不会进入快照（`changes/snapshot.ts`，M3 第 1 层实现说明里写的就是这个做法）。被删掉的文件名写进快照结果返回给 AI（"以下文件被 .gitignore 忽略，已删除，不会进入审核"），避免 AI 以为文件还在。（原计划是快照之后执行 `git clean -fdx -e …`。）
+  - 开新改动集时 `git reset --hard` 后执行 `git clean -fdx -e .bukit -e .cache`（`sites/service.ts`）
   - 已实测 `-x` 配合 `-e` 会保留这两个缓存目录、删除其他所有未跟踪和被忽略的文件
 - 一个网站同一时间最多一个 `open` 改动集，多个会话共享它；配合网站操作锁，不会出现两个 AI 同时改文件
-- **排除规则**：创建网站检出时，在网站仓库的 `.git/info/exclude` 写入一段带 `# BukitJalil begin/end` 标记的内容：`dist/`、`.bukit/`、`.cache/`、`.bukitjalil-build/`。必须写在这里而不是只用 `-c core.excludesFile`：Bukit 自己调用的 `git status` 也要把这些目录当作被忽略，否则多语言构建会因为"有未跟踪文件"拒绝。移除网站时删掉这一段
-- **提交身份**：提交信息为 `summarize_changes` 的说明 + 会话 ID。作者固定为 `BukitJalil AI <ai@bukitjalil.local>`，提交者是设置页里填写的身份。`git commit-tree` 没有 `--author` 参数，所以用 `-c author.name=… -c author.email=… -c committer.name=… -c committer.email=…`（git ≥ 2.22，已实验确认能分开设置）
-- **身份的默认值**：git 子进程不读全局配置（7.3），所以 `git/run.ts` 提供一个单独的 `readGlobalIdentity()`：只执行 `git config --global --get user.name` 和 `user.email`，这一次不覆盖 `GIT_CONFIG_GLOBAL`（`config --get` 只读值，不执行任何程序），结果只作为设置页的默认值。新建网站、导入非 git 目录都需要提交，所以首次启动引导**先**填身份，再新建网站
+- **排除规则**：创建网站检出时，在网站仓库的 `.git/info/exclude` 写入一段带 `# BukitJalil begin/end` 标记的内容：`BUILD_DIRS` 里的 `dist/`、`.bukit/`、`.cache/`、`.bukitjalil-build/`、`.bukitjalil-deploy/`（后者 M6 加入）。必须写在这里而不是只用 `-c core.excludesFile`：Bukit 自己调用的 `git status` 也要把这些目录当作被忽略，否则多语言构建会因为"有未跟踪文件"拒绝。移除网站时删掉这一段
+- **提交身份**：提交信息的第一行和正文来自 `summarize_changes` 的说明（没有时用固定文本，见 6.3），末尾加 trailer：`BukitJalil-Sessions: <会话 ID…>`（有会话参与时）和 `BukitJalil-Restore: <版本>`（恢复时）。提交者是设置页里填写的身份；作者分三种情况：有会话参与过（`ai_joined`）的改动集是 `BukitJalil AI <ai@bukitjalil.local>`；没有会话参与的恢复，以及没有任何会话的改动集（例如设置里的插件开关，见 10.2），作者是用户自己。`git commit-tree` 没有 `--author` 参数，所以用 `-c author.name=… -c author.email=… -c committer.name=… -c committer.email=…`（git ≥ 2.22，已实验确认能分开设置）
+- **身份的默认值**：git 子进程不读全局配置（7.3），所以 `git/identity.ts` 提供一个单独的 `readGlobalIdentity()`：只执行 `git config --global --get user.name` 和 `user.email`，这一次用真实的 `HOME`、不设置 `GIT_CONFIG_GLOBAL`、只设 `GIT_CONFIG_NOSYSTEM=1`（`config --get` 只读值，不执行任何程序），结果只作为设置页的默认值。新建网站、导入非 git 目录都需要提交，所以首次启动引导**先**填身份，再新建网站
 
 ### 7.3 git 调用加固
 
@@ -475,11 +506,11 @@ AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukit
   - 提交只接受完整的十六进制 OID（40 或 64 位），接口参数用 zod 校验
   - 分支只用 `refs/heads/<name>` 的完整形式，`<name>` 必须通过 `git check-ref-format --branch` 且不以 `-` 开头；能先解析成 OID 的就先解析
   - 版本参数前加 `--end-of-options`，路径前加 `--`
-- **不读系统和全局配置**：git 子进程只传 `PATH`、`HOME`、`LANG`，外加 `GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_GLOBAL=<空文件>`、`GIT_TERMINAL_PROMPT=0`；不继承服务进程的其他环境变量（包括模型密钥）。`core.excludesFile` 默认会读 `~/.config/git/ignore`，不受 `GIT_CONFIG_GLOBAL` 影响，所以也在固定参数里指向空文件（否则用户自己的忽略规则会让 AI 写的文件不出现在差异里）。`<空文件>` 是 `~/.bukitjalil/empty-gitconfig`，启动时确认存在且为空；不用 `/dev/null`，因为 Git for Windows 不保证能识别它
+- **不读系统和全局配置**：git 子进程只拿到这些环境变量（`git/run.ts` 的 `env()`）：`PATH`（只有 git 所在目录加 `/usr/bin:/bin`）、`HOME`（设为应用数据目录，不是用户主目录）、`LANG=C`、`LC_ALL=C`、`GIT_CONFIG_NOSYSTEM=1`、`GIT_CONFIG_GLOBAL=<空文件>`、`GIT_TERMINAL_PROMPT=0`，以及 `GIT_CEILING_DIRECTORIES`（应用数据目录和工作目录的上一级，git 只认工作目录本身的仓库，不会向上找到外层仓库）；不继承服务进程的其他环境变量（包括模型密钥）。`core.excludesFile` 默认会读 `~/.config/git/ignore`，不受 `GIT_CONFIG_GLOBAL` 影响，所以也在固定参数里指向空文件（否则用户自己的忽略规则会让 AI 写的文件不出现在差异里）。`<空文件>` 是 `~/.bukitjalil/empty-gitconfig`，启动时确认存在且为空；不用 `/dev/null`，因为 Git for Windows 不保证能识别它
 - **`safe.directory`**：不读全局配置后，用户在全局配置里加的 `safe.directory` 也不生效。网站目录属于别的用户时 git 会拒绝（dubious ownership），这时把网站标为只读并说明原因，不自动加 `safe.directory=*`
 - **检查仓库配置（白名单）**：不再列举危险的配置项（列不全：上面的 `gpg.program` 就是漏掉的一个），改为只允许已知无害的配置：
   - 用 `git config --list --show-scope --includes`（同样加固）列出**仓库级和 worktree 级**的全部配置（`--local` 看不到 `extensions.worktreeConfig` 打开后的 `config.worktree`）
-  - 允许的只有：`core.repositoryformatversion`、`core.filemode`、`core.bare`、`core.logallrefupdates`、`core.ignorecase`、`core.precomposeunicode`、`core.symlinks`、`core.autocrlf`、`core.eol`、`remote.*.url`、`remote.*.pushurl`、`remote.*.fetch`、`branch.*.remote`、`branch.*.merge`、`branch.*.rebase`、`user.name`、`user.email`，以及 M1 在本机 71 个真实仓库上统计后补充的：`branch.*.vscode-merge-base`（VS Code 写入，79 处）、`submodule.active`（66 个仓库）、`lfs.repositoryformatversion`（63 个，装过 git-lfs 就会写，不代表仓库用了 LFS）、`lfs.<url>.access`、`extensions.worktreeConfig`（8 个；worktree 级配置本身由 `--show-scope` 列出、同样按白名单检查，已实测）。按原先的白名单，这 71 个仓库几乎全部会被标为只读。`include.*` / `includeIf.*` 仍然拒绝（71 个仓库里没有一个用到）
+  - 允许的只有：`core.repositoryformatversion`、`core.filemode`、`core.bare`、`core.logallrefupdates`、`core.ignorecase`、`core.precomposeunicode`、`core.symlinks`、`core.autocrlf`、`core.eol`、`remote.*.url`、`remote.*.pushurl`、`remote.*.fetch`、`branch.*.remote`、`branch.*.merge`、`branch.*.rebase`、`user.name`、`user.email`，以及 M1 在本机 71 个真实仓库上统计后补充的：`branch.*.vscode-merge-base`（VS Code 写入，79 处）、`submodule.active`（66 个仓库）、`lfs.repositoryformatversion`（63 个，装过 git-lfs 就会写，不代表仓库用了 LFS）、`lfs.<url>.access`、`extensions.worktreeConfig`（8 个；worktree 级配置本身由 `--show-scope` 列出、同样按白名单检查，已实测），后来又加了 `extensions.objectFormat`（SHA-256 仓库，`git/repo-check.ts`）。按原先的白名单，这 71 个仓库几乎全部会被标为只读。`include.*` / `includeIf.*` 仍然拒绝（71 个仓库里没有一个用到）
   - 出现其他任何配置、`.git/info/attributes` 里有 `filter=` 属性，就把网站标为"只读：不满足安全规则"并列出原因，当前操作一并拒绝
   - **钩子不再作为只读条件**：BukitJalil 的 git 调用用空的 `core.hooksPath`；Bukit 构建多语言网站时的 git 通过 `GIT_CONFIG_*` 拿到同样的设置（M1 已实测钩子不再运行）。例外是 `bukit deploy`：它会删掉 `GIT_CONFIG_*`（见 M6），但它在网站目录里只执行 `git config --get`，不触发钩子，其余操作都在新建的临时仓库里。所以钩子文件存在与否不影响安全；如果以后 Bukit 的 deploy 在网站目录里执行会触发钩子的命令（升级 Bukit 时用 M6 的包装脚本复查），需要恢复这条规则或改在空钩子的副本里执行。本机 71 个仓库里有 2 个带 git-lfs 安装的钩子，按原规则会被误标为只读
   - **在 `git/run.ts` 里每次调用前执行**，按 `.git/config`、`config.worktree`、`info/attributes` 的修改时间和大小缓存结果。不再维护"哪些操作之前要检查"的清单：每轮快照里的 `git add -A`、开新改动集的 `reset --hard` 也会运行过滤器，同样要被覆盖
@@ -493,15 +524,33 @@ AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukit
 - 历史 = `main` 的提交列表，每条显示说明、时间、改动文件数、关联会话
 - 查看任意版本的差异（提交参数按 7.3 校验为完整 OID）
 - **恢复复用应用的流程**：恢复到版本 V = 生成一个由系统发起的改动集，快照树是 `V^{tree}`，base 是当前 main，用户在审核卡片里看到"恢复到 V"的差异和预览，确认后走 7.2 的"应用"（`commit-tree V^{tree} -p <main>` + 网站目录 `merge --ff-only --no-overwrite-ignore`）。不用 `git read-tree`：不加 `-u` 时它只改索引，网站目录里的文件不变，恢复后网站目录反而变成"有未提交改动"（已实验确认）
-- 有 `open` 改动集时，恢复需要用户先应用或拒绝它（同一时间只有一个 open 改动集）；恢复应用之后，下一个改动集基于新的 main
+- 有 `open` 改动集且它有改动时，恢复需要用户先应用或拒绝它（`change.open_exists`，同一时间只有一个 open 改动集）；open 改动集没有任何改动时，恢复直接把它关掉（记为 `rejected`）；V 的树和当前 main 相同时拒绝（`change.same_version`）。恢复应用之后，下一个改动集基于新的 main
 - 恢复前对 `V` 的提交跑构建前安全检查（8.5，直接读 git 对象），不通过时提示原因（旧版本可能用了现在不允许的配置）；用户确认后仍可恢复，但正式预览构建会被拒绝
-- 恢复提交由用户发起，作者和提交者都是设置页里填写的用户身份
+- 恢复提交由用户发起，作者和提交者都是设置页里填写的用户身份；但如果在恢复改动集上又开了会话让 AI 修改（`ai_joined`），作者改为 BukitJalil AI（见 7.2）
 
 ---
 
 ## 8. Bukit 集成
 
 ### 8.1 获取 Bukit
+
+> **现行设计（2026-11-12 核对代码，`bukit/install.ts`、`bukit/locate.ts`）**，取代下面 M1–M6 时的写法：
+> - **只用应用自己装的 Bukit**：按"最新正式版 → 内置版本 2.0.15 → 以前应用装的 2.0.12、2.0.11"的顺序找 `~/.bukitjalil/bin/bukit-<版本>/`。**不再支持设置里的自定义路径，也不找系统 `PATH`**（`bukitPath` 设置已删除）
+> - **安装最新正式版**：设置页打开时向 GitHub API 查 `releases/latest`（结果缓存 10 分钟，`BUKITJALIL_OFFLINE=1` 时不查），接受任何 `x.y.z` 版本，安装包的 SHA-256 **采用 GitHub API 返回的资源 `digest`**；查不到或没有可用的安装包时，用代码里固定的 2.0.15 安装包和 SHA-256 兜底。安装需要用户点击确认；安装成功并确认 `bukit version` 输出对应版本后，删除其他所有 `bukit-*` 目录
+> - **信任模型的变化**：M1–M6 的规则是"代码里固定 SHA-256，不在运行时信任下载来的校验值"。现在对最新版信任的是 GitHub API 报告的摘要：能保证下载内容和 GitHub 上的资源一致，但不能防止 Bukit 发布账号被盗后上传的恶意版本，也意味着一个没有经过 BukitJalil 核对的 Bukit 版本可能被装上。是否保留这个做法见 16
+> - 平台没有官方安装包时，安装接口返回 400 `bukit.unsupported_platform`
+>
+> 内置兜底版本 2.0.15 的安装包：
+>
+> | 安装包 | SHA-256 |
+> | --- | --- |
+> | `bukit-2.0.15-osx-arm64.tar.gz` | `c1bf7fd8573f7fbfcc5cb755e01646f010f4b6beef92509a29b1b3429618df99` |
+> | `bukit-2.0.15-linux-x64.tar.gz` | `41fce998b56cdddeb42c143580733470128b2dc06898b955d79a91068f22ca7d` |
+> | `bukit-2.0.15-win-x64.zip` | `a76489043d56093d4995c3390a2930f071a6dc8cfd158d5ca83a0d19afe1d2e0` |
+>
+> 从 2.0.12 升到 2.0.15 的源码差异核对本文没有记录，应补上（参照下面 2.0.11 → 2.0.12 的写法）。
+
+以下是 M1–M6 时的设计，保留作为记录：
 
 - 首次启动检查：设置里的自定义路径 → `~/.bukitjalil/bin/bukit-2.0.12/` → 以前应用装的 `~/.bukitjalil/bin/bukit-2.0.11/` → 系统 `PATH` 里的 `bukit`
 - 都没有时，界面提示从 Bukit GitHub Release v2.0.12 下载对应平台的包（需用户确认），解压到 `~/.bukitjalil/bin/`
@@ -515,8 +564,8 @@ AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukit
 
   上表和 GitHub 发布页给出的摘要、`checksums.txt` 一致；osx-arm64 包已下载核对（2.0.11 的三个包 M1 都下载核对过）
 
-- 解压安全：先解压到临时目录，逐个检查压缩包条目，拒绝绝对路径、含 `..` 的路径和符号链接（防止解压到目标目录外），检查通过后再整体移动到 `~/.bukitjalil/bin/bukit-2.0.12/`，并确认可执行文件存在、`bukit version` 输出 2.0.12；安装成功后删除以前应用装的 `bukit-2.0.11/`。每个包都只有两个文件，没有子目录：`bukit` + `libSkiaSharp.dylib`（macOS）、`bukit` + `libSkiaSharp.so`（Linux）、`bukit.exe` + `libSkiaSharp.dll`（Windows）。SkiaSharp 是图片处理用的原生库，必须和 `bukit` 放在同一目录，不能只拷可执行文件。tar 包的条目名带 `./` 前缀（`./bukit`），条目检查要先规范化再比较；Linux 版是动态链接 glibc 的，Alpine 等 musl 系统跑不了
-- 平台：官方只提供 osx-arm64、linux-x64、win-x64，**没有 Intel Mac（osx-x64）和 Linux ARM 版本**。这些平台的用户需要自己编译 Bukit 并在设置里指定路径，界面要给出明确提示
+- 解压安全（现在仍然适用）：先解压到临时目录，逐个检查压缩包条目，拒绝绝对路径、含 `..` 的路径和符号链接（防止解压到目标目录外），检查通过后再整体移动到 `~/.bukitjalil/bin/bukit-<版本>/`，并确认可执行文件存在、`bukit version` 输出对应版本；安装成功后删除以前应用装的版本。每个包都只有两个文件，没有子目录：`bukit` + `libSkiaSharp.dylib`（macOS）、`bukit` + `libSkiaSharp.so`（Linux）、`bukit.exe` + `libSkiaSharp.dll`（Windows）。SkiaSharp 是图片处理用的原生库，必须和 `bukit` 放在同一目录，不能只拷可执行文件。tar 包的条目名带 `./` 前缀（`./bukit`），条目检查要先规范化再比较；Linux 版是动态链接 glibc 的，Alpine 等 musl 系统跑不了
+- 平台：官方只提供 osx-arm64、linux-x64、win-x64，**没有 Intel Mac（osx-x64）和 Linux ARM 版本**。原计划让这些平台的用户自己编译 Bukit 并在设置里指定路径；自定义路径删除后，这些平台目前无法使用 BukitJalil 构建网站（打包脚本本来也只支持 macOS arm64、Windows x64、Linux x64，见 M7）
 - 启动时执行 `bukit version`，版本不是 2.0.x 时警告；低于 2.0.11 时提示升级（`deploy --token-env` 等行为依赖 2.0.11，见 M6）；2.0.11 仍算可用，但应用装的或 PATH 里的版本低于 2.0.12 时，设置里提供升级安装（更新的版本不会被"升级"回 2.0.12）（自定义路径的 Bukit 不提示）
 
 > Bukit 官方说明常规公开二进制发布已暂停，例外发布需要管理批准；2.0.12（2026-11-09）是当前最新的公开版本。因此固定 2.0.12，同时支持用户指定自己编译的 Bukit 路径。
@@ -536,7 +585,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 - 只用参数数组调用，不经过 shell
 - 默认超时：check / doctor 60 秒，build 5 分钟。超时或用户停止时先发 SIGINT（2.0.11 起 `build` 会取消并回滚构建、保留内容源缓存），10 秒内没退出再强制结束
 - 调用 Bukit 前先拿网站操作锁（7.2），在 `ai/` 里构建前先做快照，保证工作区干净（多语言网站的构建要求，见 7.2）
-- 环境变量里带上 7.3 的 git 加固（`GIT_CONFIG_NOSYSTEM`、`GIT_CONFIG_GLOBAL`、`GIT_CONFIG_COUNT` 等），因为 Bukit 会自己启动 git
+- 环境变量里带上 7.3 的 git 加固（`GIT_CONFIG_NOSYSTEM`、`GIT_CONFIG_GLOBAL`、`GIT_CONFIG_COUNT` 等），因为 Bukit 会自己启动 git。例外：`deploy` 会自己删掉 `GIT_CONFIG_COUNT` 一组变量，所以 `bukit/runner.ts` 给 deploy 不传这一组，靠 deploy 在新建的临时仓库里操作来保证安全（见 7.3 和 M6）
 - **`TMPDIR` 指向应用自己的目录** `~/.bukitjalil/tmp/bukit/`（M1 实测）：Bukit 把多语言构建用的临时 worktree（`bukit-i18n-worktrees/`）、构建租约和锁文件（`bukit-build-leases-v1/`）放在系统临时目录，发布也在那里建临时目录。最小环境里没有 `TMPDIR` 时会退回 `/tmp`，多个用户共用、权限不可控（沙箱环境里直接被拒绝）。Bukit 用完会删掉临时 worktree，网站仓库里不留登记
 - 退出码**按命令分别解释**，不用一张通用表。M1 实测（`bukit-exit-codes.sh`，单语言网站，2.0.8 和 2.0.11 结果相同）：
 
@@ -550,7 +599,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
   | 没用到的模板语法错误 | 0 | 1 | 0 |
 
   所以：`config check` 只能发现配置问题，`bukit_check` 必须同时跑 `doctor`；check / doctor 非 0 一律当作"检查不通过"，把输出交给界面和 AI；`build` 用 0 / 2 / 3 区分成功、配置或内容错误、渲染错误，其他非 0 当作运行失败
-- **`PATH` 固定为 `/usr/bin:/bin`**（加上 git 所在目录，如果不在其中），不继承服务进程的 `PATH`。M1 实测（`bukit-safety.py`）：Bukit 按名字从 `PATH` 里找 `sass` / `dart-sass`（`theme.scss`）和 `magick` / `convert`（图片处理），用户用 Homebrew 装了这些程序时就会被 AI 写的网站触发；sass 还能 `@import` 绝对路径，把站点外的样式文件编进输出。固定 `PATH` 后这些功能只给出警告并跳过
+- **`PATH` 固定为 `<私有 bin 目录>:/usr/bin:/bin`**，不继承服务进程的 `PATH`。私有 bin 目录里只有一个指向 git 的符号链接（`bukit/runner.ts` 的 `ensureBinDir`）；不直接加 git 所在目录，因为那里（如 Homebrew 的 bin）可能也有 `sass` 或 `magick`。M1 实测（`bukit-safety.py`）：Bukit 按名字从 `PATH` 里找 `sass` / `dart-sass`（`theme.scss`）和 `magick` / `convert`（图片处理），用户用 Homebrew 装了这些程序时就会被 AI 写的网站触发；sass 还能 `@import` 绝对路径，把站点外的样式文件编进输出。固定 `PATH` 后这些功能只给出警告并跳过
 - `--log-format json`（M1 实测）：`build` 输出 JSON 行（`ts`、`level`、`msg`，`msg` 里是 `event=… key=value`），失败时输出一个结构化错误文档（`cli-error.v1`，含 `exitCode`）；`doctor` 不支持这个参数，仍输出文本。`runner.ts` 对 build 用 JSON 解析，对 check / doctor 按文本处理
 
 ### 8.3 使用的命令
@@ -562,7 +611,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | 配置结构 | `bukit config schema --output <tmp>.json` |
 | 构建预览 | `bukit build --config site.yaml --output .bukitjalil-build/<buildId> --base-url / --no-clean --log-format json`（只在 `worktrees/<siteId>/ai/` 或 `worktrees/<siteId>/main/` 里执行，不在用户的网站目录里执行） |
 | SEO / GEO / 发布审计 | `bukit seo audit --dir <out>`、`bukit geo audit --dir <out>`、`bukit publish audit --dir <out>`（M4 以后） |
-| 发布 | `bukit deploy --skip-build --output <已审核的构建目录> --token-env BUKIT_DEPLOY_TOKEN`（M6，见 14 节 M6） |
+| 发布 | 依次执行 `config check`、`doctor`、`build --output <相对目录> --log-format json`（**不加** `--base-url /`，用网站自己的 `site.baseUrl`）、`publish audit --dir <相对目录>`，加上根目录跳转页后执行 `bukit deploy --config site.yaml --skip-build --output <相对目录> --repo <仓库> --branch <分支> --token-env BUKIT_DEPLOY_TOKEN`（M6，`deploys/service.ts`，见 14 节 M6） |
 
 ### 8.4 预览
 
@@ -601,7 +650,8 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 - **符号链接**：被跟踪的文件里不能有符号链接（`ls-tree` 里 mode 为 `120000` 的条目）。导入的仓库或恢复的旧版本里可能有 `content/x.md -> ~/.bukitjalil/secrets.json` 这样的链接，git 检出时会原样建出来，Bukit 构建时如果跟着读，外部文件就会进入预览甚至被发布。AI 的写工具建不了符号链接，所以直接全部拒绝，不去判断指向哪里。M1 实测：内容文件、内容目录、静态文件是指向站外的符号链接时，Bukit 2.0.11 都不读取、不复制，外部内容没有进入输出；检查仍保留，因为预览和发布还经过 BukitJalil 自己的文件处理
 - **Notion 源**：没有 token 时 Bukit 2.0.11 的 check / doctor / build 都会因 Notion 源失败（已核对源码）。改动集预览不传密钥，所以有 Notion 源的网站在 `ai/` 里不调用 Bukit，检查和构建直接返回明确的原因（见 5.1）；Bukit 没有不需要 token 的纯缓存模式（M1 已确认，见 5.1）
 - **SCSS、图片处理调用的外部程序**：M1 已确认 Bukit 会按名字从 `PATH` 调用 `sass` / `dart-sass` / `magick` / `convert`，配置不能指定程序路径。处理方式是固定 Bukit 的 `PATH`（8.2），不需要拒绝 `theme.scss` 配置；固定后这些功能跳过并给出警告
-- **环境变量**：默认只传最小环境（`PATH`、`HOME`、`LANG`）。Notion token（以 Bukit 读取的 `NOTION_TOKEN` 传入）等密钥**只在用户手动构建正式版本或发布时**传入，token 的来源见 6.5；改动集预览（还没审核的 AI 内容）不论谁触发都不传密钥
+- **环境变量**：默认只传最小环境（`PATH`、`HOME`、`LANG`）。Notion token（以 Bukit 读取的 `NOTION_TOKEN` 传入）等密钥**只在构建正式版本或发布时**传入（包括应用改动集后自动触发的正式版本重建），token 来自网站选用的 Notion 数据源（6.5）；改动集预览（还没审核的 AI 内容）不论谁触发都不传密钥
+- **实现里另外检查的项**（`bukit/guard.ts`，比上面列的更多）：`site.yaml` 缺失或解析失败（用 failsafe 模式解析，带引号的 `"false"` 也能识别）；输出路由字段（`unsafe_route`）；更多路径字段（`includePaths[]`、`includeGlobs[]`、`theme.shortcodes.*`、集合和分类的模板）；`.gitattributes` 里的 `filter=` / LFS（`lfs`）；只差大小写的同名文件（`case_collision`）
 
 检查逻辑放在 `packages/server/src/bukit/guard.ts`，配一套单元测试（每个路径字段的越界用例、插件、网络开关、符号链接条目、直接读 git 对象而不读工作区）。`bukit-safety.py` 保留为真实 Bukit 的集成测试，升级 Bukit 时重跑。
 
@@ -629,23 +679,6 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | GET | `/api/sites/:siteId/config` | `site.yaml` 结构化视图 + 原文 |
 | GET | `/api/sites/:siteId/theme` | 主题信息 |
 | GET | `/api/sites/:siteId/data` | 内容源与数据 |
-
-> M2 第 5 层实现说明（面板接口）：
-> - `ref` 现在只支持 `main`（默认分支的最新提交）；`ref=change` 返回 404 `change.not_found`，改动集快照随 M4 接入。`path` 必须是仓库内的相对路径，不能有空段、`.`、`..` 或 NUL，否则返回 400 `request.invalid_query`。
-> - 文件接口用 `as` 参数区分三种返回：
->   - `json`（默认）：返回文件说明，`kind` 为 `text`、`image`、`binary`、`too_large`、`symlink` 或 `submodule`。内联上限 1 MB。超过时只读文件头几个字节：是图片（不超过 16 MB）时 `kind` 为 `image`，否则为 `too_large`。
->   - `raw`：只返回按文件头字节识别出的 PNG、JPEG、GIF、WebP，上限 16 MB，响应头带 `nosniff`，CSP 末尾追加 `sandbox`。其他类型返回 400 `panel.not_file`。
->   - `download`：以 `application/octet-stream` 和 `Content-Disposition: attachment` 下载，上限 64 MB。
-> - 配置、主题、数据面板都从提交里的 `site.yaml` 读取，YAML 的重复键和别名炸弹都按错误处理。
->   - 主题目录取 `themes/<theme.name>`，`theme.layouts`、`theme.assets`、`theme.static` 按相对主题目录的路径列文件，每类最多 2000 个。
->   - 数据面板按 `markdown.dir` 列 `.md` 文件，统计 front matter 字段，`mode: data` 源再给出每个文件的 front matter，最多 500 条，超出时 `itemsTruncated` 为 true。每次请求最多读 2000 个文件、共 32 MB，单个文件上限 256 KB，超出时 `truncated` 为 true。目录写成 `content/posts/`、`./data` 或 `.` 都按同一个目录处理。`includePaths` 和 `includeGlobs` 暂未处理。
-> - 仓库配置不安全时，返回 409 `site.repo_unsafe`；网站文件夹已不是 git 仓库时，返回 409 `site.not_repo`；默认分支不存在时，返回 409 `site.branch_missing`。`panel.too_large` 的 `max` 是实际碰到的上限。
-
-> M2 第 6 层实现说明（构建与预览托管）：
-> - `POST /builds` 先检查网站可用（否则 409 `site.read_only`）、能找到受支持的 Bukit（否则 409 `build.bukit_missing`），再拿网站操作锁（构建中其他操作返回 409 `site.busy`），记下默认分支的提交后返回 202 和 `running` 状态的记录。构建在后台进行，界面轮询 `GET /builds`（列表不含报告，报告用 `GET /builds/:buildId` 取）；服务正在关闭时返回 503 `server.shutting_down`；`build.start` / `build.end` 事件随 SSE 一起接入。`ref=change` 返回 404 `change.not_found`，随 M4 接入。
-> - 构建步骤：对该提交跑构建前检查（不通过时结果为 `refused`，带原因，网站同时变成只读）；使用 Notion 源时结果为 `notion`，网站的 `config_check` 同时记为 `notion`（token 从 M6 开始保存）。新建或导入后的第一次构建由 `SiteService` 在网站加入后触发，不论从哪里加入，它构建的正是刚检查过的提交，所以不重复检查；在 `worktrees/<siteId>/main/` 检出该提交，执行 8.3 的构建命令；成功且输出里没有符号链接时，把输出搬到 `previews/<siteId>/<buildId>/`。
-> - 结果字段 `outcome`：`ok`、`config_or_content_error`、`render_error`、`stopped`、`failed` 来自 Bukit 的退出码；另有 `refused`、`notion`、`symlink`、`interrupted`（服务重启时还在运行的构建）、`error`（BukitJalil 自己出错）。报告里有 JSON 日志中的警告和错误，以及 stderr 的末尾。
-> - 已打开的预览在新构建成功后立即切换过去；打开预览期间刚好有构建完成时，打开后再切到最新的一次。最新的输出被外部删掉时，退回到更早一份还在的输出。每个网站保留最近 10 份构建输出，最新的正式版本和改动集构建、以及预览正在显示的那份始终保留；构建记录最多保留 50 条。预览端口空闲 30 分钟后释放（只有被接受的请求才算使用，Host 不对的请求不算），移除网站时一并释放。服务关闭时，正在运行的构建会收到 SIGINT。
 | GET | `/api/sites/:siteId/sessions` | 会话列表 |
 | POST | `/api/sites/:siteId/sessions` | 新建会话 |
 | GET | `/api/sessions/:sessionId` | 会话消息（从 Pi 会话文件还原） |
@@ -654,7 +687,8 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | POST | `/api/sessions/:sessionId/messages` | 发消息（`mode`: `prompt` / `steer` / `followUp`） |
 | POST | `/api/sessions/:sessionId/abort` | 停止 |
 | POST | `/api/sessions/:sessionId/fork` | 从某条消息分叉 |
-| GET | `/api/sites/:siteId/changes/current` | 当前改动集与差异 |
+| GET | `/api/sites/:siteId/changes/current` | 当前改动集与文件列表（单个文件的差异另取） |
+| GET | `/api/changes/:changeId/diff` | 改动集里单个文件的差异 |
 | POST | `/api/changes/:changeId/apply` | 应用；请求体必须带审核指纹 `treeHash`，指纹不符、网站操作锁被占用（会话在运行、构建中等）时返回 409 |
 | POST | `/api/changes/:changeId/reject` | 拒绝 |
 | GET | `/api/sites/:siteId/history` | 版本历史 |
@@ -667,15 +701,53 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | GET | `/api/settings` / PUT `/api/settings` | 全局设置（含界面语言、上次选择的目录） |
 | GET | `/api/fs/dirs?path=` | 目录选择器：列出 `path` 下一层的子目录名（只有目录，不跟随符号链接），`path` 缺省为主目录；用于新建和导入网站（5.2） |
 | GET | `/api/git/identity` | 全局 git 的 `user.name` / `user.email`，只用来预填设置里的提交身份 |
+| PUT | `/api/sites/:siteId/plugins/:pluginId` | 开关一个内置插件：生成一个改写 `site.plugins` 的改动集，照常审核（10.2） |
+| GET / PUT | `/api/sites/:siteId/deploy` | 发布状态 / 保存部署设置（发布账号、仓库、分支、自定义域名）；保存会直接提交到默认分支，见 M6 |
+| POST / GET | `/api/sites/:siteId/deploys` | 开始发布 / 发布记录 |
+| GET | `/api/sites/:siteId/deploys/:deployId` | 单次发布，含报告 |
+| POST | `/api/sites/:siteId/deploys/:deployId/stop` | 停止发布 |
+| GET / POST | `/api/publish-accounts` | 发布账号列表 / 添加（token 只写不读，界面显示末四位） |
+| PUT / DELETE | `/api/publish-accounts/:accountId` | 修改 / 删除发布账号 |
+| GET / POST | `/api/data-sources` | Notion 数据源列表 / 添加 |
+| PUT / DELETE | `/api/data-sources/:dataSourceId` | 修改 / 删除数据源 |
+| GET | `/api/data-sources/:dataSourceId/notion/databases` | 用该数据源的 token 列出 Notion 数据库 |
 | GET | `/api/models` | 可用模型 |
 | PUT | `/api/providers/:provider/key` | 保存 API Key |
 | DELETE | `/api/providers/:provider/key` | 删除设置页保存的 API Key（来自环境变量的返回 409） |
 | POST | `/api/providers/:provider/test` | 测试连接 |
-| GET | `/api/bukit` | Bukit 状态：路径、版本、来源（自定义 / 应用管理 / PATH）、当前平台是否有官方安装包、安装进度；结果缓存，修改设置里的 `bukitPath` 或安装完成后重新查找 |
-| POST | `/api/bukit/install` | 下载并安装 Bukit 2.0.11（界面确认后调用），返回 202；进度由界面轮询 `GET /api/bukit` 的 `install` 字段（只有一个下载，不值得为它单开 SSE）；已在安装时返回 409 |
+| POST | `/api/providers/:provider/oauth` | 开始 OAuth 登录（不支持的提供商返回 `model.oauth_not_supported`） |
+| GET / DELETE | `/api/providers/:provider/oauth/:id` | OAuth 登录进度 / 取消 |
+| POST | `/api/providers/:provider/oauth/:id/answer` | 回答提供商在登录过程中的提问 |
+| DELETE | `/api/providers/:provider/oauth` | 登出（删除 OAuth 凭据） |
+| GET / POST | `/api/custom-models` | 自定义模型列表 / 添加（6.5） |
+| PUT / DELETE | `/api/custom-models/:id` | 修改 / 删除自定义模型 |
+| GET | `/api/skills` | 技能列表和是否启用（6.4） |
+| GET | `/api/pi` | Pi SDK 版本和 npm 上的最新版本（`?refresh=1` 重新查询；`BUKITJALIL_OFFLINE=1` 时不查） |
+| GET | `/api/git` | git 状态（路径、版本、是否满足最低版本） |
+| POST | `/api/git/install` | 引导安装 git（macOS 上通过 Homebrew，`git/brew.ts`） |
+| GET | `/api/bukit` | Bukit 状态：路径、版本、最新正式版本、是否可升级、当前平台是否有官方安装包、安装进度（8.1） |
+| POST | `/api/bukit/install` | 下载并安装最新正式版 Bukit（界面确认后调用，查不到时装内置的 2.0.15），返回 202；进度由界面轮询 `GET /api/bukit` 的 `install` 字段（只有一个下载，不值得为它单开 SSE）；当前平台没有官方安装包返回 400 `bukit.unsupported_platform`，已在安装时返回 409 |
 | GET | `/api/rg` | rg 状态（`ok` / `missing` / `mismatch`）、固定版本、当前平台是否有安装包、安装进度（6.3） |
 | POST | `/api/rg/install` | 下载并安装 ripgrep 15.2.0（界面确认后调用），返回 202；当前平台没有安装包返回 400 `rg.unsupported_platform`，已在安装时返回 409 `rg.install_running` |
-| GET | `/api/health` | 健康检查：Bukit、git（版本 ≥ 2.38）、Pi 是否可用 |
+| GET | `/api/health` | 健康检查：返回 `ok`、应用版本和 git 状态（版本 ≥ 2.38）；Bukit 和 Pi 的状态分别见 `/api/bukit`、`/api/pi` |
+| GET | `/api/events` | SSE 事件流（9.2） |
+
+> M2 第 5 层实现说明（面板接口）：
+> - `ref` 现在只支持 `main`（默认分支的最新提交）；`ref=change` 返回 404 `change.not_found`，改动集快照随 M4 接入。`path` 必须是仓库内的相对路径，不能有空段、`.`、`..` 或 NUL，否则返回 400 `request.invalid_query`。
+> - 文件接口用 `as` 参数区分三种返回：
+>   - `json`（默认）：返回文件说明，`kind` 为 `text`、`image`、`binary`、`too_large`、`symlink` 或 `submodule`。内联上限 1 MB。超过时只读文件头几个字节：是图片（不超过 16 MB）时 `kind` 为 `image`，否则为 `too_large`。
+>   - `raw`：只返回按文件头字节识别出的 PNG、JPEG、GIF、WebP，上限 16 MB，响应头带 `nosniff`，CSP 末尾追加 `sandbox`。其他类型返回 400 `panel.not_file`。
+>   - `download`：以 `application/octet-stream` 和 `Content-Disposition: attachment` 下载，上限 64 MB。
+> - 配置、主题、数据面板都从提交里的 `site.yaml` 读取，YAML 的重复键和别名炸弹都按错误处理。
+>   - 主题目录取 `themes/<theme.name>`，`theme.layouts`、`theme.assets`、`theme.static` 按相对主题目录的路径列文件，每类最多 2000 个。
+>   - 数据面板按 `markdown.dir` 列 `.md` 文件，统计 front matter 字段，`mode: data` 源再给出第一个文件的 front matter 作为示例，更多文件时 `itemsTruncated` 为 true。每次请求最多读 2000 个文件、共 32 MB，单个文件上限 256 KB，超出时 `truncated` 为 true。目录写成 `content/posts/`、`./data` 或 `.` 都按同一个目录处理。`includePaths` 和 `includeGlobs` 暂未处理。
+> - 仓库配置不安全时，返回 409 `site.repo_unsafe`；网站文件夹已不是 git 仓库时，返回 409 `site.not_repo`；默认分支不存在时，返回 409 `site.branch_missing`。`panel.too_large` 的 `max` 是实际碰到的上限。
+
+> M2 第 6 层实现说明（构建与预览托管）：
+> - `POST /builds` 先检查网站可用（否则 409 `site.read_only`）、能找到受支持的 Bukit（否则 409 `build.bukit_missing`），再拿网站操作锁（构建中其他操作返回 409 `site.busy`），记下默认分支的提交后返回 202 和 `running` 状态的记录。构建在后台进行，界面轮询 `GET /builds`（列表不含报告，报告用 `GET /builds/:buildId` 取）；服务正在关闭时返回 503 `server.shutting_down`；`build.start` / `build.end` 事件随 SSE 一起接入。`ref=change` 返回 404 `change.not_found`，随 M4 接入。
+> - 构建步骤：对该提交跑构建前检查（不通过时结果为 `refused`，带原因，网站同时变成只读）；使用 Notion 源时结果为 `notion`，网站的 `config_check` 同时记为 `notion`（token 从 M6 开始保存）。新建或导入后的第一次构建由 `SiteService` 在网站加入后触发，不论从哪里加入，它构建的正是刚检查过的提交，所以不重复检查；在 `worktrees/<siteId>/main/` 检出该提交，执行 8.3 的构建命令；成功且输出里没有符号链接时，把输出搬到 `previews/<siteId>/<buildId>/`。
+> - 结果字段 `outcome`：`ok`、`config_or_content_error`、`render_error`、`stopped`、`failed` 来自 Bukit 的退出码；另有 `refused`、`notion`、`symlink`、`interrupted`（服务重启时还在运行的构建）、`error`（BukitJalil 自己出错）。报告里有 JSON 日志中的警告和错误，以及 stderr 的末尾。
+> - 已打开的预览在新构建成功后立即切换过去；打开预览期间刚好有构建完成时，打开后再切到最新的一次。最新的输出被外部删掉时，退回到更早一份还在的输出。每个网站保留最近 10 份构建输出，最新的正式版本和改动集构建、以及预览正在显示的那份始终保留；构建记录最多保留 50 条。预览端口空闲 30 分钟后释放（只有被接受的请求才算使用，Host 不对的请求不算），移除网站时一并释放。服务关闭时，正在运行的构建会收到 SIGINT。
 
 ### 9.2 SSE 事件
 
@@ -760,7 +832,7 @@ packages/web/src/
 | AI 越权写文件 | 工具白名单 + 路径闸门（6.3）+ 只改工作副本 + 人工审核 |
 | AI 执行命令 | 不开放 `bash`；Bukit 只通过固定参数的自定义工具调用；所有构建前检查插件和编译选项（8.5） |
 | 路径穿越（文件接口） | 所有路径参数 `realpath` 后必须在网站目录或工作副本内 |
-| 密钥泄露 | 模型密钥来自 `~/.bukitjalil/pi/auth.json` 或提供商环境变量（6.5），Notion / GitHub token 来自环境变量 `BUKITJALIL_NOTION_TOKEN` / `BUKITJALIL_GITHUB_TOKEN`（优先）或 `~/.bukitjalil/secrets.json`（600 权限）；Notion / GitHub 环境变量读取后立即从进程环境删除；所有子进程（git、Bukit）都只拿到显式构造的最小环境（7.3、8.5）；都在 AI 工作副本之外，不进数据库、不进日志、不返回浏览器；只按 8.5 和 M6 的规则显式传给 Bukit（见 6.5） |
+| 密钥泄露 | 模型密钥来自 `~/.bukitjalil/pi/auth.json` 或提供商环境变量（6.5），自定义模型密钥在 `~/.bukitjalil/pi/custom-models.json`；GitHub token 按发布账号在 `~/.bukitjalil/publish-account-tokens.json`，Notion token 按数据源在 `~/.bukitjalil/data-source-tokens.json`（都是 0600 明文，应用目录 0700）。依赖操作系统账户隔离：不防同一用户 malware、管理员/root、备份/云同步和未加密磁盘；Windows 的 `chmod(0600)` 不是完整 ACL。旧的全局 token 在启动时迁移，成功后删除 `secrets.json`；启动时清理无主 token 和临时文件。所有 token 不进数据库、不进日志、不返回浏览器；子进程只拿到显式构造的最小环境（7.3、8.5），只按 8.5 和 M6 的规则显式传给 Bukit（见 6.5） |
 | 预览页面脚本（AI 写的 JS） | 预览在另一个端口提供（不同源）+ 响应头 `CSP: sandbox allow-scripts allow-popups; connect-src 'none'; form-action 'none'` + iframe `sandbox`（见 8.4） |
 | DNS 重绑定读取预览内容 | 每个预览端口同样校验 `Host`，只接受 `127.0.0.1:<端口>` / `localhost:<端口>`（见 8.4） |
 | 管理端口上的 XSS（AI 写的 SVG / HTML 文件、对话里的 Markdown） | 管理界面响应头 `CSP: default-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src http://127.0.0.1:*; frame-ancestors 'none'`，没有 `unsafe-inline` 和 `unsafe-eval`；HTML 页面每次响应生成一个 nonce，CSP 加 `style-src 'self' 'nonce-…'`，页面里的 `<meta property="csp-nonce">` 把它交给 Radix（shadcn 的对话框、下拉框运行时插入的滚动锁定样式），没有 nonce 的 `<style>` 照样被拦；zod 设为 `jitless`，不用 `new Function`；端到端测试断言界面运行时没有任何 CSP 违规；文件接口不在管理端口直接打开 SVG / HTML / PDF，位图带 `nosniff` + `CSP: sandbox`（见 9.1）；对话 Markdown 不渲染原始 HTML，不加载远程图片 |

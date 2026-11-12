@@ -1,12 +1,12 @@
 import { type Deploy, type DeployStatusResponse, deploySteps, type Site } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Circle, Loader2, Rocket, Square, X } from "lucide-react";
+import { Check, Circle, Loader2, Rocket, Settings2, Square, X } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { IssueGroups, ReportLog } from "@/features/builds/builds";
-import { useCreateSession } from "@/features/chat/sessions";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { formatDuration, formatTime, shortOid } from "@/lib/format";
@@ -28,13 +28,13 @@ function useDeploys(siteId: string) {
  * Publishing (plan 14 M6): where the site goes and whether the token is set, how to set the target, then
  * publishing after a confirmation that names the repository, branch and version, with its steps and records.
  */
-export function DeploySection({ site, onOpenSettings }: { site: Site; onOpenSettings: () => void }) {
-  const { m, errorOf } = useI18n();
+export function DeploySection({ site }: { site: Site }) {
+  const { m, t, errorOf } = useI18n();
   const d = m.deploy;
   const status = useDeployStatus(site.id);
   const deploys = useDeploys(site.id);
-  const create = useCreateSession(site.id);
   const [confirming, setConfirming] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const target = status.data?.target;
   const running = deploys.data?.deploys.find((x) => x.status === "running") ?? null;
@@ -79,25 +79,14 @@ export function DeploySection({ site, onOpenSettings }: { site: Site; onOpenSett
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            {status.data.token ? (
-              <Badge tone="ok">{d.tokenSet}</Badge>
+            {status.data.account ? (
+              <Badge tone="ok">{t(d.tokenSet, { name: status.data.account.name })}</Badge>
             ) : (
-              <>
-                <Badge tone="warn">{d.tokenMissing}</Badge>
-                <Button size="xs" variant="outline" onClick={onOpenSettings} data-testid="deploy-open-settings">
-                  {d.openSettings}
-                </Button>
-              </>
+              <Badge tone="warn">{d.accountMissing}</Badge>
             )}
-            {target.problem !== null && target.problem !== "no_config" && !site.readOnly && (
-              <Button
-                size="xs"
-                variant="outline"
-                data-testid="deploy-ask-ai"
-                disabled={create.isPending}
-                onClick={() => create.mutate(d.askAiDraft)}
-              >
-                {d.askAi}
+            {!site.readOnly && (
+              <Button size="xs" variant="outline" onClick={() => setSettings(true)} data-testid="deploy-settings">
+                <Settings2 /> {d.settings}
               </Button>
             )}
             {target.problem === null && (
@@ -113,11 +102,6 @@ export function DeploySection({ site, onOpenSettings }: { site: Site; onOpenSett
               </Button>
             )}
           </div>
-          {create.error && (
-            <p role="alert" className="text-xs text-destructive">
-              {errorOf(create.error)}
-            </p>
-          )}
           {running && <DeployProgress siteId={site.id} deploy={running} />}
         </div>
       )}
@@ -132,8 +116,139 @@ export function DeploySection({ site, onOpenSettings }: { site: Site; onOpenSett
           onStarted={() => setConfirming(false)}
         />
       )}
+      {settings && status.data && (
+        <DeploySettingsDialog siteId={site.id} status={status.data} onClose={() => setSettings(false)} />
+      )}
       {open && <DeployReportDialog siteId={site.id} deployId={open} onClose={() => setOpen(null)} />}
     </section>
+  );
+}
+
+/** Pick the saved account and write the GitHub Pages target into site.yaml. */
+function DeploySettingsDialog({
+  siteId,
+  status,
+  onClose,
+}: {
+  siteId: string;
+  status: DeployStatusResponse;
+  onClose: () => void;
+}) {
+  const { m, errorOf } = useI18n();
+  const d = m.deploy;
+  const queryClient = useQueryClient();
+  const accounts = useQuery({ queryKey: keys.publishAccounts, queryFn: api.publishAccounts });
+  const [accountId, setAccountId] = useState(status.account?.id ?? "");
+  const [repo, setRepo] = useState(status.target.repo ?? "");
+  const [branch, setBranch] = useState(status.target.branch || "gh-pages");
+  const [cname, setCname] = useState(status.target.cname ?? "");
+  const save = useMutation({
+    mutationFn: () =>
+      api.saveDeployConfig(siteId, {
+        accountId,
+        repo: repo.trim(),
+        branch: branch.trim() || "gh-pages",
+        cname: cname.trim() || null,
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(keys.deploy(siteId), data);
+      void queryClient.invalidateQueries({ queryKey: ["panel", siteId] });
+      void queryClient.invalidateQueries({ queryKey: keys.builds(siteId) });
+      void queryClient.invalidateQueries({ queryKey: keys.deploys(siteId) });
+      onClose();
+    },
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent closeLabel={m.common.close} className="max-w-lg">
+        <DialogTitle>{d.settingsTitle}</DialogTitle>
+        <DialogDescription>{d.settingsHint}</DialogDescription>
+        <div className="flex flex-col gap-3 text-sm">
+          {accounts.isPending ? (
+            <p className="text-xs text-muted-foreground">{m.common.loading}</p>
+          ) : accounts.error ? (
+            <p role="alert" className="text-xs text-destructive">
+              {errorOf(accounts.error)}
+            </p>
+          ) : accounts.data && accounts.data.length > 0 ? (
+            <label className="flex flex-col gap-1" htmlFor="deploy-account">
+              <span className="font-medium">{d.account}</span>
+              <select
+                id="deploy-account"
+                className="h-9 rounded-md border bg-background px-2 text-sm"
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                data-testid="deploy-account"
+              >
+                <option value="">{d.accountMissing}</option>
+                {accounts.data.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">{d.accountHint}</span>
+            </label>
+          ) : (
+            <p className="text-xs text-muted-foreground">{d.noAccount}</p>
+          )}
+          <label className="flex flex-col gap-1" htmlFor="deploy-repo">
+            <span className="font-medium">{d.repo}</span>
+            <Input
+              id="deploy-repo"
+              value={repo}
+              placeholder="owner/name"
+              onChange={(e) => setRepo(e.target.value)}
+              data-testid="deploy-repo"
+            />
+            <span className="text-xs text-muted-foreground">{d.repoHint}</span>
+          </label>
+          <label className="flex flex-col gap-1" htmlFor="deploy-branch">
+            <span className="font-medium">{d.branch}</span>
+            <Input
+              id="deploy-branch"
+              value={branch}
+              placeholder="gh-pages"
+              onChange={(e) => setBranch(e.target.value)}
+              data-testid="deploy-branch"
+            />
+            <span className="text-xs text-muted-foreground">{d.branchHint}</span>
+          </label>
+          <label className="flex flex-col gap-1" htmlFor="deploy-cname">
+            <span className="font-medium">{d.cname}</span>
+            <Input
+              id="deploy-cname"
+              value={cname}
+              placeholder="www.example.com"
+              onChange={(e) => setCname(e.target.value)}
+              data-testid="deploy-cname"
+            />
+            <span className="text-xs text-muted-foreground">{d.cnameHint}</span>
+          </label>
+          <p className="text-xs text-muted-foreground">{d.addressHint}</p>
+        </div>
+        {save.error && (
+          <p role="alert" className="text-xs text-destructive">
+            {errorOf(save.error)}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            {m.common.cancel}
+          </Button>
+          <Button
+            size="sm"
+            data-testid="deploy-settings-save"
+            disabled={save.isPending || !accountId || !repo.trim()}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending ? <Loader2 className="animate-spin" /> : null}
+            {d.saveSettings}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -5,13 +5,13 @@ import type { Build, BuildListResponse, PreviewResponse, ServerEvent, Site } fro
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KEEP_OUTPUTS } from "../src/builds/service.ts";
 import { BuildStore } from "../src/builds/store.ts";
-import { BukitService } from "../src/bukit/locate.ts";
+import { appBukitDir, BukitService } from "../src/bukit/locate.ts";
 import { resolveGitPath } from "../src/git/run.ts";
 import { silentLogger } from "../src/log.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { openDatabase } from "../src/store/db.ts";
-import { ADMIN, commitAllAs, httpGet, makeApp, rawGit, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, httpGet, installAppBukit, makeApp, rawGit, req } from "./helpers.ts";
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const REAL_BIN = process.env.BUKIT_BIN;
@@ -80,11 +80,11 @@ const raw = (cwd: string, ...args: string[]) => rawGit(base, cwd, ...args);
 const commitAll = (dir: string, message: string) => commitAllAs(base, dir, message);
 
 function bukitFor(bin: string | null) {
+  const home = path.join(base, "bk");
+  installAppBukit(home, bin);
   return new BukitService({
-    home: path.join(base, "bk"),
+    home,
     tmpDir: path.join(base, "bk-tmp"),
-    customPath: () => bin,
-    envPath: "",
   });
 }
 
@@ -144,13 +144,12 @@ async function setup(name: string, opts: { mode?: string; bin?: string | null } 
 
 const fetchPreview = (port: number) => httpGet(port);
 
-it("passes the Notion token to a main build but never to a change build", async () => {
+it("passes the Notion token of the site's data source to a main build but never to a change build", async () => {
   const ctx = makeApp({
     userHome,
     appHome: fs.mkdtempSync(path.join(base, "app-notion-")),
     bukit: bukitFor(fakeBin),
     previewBase: nextPreviewBase(),
-    secretEnv: { BUKITJALIL_NOTION_TOKEN: "ntn_main_only" },
   });
   contexts.push(ctx);
   const dir = path.join(userHome, "notion");
@@ -164,9 +163,10 @@ it("passes the Notion token to a main build but never to a change build", async 
   const site = await ctx.sites.import({ path: dir });
   await ctx.builds.settled();
   expect(site.configCheck).toBe("notion");
-  expect(ctx.secrets.get("notion")).toBe("ntn_main_only");
+  const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_main_only" });
+  expect(ctx.dataSources.token(source.id)).toBe("ntn_main_only");
 
-  const tokenFile = `${fakeBin}.notion`;
+  const tokenFile = path.join(appBukitDir(path.join(base, "bk")), "bukit.notion");
   fs.rmSync(tokenFile, { force: true });
   await ctx.builds.start(site.id, "main");
   await ctx.builds.settled();

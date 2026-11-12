@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/shared";
 import { serve } from "@hono/node-server";
 import { AiBukit } from "./agent/ai-bukit.ts";
+import { CustomModelStore } from "./agent/custom-models.ts";
 import { preparePiEnvironment } from "./agent/env.ts";
 import { registerFakeModel } from "./agent/fake-model.ts";
 import { settingsModel } from "./agent/models.ts";
@@ -14,23 +15,27 @@ import { createAdminApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
 import { BukitService } from "./bukit/locate.ts";
 import { ChangeService } from "./changes/service.ts";
+import { DataSourceService } from "./data-sources/service.ts";
 import { DeployService } from "./deploys/service.ts";
 import { type DesktopChannel, desktopChannel } from "./desktop.ts";
 import { connectEvents } from "./events/bridge.ts";
 import { EventHub } from "./events/hub.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
+import { appGitPath } from "./git/platform.ts";
 import { GitRunner, resolveGitPath } from "./git/run.ts";
+import { GitService } from "./git/service.ts";
 import { checkGit } from "./git/version.ts";
 import { acquireHomeLock, HomeInUseError } from "./lock.ts";
 import { createLogger } from "./log.ts";
 import { PanelService } from "./panels/service.ts";
 import { ensureAppHome, resolveAppHome, resolveResources } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
+import { PublishAccountService } from "./publish/accounts.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
-import { SecretStore } from "./settings/secrets.ts";
 import { SiteLocks } from "./sites/locks.ts";
 import { SiteService } from "./sites/service.ts";
 import { openDatabase } from "./store/db.ts";
+import { cleanupLegacyTempFiles, migrateLegacyTokens } from "./store/legacy-tokens.ts";
 import { SettingsStore } from "./store/settings.ts";
 
 const VERSION = process.env.BUKITJALIL_VERSION?.trim() || "0.0.0";
@@ -98,20 +103,37 @@ try {
 }
 process.on("exit", () => releaseLock());
 // Before anything starts a child process: the token variables leave process.env here (plan 6.5).
-const secrets = new SecretStore(paths.secrets);
+// Publishing and Notion tokens now belong to saved accounts/data sources; the migration below imports
+// the old values and then they must not linger in the environment.
+const legacyGithub = process.env.BUKITJALIL_GITHUB_TOKEN?.trim() || null;
+const legacyNotion = process.env.BUKITJALIL_NOTION_TOKEN?.trim() || null;
+delete process.env.BUKITJALIL_GITHUB_TOKEN;
+delete process.env.BUKITJALIL_NOTION_TOKEN;
 // Before anything can load Pi: it reads these when its modules load (plan 6.1).
 preparePiEnvironment(paths.pi);
 const logger = createLogger(paths.logs);
 const db = openDatabase(paths.db);
 
 // git is resolved once; every later call uses this absolute path (plan 7.3).
-const gitPath = resolveGitPath();
+const gitPath = resolveGitPath() ?? appGitPath(paths.home);
 
 const settingsStore = new SettingsStore(db);
+const offline = process.env.BUKITJALIL_OFFLINE === "1";
+const dataSources = new DataSourceService({
+  db,
+  tokenFile: paths.dataSourceTokens,
+  fetchImpl: offline ? null : fetch,
+});
+const publishAccounts = new PublishAccountService({
+  db,
+  tokenFile: paths.publishAccountTokens,
+  fetchImpl: offline ? null : fetch,
+});
 const bukit = new BukitService({
   home: paths.home,
   tmpDir: paths.bukitTmp,
-  customPath: () => settingsStore.get().bukitPath,
+  // Tests set BUKITJALIL_OFFLINE=1; the settings page then uses the built-in fallback release.
+  fetchImpl: offline ? undefined : fetch,
 });
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
@@ -124,6 +146,11 @@ const git = new GitRunner({
   hooksDir: paths.emptyHooks,
   ceilingDirs: [paths.home],
 });
+const gitStatus = new GitService({
+  fetchImpl: offline ? null : fetch,
+  appHome: paths.home,
+  applyPath: (path) => git.usePath(path),
+});
 const locks = new SiteLocks();
 const sites = new SiteService({
   db,
@@ -132,6 +159,7 @@ const sites = new SiteService({
   settings: settingsStore,
   bukit,
   locks,
+  dataSources,
   templateDir: resources.starter,
 });
 
@@ -151,7 +179,40 @@ const changes = new ChangeService({
   logger,
 });
 const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
-const builds = new BuildService({ db, git, paths, sites, bukit, locks, previews, changes, secrets, logger });
+const builds = new BuildService({
+  db,
+  git,
+  paths,
+  sites,
+  bukit,
+  locks,
+  previews,
+  changes,
+  // The site's saved Notion source; an imported site without a link falls back when there is only one.
+  notionToken: (siteId) => {
+    const linked = sites.notionDataSourceId(siteId);
+    if (linked) return dataSources.token(linked);
+    const notion = dataSources.list().filter((source) => source.platform === "notion");
+    return notion.length === 1 ? dataSources.token(notion[0]?.id ?? "") : null;
+  },
+  logger,
+});
+const customModels = new CustomModelStore(path.join(paths.pi, "custom-models.json"));
+// A killed write can leave a temp file and then a token entry with no account. Remove both before
+// anything reads the stores or the migration runs again.
+const staleTemps =
+  publishAccounts.cleanupTempFiles() +
+  dataSources.cleanupTempFiles() +
+  customModels.cleanupTempFiles() +
+  cleanupLegacyTempFiles(paths.home);
+if (staleTemps > 0) logger.log("warn", "storage.temps_removed", { count: staleTemps });
+try {
+  const accounts = publishAccounts.pruneUnknownTokens();
+  const sources = dataSources.pruneUnknownTokens();
+  if (accounts + sources > 0) logger.log("warn", "tokens.orphans_removed", { accounts, sources });
+} catch (err) {
+  logger.log("warn", "tokens.orphans_cleanup_failed", { error: String(err) });
+}
 const agent = new AgentService({
   db,
   paths,
@@ -163,13 +224,32 @@ const agent = new AgentService({
   resolveModel: settingsModel(settingsStore),
   thinkingLevel: () => settingsStore.get().thinkingLevel,
   // A scripted model for end-to-end tests (agent/fake-model.ts); never set in normal use.
-  setupRuntime: process.env.BUKITJALIL_FAKE_MODEL === "1" ? registerFakeModel : undefined,
+  setupRuntime: (runtime, pi) => {
+    if (process.env.BUKITJALIL_FAKE_MODEL === "1") registerFakeModel(runtime, pi);
+    customModels.registerAll(runtime);
+  },
   rgReady: () => rg.ready(),
   bukit: aiBukit,
   skillsDir,
+  disabledSkills: () => settingsStore.get().disabledSkills,
 });
 const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
-const deploys = new DeployService({ sites, panels, secrets, git, bukit, locks, paths, logger, db });
+// One-time import of the old global tokens; it only creates data when the site lists can be read.
+try {
+  await migrateLegacyTokens({
+    db,
+    paths,
+    sites,
+    panels,
+    publishAccounts,
+    dataSources,
+    logger,
+    env: { github: legacyGithub, notion: legacyNotion },
+  });
+} catch (err) {
+  logger.log("warn", "tokens.migration_failed", { error: String(err) });
+}
+const deploys = new DeployService({ sites, panels, accounts: publishAccounts, git, bukit, locks, paths, logger, db });
 const events = new EventHub();
 connectEvents(events, { agent, builds, changes, deploys, logger });
 const webDist = resources.web;
@@ -183,17 +263,21 @@ const app = createAdminApp({
   sessionValue: randomSecret(),
   db,
   webDist: !dev && fs.existsSync(path.join(webDist, "index.html")) ? webDist : null,
-  checkGit: () =>
-    gitPath ? checkGit(gitPath) : Promise.resolve({ ok: false, version: null, problem: "missing" as const }),
+  checkGit: () => checkGit(git.opts.gitPath),
   bukit,
   rg,
   sites,
   panels,
   builds,
   agent,
+  gitStatus,
   changes,
-  secrets,
+  customModels,
+  dataSources,
+  publishAccounts,
   deploys,
+  // Tests set BUKITJALIL_OFFLINE=1; the Pi row then shows only the bundled version.
+  piFetch: offline ? null : fetch,
   events,
   readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,

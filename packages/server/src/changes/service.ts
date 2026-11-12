@@ -1,22 +1,29 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type {
-  ApplyCheck,
-  ApplyRequest,
-  ApplyResult,
-  ChangeSet,
-  ChangeView,
-  FileDiff,
-  HistoryResponse,
-  RestoreResult,
-  Site,
-  VersionDiff,
+import {
+  type ApplyCheck,
+  type ApplyRequest,
+  type ApplyResult,
+  type ChangeSet,
+  type ChangeView,
+  type CurrentChange,
+  type FileDiff,
+  type HistoryResponse,
+  isBukitPluginId,
+  type RestoreResult,
+  type Site,
+  type VersionDiff,
 } from "@bukitjalil/shared";
+import { parseDocument } from "yaml";
 import { guardCommit } from "../bukit/guard.ts";
+import { pluginStateFromDocument, setPluginInDocument } from "../bukit/plugins.ts";
 import { GitError, type GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
+import { storageErrorCode } from "../storage-errors.ts";
 import { changedFiles, fileDiff } from "./diff.ts";
 import {
   AI_AUTHOR_EMAIL,
@@ -36,6 +43,8 @@ export const changeRef = (id: string) => `refs/bukitjalil/changes/${id}`;
 const AI_AUTHOR = { "author.name": AI_AUTHOR_NAME, "author.email": AI_AUTHOR_EMAIL };
 const DEFAULT_MESSAGE = "Changes made with BukitJalil AI";
 const MAX_SUBJECT = 72;
+/** site.yaml is small; a larger file is not one BukitJalil wrote and is refused rather than truncated. */
+const MAX_SITE_YAML_BYTES = 1024 * 1024;
 const TRAILER_LINE = /^\s*BukitJalil-[A-Za-z]+:/i;
 
 /**
@@ -107,24 +116,36 @@ export class ChangeService {
    * with refs/bukitjalil/changes/<id>. Returns the checkout to run in.
    */
   async begin(siteId: string, sessionId: string): Promise<{ cwd: string; change: ChangeRecord }> {
-    const { sites, git } = this.opts;
-    const site = sites.get(siteId);
-    if (site.readOnly) throw new SiteError("site.read_only", 409);
-    let change = this.store.open(siteId);
-    let cwd: string;
-    if (change) {
-      // Keep the files as the last run left them; a checkout that went missing comes back at the snapshot.
-      cwd = await sites.aiWorktree(siteId, change.snapshotCommit, { reset: false });
-    } else {
-      const head = await sites.headOf(site);
-      cwd = await sites.aiWorktree(siteId, head, { reset: true });
-      const id = newChangeId();
-      await git.run(["update-ref", changeRef(id), head], { cwd: site.path });
-      change = this.store.insert({ id, siteId, sessionId, baseCommit: head });
-    }
+    const { cwd, change } = await this.openChangeSet(siteId, sessionId);
     this.store.addSession(change.id, sessionId);
     this.emit(siteId);
     return { cwd, change };
+  }
+
+  /** Open the site's change set for a Settings edit, without a conversation. */
+  private async beginUserChange(siteId: string): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
+    return this.openChangeSet(siteId, null);
+  }
+
+  private async openChangeSet(
+    siteId: string,
+    sessionId: string | null,
+  ): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
+    const { sites, git } = this.opts;
+    const site = sites.get(siteId);
+    if (site.readOnly) throw new SiteError("site.read_only", 409);
+    const open = this.store.open(siteId);
+    if (open) {
+      // Keep the files as the last run left them; a checkout that went missing comes back at the snapshot.
+      const cwd = await sites.aiWorktree(siteId, open.snapshotCommit, { reset: false });
+      return { cwd, change: open, created: false };
+    }
+    const head = await sites.headOf(site);
+    const cwd = await sites.aiWorktree(siteId, head, { reset: true });
+    const id = newChangeId();
+    await git.run(["update-ref", changeRef(id), head], { cwd: site.path });
+    const change = this.store.insert({ id, siteId, sessionId, baseCommit: head });
+    return { cwd, change, created: true };
   }
 
   /**
@@ -154,6 +175,64 @@ export class ChangeService {
     if (!change) return;
     this.store.setSummary(change.id, summary);
     this.emit(siteId);
+  }
+
+  /**
+   * Turn a built-in Bukit plugin on or off for one site. It edits the AI checkout and snapshots it, so
+   * the switch becomes a normal reviewable change set; nothing is written to the default branch here.
+   */
+  async setPlugin(siteId: string, pluginId: string, enabled: boolean): Promise<CurrentChange> {
+    if (!isBukitPluginId(pluginId)) throw new SiteError("plugin.unknown", 400);
+    return this.opts.locks.run(siteId, "config", async () => {
+      const site = this.opts.sites.get(siteId);
+      if (site.readOnly) throw new SiteError("site.read_only", 409);
+      const { cwd, change, created } = await this.beginUserChange(siteId);
+      try {
+        const file = path.join(cwd, "site.yaml");
+        let raw: string;
+        try {
+          const stat = fs.lstatSync(file);
+          if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_SITE_YAML_BYTES)
+            throw new SiteError("config.invalid_yaml", 409);
+          raw = fs.readFileSync(file, "utf8");
+        } catch (err) {
+          if (err instanceof SiteError) throw err;
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") throw new SiteError("site.no_site_yaml", 409);
+          throw new SiteError(storageErrorCode(err) ?? "config.write_failed", 409);
+        }
+
+        const doc = parseDocument(raw);
+        if (doc.errors.length > 0) throw new SiteError("config.invalid_yaml", 409);
+        const current = pluginStateFromDocument(doc, pluginId);
+        if (!current) throw new SiteError("config.plugins_invalid", 409);
+        if (current.enabled === enabled) {
+          // A click that changes nothing: do not leave an empty change set behind.
+          if (created) await this.close(change, "rejected");
+          return { change: await this.current(siteId, false) };
+        }
+
+        try {
+          setPluginInDocument(doc, pluginId, enabled);
+        } catch {
+          throw new SiteError("config.plugins_invalid", 409);
+        }
+        try {
+          fs.writeFileSync(file, doc.toString({ lineWidth: 0 }));
+        } catch (err) {
+          throw new SiteError(storageErrorCode(err) ?? "config.write_failed", 409);
+        }
+        await this.snapshot(siteId, cwd);
+        if (this.store.sessions(change.id).length === 0) {
+          this.store.setSummary(change.id, `Plugin settings: ${pluginId} ${enabled ? "on" : "off"}`);
+        }
+        this.emit(siteId);
+        return { change: await this.current(siteId, false) };
+      } catch (err) {
+        // Do not strand a change set this request created; an existing AI change set is left untouched.
+        if (created && this.store.open(siteId)?.id === change.id) await this.close(change, "rejected");
+        throw err;
+      }
+    });
   }
 
   /**
@@ -213,11 +292,14 @@ export class ChangeService {
 
       // A restore is the user's own act, so they are its author too (plan 7.4); once a conversation has taken
       // part, the AI wrote part of it. The flag outlives a deleted conversation and a rebase onto a newer main.
+      // A change set with no conversation at all is a Settings edit, also the user's own act.
       const sessions = this.store.sessions(change.id);
       const pureRestore = change.restoreCommit !== null && !change.aiJoined;
-      const author = pureRestore
-        ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
-        : AI_AUTHOR;
+      const userAuthored = change.restoreCommit === null && sessions.length === 0;
+      const author =
+        pureRestore || userAuthored
+          ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
+          : AI_AUTHOR;
       const result = (
         await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change, sessions)], {
           cwd: site.path,

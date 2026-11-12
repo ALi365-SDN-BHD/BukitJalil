@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BuildAudit } from "./builds.ts";
+import type { PublishAccount } from "./publish.ts";
 import type { SiteReason } from "./sites.ts";
 
 /** Where a site is published (plan 14 M6): the `deploy` section of site.yaml on the default branch. */
@@ -27,9 +28,9 @@ export interface DeployStatusResponse {
   /** The default-branch commit the target was read from. */
   commit: string;
   target: DeployTarget;
-  /** A GitHub token is set (plan 6.5). */
-  token: boolean;
-  /** Target valid, token set and the site not read-only. */
+  /** The saved publishing account selected for this site, or null. */
+  account: PublishAccount | null;
+  /** Target valid, account with a token selected and the site not read-only. */
   ready: boolean;
 }
 
@@ -101,3 +102,14 @@ export interface DeployListResponse {
 /** POST /api/sites/:id/deploys: the default-branch commit the user confirmed. */
 export const DeployRequest = z.object({ commit: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/) });
 export type DeployRequest = z.infer<typeof DeployRequest>;
+
+/** PUT /api/sites/:id/deploy: the saved account and the target written into site.yaml. */
+export const DeployConfigRequest = z
+  .object({
+    accountId: z.string().trim().min(1).max(100),
+    repo: z.string().trim().min(3).max(140),
+    branch: z.string().trim().min(1).max(100).optional(),
+    cname: z.string().trim().min(1).max(253).nullable().optional(),
+  })
+  .strict();
+export type DeployConfigRequest = z.infer<typeof DeployConfigRequest>;

@@ -15,6 +15,7 @@ import { parseDocument } from "yaml";
 import { type GuardResult, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { checkPassed, usableRunner } from "../bukit/runner.ts";
+import type { DataSourceService } from "../data-sources/service.ts";
 import { resolveBranch } from "../git/objects.ts";
 import { clearIndexLock, GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
@@ -23,7 +24,7 @@ import { EXCLUDE_PATTERNS, IMPORT_INIT_PATTERNS, removeExcludeBlock, writeExclud
 import { assertDirectory, assertEmptyOrMissing, checkSiteLocation, inside, SiteError } from "./location.ts";
 import type { SiteLocks } from "./locks.ts";
 import { isSiteId, newSiteId, type SiteState, SiteStore } from "./store.ts";
-import { copyStarter } from "./template.ts";
+import { copyStarter, type StarterSource } from "./template.ts";
 
 export interface SiteServiceOptions {
   db: DatabaseSync;
@@ -32,6 +33,8 @@ export interface SiteServiceOptions {
   settings: SettingsStore;
   bukit: BukitService;
   locks: SiteLocks;
+  /** Optional saved Notion source copied into a new site. */
+  dataSources: DataSourceService;
   /** templates/starter */
   templateDir: string;
   /** Overrides os.homedir() (tests). */
@@ -103,6 +106,24 @@ export class SiteService {
     return { appHome: this.opts.paths.home, userHome: this.opts.userHome, sites: this.store.list() };
   }
 
+  /** Which saved Notion source the site was created with, if any. */
+  notionDataSourceId(id: string): string | null {
+    return this.store.notionDataSourceId(id);
+  }
+
+  setNotionDataSourceId(id: string, sourceId: string | null): void {
+    this.store.setNotionDataSourceId(id, sourceId);
+  }
+
+  /** Which saved publishing account the site deploys with, if any. */
+  publishAccountId(id: string): string | null {
+    return this.store.publishAccountId(id);
+  }
+
+  setPublishAccountId(id: string, accountId: string | null): void {
+    this.store.setPublishAccountId(id, accountId);
+  }
+
   /** The commit identity from the settings, as git config (400 `site.identity_required` when unset). */
   commitIdentity(): { "user.name": string; "user.email": string } {
     const { commitName, commitEmail } = this.opts.settings.get();
@@ -131,10 +152,11 @@ export class SiteService {
   async create(req: CreateSiteRequest): Promise<Site> {
     const identity = this.commitIdentity();
     const real = checkSiteLocation(req.path, this.rules());
+    const selected = this.selectedSources(req);
     const site = await this.reserved(real, async () => {
       assertEmptyOrMissing(real);
       const existed = fs.existsSync(real);
-      copyStarter(this.opts.templateDir, real, { title: req.name, language: req.language });
+      copyStarter(this.opts.templateDir, real, { title: req.name, language: req.language, sources: selected?.sources });
       try {
         const { git } = this.opts;
         // -b main: global config (init.defaultBranch) is not read, so git would pick "master".
@@ -146,9 +168,34 @@ export class SiteService {
         removeCreated(real, existed);
         throw err;
       }
-      return this.register(real, req.name, "main");
+      return this.register(real, req.name, "main", undefined, selected?.notionDataSourceId ?? null);
     });
     return this.added(site);
+  }
+
+  /**
+   * The optional Notion source chosen for a new site. Without one site.yaml keeps the starter's
+   * Markdown sources; with one the site uses that Notion database and needs the picked database id.
+   */
+  private selectedSources(req: CreateSiteRequest): { sources: StarterSource[]; notionDataSourceId: string } | null {
+    const ids = [...new Set(req.dataSourceIds ?? [])];
+    if (ids.length === 0) return null;
+    const id = ids[0];
+    if (ids.length > 1 || !id) throw new SiteError("datasource.multiple_notion", 400);
+    const source = this.opts.dataSources.get(id);
+    if (!req.notionDatabaseId) throw new SiteError("datasource.notion_database_required", 400);
+    return {
+      sources: [
+        {
+          type: "notion",
+          name: source.name,
+          mode: "content",
+          collection: "post",
+          notion: { databaseId: req.notionDatabaseId },
+        },
+      ],
+      notionDataSourceId: source.id,
+    };
   }
 
   // --- import (plan 5.1) ---
@@ -259,11 +306,17 @@ export class SiteService {
 
   // --- shared by create and import ---
 
-  private async register(real: string, name: string, defaultBranch: string, checked?: Prechecked): Promise<Site> {
+  private async register(
+    real: string,
+    name: string,
+    defaultBranch: string,
+    checked?: Prechecked,
+    notionDataSourceId: string | null = null,
+  ): Promise<Site> {
     if (!(await isValidBranchName(this.opts.git, defaultBranch, real))) throw new SiteError("site.bad_branch", 400);
     const id = newSiteId();
     try {
-      this.store.insert({ id, name, path: real, defaultBranch });
+      this.store.insert({ id, name, path: real, defaultBranch, notionDataSourceId });
     } catch (err) {
       if (/UNIQUE/i.test((err as Error).message)) throw new SiteError("site.already_registered", 409);
       throw err;

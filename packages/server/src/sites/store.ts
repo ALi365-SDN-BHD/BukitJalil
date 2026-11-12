@@ -65,10 +65,49 @@ export class SiteStore {
   }
 
   /** A new site starts read-only with "not_checked" (the column default) until a check finishes. */
-  insert(site: { id: string; name: string; path: string; defaultBranch: string }): void {
+  insert(site: {
+    id: string;
+    name: string;
+    path: string;
+    defaultBranch: string;
+    notionDataSourceId?: string | null;
+  }): void {
     this.db
-      .prepare("INSERT INTO sites (id, name, path, default_branch, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(site.id, site.name, site.path, site.defaultBranch, new Date().toISOString());
+      .prepare(
+        "INSERT INTO sites (id, name, path, default_branch, created_at, notion_data_source_id) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        site.id,
+        site.name,
+        site.path,
+        site.defaultBranch,
+        new Date().toISOString(),
+        site.notionDataSourceId ?? null,
+      );
+  }
+
+  /** The saved Notion data source this site was created with; null for Markdown and imported sites. */
+  notionDataSourceId(id: string): string | null {
+    const row = this.db.prepare("SELECT notion_data_source_id FROM sites WHERE id = ?").get(id) as
+      | { notion_data_source_id: string | null }
+      | undefined;
+    return row?.notion_data_source_id ?? null;
+  }
+
+  /** The saved publishing account this site deploys with, or null. */
+  publishAccountId(id: string): string | null {
+    const row = this.db.prepare("SELECT publish_account_id FROM sites WHERE id = ?").get(id) as
+      | { publish_account_id: string | null }
+      | undefined;
+    return row?.publish_account_id ?? null;
+  }
+
+  setPublishAccountId(id: string, accountId: string | null): void {
+    this.db.prepare("UPDATE sites SET publish_account_id = ? WHERE id = ?").run(accountId, id);
+  }
+
+  setNotionDataSourceId(id: string, sourceId: string | null): void {
+    this.db.prepare("UPDATE sites SET notion_data_source_id = ? WHERE id = ?").run(sourceId, id);
   }
 
   setState(id: string, state: SiteState) {

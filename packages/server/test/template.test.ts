@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { guardCommit } from "../src/bukit/guard.ts";
-import { BUKIT_VERSION } from "../src/bukit/install.ts";
 import { BukitRunner, buildOutcome, checkPassed } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
@@ -43,7 +42,8 @@ function listFiles(dir: string, prefix = ""): string[] {
 describe("templates/starter", () => {
   it("records its Bukit source", () => {
     const source = JSON.parse(fs.readFileSync(path.join(TEMPLATES, "starter.source.json"), "utf8"));
-    expect(source).toMatchObject({ tag: `v${BUKIT_VERSION}`, license: "MIT" });
+    // The starter theme was generated from 2.0.12 and is intentionally not tied to the app's fallback version.
+    expect(source).toMatchObject({ tag: "v2.0.12", license: "MIT" });
     expect(source.commit).toMatch(/^[0-9a-f]{40}$/);
   });
 

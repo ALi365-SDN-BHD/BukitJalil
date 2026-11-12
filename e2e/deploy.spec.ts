@@ -6,9 +6,8 @@ import { fakeBukit } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
 import { importSite, putSettings, removeImportedSites, siteFolder } from "./site-helpers.ts";
 
-// M6 (plan 14): the Publish section shows the target from site.yaml on the default branch and whether the
-// GitHub token is set; without a target, the AI is asked to set it in a new conversation. Publishing asks for
-// confirmation, shows its steps, and keeps a record with the publish audit.
+// M6 (plan 14): the Publish section reads the target from site.yaml, the saved publishing account is picked
+// in the deploy settings, and publishing asks for confirmation before running its steps and keeping a record.
 
 let work: string;
 let bukitBin: string;
@@ -22,15 +21,7 @@ test.beforeAll(() => {
 test.afterAll(async ({ browser, server }) => {
   const page = await browser.newPage();
   await page.goto(await server.loginUrl());
-  await putSettings(page, { bukitPath: null, commitName: null, commitEmail: null });
-  await page.evaluate(() =>
-    fetch("/api/secrets/github", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
-    }).then((res) => {
-      if (!res.ok) throw new Error(`remove token: ${res.status}`);
-    }),
-  );
+  await putSettings(page, { commitName: null, commitEmail: null });
   await page.close();
   removeImportedSites();
   fs.rmSync(work, { recursive: true, force: true });
@@ -42,41 +33,45 @@ const git = (dir: string, ...args: string[]) =>
     env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" },
   });
 
-test("the publish target comes from site.yaml, and the AI is asked to set it", async ({ page, server }) => {
+test("the deploy settings save the account and repository, then publishing uses them", async ({ page, server }) => {
   await page.goto(await server.loginUrl());
-  await putSettings(page, { bukitPath: bukitBin, commitName: "Test Owner", commitEmail: "owner@example.com" });
+  server.setBukit(bukitBin);
+  await page.evaluate(() => fetch("/api/bukit?refresh=1"));
+  await putSettings(page, { commitName: "Test Owner", commitEmail: "owner@example.com" });
+
+  // A saved GitHub account is the one this site will publish with.
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("settings-nav-publishing").click();
+  await page.getByTestId("publish-account-add").click();
+  await page.getByTestId("publish-account-name").fill("E2E Deploy GitHub");
+  await page.getByTestId("publish-account-token").fill("ghp_e2edeploytoken4321");
+  await page.getByTestId("publish-account-save").click();
+  const accountRow = page.getByTestId(/^publish-account-pub_[0-9a-f]{12}$/).filter({ hasText: "E2E Deploy GitHub" });
+  await expect(accountRow).toContainText(/Token saved|已保存 token/);
+  const accountId = (await accountRow.getAttribute("data-testid"))?.replace("publish-account-", "") ?? "";
+  expect(accountId).toMatch(/^pub_/);
+  await page.getByTestId("settings-close").click();
+
   const siteId = await importSite(page, "Deploy");
   await page.goto(`/sites/${siteId}`);
+  await expect(page.getByTestId("build-list").getByTestId("build-status").first()).toHaveText(/Succeeded|成功/, {
+    timeout: 60_000,
+  });
   const section = page.getByTestId("deploy-section");
-  await expect(section.getByTestId("deploy-problem")).toBeVisible();
-  await expect(section).toContainText(/GitHub token/);
-
-  // The draft lands in a new conversation's input, for the user to finish and send.
-  await section.getByTestId("deploy-ask-ai").click();
-  await expect(page.getByTestId("chat-view")).toBeVisible();
-  await expect(page.getByTestId("composer-input")).toHaveValue(/GitHub Pages/);
-
-  // A target on the default branch, and a token: ready.
   const dir = siteFolder(siteId);
-  fs.appendFileSync(
-    path.join(dir, "site.yaml"),
-    "\ndeploy:\n  provider: github-pages\n  repo: someone/someone.github.io\n",
-  );
-  git(dir, "commit", "-qam", "Publish to GitHub Pages");
-  await page.evaluate(() =>
-    fetch("/api/secrets/github", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
-      body: JSON.stringify({ value: "ghp_e2edeploytoken4321" }),
-    }).then(() => undefined),
-  );
-  await page.goto(`/sites/${siteId}`);
-  const target = section.getByTestId("deploy-target");
-  await expect(target).toContainText("someone/someone.github.io");
-  await expect(target).toContainText("gh-pages");
-  await expect(target).toContainText("https://someone.github.io/");
-  await expect(section.getByTestId("deploy-ask-ai")).toHaveCount(0);
-  await expect(section.getByTestId("deploy-open-settings")).toHaveCount(0);
+  const siteYaml = path.join(dir, "site.yaml");
+  expect(fs.readFileSync(siteYaml, "utf8")).not.toContain("deploy:");
+
+  await section.getByTestId("deploy-settings").click();
+  await page.getByTestId("deploy-account").selectOption(accountId);
+  await page.getByTestId("deploy-repo").fill("someone/someone.github.io");
+  await page.getByTestId("deploy-settings-save").click();
+  await expect(page.getByTestId("deploy-account")).toHaveCount(0);
+  await expect(section.getByTestId("deploy-target")).toContainText("someone/someone.github.io");
+  await expect(section.getByTestId("deploy-target")).toContainText("gh-pages");
+  await expect(section.getByTestId("deploy-target")).toContainText("https://someone.github.io/");
+  await expect(section).toContainText("E2E Deploy GitHub");
+  expect(fs.readFileSync(siteYaml, "utf8")).toContain("repo: someone/someone.github.io");
 
   // Publishing: the confirmation names the repository, branch and version.
   const head = git(dir, "rev-parse", "--short=7", "HEAD").toString().trim();

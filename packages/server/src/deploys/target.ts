@@ -36,3 +36,13 @@ export function pagesUrl(repo: string, cname: string | null): string {
   const host = `${owner.toLowerCase()}.github.io`;
   return name.toLowerCase() === host ? `https://${host}/` : `https://${host}/${name}/`;
 }
+
+/**
+ * The site address and base URL written into site.yaml for a target. `site.url` has no trailing slash;
+ * a project site also needs its repository name as the base path for links and assets.
+ */
+export function pagesSiteAddress(repo: string, cname: string | null): { url: string; baseUrl: string } {
+  const url = pagesUrl(repo, cname).replace(/\/$/, "");
+  const pathname = new URL(`${url}/`).pathname;
+  return { url, baseUrl: pathname === "/" ? "/" : `${pathname}` };
+}

@@ -2,16 +2,14 @@
 # directly in it, so this note is YAML and no Markdown file may live here.
 bukit:
   source: https://github.com/ALi365-SDN-BHD/Bukit
-  tag: v2.0.12
-  commit: 17a47a67a480101cd281ac11f5c35ffdfaab689f
+  tag: v2.0.15
+  commit: 83ba56a605b079aca87b545c928935f5716cad21
   path: guide/skills
   included:
-    [using-bukit, bukit-cli-reference, bukit-config, bukit-content, bukit-routing, bukit-templating, bukit-theme,
-     bukit-i18n, bukit-seo, bukit-geo, bukit-debug]
-  # The AI cannot run these; BukitJalil provides previews and deploys itself.
-  excluded: [bukit-dev, bukit-preview, bukit-deploy]
+    [using-bukit, bukit-cli-reference, bukit-config, bukit-content, bukit-content-model, bukit-routing,
+     bukit-templating, bukit-theme, bukit-i18n, bukit-build, bukit-outputs, bukit-seo, bukit-seo-insights,
+     bukit-geo, bukit-analytics, bukit-local-server, bukit-publish-deploy, bukit-troubleshooting]
   changes:
     - a note after the front matter of each skill mapping commands to BukitJalil's tools
-    - using-bukit - Labs wording removed, the preview/dev/deploy route replaced by bukit-debug
-    - bukit-debug - links to Bukit's guide/dev documents (not shipped) replaced by a sentence
+    - using-bukit - Labs skill wording removed, checks and schema mapped to BukitJalil's tools
 bukitjalil: [site-editing, content-writing, multilingual, publishing]

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { SkillsResponse } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AiBukit } from "../src/agent/ai-bukit.ts";
@@ -10,7 +11,7 @@ import { type AgentEvent, AgentService } from "../src/agent/service.ts";
 import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
 import { copyStarter } from "../src/sites/template.ts";
-import { commitAllAs, makeApp, rawGit } from "./helpers.ts";
+import { commitAllAs, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
 
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
 
@@ -60,6 +61,7 @@ function service(
     shutdownMs?: number;
     rgReady?: () => boolean;
     settled?: () => Promise<void>;
+    disabledSkills?: () => readonly string[];
   } = {},
 ) {
   const aiBukit = new AiBukit({
@@ -89,6 +91,7 @@ function service(
     rgReady: opts.rgReady ?? (() => false),
     bukit: aiBukit,
     skillsDir: SKILLS,
+    disabledSkills: opts.disabledSkills,
     idleMs: opts.idleMs,
     shutdownMs: opts.shutdownMs,
   });
@@ -134,6 +137,40 @@ describe("Pi environment", () => {
   });
 });
 
+describe("Skills settings and API", () => {
+  it("lists the bundled skills and keeps site-editing when optional ones are off", async () => {
+    const list = async () => {
+      const res = await ctx.app.fetch(req("/api/skills"));
+      expect(res.status).toBe(200);
+      return (await res.json()) as SkillsResponse;
+    };
+
+    const before = await list();
+    expect(before.skills).toHaveLength(skillNames().length);
+    expect(before.skills.find((s) => s.name === "site-editing")).toMatchObject({
+      source: "bukitjalil",
+      required: true,
+      enabled: true,
+    });
+    expect(before.skills.find((s) => s.name === "bukit-config")).toMatchObject({
+      source: "bukit",
+      required: false,
+      enabled: true,
+    });
+
+    const put = await ctx.app.fetch(
+      req("/api/settings", jsonPut({ disabledSkills: ["content-writing", "site-editing"] })),
+    );
+    expect(put.status).toBe(200);
+    const after = await list();
+    expect(after.skills.find((s) => s.name === "content-writing")?.enabled).toBe(false);
+    expect(after.skills.find((s) => s.name === "site-editing")?.enabled).toBe(true);
+
+    const reset = await ctx.app.fetch(req("/api/settings", jsonPut({ disabledSkills: [] })));
+    expect(reset.status).toBe(200);
+  });
+});
+
 /** Names of BukitJalil's skills: every SKILL.md below the skills directory. */
 const skillNames = () =>
   fs
@@ -146,15 +183,28 @@ const skillNames = () =>
  * The system messages the model received: one, with our prompt, the working directory and exactly
  * BukitJalil's skills. Context files, site skills and appended prompts would add sections, skills or messages.
  */
-function systemOf(context: unknown): { preamble: string; cwd: string; skills: string } {
+function systemSections(context: unknown): { preamble: string; cwd: string; skills: string } {
   const messages = (context as { messages: { role: string; sections?: Record<string, string> }[] }).messages;
   const system = messages.filter((m) => m.role === "system");
   expect(system).toHaveLength(1);
   const sections = system[0]?.sections as { preamble: string; cwd: string; skills: string };
   expect(Object.keys(sections).sort()).toEqual(["cwd", "preamble", "skills"]);
+  return sections;
+}
+
+function systemOf(context: unknown): { preamble: string; cwd: string; skills: string } {
+  const sections = systemSections(context);
   const listed = [...sections.skills.matchAll(/<name>([^<]+)<\/name>/g)].map((m) => m[1]).sort();
   expect(listed).toEqual(skillNames());
   return sections;
+}
+
+function readEnds(events: AgentEvent[], sessionId: string) {
+  return events.flatMap((e) =>
+    e.type === "pi" && e.sessionId === sessionId && e.event.type === "tool_execution_end" && e.event.toolName === "read"
+      ? [e.event]
+      : [],
+  );
 }
 
 /** A faux response that waits until `release` is called. */
@@ -213,6 +263,84 @@ describe("AgentService", () => {
     for (const name of fs.readdirSync(ctx.paths.pi)) expect(["auth.json", "bin", "models-store.json"]).toContain(name);
     const auth = path.join(ctx.paths.pi, "auth.json");
     if (fs.existsSync(auth)) expect(fs.statSync(auth).mode & 0o777).toBe(0o600);
+  });
+
+  it("cannot read a disabled skill in a new conversation, and re-enabling restores it", async () => {
+    const s = await site();
+    const disabled: string[] = [];
+    const { agent, events, settled } = service({ disabledSkills: () => disabled });
+    const skill = path.join(fs.realpathSync(SKILLS), "bukitjalil", "content-writing", "SKILL.md");
+    const readSkill = async (sessionId: string) => {
+      faux.setResponses([
+        pi.ai.fauxAssistantMessage([pi.ai.fauxToolCall("read", { path: skill })], { stopReason: "toolUse" }),
+        pi.ai.fauxAssistantMessage("done"),
+      ]);
+      const done = settled(sessionId);
+      await agent.send(sessionId, "Read the skill");
+      await done;
+      return readEnds(events, sessionId).at(-1);
+    };
+
+    const before = agent.create(s.id);
+    expect((await readSkill(before.id))?.isError).toBe(false);
+
+    disabled.push("content-writing");
+    const off = agent.create(s.id);
+    expect((await readSkill(off.id))?.isError).toBe(true);
+
+    disabled.length = 0;
+    const on = agent.create(s.id);
+    expect((await readSkill(on.id))?.isError).toBe(false);
+  });
+
+  it("keeps the old skill permission in the current conversation", async () => {
+    const s = await site();
+    const disabled: string[] = [];
+    const { agent, events, settled } = service({ disabledSkills: () => disabled });
+    const skill = path.join(fs.realpathSync(SKILLS), "bukitjalil", "content-writing", "SKILL.md");
+    const readSkill = async (sessionId: string) => {
+      faux.setResponses([
+        pi.ai.fauxAssistantMessage([pi.ai.fauxToolCall("read", { path: skill })], { stopReason: "toolUse" }),
+        pi.ai.fauxAssistantMessage("done"),
+      ]);
+      const done = settled(sessionId);
+      await agent.send(sessionId, "Read the skill");
+      await done;
+      return readEnds(events, sessionId).at(-1);
+    };
+
+    const current = agent.create(s.id);
+    expect((await readSkill(current.id))?.isError).toBe(false);
+    disabled.push("content-writing");
+    // Same live session, same gate and prompt: the old permission stays for this conversation.
+    expect((await readSkill(current.id))?.isError).toBe(false);
+    // A new conversation uses the new setting and denies the file.
+    const next = agent.create(s.id);
+    expect((await readSkill(next.id))?.isError).toBe(true);
+    // Reopening the same conversation reads its session file again and uses the new setting.
+    await agent.closeSite(s.id);
+    expect((await readSkill(current.id))?.isError).toBe(true);
+  });
+
+  it("hides a disabled optional skill but keeps the required one", async () => {
+    const s = await site();
+    const { agent, settled } = service({ disabledSkills: () => ["content-writing"] });
+    const session = agent.create(s.id);
+    let seen: unknown;
+    faux.setResponses([
+      (context) => {
+        seen = context;
+        return pi.ai.fauxAssistantMessage("done");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Hi");
+    await done;
+
+    const skills = [...systemSections(seen).skills.matchAll(/<name>([^<]+)<\/name>/g)].map((m) => m[1]);
+    expect(skills).not.toContain("content-writing");
+    expect(skills).toContain("site-editing");
+    expect(skills).toHaveLength(skillNames().length - 1);
   });
 
   it("gives sessions the six gated tools and no bash", async () => {

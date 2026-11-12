@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BukitPluginState } from "./plugins.ts";
 
 /** Read-only panels (plan 5.3, 9.1): files, config, theme and data, all read from git objects. */
 
@@ -94,7 +95,10 @@ export interface ConfigSummary {
   sources: { name: string | null; type: string | null; mode: string | null; collection: string | null }[];
   build: { output: string | null; draft: boolean | null; clean: boolean | null };
   theme: { name: string | null };
+  /** Raw keys of site.plugins, including names that are not built-in plugins. */
   plugins: string[];
+  /** Effective state of the built-in plugins; null when site.plugins is not a mapping. */
+  pluginStates: BukitPluginState[] | null;
   /** Top-level sections besides site, content, build and theme, e.g. deploy or logging. */
   otherSections: string[];
 }

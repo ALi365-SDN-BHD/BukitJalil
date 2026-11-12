@@ -32,4 +32,18 @@ describe.skipIf(process.platform === "win32")("app data directory (plan 4.1)", (
     openDatabase(paths.db).close();
     expect(mode(paths.db)).toBe(0o600);
   });
+
+  it("does not chmod a token file symlink's target", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bj-home-link-"));
+    const home = path.join(root, "home");
+    const target = path.join(root, "outside.txt");
+    fs.writeFileSync(target, "outside", { mode: 0o644 });
+    fs.chmodSync(target, 0o644);
+    fs.mkdirSync(home);
+    fs.symlinkSync(target, path.join(home, "publish-account-tokens.json"));
+
+    ensureAppHome(home);
+    expect(mode(target)).toBe(0o644);
+    expect(fs.lstatSync(path.join(home, "publish-account-tokens.json")).isSymbolicLink()).toBe(true);
+  });
 });

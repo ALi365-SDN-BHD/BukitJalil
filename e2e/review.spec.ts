@@ -24,7 +24,7 @@ test.beforeAll(() => {
 test.afterAll(async ({ browser, server }) => {
   const page = await browser.newPage();
   await page.goto(await server.loginUrl());
-  await putSettings(page, { model: null, bukitPath: null, commitName: null, commitEmail: null });
+  await putSettings(page, { model: null, commitName: null, commitEmail: null });
   await page.close();
   removeImportedSites();
   fs.rmSync(work, { recursive: true, force: true });
@@ -40,11 +40,17 @@ const git = (dir: string, ...args: string[]) =>
   }).trim();
 
 /** Log in with the scripted model, the test Bukit and an identity; open a conversation on a fresh site. */
-async function startConversation(page: Page, loginUrl: string, label: string, language?: string) {
-  await page.goto(loginUrl);
+async function startConversation(
+  page: Page,
+  server: { loginUrl(): Promise<string>; setBukit(source: string): void },
+  label: string,
+  language?: string,
+) {
+  await page.goto(await server.loginUrl());
+  server.setBukit(bukitBin);
+  await page.evaluate(() => fetch("/api/bukit?refresh=1"));
   await putSettings(page, {
     model: { provider: "bukitjalil-fake", id: "fake-1" },
-    bukitPath: bukitBin,
     commitName: "Test Owner",
     commitEmail: "owner@example.com",
   });
@@ -52,7 +58,9 @@ async function startConversation(page: Page, loginUrl: string, label: string, la
   const folder = siteFolder(siteId);
   await page.goto(`/sites/${siteId}`);
   // The import builds the main version once; wait for it, so the preview shows it.
-  await expect(page.locator("header").getByTestId("build-status")).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
+  await expect(page.getByTestId("build-list").getByTestId("build-status").first()).toHaveText(/Succeeded|成功/, {
+    timeout: 60_000,
+  });
   await startConversationButton(page);
   await expect(page.getByTestId("chat-view")).toBeVisible();
   const title = /^ {2}title: *(.+)$/m.exec(fs.readFileSync(path.join(folder, "site.yaml"), "utf8"))?.[1] ?? "";
@@ -72,7 +80,7 @@ async function ask(page: Page, text: string) {
 const preview = (page: Page) => page.frameLocator("[data-testid=preview-frame]");
 
 test("a reviewed change is previewed, applied, and the main preview follows", async ({ page, server }) => {
-  const { folder, title } = await startConversation(page, await server.loginUrl(), "Review apply");
+  const { folder, title } = await startConversation(page, server, "Review apply");
   // A local file the site ignores (the starter's .gitignore has dist/): applying must keep it.
   fs.mkdirSync(path.join(folder, "dist"), { recursive: true });
   fs.writeFileSync(path.join(folder, "dist/local.txt"), "mine\n");
@@ -83,6 +91,17 @@ test("a reviewed change is previewed, applied, and the main preview follows", as
   await expect(page.getByTestId("review-summary")).toContainText('Changed the site title to "Reviewed X"');
   await expect(card.getByTestId("changed-files")).toContainText("content/pages/faq.md");
   await expect(card.getByTestId("changed-files")).toContainText("site.yaml");
+
+  // Collapsing keeps the summary row only; the conversation stays usable. Expanding brings it back.
+  await card.getByTestId("review-collapse").click();
+  await expect(card).toContainText(/待审核的改动|Changes waiting for review/);
+  await expect(card.getByTestId("review-view-diff")).toBeVisible();
+  await expect(card.getByTestId("review-summary")).toHaveCount(0);
+  await expect(card.getByTestId("changed-files")).toHaveCount(0);
+  await expect(card.getByTestId("change-apply")).toHaveCount(0);
+  await expect(page.getByTestId("composer-input")).toBeVisible();
+  await card.getByTestId("review-collapse").click();
+  await expect(page.getByTestId("review-summary")).toContainText('Changed the site title to "Reviewed X"');
 
   // The diff of one file in the Changes panel.
   await card.getByRole("button", { name: /faq\.md/ }).click();
@@ -117,7 +136,7 @@ test("a reviewed change is previewed, applied, and the main preview follows", as
 });
 
 test("rejecting drops the AI's changes and leaves the site folder as it was", async ({ page, server }) => {
-  const { folder } = await startConversation(page, await server.loginUrl(), "Review reject");
+  const { folder } = await startConversation(page, server, "Review reject");
   const head = git(folder, "rev-parse", "HEAD");
   const siteYaml = fs.readFileSync(path.join(folder, "site.yaml"), "utf8");
 
@@ -137,7 +156,7 @@ test("rejecting drops the AI's changes and leaves the site folder as it was", as
 });
 
 test("restoring an old version on a Chinese site brings its content back", async ({ page, server }) => {
-  const { siteId, folder, title } = await startConversation(page, await server.loginUrl(), "恢复 站点", "zh-CN");
+  const { siteId, folder, title } = await startConversation(page, server, "恢复 站点", "zh-CN");
   const first = git(folder, "rev-parse", "HEAD");
   await ask(page, '#faq Change the title to "新标题 X" and add an FAQ page');
   await page.getByTestId("change-apply").click();

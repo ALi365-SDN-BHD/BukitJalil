@@ -1,18 +1,15 @@
 /** GET /api/bukit (plan 8.1, 10.x). Install progress is polled from the same endpoint. */
 
-export type BukitSource = "custom" | "app" | "path";
-
 export interface BukitStatus {
   path: string | null;
-  source: BukitSource | null;
   version: string | null;
+  /** The latest official release, from GitHub or the built-in fallback when it cannot be reached. */
+  latestVersion: string;
   /** ok: 2.0.x and >= 2.0.11 (the minimum); old: 2.0.x below 2.0.11; unsupported: not 2.0.x; broken: found but `bukit version` failed. */
   state: "ok" | "old" | "unsupported" | "missing" | "broken";
-  /** The custom path from settings is set but not usable; the next source was used. */
-  customProblem: "not_found" | "broken" | null;
-  /** An official package exists for this platform (osx-arm64, linux-x64). */
+  /** An official package exists for this platform (osx-arm64, linux-x64, win-x64). */
   installable: boolean;
-  /** A working app or PATH copy older than the version BukitJalil installs (plan 8.1): offer the upgrade. */
+  /** A working app copy older than the version BukitJalil installs (plan 8.1): offer the upgrade. */
   upgradable: boolean;
 }
 

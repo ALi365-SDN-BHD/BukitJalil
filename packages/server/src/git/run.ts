@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { findBrew } from "./brew.ts";
 import { checkRepoConfig, type RepoCheck } from "./repo-check.ts";
 
 /**
@@ -82,6 +83,12 @@ export class GitRunner {
   private readonly checkCache = new Map<string, { stamp: string; result: RepoCheck }>();
 
   constructor(readonly opts: GitRunnerOptions) {}
+
+  /** Switch to a Git installed while the server is running (e.g. by Homebrew); later calls use it. */
+  usePath(gitPath: string): void {
+    this.opts.gitPath = gitPath;
+    this.checkCache.clear();
+  }
 
   /** Fixed `-c` flags of plan 7.3, before any subcommand. */
   hardeningArgs(): string[] {
@@ -288,7 +295,10 @@ export async function clearIndexLock(git: GitRunner, cwd: string): Promise<void>
 
 /** Find `git` on PATH once at startup and return its real absolute path (plan 7.3). */
 export function resolveGitPath(envPath = process.env.PATH ?? ""): string | null {
-  for (const dir of envPath.split(path.delimiter)) {
+  // A Homebrew Git is a user-level install the app can update; prefer it over Apple's older Git.
+  const brew = findBrew(envPath);
+  const dirs = [...(brew ? [path.dirname(brew)] : []), ...envPath.split(path.delimiter)];
+  for (const dir of dirs) {
     if (!dir || !path.isAbsolute(dir)) continue;
     const candidate = path.join(dir, process.platform === "win32" ? "git.exe" : "git");
     try {
