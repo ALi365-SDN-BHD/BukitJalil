@@ -1,4 +1,4 @@
-import type { Site } from "@bukitjalil/shared";
+import type { NotionDatabaseUse, Site } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -50,7 +50,7 @@ export function NewSiteDialog({
   const [parent, setParent] = useState<string | null>(null);
   const [folder, setFolder] = useState<string | null>(null);
   const [notionId, setNotionId] = useState("");
-  const [databaseId, setDatabaseId] = useState("");
+  const [notionPicks, setNotionPicks] = useState<Record<string, NotionDatabaseUse>>({});
   const folderName = folder ?? folderFromName(name);
   const start = parent ?? settings.data?.lastParentDir ?? null;
   const target = start ? joinPath(start, folderName) : null;
@@ -64,21 +64,25 @@ export function NewSiteDialog({
     retry: false,
   });
 
-  // A new source starts at its first database; the user can pick another one.
+  // Drop checked databases that disappeared from the list (or when the source changes).
   useEffect(() => {
     if (!notionId) {
-      setDatabaseId("");
+      setNotionPicks({});
       return;
     }
-    const list = databases.data?.databases ?? [];
-    if (list.length === 0) {
-      if (databaseId) setDatabaseId("");
-      return;
-    }
-    if (!list.some((database) => database.id === databaseId)) setDatabaseId(list[0]?.id ?? "");
-  }, [notionId, databases.data, databaseId]);
+    const list = databases.data?.databases;
+    if (!list) return;
+    setNotionPicks((picks) => {
+      const next = Object.fromEntries(Object.entries(picks).filter(([id]) => list.some((db) => db.id === id)));
+      return Object.keys(next).length === Object.keys(picks).length ? picks : next;
+    });
+  }, [notionId, databases.data]);
 
-  const notionReady = notionId === "" || (!!databaseId && !databases.isPending && !databases.error);
+  const pickedDatabases = (databases.data?.databases ?? []).flatMap((database) => {
+    const use = notionPicks[database.id];
+    return use ? [{ databaseId: database.id, title: database.title, use }] : [];
+  });
+  const notionReady = notionId === "" || (pickedDatabases.length > 0 && !databases.isPending && !databases.error);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -88,7 +92,7 @@ export function NewSiteDialog({
         name: name.trim(),
         path: target,
         language,
-        ...(notionId ? { dataSourceIds: [notionId], notionDatabaseId: databaseId } : {}),
+        ...(notionId ? { dataSourceIds: [notionId], notionDatabases: pickedDatabases } : {}),
       });
       if (!multilingual) return { site };
       const session = await api.createSession(site.id);
@@ -197,7 +201,7 @@ export function NewSiteDialog({
                   value={notionId}
                   onChange={(e) => {
                     setNotionId(e.target.value);
-                    setDatabaseId("");
+                    setNotionPicks({});
                   }}
                   data-testid="new-site-notion-source"
                 >
@@ -220,19 +224,52 @@ export function NewSiteDialog({
                   <p className="text-xs text-muted-foreground">{m.newSite.notionDatabasesEmpty}</p>
                 )}
                 {notionId && databases.data && databases.data.databases.length > 0 && (
-                  <select
-                    className="h-9 rounded-md border bg-background px-2 text-sm"
-                    value={databaseId}
-                    onChange={(e) => setDatabaseId(e.target.value)}
-                    data-testid="new-site-notion-database"
+                  <div
+                    className="max-h-56 divide-y overflow-auto rounded-md border"
+                    data-testid="new-site-notion-databases"
                   >
-                    <option value="">{m.newSite.chooseNotionDatabase}</option>
-                    {databases.data.databases.map((database) => (
-                      <option key={database.id} value={database.id}>
-                        {database.title}
-                      </option>
-                    ))}
-                  </select>
+                    {databases.data.databases.map((database) => {
+                      const use = notionPicks[database.id];
+                      return (
+                        <div key={database.id} className="flex items-center gap-2 px-2 py-1.5">
+                          <input
+                            type="checkbox"
+                            className="size-4 shrink-0 accent-foreground"
+                            checked={!!use}
+                            aria-label={database.title}
+                            onChange={(e) =>
+                              setNotionPicks((picks) => {
+                                const next = { ...picks };
+                                if (e.target.checked) next[database.id] = "post";
+                                else delete next[database.id];
+                                return next;
+                              })
+                            }
+                            data-testid={`new-site-notion-db-${database.id}`}
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm">{database.title}</span>
+                          {use && (
+                            <select
+                              className="h-7 shrink-0 rounded-md border bg-background px-1 text-xs"
+                              value={use}
+                              onChange={(e) =>
+                                setNotionPicks((picks) => ({
+                                  ...picks,
+                                  [database.id]: e.target.value as NotionDatabaseUse,
+                                }))
+                              }
+                              aria-label={m.newSite.notionUse}
+                              data-testid={`new-site-notion-use-${database.id}`}
+                            >
+                              <option value="post">{m.newSite.notionUsePost}</option>
+                              <option value="page">{m.newSite.notionUsePage}</option>
+                              <option value="data">{m.newSite.notionUseData}</option>
+                            </select>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </>
             )}

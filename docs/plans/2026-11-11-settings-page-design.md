@@ -268,7 +268,7 @@ pnpm e2e            # 或只跑受影响的 spec
 - 设置 → 数据源保存可选的 Notion 数据源：
   - 每个数据源有名称和 id，名称不区分大小写唯一；token 保存在 `~/.bukitjalil/data-source-tokens.json`（权限 600），接口只返回是否配置和末四位。
   - 一个 Notion 数据源可以供多个网站使用；每个网站最多选择一个 Notion 数据源。
-- 新建网站时选择 Notion 数据源后，服务端调用 Notion API 列出该 token 能访问的数据库，再选一个写入 `site.yaml` 的 `content.sources[].notion.databaseId`。用户必须先在 Notion 中把数据库共享给 integration。
+- 新建网站时选择 Notion 数据源后，服务端调用 Notion API 列出该 token 能访问的数据库；可以勾选多个，每个选择用途（文章 / 页面 / 数据），分别写成 `content.sources[]` 里的 notion 源。用户必须先在 Notion 中把数据库共享给 integration。
 - 应用数据库新增 `data_sources` 表；`sites` 记录创建时使用的 Notion 数据源 id，供正式构建取 token。导入的 Notion 网站没有这条记录时，如果只有一个 Notion 数据源就临时使用它。
 - 旧的全局 Notion token、设置页的 Notion token 表单和 `BUKITJALIL_NOTION_TOKEN` 环境变量移除。
 
@@ -324,3 +324,10 @@ pnpm e2e            # 或只跑受影响的 spec
 - `ReviewCard` 标题行右侧增加折叠按钮；折叠后只保留“待审核的改动 · 改了 N 个文件”和“查看差异”，隐藏改动说明、文件列表、应用/拒绝按钮和提示。
 - 折叠只影响审核卡片自身高度，会话消息和输入框继续可用；再次点击展开恢复完整内容。
 - e2e 覆盖折叠后摘要行仍可见、详细内容和操作隐藏、输入框可用，以及展开后内容恢复。
+
+## 21. 新建网站时多选 Notion 数据库（2026-11-12）
+
+- Notion 数据源下面的数据库列表改为复选框；勾选后每个数据库旁选择用途：文章（`collection: post`）、页面（`collection: page`）或数据（`mode: data`）。
+- 每个勾选的数据库生成一个 `content.sources[]` notion 源；源名取数据库标题里的 ASCII 部分并去重（例如“菜单 Menu” → `menu`），没有 ASCII 时用 `notion`、`notion-2`。
+- 创建请求用 `notionDatabases: [{ databaseId, title, use }]` 代替单个 `notionDatabaseId`；服务端仍然只允许选择一个已保存的 Notion 数据源（token 来源）。
+- 至少勾选一个数据库才能创建；之前自动选中第一个数据库的行为移除，由用户明确选择。

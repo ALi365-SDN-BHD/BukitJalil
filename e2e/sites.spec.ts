@@ -343,7 +343,7 @@ test("a new site uses Markdown by default and creates its Markdown files", async
   expect(fs.existsSync(path.join(dir, "content/pages/about.md"))).toBe(true);
 });
 
-test("a Notion data source keeps its token and its database list is used when creating a site", async ({
+test("a Notion data source keeps its token and several databases are used when creating a site", async ({
   page,
   server,
 }) => {
@@ -366,6 +366,41 @@ test("a Notion data source keeps its token and its database list is used when cr
   await expect(page.getByTestId("new-site-create")).toBeDisabled();
   await page.keyboard.press("Escape");
 
+  // Once the databases are listed, check several and give each one its use.
+  await page.route("**/api/data-sources/*/notion/databases", (route) =>
+    route.fulfill({
+      json: {
+        databases: [
+          { id: "db_posts", title: "Posts" },
+          { id: "db_pages", title: "Pages" },
+          { id: "db_menu", title: "菜单 Menu" },
+        ],
+      },
+    }),
+  );
+  const { name, parent } = fresh("Notion");
+  await page.getByTestId("new-site").click();
+  await page.locator("#site-name").fill(name);
+  await goToFolder(page, parent);
+  await page.getByTestId("new-site-notion-source").selectOption(id);
+  await page.getByTestId("new-site-notion-db-db_posts").check();
+  await page.getByTestId("new-site-notion-db-db_pages").check();
+  await page.getByTestId("new-site-notion-use-db_pages").selectOption("page");
+  await page.getByTestId("new-site-notion-db-db_menu").check();
+  await page.getByTestId("new-site-notion-use-db_menu").selectOption("data");
+  await page.getByTestId("new-site-create").click();
+  await expect(page).toHaveURL(/\/sites\/[0-9a-f]+$/);
+  const siteId = page.url().split("/sites/")[1] ?? "";
+  const dir = await sitePath(page);
+  const yaml = fs.readFileSync(path.join(dir, "site.yaml"), "utf8");
+  expect(yaml).toMatch(/name: posts\n\s+mode: content\n\s+collection: post\n\s+notion:\n\s+databaseId: db_posts/);
+  expect(yaml).toMatch(/name: pages\n\s+mode: content\n\s+collection: page\n\s+notion:\n\s+databaseId: db_pages/);
+  expect(yaml).toMatch(/name: menu\n\s+mode: data\n\s+notion:\n\s+databaseId: db_menu/);
+
+  // The source is linked to this site, so remove the site before deleting the source.
+  await page.getByTestId(`site-menu-${siteId}`).click();
+  await page.getByTestId("site-remove").click();
+  await page.getByTestId("site-remove-confirm").click();
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-data").click();
   await page.getByTestId(`data-source-delete-${id}`).click();

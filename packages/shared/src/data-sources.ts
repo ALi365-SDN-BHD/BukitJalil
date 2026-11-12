@@ -43,6 +43,16 @@ export interface NotionDatabasesResponse {
   databases: NotionDatabase[];
 }
 
-/** The database picked for a new Notion-backed site. */
-export const NotionDatabaseChoice = z.object({ databaseId: z.string().trim().min(1).max(100) }).strict();
+/** How a selected Notion database is used on a new site: posts, pages, or template-only data. */
+export const NotionDatabaseUse = z.enum(["post", "page", "data"]);
+export type NotionDatabaseUse = z.infer<typeof NotionDatabaseUse>;
+
+/** One database picked for a new Notion-backed site. */
+export const NotionDatabaseChoice = z
+  .object({
+    databaseId: z.string().trim().min(1).max(100),
+    title: z.string().trim().min(1).max(200),
+    use: NotionDatabaseUse,
+  })
+  .strict();
 export type NotionDatabaseChoice = z.infer<typeof NotionDatabaseChoice>;

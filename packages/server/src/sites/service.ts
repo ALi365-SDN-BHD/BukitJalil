@@ -175,7 +175,7 @@ export class SiteService {
 
   /**
    * The optional Notion source chosen for a new site. Without one site.yaml keeps the starter's
-   * Markdown sources; with one the site uses that Notion database and needs the picked database id.
+   * Markdown sources; with one the site uses the picked databases, each in the role the user chose.
    */
   private selectedSources(req: CreateSiteRequest): { sources: StarterSource[]; notionDataSourceId: string } | null {
     const ids = [...new Set(req.dataSourceIds ?? [])];
@@ -183,19 +183,22 @@ export class SiteService {
     const id = ids[0];
     if (ids.length > 1 || !id) throw new SiteError("datasource.multiple_notion", 400);
     const source = this.opts.dataSources.get(id);
-    if (!req.notionDatabaseId) throw new SiteError("datasource.notion_database_required", 400);
-    return {
-      sources: [
-        {
-          type: "notion",
-          name: source.name,
-          mode: "content",
-          collection: "post",
-          notion: { databaseId: req.notionDatabaseId },
-        },
-      ],
-      notionDataSourceId: source.id,
-    };
+    const picks = req.notionDatabases ?? [];
+    if (picks.length === 0) throw new SiteError("datasource.notion_database_required", 400);
+    const seen = new Set<string>();
+    const names = new Set<string>();
+    const sources: StarterSource[] = [];
+    for (const pick of picks) {
+      if (seen.has(pick.databaseId)) continue;
+      seen.add(pick.databaseId);
+      sources.push({
+        type: "notion",
+        name: uniqueSourceName(pick.title, names),
+        ...(pick.use === "data" ? { mode: "data" as const } : { mode: "content" as const, collection: pick.use }),
+        notion: { databaseId: pick.databaseId },
+      });
+    }
+    return { sources, notionDataSourceId: source.id };
   }
 
   // --- import (plan 5.1) ---
@@ -637,6 +640,25 @@ function removeCreated(dir: string, existed: boolean): void {
     return;
   }
   for (const name of fs.readdirSync(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+}
+
+// Built-in site.data keys, so a database titled like one of them gets a safe name.
+const RESERVED_SOURCE_NAMES = new Set(["taxonomy", "pages_by_id", "taxonomy_ensure_terms"]);
+
+/** A unique source name from a Notion database title: its ASCII slug, or notion, notion-2, ... */
+function uniqueSourceName(title: string, used: Set<string>): string {
+  const base =
+    title
+      .normalize("NFKD")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40)
+      .replace(/-+$/, "") || "notion";
+  let name = RESERVED_SOURCE_NAMES.has(base) ? `${base}-source` : base;
+  for (let n = 2; used.has(name); n++) name = `${base}-${n}`;
+  used.add(name);
+  return name;
 }
 
 const splitZ = (out: string) => out.split("\0").filter((s) => s.length > 0);

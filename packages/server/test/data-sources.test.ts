@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { NotionDatabasesResponse, SavedDataSource } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { ADMIN, makeApp, req } from "./helpers.ts";
 
 // Saved Notion sources (plan 6.5): Markdown is the built-in default, so only Notion tokens are
@@ -154,7 +155,7 @@ describe("new site data sources", () => {
     ctx.db.close();
   });
 
-  it("puts the picked Notion source in site.yaml and keeps its token linked", async () => {
+  it("puts the picked Notion databases in site.yaml and keeps the token linked", async () => {
     const ctx = makeApp({ appHome: path.join(base, "app-site") });
     identity(ctx);
     const source = (await (
@@ -166,12 +167,19 @@ describe("new site data sources", () => {
       path: dir,
       language: "en-US",
       dataSourceIds: [source.id],
-      notionDatabaseId: "db_blog",
+      notionDatabases: [
+        { databaseId: "db_blog", title: "Blog", use: "post" },
+        { databaseId: "db_docs", title: "文章 Docs", use: "page" },
+        { databaseId: "db_settings", title: "Site Settings", use: "data" },
+      ],
     });
 
     const yaml = fs.readFileSync(path.join(dir, "site.yaml"), "utf8");
-    expect(yaml).toContain("name: Work Notion");
-    expect(yaml).toContain("databaseId: db_blog");
+    expect((parse(yaml) as { content: { sources: unknown } }).content.sources).toEqual([
+      { type: "notion", name: "blog", mode: "content", collection: "post", notion: { databaseId: "db_blog" } },
+      { type: "notion", name: "docs", mode: "content", collection: "page", notion: { databaseId: "db_docs" } },
+      { type: "notion", name: "site-settings", mode: "data", notion: { databaseId: "db_settings" } },
+    ]);
     expect(yaml).not.toContain("dir: content/posts");
     expect(fs.existsSync(path.join(dir, "content/posts/welcome.md"))).toBe(true);
     expect(ctx.sites.notionDataSourceId(site.id)).toBe(source.id);
@@ -200,7 +208,7 @@ describe("new site data sources", () => {
         path: path.join(base, "site-two"),
         language: "en-US",
         dataSourceIds: [first.id, second.id],
-        notionDatabaseId: "db",
+        notionDatabases: [{ databaseId: "db", title: "Blog", use: "post" }],
       }),
     ).rejects.toMatchObject({ code: "datasource.multiple_notion" });
 

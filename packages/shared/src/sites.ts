@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NotionDatabaseChoice } from "./data-sources.ts";
 
 /** Sites, directory picker and import (plan 5.1, 5.2, 9.1). */
 
@@ -30,8 +31,8 @@ export const CreateSiteRequest = z
      * default Markdown sources, which are created automatically with the project.
      */
     dataSourceIds: z.array(z.string().min(1).max(100)).max(1).optional(),
-    /** The Notion database picked from the selected Notion data source. */
-    notionDatabaseId: z.string().trim().min(1).max(100).optional(),
+    /** The databases picked from the selected Notion data source, each with its use on the site. */
+    notionDatabases: z.array(NotionDatabaseChoice).max(100).optional(),
   })
   .strict();
 export type CreateSiteRequest = z.infer<typeof CreateSiteRequest>;
