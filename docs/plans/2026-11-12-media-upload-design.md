@@ -1,6 +1,6 @@
 # 素材上传：设计与实施计划
 
-> 日期：2026-11-12 · 状态：设计已确认，待实施 · 对应：开发计划"16. 待定问题"第 2 条 · 估算：约 2 个工作日
+> 日期：2026-11-12（同日审计修订，见第 9 节） · 状态：设计已确认，待实施 · 对应：开发计划"16. 待定问题"第 2 条 · 估算：约 2 个工作日
 
 ## 1. 背景
 
@@ -15,7 +15,7 @@ AI 的写工具只能写 1 MB 以内的文本文件，不能写图片等二进�
 1. 用户在网站页面或对话界面上传图片和 PDF，可以多选，也可以拖进来。
 2. 上传的文件进入改动集，和 AI 的修改一样要经过审核，应用后才会写进网站文件夹。**上传不绕过审核。**
 3. 改动面板里能直接预览上传的图片。
-4. AI 能看到已上传的文件并在页面里引用。比如用户上传 Logo 后说"放到首页顶部"，AI 就能完成。
+4. AI 能看到已上传的文件并在页面里引用。比如用户上传一张产品图后说"放到首页"，AI 就能在首页内容里引用它。AI 只能"看到"png、jpg、gif、webp 的画面内容；avif 和 pdf 只知道文件名和网址（5.6）。
 5. 只有改动集里没有 AI 参与时，提交作者才是用户本人，规则和"恢复版本"一致。
 
 ### 2.2 不在本次范围
@@ -38,18 +38,27 @@ AI 的写工具只能写 1 MB 以内的文本文件，不能写图片等二进�
 
 来源（Bukit `v2.0.12` 标签）：
 
-- `src/Bukit-Core/Bukit.Config/SiteDefaultsApplier.Content.cs`：这两项的默认值。
-- `src/Bukit-Core/Bukit.Engine/AssetOutputPlan.cs`：普通构建把整个媒体目录复制到输出的 `assets/uploads/`；跳过 `.` 开头的文件，不跟随符号链接。
-- `src/Bukit-Core/Bukit.Engine/ContentMediaOutput.cs`：按语言变体构建时只发布**页面里引用到的**媒体文件；引用了但文件不存在，构建直接失败（`Referenced localized media is missing or unsafe`）。
+- `src/Bukit-Core/Bukit.Config/SiteDefaultsApplier.Content.cs`：这两项的默认值；`content.media.downloadToLocal` 默认为 `true`（`AppConfig.cs` 也是 `true`）。
+- `src/Bukit-Core/Bukit.Engine/VariantBuildPipeline.cs`：`downloadToLocal` 为 `true` 时创建 `ContentMediaOutput`，由它决定发布哪些媒体文件。**这和网站是不是多语言无关**，默认配置下单语言网站也走这条路。
+- `src/Bukit-Core/Bukit.Engine/ContentMediaOutput.cs`：
+  - 只发布**被引用到的**媒体文件。引用来源包括内容正文、front matter 自定义字段、内容的媒体记录和索引页字段。
+  - 引用了但文件不存在，构建直接失败（`Referenced localized media is missing or unsafe`）。
+  - 构建最后还会扫描生成的整页 HTML（`ValidateOutputs`）。网址前缀下有引用、但前面没有登记发布的文件，同样会让构建失败（`Referenced localized media output is missing`）。所以如果 Logo 是从**主题模板或 `site.yaml`** 里引用的，不经过内容，可能会让构建失败。第 1 层要重点实测这一点（7.1 第 3 条）。
+- `src/Bukit-Core/Bukit.Engine/AssetOutputPlan.cs`：只有 `downloadToLocal: false` 时才把整个媒体目录复制到输出；跳过 `.` 开头的文件，不跟随符号链接。
 
 选这个目录的理由：
 
 - Bukit 原生就会发布它，不用改 `site.yaml`，也不用改主题。
 - 远程图片本地化（`downloadToLocal`）下载的图片也放在这里，两类素材在同一个位置，引用方式一样。
-- `content.media.downloadDir` 已经在构建前检查的路径字段清单里（开发计划 8.2），保证在检出目录内、不经过符号链接。
+- `content.media.downloadDir` 已经在构建前检查的路径字段清单里（开发计划 8.5），保证在检出目录内、不经过符号链接。
 - 引用写错时构建会失败，正好能在审核前发现问题。
 
-BukitJalil 从改动集的 `site.yaml` 读取这两项；没写就用默认值。第 1 层要用真实的 Bukit 2.0.12 实测确认上面的行为（见 7.1）。
+由此得出两条对产品有影响的结论：
+
+1. **上传了但页面里没用到的文件不会发布。** 这是 Bukit 的默认行为，不算缺陷，但界面要说清楚（5.7）。
+2. **素材应该从内容里引用**（正文或 front matter 字段，例如 `image:`），而不是直接写进主题模板。如果主题需要显示 Logo，要通过内容字段或 Bukit 支持的配置项传进去。具体能用的写法以第 1 层实测为准，结果写进技能文档（5.6）。
+
+BukitJalil 从改动集的 `site.yaml` 读取 `downloadDir`、`urlBase`、`downloadToLocal` 三项；没写就用默认值。第 1 层要用真实的 Bukit 2.0.12 实测确认上面的行为（见 7.1）。
 
 ## 4. 用户流程
 
@@ -80,9 +89,10 @@ X-BukitJalil: 1
 { "name": "Logo 最终版.PNG", "data": "<base64>", "replace": false }
 ```
 
-- **用 JSON 和 base64，不用 multipart。** 现有防跨站规则要求所有写请求都是 `application/json` 并带自定义请求头（开发计划 11，`security/guard.ts`）。用 JSON 就不需要给上传开例外，规则保持一刀切。代价是体积大约多三分之一，10 MB 的文件请求体约 13.4 MB，可以接受。
+- **用 JSON 和 base64，不用 multipart。** 现有防跨站规则要求所有写请求都是 `application/json` 并带自定义请求头 `x-bukitjalil`（开发计划 11，`security/guard.ts`）。用 JSON 就不需要给上传开例外，规则保持一刀切。代价是体积大约多三分之一：10 MiB 的文件，请求体约 13.3 MiB。
 - **一次一个文件**：浏览器按顺序逐个上传，进度和出错都按文件显示，服务端也不用处理批量回滚。
-- **请求体大小限制**：这个接口单独放宽到 14 MiB；其他接口统一限制为 1 MiB。现在没有全局限制，这次一起补上，并用测试确认现有接口都在限制内。
+- **请求体大小限制**：这个接口单独放宽到 14 MiB；其他接口统一限制为 1 MiB（Hono 的 `bodyLimit`，放在读取请求体之前）。现在没有全局限制，这次一起补上。现有请求体里最大的是对话消息：`MAX_MESSAGE_CHARS` 是 10 万字符，UTF-8 编码后最多约 400 KB，在 1 MiB 以内。测试要覆盖这一点。
+- **`stripLocation`**（可选，布尔值）：为 `true` 时，服务端先去掉位置信息再写入（5.3）。
 - 成功返回 `201`：
 
 ```json
@@ -97,7 +107,9 @@ X-BukitJalil: 1
 }
 ```
 
-`location` 表示文件里带 GPS 位置信息（见 5.3）。改动集的变化照常通过现有的 SSE 事件 `change.updated` 推送，界面不用另外刷新。
+`location` 表示写入的文件里仍然带 GPS 位置信息（见 5.3）。改动集的变化照常通过现有的 SSE 事件（`type: "change"`，由 `events/bridge.ts` 发出）推送，界面不用另外刷新。
+
+重名时返回 409 `media.exists`，参数里带 `name`（已存在的文件名）和 `suggestion`（服务端算出的、当前不重名的新名字，例如 `logo-2.png`）。浏览器看不到工作副本里有哪些文件，所以"两个都保留"用的新名字由服务端给出。
 
 ### 5.2 校验
 
@@ -119,19 +131,25 @@ X-BukitJalil: 1
 2. 扩展名统一：`jpeg` → `jpg`。
 3. 主名部分：不属于 `a-z0-9._-` 的字符替换成 `-`，合并连续的 `-`，去掉首尾的 `-` 和 `.`，最长 80 个字符。
 4. 整理后主名为空（比如全是中文）时，改用 `upload-<YYYYMMDD>-<4 位随机十六进制>`。
-5. 结果再过一遍 `foldName`（`names.ts`），检查有没有只差大小写的重名，避免在 macOS 和 Windows 上冲突。
+5. 主名是 Windows 保留名（`con`、`prn`、`aux`、`nul`、`com1`–`com9`、`lpt1`–`lpt9`）时，在后面加 `-file`，否则仓库在 Windows 上无法检出。
+6. 和目录里已有文件比较时，用 `foldName`（`server/src/names.ts`）做不区分大小写的比较。只差大小写也算重名，避免在 macOS 和 Windows 上冲突。
 
-例子：`Logo 最终版.PNG` → `logo.png`；`首页横幅.jpeg` → `upload-20261112-a3f9.jpg`。
+例子：`Logo 最终版.PNG` → `logo.png`；`首页横幅.jpeg` → `upload-20261112-a3f9.jpg`；`CON.png` → `con-file.png`。
 
-出现重名时，界面询问"替换"还是"两个都保留"。选"两个都保留"会在主名后加 `-2`、`-3`……直到不重名，再重新上传。这个新名字由浏览器算好，服务端照样做校验。
+出现重名时，界面询问"替换"还是"两个都保留"。选"两个都保留"时，用 409 返回的 `suggestion` 作为新名字重新上传；服务端照样做全部校验，如果这期间又重名了，就再返回一个新的 `suggestion`。
 
 ### 5.3 位置信息（GPS）
 
 手机拍的照片常常带拍摄地点，发布后谁都能看到。v1 的处理：
 
-- **检测**：jpeg 检查 EXIF 里的 GPS 信息（tag `0x8825`），png 检查 `eXIf` 块，webp 检查 `EXIF` 块。只解析文件头部的元数据结构，不解码图片。
-- **提示**：返回 `location: true`，界面在这个文件旁边显示"这张照片带有拍摄位置，发布后所有人都能看到"，并提供"去掉位置信息"按钮。
-- **去掉**：把整个 EXIF 块删掉后重新上传，替换原文件。只删元数据，不重新编码图片，所以画质不变。副作用：EXIF 里的旋转方向也会一起丢掉，手机竖拍的照片可能显示成横的，提示里要说明这一点。
+- **检测**：
+  - jpeg 检查 APP1 里的 EXIF GPS 信息（tag `0x8825`）和 XMP 里的 `exif:GPSLatitude`；
+  - png 检查 `eXIf` 块和 `iTXt` 里的 XMP；
+  - webp 检查 `EXIF` 块和 `XMP ` 块。
+  - 只解析元数据结构，不解码图片。
+- **不检测**：avif（EXIF 藏在 ISOBMFF 的 item 里，解析成本高）、gif、pdf。v1 只在使用说明里提醒这几种格式；以后再补 avif。
+- **提示**：返回 `location: true` 时，界面在这个文件旁边显示"这张照片带有拍摄位置，发布后所有人都能看到"，并提供"去掉位置信息"按钮。
+- **去掉**：浏览器手里还有原文件，用同一个文件名重新上传，带上 `replace: true, stripLocation: true`。服务端删掉整个 EXIF 块和 XMP 块再写入（`server/src/media/location.ts`）。只删元数据，不重新编码图片，所以画质不变。副作用：EXIF 里的旋转方向也会一起丢掉，手机竖拍的照片可能显示成横的，提示里要说明这一点。
 
 默认不自动删除，因为摄影类网站可能需要保留 EXIF。
 
@@ -143,22 +161,32 @@ X-BukitJalil: 1
 2. 取得或新建改动集：已有改动集就沿用它和 AI 工作副本；没有就像 `ChangeService.begin` 一样，从默认分支的最新提交新建一个，`sessionId` 为空（和"恢复版本"一样），并重置 AI 工作副本。为此要从 `begin` 里抽出一个不需要会话的 `openOrCreate(siteId)`，`begin` 改为调用它再记录会话。
 3. 读取改动集快照里的 `site.yaml`，得到媒体目录和网址前缀。
 4. 依次做 5.2 里的其他检查。
-5. 写文件：先写到同一目录下的临时文件 `.<name>.upload-<随机>`，再改名为目标文件。`.` 开头的临时文件会被 Bukit 和快照跳过，进程中途崩溃也不会留下半个文件进入改动。目录不存在时自动创建。
+5. 写文件：先写到工作副本**外面**的临时目录 `worktrees/<siteId>/.upload-tmp/`，再改名到目标位置。这个临时目录和 AI 工作副本 `worktrees/<siteId>/ai/` 在同一个磁盘分区上，所以改名是原子操作。临时文件不能放在工作副本里：快照用的是 `git add -A`（`changes/snapshot.ts`），`.` 开头的文件也会被收进去，进程中途崩溃留下的半个文件就会进入改动。每次上传开始前清空这个临时目录。媒体目录不存在时自动创建，创建和最终路径都过 `PathGate.check(abs, "write")`。
 6. 调用 `ChangeService.snapshot(siteId, cwd)` 生成快照。改动集、它的 ref 和 SSE 事件都由现有逻辑处理。
-7. 改动集还没有说明时，写入一条，比如"上传素材：logo.png"；同一个改动集里再上传时，把文件名追加到这条说明后面。AI 写过说明就不再改动。
+7. 说明：改动集**没有 AI 参与**（`aiJoined` 为假）时，由上传维护说明。没有说明时写"上传素材：logo.png"；已有说明（上传写的，或恢复版本写的）就把文件名追加到后面。有 AI 参与后不再改动说明，由 AI 的 `summarize_changes` 负责。现有数据里分不清"谁写的说明"，所以用 `aiJoined` 来判断。
 
 ### 5.5 改动集、作者和历史
 
 - **作者**：现在的规则是"纯恢复（`restoreCommit` 不为空且 `aiJoined` 为假）时作者是用户，其余是 AI"。改为：**只要 `aiJoined` 为假，作者就是用户**。这样同时覆盖"纯恢复"和"纯上传"两种情况；有对话参与过的改动集，作者仍然是 AI。`aiJoined` 在迁移 005 里已经有了，不需要新的迁移。
 - **提交说明**：沿用改动集说明。纯上传的改动集再加一行尾注 `BukitJalil-Uploads: <文件数>`，方便在历史里辨认。
 - **历史**：纯上传的版本显示为用户提交（`byAi: false`），和纯恢复一样。
-- **拒绝**：拒绝改动集时，上传的文件跟着一起丢弃，网站文件夹不受影响。
+- **拒绝**：拒绝改动集时，上传的文件跟着一起丢弃，网站文件夹不受影响。工作副本在下一个改动集打开时重置（现有逻辑）。
+- **和恢复版本的关系**：
+  - 在"恢复版本"产生的改动集里可以继续上传，提交时同时带 `BukitJalil-Restore` 和 `BukitJalil-Uploads` 两个尾注，作者仍然是用户；
+  - 反过来，已经上传了文件的改动集不为空，这时再"恢复版本"会按现有规则返回 `change.open_exists`。
 
 ### 5.6 AI 一侧
 
-- `site_info` 工具的返回值增加 `media` 一项：媒体目录、网址前缀，以及目录里的文件列表（文件名、大小、类型、网址，最多 200 个）。
-- 建站技能 `skills/bukitjalil/site-editing/SKILL.md` 补充：用户上传的素材在媒体目录里，页面里用网址前缀加文件名来引用（例如 `![公司 Logo](/assets/uploads/logo.png)`），一定要写有意义的 `alt` 文字；AI 不能自己添加或修改图片，缺图时请用户上传。
-- AI 的读工具已经能把图片作为附件交给模型（审计第 3 层修好的），所以 AI 能"看到"上传的图片内容，从而写出准确的 `alt` 文字。不需要改动。
+- `site_info` 工具的返回值增加 `media` 一项：
+  - 媒体目录、网址前缀、是否只发布被引用的文件（即 `downloadToLocal`）；
+  - 目录里的文件列表，每个文件包括文件名、大小、类型、网址和 `viewable`，最多 200 个。
+- 建站技能 `skills/bukitjalil/site-editing/SKILL.md` 补充：
+  - 用户上传的素材在媒体目录里，用网址前缀加文件名引用（例如 `![公司 Logo](/assets/uploads/logo.png)`），一定要写有意义的 `alt` 文字；
+  - 文件名从 `site_info` 取，不要自己猜；
+  - 只在内容里引用（正文或 front matter 字段），不要写进主题模板（第 3 节第 2 条，按第 1 层实测结果写具体做法）；
+  - `viewable` 为假的文件（avif、pdf）不要用读工具打开；
+  - AI 不能自己添加或修改图片，缺图时请用户上传。
+- AI 的读工具（Pi 的 read，`agent/tools.ts` 接了 `detectSupportedImageMimeTypeFromFile`）能把 jpeg、png（不含动画 png）、gif、webp 作为图片交给模型，所以 AI 能"看到"这些图片，写出准确的 `alt` 文字。avif 和 pdf **识别不出来**，会被当成文本读出一堆乱码，所以 `site_info` 里把它们标为 `viewable: false`。更彻底的做法是让读工具拒绝读取识别不出的二进制文件，这属于权限闸门的改动，记为后续事项，不在本次范围。
 - AI 仍然不能写二进制文件，权限闸门不变。
 
 ### 5.7 界面
@@ -166,8 +194,13 @@ X-BukitJalil: 1
 - **上传组件** `MediaUpload`：隐藏的 `<input type="file" multiple accept="…">` 加拖放区域；队列逐个上传，每个文件显示进度条、结果和错误，可以重试。超过 10 MiB 或格式不对的文件在浏览器里就先拦下来，不发请求。
 - **重名对话框**：替换 / 两个都保留 / 跳过；可以勾选"后面的文件都这样处理"。
 - **位置信息提示**：见 5.3。
-- **改动面板**：文件列表里图片显示缩略图；选中图片时，右侧显示大图预览（复用现有的 `GET /api/sites/:siteId/file?ref=change&as=raw`，已经带 CSP 沙盒）和尺寸、大小；被替换的文件左右并排显示"之前 / 之后"。PDF 显示图标和"下载查看"。
-- **文件面板**：现有的图片预览加上 avif；pdf 显示为可下载的文件。
+- **改动面板**：
+  - 文件列表里，图片显示缩略图；
+  - 选中图片时，右侧显示大图预览（复用现有的 `GET /api/sites/:siteId/file?ref=change&path=…&as=raw`，已经带 CSP 沙盒和 `nosniff`），以及尺寸和大小；
+  - 被替换的文件左右并排显示"之前 / 之后"，"之前"用 `ref=main`；
+  - PDF 显示图标和"下载"，复用现有的 `as=download`，它返回 `Content-Disposition: attachment`。
+- **文件面板**：现有的图片预览加上 avif；pdf 走现有的下载。
+- **发布提示**：`site_info` 里"只发布被引用的文件"为真时，上传完成后提示"只有页面里用到的素材才会发布到网站上"。
 - 所有文字中英文各一份（`web/src/i18n/zh-CN.ts`、`en.ts`）。
 
 ### 5.8 识别 avif 和 pdf
@@ -175,7 +208,7 @@ X-BukitJalil: 1
 `panels/service.ts` 的 `imageMime` 现在识别 png、jpeg、gif、webp。把格式识别抽到 `server/src/media/sniff.ts`，供上传和面板共用：
 
 - avif：偏移 4 处是 `ftyp`，主品牌或兼容品牌里有 `avif` 或 `avis`。
-- pdf：以 `%PDF-` 开头。pdf 不是图片，面板里不内联显示，只提供下载（下载时带 `Content-Disposition: attachment`，避免在管理界面的源里打开）。
+- pdf：以 `%PDF-` 开头。pdf 不是图片，`imageMime` 不返回它，面板的 `as=raw` 继续拒绝（PDF 可以带脚本，见 `panels/service.ts` 注释）；只走现有的 `as=download`。所以上传用的 `sniffMedia` 和面板用的 `imageMime` 是两个函数，共用同一套文件头判断。
 
 ## 6. 安全
 
@@ -196,41 +229,49 @@ X-BukitJalil: 1
 
 ### 7.1 第 1 层：用真实 Bukit 核对（约 0.25 天）
 
-用 CI 同款脚本取得 Bukit 2.0.12（`scripts/fetch-bukit.ts`），在临时目录里建网站实测，把结果记进本文第 3 节：
+用 CI 同款脚本取得 Bukit 2.0.12（`packages/server/scripts/fetch-bukit.ts`），在临时目录里建网站实测，把结果记进本文第 3 节：
 
-1. 单语言网站：`assets/uploads/a.png` 被引用、`b.png` 未被引用，构建后输出里是否都有。
-2. 多语言网站（按语言变体构建）：同样两个文件，确认只发布被引用的那个。
-3. 引用一个不存在的 `/assets/uploads/missing.png`：单语言和多语言各自的结果（构建失败，还是只输出警告）。
-4. `site.baseUrl` 不是 `/` 时（例如 `/blog/`），Markdown 里写 `/assets/uploads/a.png`，输出的链接是否带上前缀。
-5. 主题自己的 `assets/` 目录里也有 `uploads/` 时，是否报 `BuildAssetOutputCollision`。
-6. avif 和 pdf 文件能否正常复制。
+1. 单语言网站，默认配置：`assets/uploads/a.png` 在正文里被引用、`b.png` 没被引用，确认只发布 `a.png`。
+2. 同样的网站改成 `downloadToLocal: false`：确认两个文件都发布。多语言网站重复第 1 条。
+3. **从正文以外的地方引用**：
+   - front matter 字段（如 `image:`）；
+   - `site.yaml` 里的配置值；
+   - 主题模板里直接写 `/assets/uploads/logo.png`。
+
+   分别记下：能否发布，还是构建失败。这条决定技能文档里"Logo 放在哪里"的写法，也决定第 3 节第 2 条要不要改设计。
+4. 引用一个不存在的 `/assets/uploads/missing.png`：确认构建失败，记下错误信息，供界面翻译。
+5. `site.baseUrl` 不是 `/` 时（例如 `/blog/`），Markdown 里写 `/assets/uploads/a.png`，输出的链接是否带上前缀。
+6. 主题自己的 `assets/` 目录里也有 `uploads/` 时，是否报 `BuildAssetOutputCollision`。
+7. avif 和 pdf 文件能否正常发布；pdf 用 Markdown 链接引用时，是否也算作被引用。
 
 结果和第 3 节不一致时，先修改本文的设计，再进入第 2 层。
 
 ### 7.2 第 2 层：服务端上传（约 0.5 天）
 
 - `shared`：接口类型 `MediaUploadRequest` / `MediaUploadResult`；新增错误码 `media.too_large`、`media.empty`、`media.unsupported_type`、`media.type_mismatch`、`media.bad_name`、`media.exists`、`media.dir_unsafe`。
-- `server/src/media/sniff.ts`：格式识别（5.8），`panels/service.ts` 改为调用它。
-- `server/src/media/names.ts`：`normalizeMediaName`。
+- `server/src/media/sniff.ts`：格式识别（5.8）。`sniffMedia` 给上传用，`imageMime` 给面板用，`panels/service.ts` 改为从这里导入 `imageMime`。
+- `server/src/media/names.ts`：`normalizeMediaName`、Windows 保留名处理、`suggestName`（409 里返回的新名字）。
 - `server/src/media/location.ts`：GPS 检测和删除 EXIF 块（5.3）。
 - `server/src/media/service.ts`：`MediaService.upload`（5.4）；读取媒体目录；检查目录。
 - `server/src/changes/service.ts`：从 `begin` 抽出 `openOrCreate`；作者规则改为 `!aiJoined`（5.5）；纯上传尾注。
 - `server/src/api/media.ts`：路由、请求体限制、`agent.busy` 检查；`app.ts` 加全局 1 MiB 请求体限制。
 - 测试 `test/media.test.ts`：
   - 6 种格式各上传一次；SVG、HTML、改了扩展名、空文件、10 MiB + 1 字节都被拒绝；
-  - 文件名整理的各种例子，包括中文、大小写重名、`..`、`/`、`\`、NUL；
-  - 没有改动集时新建、有改动集时加入；重名时返回 409，`replace` 后替换成功；
+  - 文件名整理的各种例子，包括中文、大小写重名、`..`、`/`、`\`、NUL 字符、`con.png` 这类 Windows 保留名；
+  - 没有改动集时新建、有改动集时加入；重名时返回 409 并带 `suggestion`，`replace` 后替换成功；
+  - 模拟写入中途失败：工作副本里没有残留文件，下一次快照也不会收进任何临时文件；
+  - 在"恢复版本"的改动集里上传：两个尾注都在，作者是用户；
   - 媒体目录被忽略、是受保护路径、经过符号链接时返回 `media.dir_unsafe`；
   - 对话运行中、网站只读、网站被锁住时被拒绝；
-  - GPS 检测和删除（准备带 / 不带 GPS 的 jpeg、png、webp 样本，放在 `test/fixtures/media/`）；
+  - GPS 检测和删除，包括 EXIF 和 XMP 两种位置写法（准备带 / 不带 GPS 的 jpeg、png、webp 样本，放在 `test/fixtures/media/`，由脚本生成，不用真实照片）；
   - 纯上传的改动集应用后，作者和提交者都是用户，带 `BukitJalil-Uploads` 尾注；上传后有对话参与过，作者是 AI；
   - 拒绝改动集后，网站文件夹里没有上传的文件；
   - 请求体超过限制返回 413；现有接口在 1 MiB 限制下照常工作。
 
 ### 7.3 第 3 层：AI 一侧（约 0.25 天）
 
-- `agent/site-tools.ts`：`site_info` 返回 `media`（5.6）。
-- `skills/bukitjalil/site-editing/SKILL.md`：补充素材说明。
+- `agent/site-tools.ts`：`site_info` 返回 `media`（5.6），描述文字里也提到素材列表。
+- `skills/bukitjalil/site-editing/SKILL.md`：补充素材说明，替换现在那句"Images and other binary files are added by the user"。
 - `agent/fake-model.ts`：加一个 `#media` 场景（读取 `site_info` 里的媒体列表，在页面里引用第一张图），供端到端测试使用。
 - 测试：`site-tools.test.ts` 检查 `media` 字段；会话测试里用假模型走一遍"上传 → 引用 → 检查构建通过"。
 
@@ -252,7 +293,7 @@ X-BukitJalil: 1
 - 使用说明 `docs/user-guide.md`：新增"添加图片和文件"一节，覆盖上传、引用、审核、位置信息、支持的格式和限制。
 - 开发计划：待定问题第 2 条标为已完成并指向本文；6.3 里"后续的上传素材功能"改为指向本文；API 表格加上新接口；写入实现说明。
 - 验收记录 `docs/acceptance/media-upload.md`：用真实 Bukit 和桌面版走一遍完整流程（上传 → AI 引用 → 审核 → 应用 → 构建 → 预览），附截图。
-- 桌面版：确认拖放文件到窗口能正常上传（Electron 默认会把拖进来的文件当页面打开，主进程已经锁定了导航，要确认拖放事件能到达页面）。
+- 桌面版：确认拖放文件到窗口能正常上传。Electron 默认会把拖进来的文件当页面打开；主进程的 `will-navigate` 已经拦下了这种跳转（`packages/desktop/src/main.ts`），但拖到上传区域以外的地方时，页面也要在 `dragover` 和 `drop` 上调用 `preventDefault`，否则用户会以为拖放没反应。
 
 ### 7.6 估算
 
@@ -269,9 +310,43 @@ X-BukitJalil: 1
 
 | 事项 | 影响 | 处理 |
 |---|---|---|
-| 多语言网站只发布被引用的素材 | 上传了但没引用的文件不会出现在网站上，用户可能以为上传失败 | 界面提示"只有页面里用到的素材才会发布"；第 1 层实测后定措辞 |
+| 默认只发布被引用的素材（`downloadToLocal` 默认开，和语言数无关） | 上传了但没引用的文件不会出现在网站上，用户可能以为上传失败 | 界面提示"只有页面里用到的素材才会发布"（5.7）；第 1 层实测后定措辞 |
+| 从主题模板或 `site.yaml` 引用素材可能让构建失败 | 用户最常见的需求"把 Logo 放到页头"可能做不到 | 第 1 层第 3 条最先实测；做不到时，把可行的写法写进技能文档，并在使用说明里说明限制。必要时另开任务，给 Bukit 或主题加 Logo 配置项 |
 | 引用不存在的素材会让构建失败 | AI 写错文件名时检查不通过 | 这是好事：错误在审核前就暴露出来。技能文档要求 AI 先从 `site_info` 取文件名 |
-| base64 让请求体变大 | 10 MiB 文件约 13.4 MiB 请求 | 本机服务，可以接受；以后有需要再改成流式上传 |
+| AI 读 avif、pdf 会得到乱码 | 浪费上下文，模型可能误判 | `site_info` 标出 `viewable`，技能文档要求不读；读工具拒绝读二进制文件记为后续事项 |
+| base64 让请求体变大 | 10 MiB 文件约 13.3 MiB 请求 | 本机服务，可以接受；以后有需要再改成流式上传 |
 | 仓库体积增长 | 大量图片会让 git 仓库变大 | v1 只有单个文件上限；以后可以在设置里显示素材目录的总大小 |
 | 去掉 EXIF 后照片方向可能不对 | 竖拍的照片可能显示成横的 | 提示里说明；以后可以只删 GPS 字段、保留方向 |
 | 桌面版拖放 | Electron 的导航锁定可能拦下拖放 | 第 5 层验证，必要时在预加载脚本里处理 |
+
+## 9. 审计记录（2026-11-12）
+
+初稿逐条对照了 BukitJalil 代码、Pi 1.5.2 和 Bukit v2.0.12 源码，改了下面这些地方：
+
+| # | 初稿的问题 | 依据 | 改动 |
+|---|---|---|---|
+| 1 | 说"按语言变体构建时才只发布被引用的素材" | `VariantBuildPipeline.cs` 只看 `downloadToLocal`（默认 `true`） | 第 3 节重写：默认所有网站都只发布被引用的素材 |
+| 2 | 没考虑从主题模板或 `site.yaml` 引用素材 | `ContentMediaOutput.ValidateOutputs` 会扫描整页 HTML | 第 3 节新增结论；7.1 第 3 条实测；风险表新增一条 |
+| 3 | 临时文件以 `.` 开头放在工作副本里，说会被快照跳过 | `changes/snapshot.ts` 用 `git add -A`，`.` 开头的文件也会收进去 | 临时文件改放到工作副本外的 `worktrees/<siteId>/.upload-tmp/` |
+| 4 | 说 AI 能看到所有上传的图片 | Pi `utils/mime.js` 只识别 jpeg、png（不含动画）、gif、webp、bmp | 2.1、5.6 改写；`site_info` 加 `viewable` |
+| 5 | "去掉位置信息"没有对应的接口 | — | 加 `stripLocation`；检测范围加上 XMP；写明 avif 不检测 |
+| 6 | "两个都保留"的新名字由浏览器算，但浏览器看不到已有文件 | — | 409 返回 `suggestion` |
+| 7 | 文件名整理没处理 Windows 保留名 | — | 加第 5 步 |
+| 8 | 改动集说明"AI 写过就不再改"，但数据里分不清谁写的 | `change_sets` 只有 `summary` | 改用 `aiJoined` 判断 |
+| 9 | SSE 事件名写成 `change.updated` | `events/bridge.ts` 发的是 `type: "change"` | 已改 |
+| 10 | 脚本路径写成 `scripts/fetch-bukit.ts` | 实际在 `packages/server/scripts/` | 已改 |
+| 11 | 路径字段检查写成开发计划 8.2 | 在 8.5 | 已改 |
+| 12 | 打算新写 PDF 下载 | 面板已有 `as=download`（带 `attachment`） | 改为复用 |
+| 13 | base64 后的大小写成 13.4 MiB | 10 MiB × 4/3 ≈ 13.3 MiB | 已改；补充 1 MiB 全局限制对对话消息的影响 |
+| 14 | 没写恢复版本和上传叠加时的规则 | `restore` 在改动集不为空时返回 `change.open_exists` | 5.5 补上 |
+| 15 | 桌面版拖放的说法不准确 | `main.ts` 的 `will-navigate` 已经拦下跳转 | 7.5 改为要求页面调用 `preventDefault` |
+
+核对过、没有问题的说法：
+- 错误码 `site.read_only` 和 `site.busy` 都存在；
+- 网站锁遇到占用时立刻返回 `site.busy`；
+- `agent.busy` 把排队中的消息也算在内；
+- 面板的 `ref` 只有 `main` 和 `change` 两个值，`as=raw` 只放行位图；
+- `foldName` 在 `server/src/names.ts`；
+- 作者规则所需的 `aiJoined` 已由迁移 005 加上；
+- Bukit 源码的 3 个文件路径和报错文字都对得上。
+
