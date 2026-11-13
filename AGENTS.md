@@ -79,4 +79,4 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 - 缓存目录和模式由 BukitJalil 指定，不读 `site.yaml`（AI 能改它）。**已定**（2026-11-13）：Bukit 加命令行参数（例如 `--notion-snapshot <dir>`、`--notion-offline`），覆盖 `site.yaml` 里的 `cacheDir` 和 `cacheMode`；不由 BukitJalil 生成临时配置。
 - 快照内容会进入 AI 能读的检出目录。快照只包含按正式分支过滤条件查出的页面，这些本来就要发布，但要写进安全规则。
 - 顺便让 Bukit 输出每个源的页数，数据面板再接上。
-- BukitJalil 的最低 Bukit 版本要跟着升。
+- BukitJalil 自带的 Bukit 版本（`BUKIT_VERSION` 和三个安装包的 SHA-256）要跟着升，随新版 BukitJalil 发布；Bukit 不能由用户单独升级。

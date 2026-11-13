@@ -55,7 +55,7 @@ BukitJalil 的界面和用法参考 [Pi Web](https://github.com/agegr/pi-web)（
 | 数据 | `site.yaml` 里的内容源：Markdown 集合、data 数据源、Notion 源                                       |
 | 改动 | AI 每次改动的文件差异，版本历史和恢复                                                               |
 | 预览 | Bukit 构建后的页面                                                                                  |
-| 设置 | 模型和 API Key、提交身份、发布账号、数据源、技能、Bukit 内置插件、Bukit、ripgrep 和 Pi 的版本或路径 |
+| 设置 | 模型和 API Key、提交身份、发布账号、数据源、技能、Bukit 内置插件、Bukit（随应用发布）、ripgrep 和 Pi 的版本 |
 
 ## 🏗️ 架构
 
@@ -157,6 +157,7 @@ BukitJalil/
 ```bash
 corepack enable
 pnpm install
+pnpm fetch:bukit # 下载应用自带的 Bukit（固定版本，校验 SHA-256）到 vendor/
 pnpm dev        # 服务端 + Vite，终端里打印一次性登录地址（按回车重启并换新地址）
 pnpm check      # Biome + 类型检查
 pnpm test       # 单元测试
@@ -168,11 +169,11 @@ pnpm e2e:desktop    # 桌面版测试；打包过时也测试打包后的应用
 
 `pnpm build && pnpm start` 运行构建好的版本（端口被占用时加 `--port <端口> --preview-port-base <端口>`）。登录地址只能用一次，需要新地址（换浏览器、会话失效）时在终端按回车。
 
-端到端测试默认用一个替身 Bukit；设置 `BUKIT_BIN=/path/to/bukit` 时改用真实 Bukit 构建（单元测试里的真实 Bukit 用例同样读 `BUKIT_BIN`，下载安装的用例另外读 `BUKIT_TARBALL`，即本平台的官方安装包）。这两个文件可以用 `pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts <目录>` 下载（固定版本和校验和），它会输出两个变量的值；CI 就是这样做的。
+端到端测试默认用一个替身 Bukit；设置 `BUKIT_BIN=/path/to/bukit` 时改用真实 Bukit 构建（单元测试里的真实 Bukit 用例同样读 `BUKIT_BIN`，解包官方安装包的用例另外读 `BUKIT_TARBALL`）。这两个文件可以用 `pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts <目录> --keep-package` 下载（固定版本和校验和），它会输出两个变量的值；CI 就是这样做的。
 
 ### 现在能做什么（M7）
 
-1. 打开设置（左下角齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）；没有 Bukit 或版本较旧时可以从设置页下载安装官方最新版本（离线时使用内置的 2.0.15）（macOS arm64、Linux x64），其他平台填自建 Bukit 的路径。
+1. 打开设置（左下角齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）。Bukit 随应用发布（macOS arm64、Linux x64），不用安装；从源码运行时先执行 `pnpm fetch:bukit`。
 2. 在设置 → AI 模型里选服务商。支持订阅账号的服务商可以直接登录（Claude Pro/Max、GitHub Copilot、Kimi For Coding、OpenRouter、xAI、Radius、ChatGPT），按浏览器提示授权，无需 API Key；也可以填 API Key（只保存在本机 `~/.bukitjalil/pi/auth.json`，界面只显示末四位，或用服务商的环境变量）。选模型和思考程度，点"测试连接"确认可用，再点"使用这个模型"。完全离线时可以打开"本地部署"，连接 Ollama、LM Studio、vLLM、llama.cpp 或自定义 OpenAI / Anthropic 兼容后端，自行填写模型 ID 和显示名称。
 3. 在设置 → 数据源里保存 Notion 数据源（每个数据源一个 token；先把 Notion 数据库共享给对应 integration）。新建网站：填名称、选默认语言和位置；需要多语言时勾选“多语言网站”，创建后的对话会先询问其他语言；不选数据源时默认使用 Markdown，并自动创建 Markdown 内容文件；选 Notion 时要勾选数据库，并逐个选择用途（文章 / 页面 / 数据）。随后从 starter 模板创建并提交第一个版本，自动构建。
 4. 导入网站：选一个已有的 Bukit 网站文件夹，先检查再导入；还不是 git 仓库的会先列出要提交的文件，确认后才导入；不满足安全规则的仓库以只读方式导入，界面写明原因。

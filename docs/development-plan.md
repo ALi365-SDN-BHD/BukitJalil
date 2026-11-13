@@ -194,7 +194,7 @@ BukitJalil/
 ├── server.lock                     # 同一数据目录只允许一个 server 运行
 ├── logs/server.log                 # 服务端日志（不含密钥）
 ├── tmp/                            # 临时文件；tmp/bukit/ 是 Bukit 子进程的 TMPDIR
-├── bin/bukit-<版本>/               # 应用管理的 Bukit：bukit 和 libSkiaSharp.dylib 等随包文件（见 8.1）
+├── bin/                           # 应用装的 git 等；以前版本装的 bukit-<版本>/ 在启动时删除（Bukit 现在在应用的 Resources/app/bukit/，开发时在仓库 vendor/bukit-<版本>/，见 8.1）
 ├── empty-gitconfig                 # 空文件，git 调用的全局配置和属性文件都指向它（见 7.3）
 ├── empty-hooks/                    # 空目录，git 的 core.hooksPath 指向它（见 7.3）
 ├── pi/                             # 给 Pi 用的独立目录（agentDir + PI_CODING_AGENT_DIR），不读用户 ~/.pi
@@ -1506,7 +1506,7 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > - `--desktop`：`src/desktop.ts` 的通道优先用 Electron 的 `process.parentPort`，没有时用 Node 子进程的 IPC（测试用）；没有任何通道时拒绝启动。监听成功发 `ready`，`login` 回新的一次性链接，`shutdown` 或通道断开都走关闭流程；登录链接不打印
 > - 启动失败发 `{type: "error", code}`：`port_in_use`（端口被占）、`home_in_use`（数据目录被占）、`start_failed`
 > - `src/lock.ts`：`server.lock` 用 `wx` 创建并写 pid；锁的进程还在（`kill(pid, 0)` 成功或 EPERM）就拒绝，进程已不在或内容读不出时接管；释放时只删自己的锁。`pnpm start` 同样拿锁，进程退出（包括启动失败）时释放
-> - `resolveResources`：`BUKITJALIL_RESOURCES` 下的 `skills/`、`templates/starter/`、`web/`；没有设置时仍从仓库读
+> - `resolveResources`：`BUKITJALIL_RESOURCES` 下的 `skills/`、`templates/starter/`、`web/`、`bukit/`（2026-11-13 加，见 8.1）；没有设置时仍从仓库读，Bukit 在 `vendor/bukit-<版本>/`
 > - 测试 `desktop.test.ts` 用 tsx 真实启动 `main.ts`：握手、登录链接能换到会话 cookie、关闭后锁被删除、父进程断开时关闭、第二个 server 被拒、端口被占
 > - 核对 Electron 45.2.3：自带 Node 24.22.2，`node:sqlite` 可用（SQLite 3.53.4），有内置的 TypeScript 类型擦除
 
@@ -1527,7 +1527,7 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 
 > M7 第 4 层实现说明（打包）：
 > - `pnpm package:desktop`（`packages/desktop/scripts/package.mjs`）生成 `packages/desktop/out/BukitJalil-darwin-arm64/BukitJalil.app` 和 `BukitJalil-<版本>-mac-arm64.zip`（后来改由 electron-builder 生成，安装包都在 `out/installers/`，见下面的"M7 之后"）
-> - 应用目录 `Contents/Resources/app`：桌面壳；`server.mjs`（esbuild 只打包 BukitJalil 自己的代码和 `@bukitjalil/shared`，npm 包全部外置，因为 Pi SDK 按自身模块的位置读文件）；`migrations/`（`db.ts` 在代码旁边找）；`node_modules/`（`pnpm deploy --prod --legacy`，版本跟锁文件一致）；`skills/`、`templates/starter/`、`web/`
+> - 应用目录 `Contents/Resources/app`：桌面壳；`server.mjs`（esbuild 只打包 BukitJalil 自己的代码和 `@bukitjalil/shared`，npm 包全部外置，因为 Pi SDK 按自身模块的位置读文件）；`migrations/`（`db.ts` 在代码旁边找）；`node_modules/`（`pnpm deploy --prod --legacy`，版本跟锁文件一致）；`skills/`、`templates/starter/`、`web/`；`bukit/`（2026-11-13 加：固定版本的 Bukit，打包时下载并核对 SHA-256，见 8.1）
 > - **`node_modules` 用 hoisted 布局**：packager 把 pnpm 的符号链接复制成完整副本，应用一度有 1.0 GB；改成平铺目录并去掉 tsx 和已打包的 `@bukitjalil/*` 后，应用 445 MB（Electron 266 MB、依赖 189 MB），zip 176 MB
 > - 不用 asar（server 要从模板目录复制文件、对工作副本运行 git）
 > - **重新做临时签名**：Electron 自带的临时签名在加入应用文件后失效，`codesign --verify --strict` 不通过，下载的副本会被 macOS 说成"已损坏"。打包后对整个应用 `codesign --force --deep --sign -` 再验证；`spctl` 仍拒绝（没有 Developer ID），使用说明写允许打开的步骤
