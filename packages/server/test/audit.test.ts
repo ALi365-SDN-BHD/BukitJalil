@@ -1,9 +1,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { AUDIT_MAX_GROUPS, AUDIT_ROUTES_PER_GROUP } from "@bukitjalil/shared";
+import { AUDIT_MAX_GROUPS, AUDIT_MAX_ISSUES, AUDIT_ROUTES_PER_GROUP, type BuildAudit } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
-import { auditText, readAudit, SITE_URL_CODES, summarizeGeo, summarizeSeo } from "../src/builds/audit.ts";
+import {
+  auditText,
+  compareAudits,
+  readAudit,
+  readIssues,
+  SITE_URL_CODES,
+  summarizeGeo,
+  summarizeSeo,
+} from "../src/builds/audit.ts";
 import { buildReport, previewEntry, siteLanguage } from "../src/builds/service.ts";
 
 // M4 layer 7: the SEO / GEO summary of a build, from the reports Bukit writes into .bukit/.
@@ -194,5 +202,134 @@ describe("previewEntry", () => {
     expect(previewEntry(output("plain", ["zh-CN"], true), "zh-CN")).toBeUndefined();
     expect(previewEntry(output("empty", []), "zh-CN")).toBeUndefined();
     expect(previewEntry(path.join(base, "no-such-output"), "zh-CN")).toBeUndefined();
+  });
+});
+
+describe("readIssues (plan 10.4)", () => {
+  const out = (name: string, report: unknown) => {
+    const dir = path.join(base, name);
+    fs.mkdirSync(path.join(dir, ".bukit"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".bukit", "seo-report.json"), JSON.stringify(report));
+    return dir;
+  };
+
+  it("lists every issue, sorted, folding site.url warnings and cutting long text", () => {
+    const dir = out("issues", {
+      siteUrl: null,
+      issues: [
+        issue("b.warn", "/z/"),
+        issue("b.warn", "/a/"),
+        issue("seo.canonical_not_absolute", "/"),
+        issue("seo.canonical_not_absolute", "/", "error"),
+        { severity: "info", code: "c".repeat(150), route: null, message: "m".repeat(400) },
+      ],
+    });
+    const r = readIssues(dir);
+    expect(r?.truncated).toBe(false);
+    expect(r?.issues.map((i) => [i.severity, i.code.startsWith("ccc") ? "long" : i.code, i.route])).toEqual([
+      ["error", "seo.canonical_not_absolute", "/"],
+      ["warning", "b.warn", "/a/"],
+      ["warning", "b.warn", "/z/"],
+      ["info", "long", ""],
+    ]);
+    expect(r?.issues[3]?.code).toHaveLength(100);
+    expect(r?.issues[3]?.message).toHaveLength(300);
+  });
+
+  it("caps the list and refuses odd reports", () => {
+    const many = Array.from({ length: AUDIT_MAX_ISSUES + 2 }, (_, i) => issue("k", `/p${i}/`));
+    const r = readIssues(out("many", { siteUrl: "https://x.test", issues: many }));
+    expect(r?.issues).toHaveLength(AUDIT_MAX_ISSUES);
+    expect(r?.truncated).toBe(true);
+    expect(readIssues(out("odd", { issues: "nope" }))).toBeNull();
+    expect(readIssues(path.join(base, "missing"))).toBeNull();
+    // A link in place of the report is not followed.
+    const linked = path.join(base, "linked");
+    fs.mkdirSync(path.join(linked, ".bukit"), { recursive: true });
+    fs.symlinkSync(
+      path.join(base, "issues", ".bukit", "seo-report.json"),
+      path.join(linked, ".bukit", "seo-report.json"),
+    );
+    expect(readIssues(linked)).toBeNull();
+  });
+});
+
+describe("compareAudits (plan 10.4)", () => {
+  const group = (code: string, count: number, severity: "error" | "warning" | "info" = "warning") => ({
+    code,
+    severity,
+    count,
+    message: code,
+    routes: [],
+  });
+  const audit = (
+    groups: ReturnType<typeof group>[],
+    opts: { truncated?: boolean; score?: number } = {},
+  ): BuildAudit => ({
+    seo: {
+      routes: 1,
+      errors: groups.filter((g) => g.severity === "error").reduce((n, g) => n + g.count, 0),
+      warnings: groups.filter((g) => g.severity === "warning").reduce((n, g) => n + g.count, 0),
+      siteUrlMissing: false,
+      siteUrlWarnings: 0,
+      groups,
+      groupsTruncated: opts.truncated ?? false,
+    },
+    geo: opts.score === undefined ? null : { score: opts.score, llmsTxt: false, llmsFullTxt: false, enhancedRoutes: 0 },
+  });
+
+  it("marks kinds new, fixed, more, fewer and same", () => {
+    const c = compareAudits(
+      audit([group("a", 2), group("b", 1), group("c", 3), group("e", 1, "error")], { score: 40 }),
+      null,
+      audit([group("a", 1), group("b", 2), group("c", 3), group("d", 1)], { score: 50 }),
+    );
+    expect(c?.groups.map((g) => [g.code, g.change])).toEqual([
+      ["e", "new"],
+      ["c", "same"],
+      ["a", "more"],
+      ["b", "fewer"],
+      ["d", "fixed"],
+    ]);
+    expect(c).toMatchObject({ errors: 1, warnings: -1, geoScore: -10, previousTruncated: false });
+  });
+
+  it("counts from the full list when given, and never guesses past a cut summary", () => {
+    const current = audit([group("a", 1)], { truncated: true });
+    const issues = [issue("a"), issue("a"), issue("z")].map((i) => ({ ...i, severity: "warning" as const }));
+    const full = compareAudits(current, issues, audit([group("a", 2), group("y", 1)], { truncated: true }));
+    expect(full?.groups.map((g) => [g.code, g.change, g.previous])).toEqual([
+      ["a", "same", 2],
+      ["z", "unknown", null],
+      ["y", "fixed", 1],
+    ]);
+    expect(full?.previousTruncated).toBe(true);
+    // Without the list, a kind the cut current summary does not hold is not called fixed.
+    const cut = compareAudits(current, null, audit([group("a", 1), group("y", 1)]));
+    expect(cut?.groups.find((g) => g.code === "y")?.change).toBe("unknown");
+  });
+
+  it("does not call site.url warnings new or fixed when site.url was set or removed in between", () => {
+    const withUrl = audit([group("seo.canonical_not_absolute", 2), group("x", 1)]);
+    const without = audit([group("x", 1)]);
+    if (without.seo) without.seo.siteUrlMissing = true;
+    const added = compareAudits(withUrl, null, without);
+    expect(added?.groups.map((g) => [g.code, g.change, g.previous])).toEqual([
+      ["seo.canonical_not_absolute", "unknown", null],
+      ["x", "same", 1],
+    ]);
+    const removed = compareAudits(without, null, withUrl);
+    expect(removed?.groups.find((g) => g.code === "seo.canonical_not_absolute")?.change).toBe("unknown");
+  });
+
+  it("compares the GEO score alone when a side has no SEO report", () => {
+    const geoOnly: BuildAudit = { seo: null, geo: { score: 30, llmsTxt: true, llmsFullTxt: false, enhancedRoutes: 0 } };
+    expect(compareAudits(geoOnly, null, audit([], { score: 20 }))).toMatchObject({
+      groups: [],
+      errors: null,
+      warnings: null,
+      geoScore: 10,
+    });
+    expect(compareAudits(geoOnly, null, audit([]))).toBeNull();
   });
 });

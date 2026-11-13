@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Build, BuildListResponse, PreviewResponse, ServerEvent, Site } from "@bukitjalil/shared";
+import type {
+  AuditReportResponse,
+  Build,
+  BuildListResponse,
+  PreviewResponse,
+  ServerEvent,
+  Site,
+} from "@bukitjalil/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KEEP_OUTPUTS } from "../src/builds/service.ts";
 import { BuildStore } from "../src/builds/store.ts";
@@ -43,7 +50,8 @@ case "$1" in
         mkdir -p "$out/.bukit"; echo "<h1>a</h1>" > "$out/index.html"
         echo '{"ts":"t","level":"Warn","msg":"seo.audit severity=warning code=seo.canonical_not_absolute route=/ message=x"}' >&2
         echo '{"ts":"t","level":"Warn","msg":"event=content.slow file=a.md"}' >&2
-        echo '{"siteUrl":null,"routes":[{},{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/a/","message":"SEO description is missing."},{"severity":"error","code":"seo.title_missing","route":"/b/","message":"Title is missing."}]}' > "$out/.bukit/seo-report.json"
+        if [ -f seo.json ]; then cp seo.json "$out/.bukit/seo-report.json"; else
+        echo '{"siteUrl":null,"routes":[{},{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/a/","message":"SEO description is missing."},{"severity":"error","code":"seo.title_missing","route":"/b/","message":"Title is missing."}]}' > "$out/.bukit/seo-report.json"; fi
         echo '{"geoScore":25,"llmsTxtGenerated":true,"llmsFullTxtGenerated":false,"geoEnhancedCount":0}' > "$out/.bukit/geo-report.json";;
       multi) for l in en-US zh-CN; do mkdir -p "$out/$l"; echo "<h1>$l</h1>" > "$out/$l/index.html"; done;;
       slow) trap 'exit 130' INT; while true; do sleep 0.05; done;;
@@ -392,6 +400,91 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect(b.report?.output).not.toContain('"level"');
     // A build without reports has no audit.
     expect((await (await setup("noaudit")).build()).report?.audit).toBeUndefined();
+  });
+
+  it("serves the full SEO report and compares it with the previous main build (plan 10.4)", async () => {
+    const s = await setup("audit-report", { mode: "audit" });
+    type R = AuditReportResponse & { code?: string };
+    // The import's first build wrote no reports.
+    expect((await s.call<R>("GET", s.api("/audit"))).json.code).toBe("audit.not_built");
+    expect((await s.call<R>("GET", s.api("/audit?ref=nope"))).status).toBe(400);
+    expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("change.not_found");
+
+    const first = await s.build();
+    let r = await s.call<R>("GET", s.api("/audit"));
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ ref: "main", build: { buildId: first.id }, previous: null, compare: null });
+    expect(r.json.summary).toEqual(first.report?.audit);
+    // The site.url warning is folded away, as in the summary; errors first.
+    expect(r.json.issues).toEqual([
+      { severity: "error", code: "seo.title_missing", route: "/b/", message: "Title is missing." },
+      { severity: "warning", code: "seo.description_missing", route: "/a/", message: "SEO description is missing." },
+    ]);
+
+    // Second build: the title error is fixed, the description issue spreads, a new kind appears.
+    const issue = (severity: string, code: string, route: string) => ({ severity, code, route, message: code });
+    fs.writeFileSync(
+      path.join(s.dir, "seo.json"),
+      JSON.stringify({
+        siteUrl: "https://x.test",
+        routes: [{}, {}, {}],
+        issues: [
+          issue("warning", "seo.description_missing", "/a/"),
+          issue("warning", "seo.description_missing", "/c/"),
+          issue("info", "seo.new_kind", ""),
+        ],
+      }),
+    );
+    commitAll(s.dir, "seo");
+    const second = await s.build();
+    r = await s.call<R>("GET", s.api("/audit"));
+    expect(r.json.build.buildId).toBe(second.id);
+    expect(r.json.previous?.buildId).toBe(first.id);
+    expect(r.json.issues).toHaveLength(3);
+    expect(r.json.compare).toMatchObject({ errors: -1, warnings: 0, geoScore: 0, previousTruncated: false });
+    expect(r.json.compare?.groups.map((g) => [g.code, g.change, g.count, g.previous])).toEqual([
+      ["seo.title_missing", "fixed", 0, 1],
+      ["seo.description_missing", "more", 2, 1],
+      ["seo.new_kind", "new", 1, 0],
+    ]);
+
+    // The output is gone: the summary is still there, the full list is not.
+    fs.rmSync(path.join(s.paths.previews, s.site.id, second.id), { recursive: true, force: true });
+    r = await s.call<R>("GET", s.api("/audit"));
+    expect(r.json).toMatchObject({ issues: null, issuesTruncated: false, build: { buildId: second.id } });
+    expect(r.json.compare?.groups.find((g) => g.code === "seo.description_missing")?.change).toBe("more");
+    expect(r.json.stale).toBe(false);
+
+    // The change version: its own build, compared with the main version's newest report.
+    const session = s.agent.create(s.site.id);
+    const { cwd } = await s.changes.begin(s.site.id, session.id);
+    fs.writeFileSync(
+      path.join(cwd, "seo.json"),
+      JSON.stringify({ siteUrl: "https://x.test", issues: [issue("warning", "seo.description_missing", "/a/")] }),
+    );
+    await s.changes.snapshot(s.site.id, cwd);
+    expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("audit.not_built");
+    const change = await s.call<Build>("POST", s.api("/builds"), { ref: "change" });
+    await s.builds.settled();
+    r = await s.call<R>("GET", s.api("/audit?ref=change"));
+    expect(r.json).toMatchObject({
+      ref: "change",
+      build: { buildId: change.json.id },
+      previous: { buildId: second.id },
+    });
+    expect(r.json.compare?.groups.map((g) => [g.code, g.change])).toEqual([
+      ["seo.description_missing", "fewer"],
+      ["seo.new_kind", "fixed"],
+    ]);
+    // The main report is still the main build's.
+    expect((await s.call<R>("GET", s.api("/audit"))).json.build.buildId).toBe(second.id);
+
+    // A newer main build fails: the report shown is the last good one, marked out of date.
+    fs.writeFileSync(path.join(s.dir, "fake-mode"), "fail");
+    commitAll(s.dir, "fail");
+    expect((await s.build()).status).toBe("failed");
+    r = await s.call<R>("GET", s.api("/audit"));
+    expect(r.json).toMatchObject({ build: { buildId: second.id }, previous: { buildId: first.id }, stale: true });
   });
 
   it("does not keep an output that contains a symbolic link", async () => {

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type {
+  AuditReportResponse,
   Build,
   BuildAudit,
   BuildOutcome,
@@ -26,7 +27,7 @@ import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
-import { readAudit } from "./audit.ts";
+import { compareAudits, readAudit, readIssues } from "./audit.ts";
 import { type BuildRecord, BuildStore, newBuildId } from "./store.ts";
 
 export interface BuildServiceOptions {
@@ -140,6 +141,64 @@ export class BuildService {
     const build = this.store.get(buildId);
     if (!build || build.siteId !== siteId) throw new SiteError("build.not_found", 404);
     return publicBuild(build);
+  }
+
+  /**
+   * The SEO / GEO report panel (plan 10.4): the newest successful build of `ref` with an audit summary, its
+   * full issue list from the kept output, and how it compares with the previous main build (for `change`:
+   * the newest main build). Reads files only; never runs Bukit.
+   */
+  auditReport(siteId: string, ref: PanelRef): AuditReportResponse {
+    this.opts.sites.get(siteId);
+    const changeSetId = ref === "change" ? (this.opts.changes.store.open(siteId)?.id ?? null) : null;
+    if (ref === "change" && changeSetId === null) throw new SiteError("change.not_found", 404);
+    const audited = (b: BuildRecord): b is BuildRecord & { report: { audit: BuildAudit } } =>
+      b.status === "succeeded" && !!b.report?.audit;
+    const mains = this.store.finishedOf(siteId, null, KEEP_RECORDS);
+    const own = ref === "main" ? mains : this.store.finishedOf(siteId, changeSetId, KEEP_RECORDS);
+    const build = own.find(audited);
+    if (!build) throw new SiteError("audit.not_built", 404);
+    const previous = ref === "main" ? mains.filter(audited)[1] : mains.find(audited);
+    const read = this.issuesOf(siteId, build);
+    const summary = build.report.audit;
+    const at = (b: BuildRecord) => ({ buildId: b.id, commit: b.commit, finishedAt: b.finishedAt });
+    return {
+      ref,
+      build: at(build),
+      summary,
+      issues: read?.issues ?? null,
+      issuesTruncated: read?.truncated ?? false,
+      // A newer build of the same version ended without a report (it failed): this one is older than its content.
+      stale: own[0]?.id !== build.id,
+      previous: previous ? { ...at(previous), summary: previous.report.audit } : null,
+      compare: previous
+        ? compareAudits(summary, read && !read.truncated ? read.issues : null, previous.report.audit)
+        : null,
+    };
+  }
+
+  /** Full issue lists by output directory: an output never changes, and the report can be 16 MiB of JSON. */
+  private readonly issueCache = new Map<string, NonNullable<ReturnType<typeof readIssues>>>();
+
+  private issuesOf(siteId: string, build: BuildRecord): ReturnType<typeof readIssues> {
+    if (!build.outputDir || !fs.existsSync(build.outputDir)) return null;
+    const cached = this.issueCache.get(build.outputDir);
+    if (cached) return cached;
+    try {
+      const read = readIssues(build.outputDir);
+      if (read) {
+        this.issueCache.set(build.outputDir, read);
+        // Keep the newest few: one per version is all the panel shows.
+        for (const key of this.issueCache.keys()) {
+          if (this.issueCache.size <= 4) break;
+          this.issueCache.delete(key);
+        }
+      }
+      return read;
+    } catch (err) {
+      this.opts.logger.log("warn", "build.audit_unreadable", { siteId, buildId: build.id, error: String(err) });
+      return null;
+    }
   }
 
   /**

@@ -51,6 +51,7 @@ export const errorCodes = [
   "build.not_found",
   "preview.not_built",
   "preview.no_port",
+  "audit.not_built",
   "change.not_found",
   "change.file_not_found",
   "change.not_open",

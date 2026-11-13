@@ -107,6 +107,20 @@ export class BuildStore {
     return row ? toBuild(row as unknown as BuildRow) : null;
   }
 
+  /**
+   * The newest finished builds of one ref, newest first (plan 10.4): main builds when `changeSetId` is
+   * null, else that change set's. Its own window, so many change builds never hide the main ones.
+   */
+  finishedOf(siteId: string, changeSetId: string | null, limit: number): BuildRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM builds WHERE site_id = ? AND kind = 'build' AND status != 'running'
+           AND change_set_id IS ? ORDER BY started_at DESC, rowid DESC LIMIT ?`,
+      )
+      .all(siteId, changeSetId, limit);
+    return (rows as unknown as BuildRow[]).map(toBuild);
+  }
+
   /** Builds with a kept output, newest first. */
   withOutput(siteId: string): BuildRecord[] {
     const rows = this.db
