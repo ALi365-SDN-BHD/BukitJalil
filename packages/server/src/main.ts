@@ -180,12 +180,11 @@ const builds = new BuildService({
   locks,
   previews,
   changes,
-  // The site's saved Notion source; an imported site without a link falls back when there is only one.
+  // Only the data source bound to the site: never another saved one, or an imported site could pull any
+  // database that token can read.
   notionToken: (siteId) => {
     const linked = sites.notionDataSourceId(siteId);
-    if (linked) return dataSources.token(linked);
-    const notion = dataSources.list().filter((source) => source.platform === "notion");
-    return notion.length === 1 ? dataSources.token(notion[0]?.id ?? "") : null;
+    return linked ? dataSources.token(linked) : null;
   },
   logger,
 });

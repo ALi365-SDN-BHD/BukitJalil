@@ -206,7 +206,13 @@ export function createAdminApp(opts: AdminAppOptions) {
   // The Pi runtime bundled with the app (plan 6.1); the settings page refreshes npm's latest release.
   api.get("/pi", async (c) => c.json(await piStatus.status(c.req.query("refresh") === "1")));
 
-  siteRoutes(api, { sites: opts.sites, builds: opts.builds, readIdentity: opts.readIdentity, userHome: opts.userHome });
+  siteRoutes(api, {
+    sites: opts.sites,
+    builds: opts.builds,
+    dataSources: opts.dataSources,
+    readIdentity: opts.readIdentity,
+    userHome: opts.userHome,
+  });
   panelRoutes(api, opts.panels);
   pluginRoutes(api, { changes: opts.changes, agent: opts.agent });
   buildRoutes(api, opts.builds);

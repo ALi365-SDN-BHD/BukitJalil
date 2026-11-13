@@ -397,6 +397,17 @@ test("a Notion data source keeps its token and several databases are used when c
   expect(yaml).toMatch(/name: pages\n\s+mode: content\n\s+collection: page\n\s+notion:\n\s+databaseId: db_pages/);
   expect(yaml).toMatch(/name: menu\n\s+mode: data\n\s+notion:\n\s+databaseId: db_menu/);
 
+  // The data panel shows the bound source; unbinding and binding again go through the API.
+  await page.getByTestId("tab-data").click();
+  const binding = page.getByTestId("notion-binding-select");
+  await expect(binding).toHaveValue(id);
+  await binding.selectOption("");
+  await expect(page.getByTestId("notion-binding")).toContainText(/fail|失败/);
+  expect((await (await page.request.get(`/api/sites/${siteId}`)).json()).notionDataSourceId).toBeNull();
+  await binding.selectOption(id);
+  await expect(page.getByTestId("notion-binding")).not.toContainText(/fail|失败/);
+  await expect(binding).toBeEnabled();
+
   // The source is linked to this site, so remove the site before deleting the source.
   await page.getByTestId(`site-menu-${siteId}`).click();
   await page.getByTestId("site-remove").click();

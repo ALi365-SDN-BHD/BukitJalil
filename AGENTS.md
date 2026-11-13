@@ -56,20 +56,16 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 ### 5. Notion 数据源管理
 
-**现状**（按 2026-11-12 工作区里还没提交的改动核对，那批改动变了要重看）：
+**现状**（按 2026-11-13 的代码核对）：
 
 - 已做：
   - "设置 → 数据源"可以添加 Notion 数据源，每个数据源有自己的 token，显示后四位，可以替换、删除。token 存在 `data-source-tokens.json`（权限 600），接口不返回 token 本身。
   - 新建网站时可以选一个 Notion 数据源，BukitJalil 调 Notion `/search` 列出这个 token 能读的数据库，选中的写进 `site.yaml`。
-  - 正式构建会传 `NOTION_TOKEN`（`builds/service.ts`）。
+  - 正式构建会传 `NOTION_TOKEN`（`builds/service.ts`），而且只用网站绑定的数据源的 token。新建网站时选的数据源自动绑定，导入的网站在数据面板里显式绑定（`PUT /api/sites/:siteId/notion-source`），不再"只有一个数据源就自动用"。
 - 还缺：
   - 发布：`deploys/service.ts` 遇到 Notion 网站直接返回 `notion`。
   - AI 检查、AI 构建和改动集预览：`ai-bukit.ts` 遇到 Notion 源直接拒绝。所以应用改动前的检查一定失败，每次都得强制应用，用户分不清是"出错了"还是"检查不了"。
   - 新建的 Notion 网站，状态记为 `configCheck: "notion"` 后既不跑 `config check`，也不自动做第一次构建（`builds/service.ts` 的 `startAfterAdd`）。但正式分支是审核过的内容，可以带 token 跑。
-  - 导入的网站没有绑定数据源时，如果只有一个 Notion 数据源就自动用它的 token（`main.ts` 的 `notionToken`）。这有两个问题：
-    - 导入的第三方网站可以在 `site.yaml` 里指向这个 integration 能读的任何数据库，构建后再发布出去。
-    - 以后加了第二个数据源，这个网站会突然不能构建。
-  - 现在也没有接口或界面让用户手动绑定数据源。
   - 数据面板里的 Notion 源只显示配置，文案还是"MVP 不连接 Notion"。
 
 **Bukit 的限制**（源码 v2.0.15 核对）：
@@ -84,7 +80,6 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 1. 不改 Bukit（约 2–3 天）：
    - 发布支持 Notion：check、doctor、build 都传 token；`deploy --skip-build` 本身要不要 token 需要实测。
    - 新建 Notion 网站后自动跑 `config check` 和第一次构建，都带 token。
-   - 去掉"只有一个数据源就自动用"的兜底，改成在数据面板里显式绑定数据源（要加接口；`sites.notion_data_source_id` 和 `setNotionDataSourceId` 已经有了）。
    - 数据面板显示 Notion 数据：
      - 字段由 BukitJalil 调 `GET /databases/{id}` 读取（Bukit 没有列出 Notion 数据的命令）。
      - 页数取上次正式构建报告里的数字，不要自己重新实现 Bukit 的过滤条件，否则两边对不上。

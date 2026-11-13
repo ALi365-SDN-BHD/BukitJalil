@@ -1,7 +1,8 @@
 import type { DataSource } from "@bukitjalil/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { usePanelRef } from "@/features/changes/hooks";
+import { settingsSelectClass } from "@/features/settings/SettingsLayout";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { Facts, PanelError, PanelLoading, RefSwitch, Section, Table } from "./common";
@@ -21,6 +22,7 @@ export function DataPanel({ siteId }: { siteId: string }) {
     body = (
       <div className="flex flex-col gap-4 p-4">
         {data.data.truncated && <p className="text-sm text-muted-foreground">{m.data.truncated}</p>}
+        {data.data.sources.some((s) => s.type === "notion") && <NotionBinding siteId={siteId} />}
         {data.data.sources.map((s) => (
           <SourceCard key={s.index} source={s} />
         ))}
@@ -34,6 +36,63 @@ export function DataPanel({ siteId }: { siteId: string }) {
         {body}
       </div>
     </div>
+  );
+}
+
+/**
+ * The saved Notion data source whose token main builds use. Nothing picks one for the user: an imported
+ * site's site.yaml can name any database the token reads, so binding is an explicit choice.
+ */
+function NotionBinding({ siteId }: { siteId: string }) {
+  const { m, errorOf } = useI18n();
+  const queryClient = useQueryClient();
+  const site = useQuery({ queryKey: keys.site(siteId), queryFn: () => api.site(siteId) });
+  const sources = useQuery({ queryKey: keys.dataSources, queryFn: api.dataSources });
+  const bind = useMutation({
+    mutationFn: (dataSourceId: string | null) => api.setNotionSource(siteId, { dataSourceId }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(keys.site(siteId), updated);
+      void queryClient.invalidateQueries({ queryKey: keys.sites });
+      void queryClient.invalidateQueries({ queryKey: keys.dataSources });
+    },
+  });
+  if (site.isPending || sources.isPending) return null;
+  if (site.error || sources.error)
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        {errorOf(site.error ?? sources.error)}
+      </p>
+    );
+  const bound = site.data.notionDataSourceId;
+  return (
+    <section className="flex flex-col gap-2 rounded-lg border p-3" data-testid="notion-binding">
+      <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
+        {m.data.notionBinding}
+        <select
+          className={settingsSelectClass}
+          value={bound ?? ""}
+          disabled={bind.isPending}
+          onChange={(e) => bind.mutate(e.target.value || null)}
+          data-testid="notion-binding-select"
+        >
+          <option value="">{m.data.notionUnbound}</option>
+          {bound && !sources.data.some((source) => source.id === bound) && <option value={bound}>{bound}</option>}
+          {sources.data.map((source) => (
+            <option key={source.id} value={source.id}>
+              {source.tokenLast4 ? `${source.name} (…${source.tokenLast4})` : source.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-xs text-muted-foreground">
+        {sources.data.length === 0 ? m.data.notionNoSources : bound ? m.data.notionBoundHint : m.data.notionUnboundHint}
+      </p>
+      {bind.error && (
+        <p role="alert" className="text-xs text-destructive">
+          {errorOf(bind.error)}
+        </p>
+      )}
+    </section>
   );
 }
 

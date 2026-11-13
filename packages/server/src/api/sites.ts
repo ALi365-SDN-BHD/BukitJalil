@@ -3,11 +3,13 @@ import {
   type GitIdentityResponse,
   ImportSiteRequest,
   InspectImportRequest,
+  SiteNotionSourceRequest,
   SitePatch,
 } from "@bukitjalil/shared";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
 import type { BuildService } from "../builds/service.ts";
+import type { DataSourceService } from "../data-sources/service.ts";
 import type { GitIdentity } from "../git/identity.ts";
 import { apiError } from "../security/guard.ts";
 import { listDirs } from "../sites/location.ts";
@@ -20,11 +22,12 @@ export function siteRoutes(
   deps: {
     sites: SiteService;
     builds: BuildService;
+    dataSources: DataSourceService;
     readIdentity: () => Promise<GitIdentity>;
     userHome?: string;
   },
 ) {
-  const { sites, builds } = deps;
+  const { sites, builds, dataSources } = deps;
 
   api.get("/fs/dirs", (c) =>
     handle(c, () =>
@@ -70,6 +73,20 @@ export function siteRoutes(
       const req = await body(c, SitePatch);
       if (!req) return apiError(c, 400, "request.invalid_body");
       return c.json(sites.patch(c.req.param("siteId"), req));
+    }),
+  );
+
+  // Bind the saved Notion data source whose token main builds pass to Bukit. Only this route sets it (plus
+  // site creation), so an imported site never gets a token it was not given.
+  api.put("/sites/:siteId/notion-source", (c) =>
+    handle(c, async () => {
+      const req = await body(c, SiteNotionSourceRequest);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      const id = c.req.param("siteId");
+      sites.get(id);
+      if (req.dataSourceId !== null) dataSources.get(req.dataSourceId);
+      sites.setNotionDataSourceId(id, req.dataSourceId);
+      return c.json(sites.get(id));
     }),
   );
 

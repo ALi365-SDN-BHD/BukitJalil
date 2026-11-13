@@ -49,6 +49,7 @@ import {
   Settings,
   type SettingsPatch,
   type Site,
+  type SiteNotionSourceRequest,
   type SitePatch,
   type SkillsResponse,
   type ThemeResponse,
@@ -126,6 +127,8 @@ export const api = {
   importSite: (req: ImportSiteRequest) => post<Site>("/sites/import", req),
   patchSite: (id: string, patch: SitePatch) =>
     request<Site>(`/sites/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  setNotionSource: (id: string, req: SiteNotionSourceRequest) =>
+    request<Site>(`/sites/${id}/notion-source`, { method: "PUT", body: JSON.stringify(req) }),
   recheck: (id: string) => post<Site>(`/sites/${id}/recheck`),
   openSite: (id: string) => post<null>(`/sites/${id}/open`),
   removeSite: (id: string) => request<{ leftovers: string[] }>(`/sites/${id}`, { method: "DELETE" }),

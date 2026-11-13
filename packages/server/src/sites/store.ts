@@ -13,6 +13,7 @@ interface SiteRow {
   read_only_reasons: string | null;
   checked_commit: string | null;
   config_check: string | null;
+  notion_data_source_id: string | null;
 }
 
 function toSite(row: SiteRow): Site {
@@ -35,6 +36,7 @@ function toSite(row: SiteRow): Site {
     readOnly,
     checkedCommit: row.checked_commit,
     configCheck: row.config_check as ConfigCheck | null,
+    notionDataSourceId: row.notion_data_source_id,
   };
 }
 

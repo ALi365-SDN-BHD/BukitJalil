@@ -161,9 +161,7 @@ export function makeApp(
     changes,
     notionToken: (siteId) => {
       const linked = sites.notionDataSourceId(siteId);
-      if (linked) return dataSources.token(linked);
-      const notion = dataSources.list().filter((source) => source.platform === "notion");
-      return notion.length === 1 ? dataSources.token(notion[0]?.id ?? "") : null;
+      return linked ? dataSources.token(linked) : null;
     },
     logger,
   });

@@ -11,7 +11,7 @@ import { silentLogger } from "../src/log.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { openDatabase } from "../src/store/db.ts";
-import { ADMIN, commitAllAs, httpGet, installAppBukit, makeApp, rawGit, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, httpGet, installAppBukit, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const REAL_BIN = process.env.BUKIT_BIN;
@@ -167,7 +167,25 @@ it("passes the Notion token of the site's data source to a main build but never 
   expect(ctx.dataSources.token(source.id)).toBe("ntn_main_only");
 
   const tokenFile = path.join(appBukitDir(path.join(base, "bk")), "bukit.notion");
+  const bind = async (dataSourceId: string | null) =>
+    ctx.app.fetch(req(`/api/sites/${site.id}/notion-source`, jsonPut({ dataSourceId })));
+
+  // An imported site gets no token until the user binds one, even when only one source is saved: its
+  // site.yaml could name any database that token reads.
   fs.rmSync(tokenFile, { force: true });
+  await ctx.builds.start(site.id, "main");
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "failed", outcome: "notion" });
+  expect(fs.existsSync(tokenFile)).toBe(false);
+
+  expect((await bind("missing")).status).toBe(404);
+  const otherSite = await ctx.app.fetch(
+    req("/api/sites/0000000000000000/notion-source", jsonPut({ dataSourceId: source.id })),
+  );
+  expect(otherSite.status).toBe(404);
+  const bound = await bind(source.id);
+  expect(bound.status).toBe(200);
+  expect(((await bound.json()) as Site).notionDataSourceId).toBe(source.id);
   await ctx.builds.start(site.id, "main");
   await ctx.builds.settled();
   expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "succeeded", outcome: "ok" });
@@ -185,6 +203,14 @@ it("passes the Notion token of the site's data source to a main build but never 
     status: "failed",
     outcome: "notion",
   });
+  expect(fs.existsSync(tokenFile)).toBe(false);
+
+  // Unbinding takes the token away again.
+  const unbound = await bind(null);
+  expect(((await unbound.json()) as Site).notionDataSourceId).toBeNull();
+  await ctx.builds.start(site.id, "main");
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id).find((b) => b.ref === "main")).toMatchObject({ status: "failed", outcome: "notion" });
   expect(fs.existsSync(tokenFile)).toBe(false);
 });
 

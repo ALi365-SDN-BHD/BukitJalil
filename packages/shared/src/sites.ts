@@ -63,6 +63,10 @@ export type ImportInspection =
 export const SitePatch = z.object({ name: SiteName.optional(), archived: z.boolean().optional() }).strict();
 export type SitePatch = z.infer<typeof SitePatch>;
 
+/** Which saved Notion data source a site's main builds use; null unbinds it. Only the user sets this. */
+export const SiteNotionSourceRequest = z.object({ dataSourceId: z.string().min(1).max(64).nullable() }).strict();
+export type SiteNotionSourceRequest = z.infer<typeof SiteNotionSourceRequest>;
+
 export type SiteReasonCode =
   | "missing_site_yaml"
   | "invalid_site_yaml"
@@ -105,6 +109,8 @@ export interface Site {
   readOnly: SiteReason[] | null;
   checkedCommit: string | null;
   configCheck: ConfigCheck | null;
+  /** The saved Notion data source whose token main builds use; null: none, so Notion builds fail. */
+  notionDataSourceId: string | null;
 }
 
 export interface FsDirsResponse {
