@@ -192,6 +192,32 @@ test("a failed build shows its outcome and report", async ({ page, server }) => 
   await expect(report).toContainText("boom");
 });
 
+test("a build that lacks a media placeholder shows Bukit's error and how to fix it", async ({ page, server }) => {
+  test.skip(!!REAL_BUKIT, "the failure comes from the stand-in Bukit");
+  await login(page, server);
+  const { name, parent } = fresh("Media");
+  await createSite(page, name, parent);
+  await expect(headerBuild(page)).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
+
+  const dir = await sitePath(page);
+  // New sites keep the link of an image that can't be downloaded (plan 8.6).
+  expect(fs.readFileSync(path.join(dir, "site.yaml"), "utf8")).toMatch(/onFailure: keep/);
+  fs.writeFileSync(path.join(dir, "fake-mode"), "media");
+  git(dir, "add", "fake-mode");
+  git(dir, "commit", "-q", "-m", "break the media");
+
+  await page.getByTestId("build-button").first().click();
+  await expect(headerBuild(page)).toHaveText(/Bukit failed to run|Bukit 运行失败/, { timeout: 30_000 });
+  await page.getByTestId("build-list").getByRole("button").first().click();
+  const report = page.getByTestId("build-report");
+  await expect(report.getByTestId("build-bukit-errors")).toContainText(
+    "Referenced localized media output is missing: assets/images/noneimg-news.jpg",
+  );
+  await expect(report.getByTestId("build-media-problem")).toContainText("onFailure: keep");
+  await expect(report.getByTestId("build-media-problem")).toContainText("2");
+  await expect(report.getByTestId("build-crashed")).toHaveCount(0);
+});
+
 test("a folder that is not a git repository yet is imported after confirming its files", async ({ page, server }) => {
   await login(page, server);
   const { name, parent } = fresh("Import");

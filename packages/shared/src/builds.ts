@@ -141,6 +141,15 @@ export interface AuditReportResponse {
 
 export const AUDIT_MAX_ISSUES = 5000;
 
+/**
+ * A remote image Bukit could not download, replaced by a placeholder the site does not have (plan 8.6).
+ * `missing` is the output path Bukit looked for; `failedDownloads` how many downloads failed (0: unknown).
+ */
+export interface MediaProblem {
+  missing: string;
+  failedDownloads: number;
+}
+
 export interface BuildReport {
   /** Warning and error lines from Bukit's JSON log, in order. */
   messages: BuildMessage[];
@@ -152,6 +161,10 @@ export interface BuildReport {
   problem?: "fs.disk_full" | "fs.read_only" | "fs.permission_denied";
   /** A Notion failure recognised in Bukit's output (plan 5.4). */
   notionProblem?: NotionProblem;
+  /** The messages of Bukit's own error document of a failed run, at most 5 (plan 8.6). */
+  bukitErrors?: string[];
+  /** A missing placeholder for a remote image that could not be downloaded (plan 8.6). */
+  mediaProblem?: MediaProblem;
   /** SEO / GEO summary of a successful build (plan M4 layer 7); absent when Bukit wrote no reports. */
   audit?: BuildAudit;
   /**

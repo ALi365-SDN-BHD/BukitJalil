@@ -15,6 +15,7 @@ import type {
 import { guardCommit, isRecord } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { notionProblemIn } from "../bukit/notion-errors.ts";
+import { bukitErrorsIn, mediaProblemIn } from "../bukit/report-errors.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, logEntry, usableRunner } from "../bukit/runner.ts";
 import type { ChangeService } from "../changes/service.ts";
 import { readBlobAt } from "../git/objects.ts";
@@ -559,10 +560,15 @@ export function buildReport(result: BukitRunResult): BuildReport {
     messages: limitMessages(messages, MAX_MESSAGES),
     output: other.join("\n").slice(-MAX_OUTPUT_CHARS),
   };
-  // Only a failed run: a build that succeeded may still log Notion warnings it got past (plan 5.4).
+  // Only a failed run: a build that succeeded may still log Notion or media warnings it got past (plan 5.4, 8.6).
   if (result.exitCode !== 0) {
-    const notionProblem = notionProblemIn(`${result.stderr}\n${result.stdout}`);
+    const all = `${result.stderr}\n${result.stdout}`;
+    const notionProblem = notionProblemIn(all);
     if (notionProblem) report.notionProblem = notionProblem;
+    const bukitErrors = bukitErrorsIn(result.stderr);
+    if (bukitErrors.length > 0) report.bukitErrors = bukitErrors;
+    const mediaProblem = mediaProblemIn(all, bukitErrors);
+    if (mediaProblem) report.mediaProblem = mediaProblem;
   }
   return report;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildReport } from "../src/builds/service.ts";
 import { notionProblemIn } from "../src/bukit/notion-errors.ts";
+import { bukitErrorsIn, mediaProblemIn } from "../src/bukit/report-errors.ts";
 import { notionConfigChanges } from "../src/changes/notion-config.ts";
 import { notionId } from "../src/data-sources/service.ts";
 
@@ -69,6 +70,61 @@ describe("notionProblemIn", () => {
       } as never);
     expect(run(2).notionProblem).toBe("not_shared");
     expect(run(0).notionProblem).toBeUndefined();
+  });
+});
+
+// Plan 8.6: Bukit's own error messages and the missing media placeholder.
+describe("bukitErrorsIn", () => {
+  it("reads the messages of the last cli-error document", () => {
+    const log = `{"ts":"t","level":"Info","msg":"event=x"}\n${cliError("old")}\nmore\n${cliError("Referenced localized media output is missing: assets/images/noneimg-news.jpg")}\n`;
+    expect(bukitErrorsIn(log)).toEqual([
+      "Referenced localized media output is missing: assets/images/noneimg-news.jpg",
+    ]);
+  });
+
+  it("caps the count and length, and ignores other JSON", () => {
+    const doc = JSON.stringify(
+      {
+        schema: "https://bukit.dev/schemas/cli-error.v1.json",
+        errors: [...Array(7)].map((_, i) => ({ message: `${i}`.repeat(600) })).concat([{ message: 1 } as never]),
+      },
+      null,
+      2,
+    );
+    const errors = bukitErrorsIn(doc);
+    expect(errors).toHaveLength(5);
+    expect(errors[0]).toHaveLength(500);
+    expect(bukitErrorsIn(JSON.stringify({ schema: "other", errors: [{ message: "x" }] }, null, 2))).toEqual([]);
+    expect(bukitErrorsIn("{\nnot json\n}")).toEqual([]);
+    expect(bukitErrorsIn("")).toEqual([]);
+  });
+});
+
+describe("mediaProblemIn", () => {
+  const failed = (n: number) =>
+    `{"ts":"t","level":"Warn","msg":"event=media.download_failed status=441 source=https://x/a.png"}\n{"ts":"t","level":"Info","msg":"event=media.localize_summary phase=deferred downloaded=3 failed=${n}"}`;
+
+  it("finds the missing placeholder and adds up the failed downloads", () => {
+    const log = `${failed(1)}\n${failed(2)}\n${cliError("Referenced localized media output is missing: assets/images/noneimg-news.jpg")}`;
+    expect(mediaProblemIn(log)).toEqual({ missing: "assets/images/noneimg-news.jpg", failedDownloads: 3 });
+    // Downloaded files missing: `keep` would not help, so only Bukit's message says it.
+    expect(mediaProblemIn(cliError("Referenced localized media is missing or unsafe: media/x/a.png"))).toBeNull();
+    // A path with a space or backslashes is taken whole from the parsed message.
+    expect(mediaProblemIn("", ["Referenced localized media output is missing: assets\\my img.jpg"])).toEqual({
+      missing: "assets\\my img.jpg",
+      failedDownloads: 0,
+    });
+    expect(mediaProblemIn(failed(1))).toBeNull();
+  });
+
+  it("is only reported for a failed build, with Bukit's messages", () => {
+    const stderr = `${failed(1)}\n${cliError("Referenced localized media output is missing: assets/images/none.jpg")}`;
+    const run = (exitCode: number) =>
+      buildReport({ exitCode, stdout: "", stderr, stopped: null, durationMs: 1 } as never);
+    expect(run(1).mediaProblem).toEqual({ missing: "assets/images/none.jpg", failedDownloads: 1 });
+    expect(run(1).bukitErrors).toEqual(["Referenced localized media output is missing: assets/images/none.jpg"]);
+    expect(run(0).mediaProblem).toBeUndefined();
+    expect(run(0).bukitErrors).toBeUndefined();
   });
 });
 

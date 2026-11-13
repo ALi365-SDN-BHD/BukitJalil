@@ -214,7 +214,17 @@ const en: Messages = {
     changeBuild: "Change preview",
     report: "Build report",
     crashed:
-      "Bukit stopped without a known result. Look at its output below and try again; if it keeps happening, check or reinstall Bukit in the settings.",
+      "Bukit stopped without a known result. Look at its output below and try again; if it keeps happening, reinstall BukitJalil.",
+    bukitErrors: "Bukit's errors",
+    media: {
+      title:
+        "Remote images could not be downloaded ({count} failed), so Bukit used the placeholder {path}, which the site does not have. Any one of these fixes it:",
+      titleUnknown:
+        "Remote images could not be downloaded, so Bukit used the placeholder {path}, which the site does not have. Any one of these fixes it:",
+      keep: "set content.media.onFailure: keep in site.yaml to keep an image's original link when its download fails;",
+      static: "put an image at the placeholder's path under the theme's static/;",
+      ai: "ask the AI to change site.yaml or replace the broken image links.",
+    },
     messages: "Warnings and errors",
     output: "Other output",
     noMessages: "No warnings or errors",

@@ -20,6 +20,12 @@ case "$1" in
       echo "boom" >&2
       exit 2
     fi
+    if [ "$(cat fake-mode 2>/dev/null)" = "media" ]; then
+      echo '{"ts":"t","level":"Warn","msg":"event=media.download_failed status=441 source=https://example.test/a.png"}' >&2
+      echo '{"ts":"t","level":"Info","msg":"event=media.localize_summary phase=deferred failed=2"}' >&2
+      printf '{\n  "schema": "https://bukit.dev/schemas/cli-error.v1.json",\n  "errors": [{ "code": "cli-error", "message": "Referenced localized media output is missing: assets/images/noneimg-news.jpg" }]\n}\n' >&2
+      exit 1
+    fi
     title=$(grep -m1 '^  title:' site.yaml | sed 's/^  title: *//')
     mkdir -p "$out"
     echo "<!doctype html><meta charset=utf-8><title>$title</title><h1>$title</h1>" > "$out/index.html"

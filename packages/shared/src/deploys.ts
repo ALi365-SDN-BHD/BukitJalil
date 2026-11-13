@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BuildAudit } from "./builds.ts";
+import type { BuildAudit, MediaProblem } from "./builds.ts";
 import type { NotionProblem } from "./data-sources.ts";
 import type { PublishAccount } from "./publish.ts";
 import type { SiteReason } from "./sites.ts";
@@ -78,6 +78,10 @@ export interface DeployReport {
   problem?: "fs.disk_full" | "fs.read_only" | "fs.permission_denied";
   /** A Notion failure recognised in Bukit's output (plan 5.4). */
   notionProblem?: NotionProblem;
+  /** The messages of Bukit's own error document of the failed step (plan 8.6). */
+  bukitErrors?: string[];
+  /** A missing placeholder for a remote image that could not be downloaded (plan 8.6). */
+  mediaProblem?: MediaProblem;
 }
 
 export interface Deploy {

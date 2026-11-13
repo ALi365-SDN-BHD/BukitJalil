@@ -111,7 +111,7 @@ describe("starter values", () => {
     const original = parse(text);
     expect(filled.site).toMatchObject({ name: "1", title: '我的 "网站": 1', language: "zh-CN" });
     expect(filled.theme.params).toMatchObject({ brand: '我的 "网站": 1', footer_text: '我的 "网站": 1' });
-    expect(filled.content).toEqual(original.content);
+    expect(filled.content).toEqual({ ...original.content, media: { onFailure: "keep" } });
     expect(filled.build).toEqual(original.build);
   });
 });

@@ -6,6 +6,7 @@ import { useSearchParams } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { BukitFailure } from "@/features/builds/BukitFailure";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { formatDuration, formatTime, shortOid } from "@/lib/format";
@@ -163,7 +164,8 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
               {m.notion.problem[report.notionProblem]}
             </p>
           )}
-          {build.data?.outcome === "failed" && !report?.problem && (
+          <BukitFailure errors={report?.bukitErrors} media={report?.mediaProblem} testId="build" />
+          {build.data?.outcome === "failed" && !report?.problem && !report?.bukitErrors?.length && (
             <p className="text-muted-foreground" data-testid="build-crashed">
               {m.build.crashed}
             </p>

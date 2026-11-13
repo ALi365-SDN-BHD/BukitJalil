@@ -93,9 +93,17 @@ export function rootRedirectPage(entry: string): string {
 }
 
 /** A step's warning and error lines and the end of its text output, read as for builds. */
-function logOf(result: BukitRunResult): Pick<DeployReport, "messages" | "output" | "notionProblem"> {
-  const { messages, output, notionProblem } = buildReport(result);
-  return { messages, output, ...(notionProblem ? { notionProblem } : {}) };
+function logOf(
+  result: BukitRunResult,
+): Pick<DeployReport, "messages" | "output" | "notionProblem" | "bukitErrors" | "mediaProblem"> {
+  const { messages, output, notionProblem, bukitErrors, mediaProblem } = buildReport(result);
+  return {
+    messages,
+    output,
+    ...(notionProblem ? { notionProblem } : {}),
+    ...(bukitErrors ? { bukitErrors } : {}),
+    ...(mediaProblem ? { mediaProblem } : {}),
+  };
 }
 
 /**

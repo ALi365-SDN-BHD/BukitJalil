@@ -89,6 +89,9 @@ export function fillSiteYaml(text: string, values: StarterValues): string {
   doc.setIn(["theme", "params", "brand"], title);
   doc.setIn(["theme", "params", "footer_text"], title);
   if (values.sources) doc.setIn(["content", "sources"], values.sources);
+  // A remote image that can't be downloaded keeps its link instead of Bukit's placeholder, which the
+  // starter theme does not have (plan 8.6).
+  doc.setIn(["content", "media", "onFailure"], "keep");
   return doc.toString();
 }
 
