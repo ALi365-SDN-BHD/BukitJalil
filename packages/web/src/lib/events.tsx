@@ -110,6 +110,7 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
       void queryClient.invalidateQueries({ queryKey: keys.builds(event.siteId) });
       // A build can end before the list ever showed it running, so the preview cannot wait for that.
       void queryClient.invalidateQueries({ queryKey: ["preview", event.siteId] });
+      void queryClient.invalidateQueries({ queryKey: ["audit", event.siteId] });
       break;
     case "deploy": {
       const { deploy } = event.data;
@@ -139,6 +140,8 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
         // it was applied the main version moved.
         queryClient.removeQueries({ predicate: (q) => ofSite(q.queryKey) && q.queryKey[3] === "change" });
         queryClient.removeQueries({ queryKey: ["preview", siteId, "change"] });
+        queryClient.removeQueries({ queryKey: ["audit", siteId, "change"] });
+        void queryClient.invalidateQueries({ queryKey: ["audit", siteId] });
         void queryClient.invalidateQueries({ predicate: (q) => ofSite(q.queryKey) });
         void queryClient.invalidateQueries({ queryKey: keys.site(siteId) });
         void queryClient.invalidateQueries({ queryKey: keys.history(siteId) });

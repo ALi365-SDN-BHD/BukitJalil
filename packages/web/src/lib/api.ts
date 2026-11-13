@@ -2,6 +2,7 @@ import {
   ApiError,
   type ApplyRequest,
   type ApplyResult,
+  type AuditReportResponse,
   type Build,
   type BuildListResponse,
   type BukitResponse,
@@ -140,6 +141,7 @@ export const api = {
   data: (id: string, ref: PanelRef) => request<DataResponse>(`/sites/${id}/data?${query({ ref })}`),
 
   builds: (id: string) => request<BuildListResponse>(`/sites/${id}/builds`),
+  audit: (id: string, ref: PanelRef) => request<AuditReportResponse>(`/sites/${id}/audit?ref=${ref}`),
   build: (id: string, buildId: string) => request<Build>(`/sites/${id}/builds/${buildId}`),
   startBuild: (id: string, ref: PanelRef = "main") => post<Build>(`/sites/${id}/builds`, { ref }),
   openPreview: (id: string, ref: PanelRef = "main") => post<PreviewResponse>(`/sites/${id}/preview`, { ref }),
@@ -245,6 +247,7 @@ export const keys = {
   deploys: (siteId: string) => ["deploys", siteId] as const,
   panel: (id: string, panel: string, ...rest: string[]) => ["panel", id, panel, ...rest] as const,
   builds: (id: string) => ["builds", id] as const,
+  audit: (id: string, ref: PanelRef) => ["audit", id, ref] as const,
   change: (siteId: string) => ["change", siteId] as const,
   /** A diff never changes for one snapshot tree, so the tree is part of the key. */
   changeDiff: (changeId: string, tree: string, path: string) => ["changeDiff", changeId, tree, path] as const,

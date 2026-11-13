@@ -139,7 +139,37 @@ test("a build report shows the SEO / GEO summary", async ({ page, server }) => {
   await expect(audit.getByTestId("audit-site-url")).toContainText("site.url");
   await expect(audit.getByTestId("audit-group").filter({ hasText: "seo.canonical_not_absolute" })).toHaveCount(0);
   await expect(audit.getByTestId("audit-geo-score")).toContainText(/\d+\/100/);
-  await page.keyboard.press("Escape");
+
+  // The full report is in the SEO panel (plan 10.4).
+  await audit.getByTestId("audit-open-panel").click();
+  await expect(page.getByTestId("build-report")).toBeHidden();
+  await expect(page.getByTestId("tab-seo")).toHaveAttribute("aria-selected", "true");
+  const panel = page.getByTestId("seo-panel");
+  await expect(panel.getByTestId("seo-site-url")).toContainText("site.url");
+  await expect(panel.getByTestId("seo-compare")).toHaveText(/No earlier report|没有更早的报告/);
+  const groups = panel.getByTestId("seo-group");
+  await expect(groups.first()).toBeVisible();
+  await expect(groups.filter({ hasText: "seo.canonical_not_absolute" })).toHaveCount(0);
+  // Filter by a page, then hand the issues to a new conversation without sending them.
+  const filter = panel.getByTestId("seo-page-filter");
+  const all = await groups.count();
+  const firstPage = (await filter.locator("option").nth(1).getAttribute("value")) ?? "";
+  await filter.selectOption(firstPage);
+  await expect(groups.first()).toBeVisible();
+  expect(await groups.count()).toBeLessThanOrEqual(all);
+  if (!REAL_BUKIT) {
+    // The stand-in reports "/" and "/about/": the filter keeps only the first page's issue.
+    expect(all).toBe(2);
+    await expect(groups).toHaveCount(1);
+    await expect(groups.first()).toContainText("seo.description_missing");
+  }
+  const firstCode = (await groups.first().locator("code").textContent()) ?? "";
+  await panel.getByTestId("seo-ask-ai").click();
+  await expect(page).toHaveURL(/\/sessions\//);
+  const input = page.getByTestId("composer-input");
+  await expect(input).toHaveValue(/SEO \/ GEO/);
+  if (!REAL_BUKIT) await expect(input).not.toHaveValue(/seo\.title_missing/);
+  await expect(input).toHaveValue(new RegExp(firstCode.replace(/\./g, "\\.")));
 });
 
 test("a failed build shows its outcome and report", async ({ page, server }) => {

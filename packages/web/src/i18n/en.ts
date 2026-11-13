@@ -525,7 +525,9 @@ const en: Messages = {
     llmsTxt: "llms.txt",
     vsMain: "Compared with the main version's latest report",
     vsPrevious: "Compared with the previous build",
+    noMainReport: "The main version has no report yet to compare with",
     noPrevious: "No earlier report to compare with",
+    stale: "A newer build of this version failed, so this report may be out of date.",
     filter: "Page",
     allPages: "All pages ({count})",
     pageOption: "{page} ({count})",
@@ -543,7 +545,11 @@ const en: Messages = {
     draft:
       "Please fix these SEO / GEO issues from the latest build{where}. Change the site content or theme as needed, then build to check that they are gone.",
     draftPage: " on the page {page}",
-    draftMore: "(and {count} more of the same kinds)",
+    draftWhole: " that concern the site as a whole",
+    draftSummary:
+      "The full list is no longer available, so this is the summary: each line is one kind of issue with a few of its pages. Build first to see every issue.",
+    draftGroup: "{count}×, pages: {pages}",
+    draftMore: "(and {count} more)",
     draftSite: "whole site",
   },
   status: {
