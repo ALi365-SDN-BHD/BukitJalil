@@ -6,18 +6,27 @@
 
 M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每项开工前先把"要先定的问题"定下来并写进开发方案，再按分层做：实现 → 审计 → 修复 → 复查 → 提交推送。
 
-### 3. Cloudflare Pages 发布
+### 3. Cloudflare Pages 发布（暂缓，等 Bukit 支持）
 
-**现状**：Bukit 的 `deploy` 只支持 `github-pages` 一种，所以这一项要 BukitJalil 自己实现上传，不能直接调 Bukit。
+**状态**（2026-11-13 定）：先不做。等 Bukit 的 `deploy` 支持 Cloudflare Pages、配置格式里有对应的发布目标后，BukitJalil 再像 GitHub Pages 一样调用 Bukit 实现。在那之前，不要在 BukitJalil 里自己写 Cloudflare 上传。
 
-**要做的**：构建产物通过 Cloudflare 的上传 API 发布，界面上需要账号 ID、项目名和 API token。
+**现状**：Bukit 的 `deploy` 只支持 `github-pages` 一种，配置格式也只认它，所以把 Cloudflare 的配置写进 `site.yaml` 的 `deploy` 段，Bukit 校验时会报错。
 
-**要先定的问题**：
+**已定的问题**：
 
-- 发布目标写在哪里？现在 GitHub Pages 的配置在 `site.yaml` 的 `deploy` 段，而 Bukit 的配置格式只认 `github-pages`。如果把 Cloudflare 的配置也写进去，Bukit 校验配置时可能报错，所以大概率要另外存在 BukitJalil 自己的设置里。
-- 新的 token 同样要走现有的密钥规则：只在用户点"发布"时才用。
+- 一个网站可以同时配多个发布目标（GitHub Pages 和 Cloudflare Pages 并存），发布时选发到哪里。`site.url` 只能指向其中一个，其他目标上的 canonical 会指向别处，界面要说明。
+- 只用 Cloudflare 上已有的 Pages 项目，项目不存在就报错，不由 BukitJalil 创建。
+- 如果到时候仍要 BukitJalil 自己计算上传用的 BLAKE3 文件哈希，用 `@noble/hashes`（精确版本）。由 Bukit 负责上传时就不需要。
+- 新的 token 同样走现有的密钥规则：存为发布账号，只在用户点"发布"时才用。
 
-**工作量**：约 3–4 天，包括抽出一层"发布目标"的接口。
+**参考**（2026-11-13 按 wrangler 源码核对的 Direct Upload 流程，供 Bukit 实现时对照）：
+
+1. `GET /accounts/{id}/pages/projects/{name}/upload-token` 拿到 JWT。
+2. `POST /pages/assets/check-missing` 查出缺哪些文件，`POST /pages/assets/upload` 上传，`POST /pages/assets/upsert-hashes` 登记。这三步用 JWT 认证，JWT 过期就重新取。
+3. `POST /accounts/{id}/pages/projects/{name}/deployments` 创建部署，multipart 的 `manifest` 字段是 `{"/路径": 哈希}`，`_headers`、`_redirects` 单独作为文件字段。
+4. 文件哈希是 BLAKE3(文件 base64 + 扩展名) 的前 32 个十六进制字符。单个文件最大 25 MiB，默认最多 20000 个文件。
+
+**工作量**：Bukit 支持后约 2–3 天，包括抽出一层"发布目标"的接口和多目标的界面。
 
 ### 4. 自有服务器发布
 
