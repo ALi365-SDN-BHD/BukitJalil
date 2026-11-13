@@ -71,12 +71,14 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 所以"先缓存，预览只读缓存"用现在的 Bukit 做不到，塞一个假 token 也不行。
 
-**第二步：AI 改动的预览**（约 4–6 天，含 Bukit 的改动）：给 Bukit 加完整的离线快照。
+**第二步：AI 改动的预览**（约 6–8 天，含 Bukit 的改动；2026-11-14 逐项定完，详见开发方案 5.5）：给 Bukit 加完整的 Notion 离线快照。
 
-- readwrite 时把数据库结构和查询结果也存下来。
-- 新增一个不要 token、不联网的离线模式。
-- BukitJalil 正式构建时把快照写到 AI 工作副本之外，预览时只读放进检出，预览显示的就是"上次正式构建时的 Notion 数据"。
-- 缓存目录和模式由 BukitJalil 指定，不读 `site.yaml`（AI 能改它）。**已定**（2026-11-13）：Bukit 加命令行参数（例如 `--notion-snapshot <dir>`、`--notion-offline`），覆盖 `site.yaml` 里的 `cacheDir` 和 `cacheMode`；不由 BukitJalil 生成临时配置。
-- 快照内容会进入 AI 能读的检出目录。快照只包含按正式分支过滤条件查出的页面，这些本来就要发布，但要写进安全规则。
+- 现在的 `cacheMode: readonly` 只冻结页面正文。数据库结构、查询结果、关联目标、跨源关联、分类可选项都要存进快照；分类可选项和 `pages_index` 没 token 时会静默跳过，离线时必须改成读快照。
+- Bukit 加命令行参数 `--notion-snapshot <dir>`、`--notion-offline`，覆盖 `site.yaml` 里的 `cacheDir` 和 `cacheMode`；离线模式不要 token、不联网，快照缺项明确报错。
+- **快照放在应用数据目录，不放进任何检出目录**（AI 读不到）。快照里有草稿页、网站不显示的字段和其他数据库的关联页面，比要发布的内容多。
+- 存 Notion 接口的原始数据，AI 改 `propertyMap` 或模板时预览照样正确。
+- AI 换 `databaseId` 或新加 Notion 源：离线构建失败，提示应用后正式构建；改过滤或排序：用旧数据，预览上说明。
+- 正式构建的媒体缓存一起保存，离线构建只读使用、不下载。
+- 每个网站只保留最新一份，正式构建成功后才整个替换；预览写明数据来自哪次正式构建。
 - 顺便让 Bukit 输出每个源的页数，数据面板再接上。
 - BukitJalil 自带的 Bukit 版本（`BUKIT_VERSION` 和三个安装包的 SHA-256）要跟着升，随新版 BukitJalil 发布；Bukit 不能由用户单独升级。

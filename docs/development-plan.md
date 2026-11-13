@@ -317,6 +317,54 @@ BukitJalil/
   - 判断规则和构建前检查一致：`type` 不区分大小写等于 `notion`（Bukit 也不区分），或者有 `notion` 段，都算 Notion 源，以免审核卡漏掉构建会带 token 的源。一个有名称的源叫 `#1` 时和没名称的第一个源重名，后者不会被吞掉，键名加上序号。
   - `site.yaml` 按纯文本读（YAML failsafe），和 Bukit、构建前检查一样：不加引号的全数字 `databaseId` 不会变成数字。数据面板读取字段时也这样读。
   - 改动后的 `site.yaml` 读不出来（超过 1 MiB、不是有效 YAML）时，返回一条 `change: "unreadable"`，界面提示自己看差异，而不是把所有源都当成删除。
+
+### 5.5 Notion 离线快照（2026-11-14 定，未实现，需要先改 Bukit）
+
+目标：使用 Notion 数据源的网站，AI 改动的检查、构建和预览不要 token、不联网。正式构建（带 token）时顺便存一份"Notion 离线快照"，之后的离线构建只读它，预览显示的是"上次正式构建时的 Notion 数据"。（"快照"在第 7 节指改动集的 git 快照，这里一律叫"Notion 离线快照"。）
+
+**现状**（按 Bukit main b1820c9b 源码核对，2026-11-14）：`cacheMode: readonly` 只冻结了页面正文，离线构建做不到。
+
+- 一次 Notion 构建的联网调用：
+  1. `GET /databases/{id}` 读数据库结构（有过滤、排序或 slug 时），不缓存；
+  2. `POST /databases/{id}/query` 分页查询页面属性、`last_edited_time`，响应头的时间当作服务器时间，不缓存（页面缓存的键就来自这次查询）；
+  3. `GET /blocks/{id}/children` 递归读正文，有页面缓存（`<cacheDir>/pages/<id>.json`，存渲染后的 HTML）；
+  4. `GET /pages/{id}` 读关联目标（最多 200 个），readonly 时先读缓存，没命中仍联网，readwrite 只写不读；
+  5. `GET /pages/{id}` 跨源关联的兜底查询，任何模式都不缓存；
+  6. `GET /databases/{id}` 读分类可选项（每种语言一次），不缓存，**没有 token 时静默跳过**；
+  7. `GET /pages/{id}`（`pages_index` 插件），有自己的缓存，**没有 token 时静默跳过**；
+  8. 下载图片：Notion 文件的签名链接约 1 小时过期，媒体缓存按去掉签名后的链接识别，下载过的图片过期后仍能找到。
+- 要求或检查 token 的地方：配置校验（`ProviderValidators.cs`）、创建内容源（`ContentProviderFactory.cs`，在读 `cacheMode` 之前）、内容源内部、`doctor` 的联网检查，以及上面两处静默跳过。
+- readonly 缓存没命中时报错 `Notion cache miss in readonly mode for page: …`。`--cache-dir` 参数不影响 Notion 的缓存目录。
+- 草稿是 Bukit 查询**之后**自己按 `draft` 字段过滤的，所以查询结果里有草稿页；查询还会返回每个页面的全部字段，包括网站不显示的。
+
+**已定**（2026-11-14 逐项讨论）：
+
+1. **位置**：Notion 离线快照始终放在应用数据目录，不放进任何检出目录，用 `--notion-snapshot <目录>` 把路径传给 Bukit。AI 读不到它，只能看到构建出的页面（草稿已经过滤）。原来"预览时只读放进检出"的打算作废：快照里有草稿、内部字段和其他数据库的关联页面，比要发布的内容多。
+2. **内容**：存 Notion 接口返回的原始数据（数据库结构、全部字段、关联目标、分类可选项、跨源关联、`pages_index` 数据、服务器时间）加上已有的正文缓存。AI 改了 `propertyMap` 或模板用了新字段时，预览照样正确。
+3. **AI 改了 Notion 配置**：
+   - 换了 `databaseId`、新加了 Notion 源：离线构建明确失败，提示"应用后正式构建才有这些数据"；
+   - 改了过滤或排序：仍用快照里按正式版本条件查出的页面，Bukit 输出一条警告，预览上说明"Notion 数据按正式版本的过滤条件"；
+   - 改了 `propertyMap`、模板：照常生效。
+4. **图片**：正式构建的媒体缓存和 Notion 离线快照一起保存，离线构建只读使用、不下载；缓存里没有的图片保留原链接。视频、PDF 等附件本来就保留签名链接，预览里会过期，不处理。
+5. **份数**：每个网站只保留最新一份。正式构建成功后才整个替换（先写临时目录再改名），失败的构建不覆盖旧的。快照记下对应的正式版本提交和时间，预览上写明"Notion 数据来自 <时间> 的正式构建"。
+
+**Bukit 要做的**：
+
+- 参数：`--notion-snapshot <目录>`（带 token 构建时写完整快照）和 `--notion-offline`（只读快照，不要 token、不联网），用于 `build`、`config check`、`doctor`，覆盖 `site.yaml` 的 `cacheDir` 和 `cacheMode`。离线时 `doctor` 跳过 Notion 的联网检查。
+- 离线模式下上面的 token 检查全部放行，不创建 Notion 客户端，所有数据从快照读；缺了就明确报错，不能静默跳过（分类可选项、`pages_index` 现在没 token 会静默跳过，离线时必须改成读快照）。
+- 离线时不判断签名链接是否过期，服务器时间用快照里存的。快照带格式版本和 Bukit 版本，对不上就报错。
+- 改了过滤或排序时输出警告事件；每个源输出页数（例如 `event=content.source.loaded source=<名称> count=<页数>`，位置在 `CompositeContentProvider.cs`）。
+- 测试：离线构建和联网构建逐页相同；快照缺项报错；离线时没有任何网络请求；没有 token 时所有检查都能通过。
+
+**BukitJalil 要做的**：
+
+- 正式构建带 `--notion-snapshot <应用数据目录下的临时目录>`，成功后替换这个网站的 Notion 离线快照和媒体缓存；
+- AI 检查、AI 构建、改动集预览：有快照时带 `--notion-snapshot <目录> --notion-offline`，环境里确认没有 `NOTION_TOKEN`；没有快照时提示先正式构建一次；去掉 `ai-bukit.ts` 对 Notion 网站的直接拒绝；
+- 预览上说明数据时间和"按正式版本的过滤条件"；数据面板接上每个源的页数；
+- 安全规则写进第 7 节和 8.5；
+- 升级内置的 Bukit（`BUKIT_VERSION` 和三个安装包的 SHA-256），同时把 `report-errors.ts` 里读占位图路径的那一行改成只取到第一个空格（Bukit 修占位图后报错在路径后面加了说明）。
+
+**工作量**：Bukit 约 4–5 天，BukitJalil 约 2–3 天，合计 6–8 天（原来估 4–6 天）。Bukit 发新版本、BukitJalil 升级内置版本都要用户确认。
 ---
 
 ## 6. Pi 集成设计
