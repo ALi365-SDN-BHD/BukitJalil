@@ -64,6 +64,41 @@ describe("PreviewPool (plan 8.4)", () => {
     expect((await get(port)).body).toBe("plain");
   });
 
+  it("serves a subpath site under its base path, as it is published (plan 16 #8)", async () => {
+    const pool = new PreviewPool(BASE, new Set(), silentLogger);
+    pools.push(pool);
+    const dir = site("home");
+    fs.mkdirSync(path.join(dir, "about"));
+    fs.writeFileSync(path.join(dir, "about", "index.html"), "about");
+    const { port, url } = await pool.open("s:main", dir, undefined, "/blog/");
+    expect(url).toBe(`http://127.0.0.1:${port}/blog/`);
+    for (const p of ["/", "/blog"]) {
+      const r = await get(port, { path: p });
+      expect(r.status).toBe(302);
+      expect(r.headers.location).toBe("/blog/");
+    }
+    expect((await get(port, { path: "/blog/" })).body).toBe("home");
+    expect((await get(port, { path: "/blog/about/?x=1" })).body).toBe("about");
+    // Links that miss the base path break here, as they would once published.
+    expect((await get(port, { path: "/about/" })).status).toBe(404);
+    expect((await get(port, { path: "/blogabout/" })).status).toBe(404);
+    expect((await get(port, { path: "/blog/../about/" })).status).not.toBe(200);
+    expect((await get(port, { path: "/blo%67/" })).status).toBe(404);
+    expect((await get(port, { path: "//evil.example/" })).headers.location).toBeUndefined();
+    expect((await get(port, { path: "/blog/?x=/blog/about/" })).body).toBe("home");
+    expect((await get(port, { path: "/blog/about/", method: "HEAD" })).status).toBe(200);
+
+    // A multilingual build goes from the base path to its entry, still under the base path.
+    const multi = fs.mkdtempSync(path.join(os.tmpdir(), "bj-preview-"));
+    fs.mkdirSync(path.join(multi, "en-US"));
+    fs.writeFileSync(path.join(multi, "en-US", "index.html"), "en");
+    pool.repoint("s:main", multi, "/en-US/", "/a/b/");
+    const entry = await get(port, { path: "/a/b/" });
+    expect(entry.headers.location).toBe("/a/b/en-US/");
+    expect((await get(port, { path: "/a/b/en-US/" })).body).toBe("en");
+    expect((await get(port, { path: "/blog/" })).status).toBe(404);
+  });
+
   it("sends sandbox CSP, no-store and nosniff", async () => {
     const pool = new PreviewPool(BASE, new Set(), silentLogger);
     pools.push(pool);

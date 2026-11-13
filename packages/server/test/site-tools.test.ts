@@ -218,6 +218,21 @@ describe("bukit_check and bukit_build", () => {
     expect(failed.text).toContain("configuration or content error");
   });
 
+  it("builds under the site's own baseUrl, and does not run Bukit for one a preview cannot use", async () => {
+    const { tools, cwd } = await setup();
+    const yaml = path.join(cwd, "site.yaml");
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /docs/v2"));
+    expect((await call(tools.bukit_build)).value).toMatchObject({ succeeded: true });
+    expect(bukitCalls()[0]).toContain(" --base-url /docs/v2/ ");
+
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /docs/v2", "baseUrl: /a b/"));
+    const before = bukitCalls().length;
+    const bad = await call(tools.bukit_build);
+    expect(bad.value).toMatchObject({ succeeded: false, pages: 0, messages: [{ level: "error" }] });
+    expect(bad.text).toContain("site.baseUrl");
+    expect(bukitCalls()).toHaveLength(before);
+  });
+
   it("does not run Bukit when the pre-build guard refuses the snapshot", async () => {
     const { tools, cwd } = await setup();
     const yaml = path.join(cwd, "site.yaml");

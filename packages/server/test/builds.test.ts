@@ -30,6 +30,7 @@ case "$1" in
     out=""; prev=""
     for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
     [ -n "$NOTION_TOKEN" ] && printf '%s' "$NOTION_TOKEN" > "\${0}.notion"
+    printf '%s' "$*" > "\${0}.args"
     mode=$(cat fake-mode 2>/dev/null)
     echo '{"ts":"t","level":"info","msg":"event=build.start"}'
     case "$mode" in
@@ -253,6 +254,28 @@ it("checks and builds a new Notion site with its bound token right after creatin
 });
 
 describe("main builds (plan 8.3, 8.4)", () => {
+  it("builds and previews a subpath site under its own baseUrl; a bad baseUrl fails the build", async () => {
+    const s = await setup("subpath");
+    const yaml = path.join(s.dir, "site.yaml");
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog"));
+    commitAll(s.dir, "subpath");
+    const b = await s.build();
+    expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
+    expect(b.report?.basePath).toBe("/blog/");
+    const args = fs.readFileSync(path.join(appBukitDir(path.join(base, "bk")), "bukit.args"), "utf8");
+    expect(args).toContain("--base-url /blog/ ");
+    const opened = (await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" })).json;
+    expect(opened.url).toBe(`http://127.0.0.1:${opened.port}/blog/`);
+    expect((await httpGet(opened.port, { path: "/blog/" })).body).toContain("v1");
+    expect((await httpGet(opened.port, { path: "/" })).headers.location).toBe("/blog/");
+
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /blog", "baseUrl: /a b/"));
+    commitAll(s.dir, "bad base");
+    const bad = await s.build();
+    expect(bad).toMatchObject({ status: "failed", outcome: "base_url" });
+    expect(bad.report?.detail).toContain("site.baseUrl");
+  });
+
   it("builds in the main checkout and keeps the output under previews/", async () => {
     const s = await setup("ok");
     expect(s.site).toMatchObject({ readOnly: null, configCheck: "ok" });

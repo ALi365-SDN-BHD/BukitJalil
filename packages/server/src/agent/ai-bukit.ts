@@ -11,6 +11,7 @@ import type { ChangeService } from "../changes/service.ts";
 import type { Snapshot } from "../changes/snapshot.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
+import { checkoutBasePath } from "../preview/base-path.ts";
 import type { SiteService } from "../sites/service.ts";
 
 /**
@@ -54,7 +55,8 @@ export interface CheckResult {
 }
 
 export interface BuildResult {
-  outcome: ReturnType<typeof buildOutcome>;
+  /** Bukit's outcome, or "base_url" when site.baseUrl is not a path a preview can be served under. */
+  outcome: ReturnType<typeof buildOutcome> | "base_url";
   commit: string;
   removed: string[];
   exitCode: number;
@@ -138,10 +140,25 @@ export class AiBukit {
   /** Build into a fresh .bukitjalil-build/ai-<id>/ and report, with its SEO / GEO summary; the output is deleted. */
   build(siteId: string, cwd: string, signal?: AbortSignal): Promise<BuildResult> {
     return this.guarded(siteId, cwd, async (runner, { commit, removed }) => {
+      // Built under the site's own baseUrl, as the preview of the change will be (plan 16 #8).
+      const base = checkoutBasePath(cwd);
+      if (!base.ok) {
+        const msg = `${base.detail}; the preview cannot be served, fix site.baseUrl`;
+        return {
+          outcome: "base_url",
+          commit,
+          removed,
+          exitCode: -1,
+          pages: 0,
+          messages: [{ level: "error", msg }],
+          output: "",
+          audit: null,
+        };
+      }
       const name = `ai-${crypto.randomBytes(6).toString("hex")}`;
       const out = path.join(cwd, BUILD_OUTPUT_PARENT, name);
       try {
-        const result = await runner.run("build", buildArgs(name), { cwd, signal });
+        const result = await runner.run("build", buildArgs(name, base.basePath), { cwd, signal });
         const report = buildReport(result);
         const outcome = buildOutcome(result);
         return {

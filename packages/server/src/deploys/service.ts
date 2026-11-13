@@ -447,7 +447,7 @@ export class DeployService {
       if (!check.ok) return failed(check.result);
       const doctor = await run("doctor", "doctor", ["doctor", "--config", "site.yaml"]);
       if (!doctor.ok) return failed(doctor.result);
-      // The site's own baseUrl and site.url, unlike a preview build (served at "/").
+      // The site's own baseUrl and site.url, read by Bukit from site.yaml (previews pass the same baseUrl).
       const build = await run("build", "build", [
         "build",
         "--config",

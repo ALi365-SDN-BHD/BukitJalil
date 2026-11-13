@@ -199,6 +199,7 @@ const zhCN = {
       failed: "Bukit 运行失败",
       refused: "未通过构建前安全检查",
       notion: "使用 Notion 数据源；需要在数据面板里绑定数据源，AI 改动的预览暂不支持 Notion",
+      base_url: "site.baseUrl 不是可以用来预览的路径（只能用字母、数字和 . _ ~ -，以 / 分隔）",
       symlink: "输出里有符号链接，没有保留",
       interrupted: "服务重启时中断",
       error: "BukitJalil 出错",

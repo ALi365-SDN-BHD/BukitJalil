@@ -205,6 +205,7 @@ const en: Messages = {
       refused: "Refused by the pre-build safety check",
       notion:
         "Uses a Notion source; bind a data source in the Data panel. Previews of AI changes do not support Notion yet",
+      base_url: "site.baseUrl is not a path a preview can use (letters, digits and . _ ~ - between slashes)",
       symlink: "The output had a symbolic link and was not kept",
       interrupted: "Interrupted by a server restart",
       error: "BukitJalil error",

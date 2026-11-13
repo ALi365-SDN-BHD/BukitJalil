@@ -9,8 +9,10 @@ interface Slot {
   key: string;
   port: number;
   root: string;
-  /** Where "/" redirects when the build has no index.html at its root (BuildReport.entry). */
+  /** Where the base path redirects when the build has no index.html at its root (BuildReport.entry). */
   entry: string | undefined;
+  /** The path the build is served under ("/" or "/a/b/", BuildReport.basePath); "/" redirects there. */
+  basePath: string;
   server: http.Server;
   /** Last open or request, for the idle release. */
   usedAt: number;
@@ -23,9 +25,13 @@ const SWEEP_MS = 60_000;
 
 export class NoPreviewPortError extends Error {}
 
+/** The address of a preview: its port and the path it is served under. */
+export const previewUrl = (port: number, basePath = "/") => `http://127.0.0.1:${port}${basePath}`;
+
 /**
  * One port per preview (plan 8.4): each slot (site × main/change) gets its own 127.0.0.1 port from
- * `base` upward, serves one build directory at "/", and checks Host against its own port.
+ * `base` upward, serves one build directory under its base path (plan 16 #8), and checks Host against
+ * its own port.
  * Busy ports are skipped. A slot idle for `idleMs` is closed; opening it again picks a port anew.
  */
 export class PreviewPool {
@@ -47,35 +53,35 @@ export class PreviewPool {
     return `${siteId}:${ref}`;
   }
 
-  /** Open (or re-point) the slot `key` at `root`; returns its URL. */
-  async open(key: string, root: string, entry?: string): Promise<{ port: number; url: string }> {
+  /**
+   * Open (or re-point) the slot `key` at `root`, served under `basePath` (checked by previewBasePath);
+   * returns its URL.
+   */
+  async open(key: string, root: string, entry?: string, basePath = "/"): Promise<{ port: number; url: string }> {
     const existing = this.slots.get(key);
     if (existing) {
       // atomic switch to the new build
-      existing.root = root;
-      existing.entry = entry;
-      existing.usedAt = Date.now();
-      return { port: existing.port, url: `http://127.0.0.1:${existing.port}/` };
+      Object.assign(existing, { root, entry, basePath, usedAt: Date.now() });
+      return { port: existing.port, url: previewUrl(existing.port, basePath) };
     }
     const pending = this.opening.get(key);
     if (pending) {
       const opened = await pending;
       const slot = this.slots.get(key);
       // The later call wins, as with an existing slot.
-      if (slot) Object.assign(slot, { root, entry });
-      return opened;
+      if (slot) Object.assign(slot, { root, entry, basePath });
+      return { port: opened.port, url: previewUrl(opened.port, basePath) };
     }
-    const opening = this.bind(key, root, entry).finally(() => this.opening.delete(key));
+    const opening = this.bind(key, root, entry, basePath).finally(() => this.opening.delete(key));
     this.opening.set(key, opening);
     return opening;
   }
 
   /** Point an open slot at a new build; false when the slot is not open (nothing is bound). */
-  repoint(key: string, root: string, entry?: string): boolean {
+  repoint(key: string, root: string, entry?: string, basePath = "/"): boolean {
     const slot = this.slots.get(key);
     if (!slot) return false;
-    slot.root = root;
-    slot.entry = entry;
+    Object.assign(slot, { root, entry, basePath });
     return true;
   }
 
@@ -99,17 +105,22 @@ export class PreviewPool {
     this.sweeper.unref();
   }
 
-  private async bind(key: string, root: string, entry: string | undefined): Promise<{ port: number; url: string }> {
+  private async bind(
+    key: string,
+    root: string,
+    entry: string | undefined,
+    basePath: string,
+  ): Promise<{ port: number; url: string }> {
     for (let port = this.base, attempts = 0; attempts < MAX_PORT_ATTEMPTS && port <= 65535; port++, attempts++) {
       if (this.reserved.has(port) || [...this.slots.values()].some((s) => s.port === port)) continue;
-      const slot: Slot = { key, port, root, entry, server: http.createServer(), usedAt: Date.now() };
+      const slot: Slot = { key, port, root, entry, basePath, server: http.createServer(), usedAt: Date.now() };
       slot.server.on("request", (req, res) => this.handle(slot, req, res));
       const bound = await listen(slot.server, port);
       if (!bound) continue;
       this.slots.set(key, slot);
       this.startSweeper();
       this.logger.log("info", "preview.open", { key, port });
-      return { port, url: `http://127.0.0.1:${port}/` };
+      return { port, url: previewUrl(port, basePath) };
     }
     throw new NoPreviewPortError(`no free preview port from ${this.base}`);
   }
@@ -161,11 +172,25 @@ export class PreviewPool {
       res.writeHead(405, { ...previewHeaders, Allow: "GET, HEAD" }).end();
       return;
     }
-    if (slot.entry && (req.url ?? "/").split("?")[0] === "/") {
-      res.writeHead(302, { ...previewHeaders, Location: slot.entry }).end();
+    const url = req.url ?? "/";
+    const query = url.indexOf("?");
+    const pathname = query === -1 ? url : url.slice(0, query);
+    const { basePath } = slot;
+    // The build's links all start with the base path; "/" (and the base path without its slash) lead there.
+    if (basePath !== "/" && (pathname === "/" || pathname === basePath.slice(0, -1))) {
+      res.writeHead(302, { ...previewHeaders, Location: basePath }).end();
       return;
     }
-    const resolved = resolveStaticFile(slot.root, req.url ?? "/");
+    if (!pathname.startsWith(basePath)) {
+      res.writeHead(404, previewHeaders).end();
+      return;
+    }
+    const rel = `/${url.slice(basePath.length)}`;
+    if (slot.entry && pathname === basePath) {
+      res.writeHead(302, { ...previewHeaders, Location: `${basePath}${slot.entry.slice(1)}` }).end();
+      return;
+    }
+    const resolved = resolveStaticFile(slot.root, rel);
     if (!resolved.ok) {
       res.writeHead(resolved.status, previewHeaders).end();
       return;

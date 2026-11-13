@@ -23,6 +23,8 @@ export type BuildOutcome =
   | "refused"
   /** The site uses a Notion source, which needs a token (plan 5.1); not available yet. */
   | "notion"
+  /** site.baseUrl is not a path the preview can be served under (plan 16 #8); `report.detail` says why. */
+  | "base_url"
   /** The output contained a symbolic link (plan 8.4). */
   | "symlink"
   /** The server stopped while the build was running. */
@@ -95,6 +97,8 @@ export interface BuildReport {
    * each language under /<lang>/): the default language's home, such as "/zh-CN/".
    */
   entry?: string;
+  /** The path the preview is served under, site.baseUrl such as "/blog/"; absent for "/" (plan 16 #8). */
+  basePath?: string;
 }
 
 export interface Build {

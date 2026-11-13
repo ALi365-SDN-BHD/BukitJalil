@@ -154,7 +154,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 3. 在 BukitJalil 的设置 → 发布 → 发布账号里添加一个 GitHub 账号：填名称和 token。token 保存在本机 `~/.bukitjalil/publish-account-tokens.json`（权限 600），界面只显示末四位；可以保存多个账号，网站发布时选择使用哪一个
    - 从旧版本升级时，全局 GitHub / Notion token 只导入一次。改导入账号或数据源的名称不影响网站关联；删除导入的账号/数据源后，即使环境变量还在，重启也不会自动重建
    - 这些 token 和 Notion 数据源 token 都是本机 0600 明文，依赖操作系统账户权限。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密；Windows 上文件权限不是完整的 NTFS ACL
-4. 在网站主页的"发布"区点"部署设置"：选择发布账号，填写仓库（`owner/name`，例如 `alice/my-blog`），分支默认 `gh-pages`，有自定义域名再填。保存时会检查这个 token 对仓库是否有 Contents 写权限，并把 `deploy` 段、`site.url` 和 `site.baseUrl` 写进 `site.yaml`
+4. 在网站主页的"发布"区点"部署设置"：选择发布账号，填写仓库（`owner/name`，例如 `alice/my-blog`），分支默认 `gh-pages`，有自定义域名再填。保存时会检查这个 token 对仓库是否有 Contents 写权限，并把 `deploy` 段、`site.url` 和 `site.baseUrl` 写进 `site.yaml`。没有自定义域名的项目站点，`site.baseUrl` 是 `/<仓库名>/`：之后的预览也会打开在这个路径下，和发布后的网址一致，模板或正文里漏写这个前缀的链接在预览里就会坏掉。`site.baseUrl` 只能用字母、数字和 `. _ ~ -`，以 `/` 分隔，否则预览构建会失败（结果为"site.baseUrl 不是可以用来预览的路径"）
 5. 在 GitHub 仓库的 Settings → Pages 里，把 Build and deployment 设为 Deploy from a branch，分支选 `gh-pages`（或你设置的分支）。第一次发布后这个分支才会出现
 
 **发布**：点"发布"，确认对话框会写明仓库、分支和要发布的版本。确认后 BukitJalil 在本机依次做安全检查、配置检查、诊断、构建、发布审计，全部通过才推送；任何一步失败都不会推送，发布记录里写明是哪一步和原因。推送会覆盖目标分支上的网站内容，GitHub Pages 通常要一两分钟才显示新内容。
