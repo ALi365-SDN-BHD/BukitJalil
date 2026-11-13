@@ -54,6 +54,8 @@ export interface ModelServiceOptions {
   settings: SettingsStore;
   /** Pi's directory, holding auth.json. */
   piDir: string;
+  /** The saved credential of a provider when keys are encrypted (plan 6.7); read from auth.json otherwise. */
+  storedCredential?: (providerId: string) => unknown;
   testTimeoutMs?: number;
   /** Provider ids created by the local/self-hosted model settings. */
   customProviderIds?: () => Set<string>;
@@ -71,7 +73,6 @@ export class ModelService {
 
   async list(): Promise<ModelsResponse> {
     const [runtime, { pi }] = await Promise.all([this.opts.runtime(), this.opts.pi()]);
-    const authPath = path.join(this.opts.piDir, "auth.json");
     const customIds = this.opts.customProviderIds?.() ?? new Set<string>();
     // Checked side by side: a provider without a key in Pi's snapshot is asked directly.
     const withModels = runtime.getProviders().filter((p) => runtime.getModels(p.id).length > 0 || !!p.auth.oauth);
@@ -83,7 +84,7 @@ export class ModelService {
           name: provider.name,
           keyEditable: keyEditable(provider),
           envKey: !!provider.auth.apiKey,
-          key: await keyOf(runtime, provider.id, () => pi.readStoredCredential(provider.id, authPath)),
+          key: await keyOf(runtime, provider.id, () => this.stored(pi, provider.id)),
           oauth: oauthOf(provider),
           auth: { configured: !!auth, type: auth?.type ?? null, source: auth?.source ?? null } as ProviderAuth,
           custom: customIds.has(provider.id),
@@ -341,8 +342,12 @@ export class ModelService {
 
   private async key(runtime: ModelRuntime, providerId: string): Promise<ProviderKey> {
     const { pi } = await this.opts.pi();
-    const authPath = path.join(this.opts.piDir, "auth.json");
-    return keyOf(runtime, providerId, () => pi.readStoredCredential(providerId, authPath));
+    return keyOf(runtime, providerId, () => this.stored(pi, providerId));
+  }
+
+  private stored(pi: PiModules["pi"], providerId: string): unknown {
+    if (this.opts.storedCredential) return this.opts.storedCredential(providerId);
+    return pi.readStoredCredential(providerId, path.join(this.opts.piDir, "auth.json"));
   }
 
   /** The key a request to this model would use, to keep it out of error messages. */

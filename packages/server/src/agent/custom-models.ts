@@ -2,7 +2,7 @@ import type { CustomModelProvider, CustomModelRequest, CustomModelsResponse } fr
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
-import { JsonFile, JsonFileError } from "../store/json-file.ts";
+import { JsonFile, JsonFileError, type StoredJson } from "../store/json-file.ts";
 
 /** What is stored on disk; the response type hides the key. */
 export interface StoredProvider {
@@ -23,10 +23,11 @@ const DEFAULT_MAX_TOKENS = 4_096;
  * every change. A local server usually needs no key; a dummy one lets Pi's auth layer make requests.
  */
 export class CustomModelStore {
-  private readonly json: JsonFile;
+  private readonly json: StoredJson;
 
-  constructor(file: string) {
-    this.json = new JsonFile(file);
+  /** A path (plain 0600 file) or the secret store's file (plan 6.7). */
+  constructor(file: string | StoredJson) {
+    this.json = typeof file === "string" ? new JsonFile(file) : file;
   }
 
   list(): CustomModelsResponse {

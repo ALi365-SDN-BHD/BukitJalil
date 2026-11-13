@@ -1,5 +1,6 @@
 import path from "node:path";
 import { REQUIRED_SKILLS } from "@bukitjalil/shared";
+import type { CredentialStore } from "@earendil-works/pi-ai";
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { PiModules } from "./pi.ts";
 
@@ -24,9 +25,10 @@ export function createSettings({ pi }: PiModules): SettingsManager {
 }
 
 /** Model keys and custom models live in the app's own Pi directory; the model list is never fetched. */
-export function createModelRuntime({ pi }: PiModules, piDir: string) {
+export function createModelRuntime({ pi }: PiModules, piDir: string, credentials?: CredentialStore) {
   return pi.ModelRuntime.create({
-    authPath: path.join(piDir, "auth.json"),
+    // Encrypted keys (plan 6.7) when the desktop app has a keychain; Pi's auth.json otherwise.
+    ...(credentials ? { credentials } : { authPath: path.join(piDir, "auth.json") }),
     modelsPath: path.join(piDir, "models.json"),
     allowModelNetwork: false,
     refreshOnCreate: false,

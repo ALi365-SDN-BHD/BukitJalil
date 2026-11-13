@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.41（2026-11-13，新增 8.6：显示 Bukit 自己的错误、认出远程图片下载失败、新网站默认 `onFailure: keep`；v2.40：2026-11-13，Bukit 随 BukitJalil 发布：安装包里带固定版本，删除安装和升级功能，见 8.1；v2.39：2026-11-13，5.4 已实现，补上审计后的规则：doctor 报错的翻译、Notion 源不区分大小写、按纯文本读 site.yaml；v2.38：2026-11-13，新增 5.4 Notion 数据源管理第一步：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 Notion 报错；v2.37：2026-11-13，新增 10.4 SEO / GEO 报告面板：右侧单独的标签页，完整问题清单、按页面筛选、和上一次构建对比，"让 AI 修"开一个新对话；v2.36：2026-11-13，新增 7.5 部分应用的设计：没选中的部分留在改动集里，按文件和代码块选；v2.35：2026-11-13，Bukit 行为测试：`test/bukit-behavior.test.ts` 每次推送用内置版本跑，`bukit-latest.yml` 每天用最新正式版跑；v2.34：2026-11-13，补上"工作副本已重置"说明和按差异生成的提交说明；v2.33：2026-11-13，预览改用网站真实的 baseUrl：构建传校验过的 `--base-url`，预览服务挂在这个前缀下；v2.32：2026-11-13，定下待定问题 7、8、10：Bukit 继续装最新版，加最低版本和 CI 行为测试；部署设置继续直接提交，预览改用网站真实的 baseUrl；两项未实现的功能补上；v2.31：2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.42（2026-11-14，新增 6.7：token 和模型密钥用系统钥匙串加密保存；v2.41：2026-11-13，新增 8.6：显示 Bukit 自己的错误、认出远程图片下载失败、新网站默认 `onFailure: keep`；v2.40：2026-11-13，Bukit 随 BukitJalil 发布：安装包里带固定版本，删除安装和升级功能，见 8.1；v2.39：2026-11-13，5.4 已实现，补上审计后的规则：doctor 报错的翻译、Notion 源不区分大小写、按纯文本读 site.yaml；v2.38：2026-11-13，新增 5.4 Notion 数据源管理第一步：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 Notion 报错；v2.37：2026-11-13，新增 10.4 SEO / GEO 报告面板：右侧单独的标签页，完整问题清单、按页面筛选、和上一次构建对比，"让 AI 修"开一个新对话；v2.36：2026-11-13，新增 7.5 部分应用的设计：没选中的部分留在改动集里，按文件和代码块选；v2.35：2026-11-13，Bukit 行为测试：`test/bukit-behavior.test.ts` 每次推送用内置版本跑，`bukit-latest.yml` 每天用最新正式版跑；v2.34：2026-11-13，补上"工作副本已重置"说明和按差异生成的提交说明；v2.33：2026-11-13，预览改用网站真实的 baseUrl：构建传校验过的 `--base-url`，预览服务挂在这个前缀下；v2.32：2026-11-13，定下待定问题 7、8、10：Bukit 继续装最新版，加最低版本和 CI 行为测试；部署设置继续直接提交，预览改用网站真实的 baseUrl；两项未实现的功能补上；v2.31：2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。代码现在用 Pi SDK 1.5.2、Bukit 2.0.15，从 1.5.1 和 2.0.12 升级时的核对结论本文没有记录。
 
@@ -189,8 +189,9 @@ BukitJalil/
 ```text
 ~/.bukitjalil/                      # 应用数据目录（可用 BUKITJALIL_HOME 覆盖）
 ├── app.db                          # SQLite：网站列表、会话索引、改动集、构建记录、设置（不含密钥）
-├── publish-account-tokens.json     # 每个发布账号的 GitHub token（0600，见 6.5）
-├── data-source-tokens.json         # 每个 Notion 数据源的 token（0600，见 6.5）
+├── secret-key.enc                  # 桌面版：加密 token 和模型密钥用的主密钥，由系统钥匙串加密（0600，见 6.7）
+├── publish-account-tokens.enc.json # 每个发布账号的 GitHub token，加密（0600，见 6.5、6.7）；开发和测试时是明文的 publish-account-tokens.json
+├── data-source-tokens.enc.json     # 每个 Notion 数据源的 token，加密（同上）；明文时是 data-source-tokens.json
 ├── server.lock                     # 同一数据目录只允许一个 server 运行
 ├── logs/server.log                 # 服务端日志（不含密钥）
 ├── tmp/                            # 临时文件；tmp/bukit/ 是 Bukit 子进程的 TMPDIR
@@ -198,9 +199,9 @@ BukitJalil/
 ├── empty-gitconfig                 # 空文件，git 调用的全局配置和属性文件都指向它（见 7.3）
 ├── empty-hooks/                    # 空目录，git 的 core.hooksPath 指向它（见 7.3）
 ├── pi/                             # 给 Pi 用的独立目录（agentDir + PI_CODING_AGENT_DIR），不读用户 ~/.pi
-│   ├── auth.json                   # 模型 API Key / OAuth（权限 600）
+│   ├── auth.enc.json               # 模型 API Key / OAuth，加密（0600，见 6.7）；开发和测试时是 Pi 自己的 auth.json
 │   ├── models.json
-│   ├── custom-models.json          # 用户添加的自定义模型和它们的密钥（0600）
+│   ├── custom-models.enc.json      # 用户添加的自定义模型和它们的密钥，加密（0600）；明文时是 custom-models.json
 │   └── bin/                        # BukitJalil 安装的固定版本 rg（见 6.3）
 ├── sessions/<siteId>/*.jsonl       # Pi 会话文件
 ├── worktrees/<siteId>/
@@ -533,6 +534,59 @@ BukitJalil/
 - [x] **顺序执行**（同上）：同一批里两个普通自定义工具并行执行（对照组）；`bukit_build` 设 `executionMode: "sequential"` 后，同批的 `write` 在它结束之后才开始
 
 ---
+
+### 6.7 密钥加密保存（2026-11-14 设计）
+
+**问题**：GitHub token、Notion token、模型 API Key、自定义模型的密钥现在都是 `~/.bukitjalil` 下权限 0600 的明文文件。0600 只挡其他系统用户，同一个用户运行的任何程序都能直接读。
+
+**已定的问题**（2026-11-14）：
+
+- 四类密钥都加密：`publish-account-tokens.json`、`data-source-tokens.json`、`pi/auth.json`、`pi/custom-models.json`。
+- 没有安全的系统存储时**拒绝保存**，不退回弱保护。
+- 已有的明文文件在新版第一次启动时自动加密，核对能解密后删除明文，用户不用重新输入。
+
+**做法**：
+
+- **主密钥**：32 字节随机数，用 Electron `safeStorage` 加密后存成 `~/.bukitjalil/secret-key.enc`（0600）。`safeStorage` 背后是 macOS 钥匙串、Windows DPAPI、Linux Secret Service（gnome-keyring / KWallet）。
+  - `safeStorage` 只能在 Electron 主进程用。主进程在 `app.whenReady()` 之后解开主密钥，服务端子进程（`utilityProcess`）启动后通过已有的消息通道 `postMessage` 交给它。**不放进环境变量或命令行参数**：同一用户的其他程序能读到别的进程的环境变量和参数。
+  - 服务端收到密钥之前不处理任何要读写密钥的请求。
+- **加密文件**：每个文件用 AES-256-GCM 加密（Node `crypto`），格式 `{"v":1,"iv":…,"tag":…,"data":…}`，附加数据（AAD）写文件用途（例如 `publish-account-tokens`），把一个加密文件换成另一个时解密失败。新文件名加 `.enc`：`publish-account-tokens.enc.json`、`data-source-tokens.enc.json`、`pi/auth.enc.json`、`pi/custom-models.enc.json`。写入仍是"临时文件 → fsync → 改名"。
+- **模型密钥**：Pi 1.5.2 的 `ModelRuntime.create` 接受 `credentials`（`CredentialStore`：`read` / `list` / `modify` / `delete`）。Pi 没有导出 `AuthStorage`，所以 BukitJalil 自己实现一个读写加密文件的 `CredentialStore` 交给 Pi，不再给 Pi `authPath`；读单个提供商密钥也走这个存储，不再调 `readStoredCredential(…, authPath)`。
+  - 和 Pi 自己的 auth.json 不同，保存的值原样返回，不当作命令（`!cmd`）或环境变量引用解析；在 BukitJalil 里填的密钥都是原文，旧 auth.json 里用了这类写法的要重新填。
+  - 不能保存时（不可用、已重置），`modify` 在调用 Pi 传进来的函数**之前**就拒绝：那个函数可能在刷新 OAuth，会用掉只能用一次的 refresh token，之后却存不下来。
+- **三种运行方式**（按服务端是不是以 `--desktop` 启动、桌面壳的回答区分；`--desktop` 只能由桌面壳通过消息通道启动）：
+  - **桌面版，系统存储可用**：加密保存。
+  - **桌面版，系统存储不可用**：例如 Linux 没有钥匙串服务（`safeStorage.getSelectedStorageBackend()` 是 `basic_text` 或 `unknown`），或者主密钥解不开。保存 token 和密钥返回 503 `secrets.unavailable`，设置页说明原因和处理办法（Linux 安装或解锁钥匙串）。已有的明文文件不删，照常可用，但设置页一直显示"密钥未加密"的警告。
+  - **开发和测试**（`pnpm dev`、Vitest、Playwright 不经过桌面壳）：不是 `--desktop`，继续用 0600 明文文件，Pi 照旧用自己的 `auth.json`，设置页显示"开发模式：密钥未加密"。
+- **迁移**：拿到主密钥后，对每个明文文件依次：读出 → 写加密文件 → 读回解密并比较解析后的内容 → 删除明文文件。
+  - 两份都在的情况：迁移中途退出，或者没有钥匙串的服务端（同一数据目录上的 `pnpm dev`、旧版本）又写了明文文件。哪一份都不能覆盖另一份：
+    - 内容一致：删明文。
+    - token 文件和模型密钥（按 id 存的扁平表）：按 id 合并，同一个 id 以明文为准，写回加密文件后删明文。
+    - 自定义模型（不是扁平表）或加密文件解不开：两份都留着，记日志，设置页提示有明文文件没能加密。
+  - 加密模式下也清理旧明文文件留下的临时文件（里面是明文 token）。
+  - 删除只是 `unlink`，固态硬盘上不能保证抹掉旧数据，用户手册里说明。
+- **主密钥解不开**（钥匙串里的项目被删、用户拒绝访问、数据目录拷到了别的电脑）：不生成新主密钥覆盖，不删除任何文件，按"系统存储不可用"处理。设置页只在"解不开"时提供"重置密钥"（钥匙串没回答时只提示重新启动）：确认后删除所有加密文件和残留的明文文件，桌面壳删除主密钥；这次运行剩下的时间里不能保存，重新启动后生成新主密钥，用户重新输入。钥匙串 5 分钟内没有回答（例如没人点访问提示）时也按不可用处理，提示重新启动。
+- **测试**：桌面版的 e2e 在 macOS 上用 Chromium 的 `--use-mock-keychain`，不碰用户真实的钥匙串。
+- **实现说明**（2026-11-14）：
+  - 服务端：`secrets/box.ts`（AES-256-GCM）、`secrets/store.ts`（三种运行方式、迁移、重置）、`agent/secret-credentials.ts`（交给 Pi 的 `CredentialStore`，Pi 只能在 `agent/` 里引用）；`desktop.ts` 的 `requestSecretKey` 向桌面壳要主密钥。三个保存 token 的服务改为接受 `StoredJson`（`JsonFile` 或加密文件）。
+  - 桌面壳：`packages/desktop/src/secrets.ts` 生成、读取、删除主密钥；Linux 上 `basic_text` / `unknown` 算没有钥匙串。
+  - 以前服务端收到桌面壳的任何非 login 消息都会关闭；现在只有 `shutdown` 才关闭。
+- **macOS 签名**：现在的安装包是临时签名（ad-hoc）。钥匙串按签名记住允许哪个程序访问，每次升级签名都变，macOS 会询问"BukitJalil 想使用钥匙串中的 BukitJalil Safe Storage"，用户点"始终允许"即可。换成正式的开发者证书签名后不再询问。用户手册里说明。
+
+**还挡不住的情况**（写进第 11 节安全表）：
+
+- **Windows**：DPAPI 只挡其他 Windows 用户和拷到别的电脑，同一用户运行的程序仍能解密。
+- **Linux**：Secret Service 不区分程序，钥匙串解锁后同一用户的程序都能读。
+- **运行中的进程**：服务端内存里有解密后的密钥；构建和发布时，Notion token 和 GitHub token 通过环境变量交给 Bukit 子进程，运行期间同一用户的程序能读到。要消除这一点，得让 Bukit 改成从标准输入或文件描述符读 token，作为 Bukit 的后续任务。
+- **macOS**：能挡住其他程序直接读钥匙串，前提是用户没有在提示里点"允许"。
+
+**测试**：
+- 加密文件：读写往返；改一个字节、换 AAD、换密钥都会失败。
+- 迁移：每个中断状态。
+- Pi 加密后端：在 `ModelRuntime` 里读写密钥。
+- 三种运行方式下保存接口的结果。
+- 桌面版：主进程交出密钥、服务端等待密钥（Vitest 里模拟 `safeStorage`）。
+- 打包后的 e2e 测试照常通过。
 
 ## 7. 改动审核与版本
 
@@ -877,6 +931,8 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | GET / POST | `/api/custom-models` | 自定义模型列表 / 添加（6.5） |
 | PUT / DELETE | `/api/custom-models/:id` | 修改 / 删除自定义模型 |
 | GET | `/api/skills` | 技能列表和是否启用（6.4） |
+| GET | `/api/secrets` | token 和模型密钥怎么保存（6.7）：`mode`（`encrypted` / `plain` / `unavailable`）、不可用的原因、是否还有明文文件 |
+| POST | `/api/secrets/reset` | 重置密钥（6.7）：删除所有 token 和密钥文件（加密的和残留的明文文件），桌面版删除主密钥，下次启动生成新的；开发模式返回 409 `secrets.reset_unsupported` |
 | GET | `/api/pi` | Pi SDK 版本和 npm 上的最新版本（`?refresh=1` 重新查询；`BUKITJALIL_OFFLINE=1` 时不查） |
 | GET | `/api/git` | git 状态（路径、版本、是否满足最低版本） |
 | POST | `/api/git/install` | 通过 Homebrew 安装或更新 git（`git/brew.ts`），返回 202；不可用时 400 `git.install_unavailable`，已在安装时 409 `git.install_running` |
@@ -1014,7 +1070,7 @@ packages/web/src/
 | AI 越权写文件 | 工具白名单 + 路径闸门（6.3）+ 只改工作副本 + 人工审核 |
 | AI 执行命令 | 不开放 `bash`；Bukit 只通过固定参数的自定义工具调用；所有构建前检查插件和编译选项（8.5） |
 | 路径穿越（文件接口） | 所有路径参数 `realpath` 后必须在网站目录或工作副本内 |
-| 密钥泄露 | 模型密钥来自 `~/.bukitjalil/pi/auth.json` 或提供商环境变量（6.5），自定义模型密钥在 `~/.bukitjalil/pi/custom-models.json`；GitHub token 按发布账号在 `~/.bukitjalil/publish-account-tokens.json`，Notion token 按数据源在 `~/.bukitjalil/data-source-tokens.json`（都是 0600 明文，应用目录 0700）。依赖操作系统账户隔离：不防同一用户 malware、管理员/root、备份/云同步和未加密磁盘；Windows 的 `chmod(0600)` 不是完整 ACL。启动时清理无主 token 和临时文件。所有 token 不进数据库、不进日志、不返回浏览器；子进程只拿到显式构造的最小环境（7.3、8.5），只按 8.5 和 M6 的规则显式传给 Bukit（见 6.5） |
+| 密钥泄露 | 模型密钥来自 BukitJalil 保存的密钥或提供商环境变量（6.5）。桌面版把模型密钥、自定义模型密钥、GitHub token（按发布账号）和 Notion token（按数据源）用 AES-256-GCM 加密存成 `*.enc.json`，主密钥由系统钥匙串保管、只经桌面壳的消息通道交给服务端；没有安全的钥匙串时拒绝保存（6.7）。开发和测试时仍是 0600 明文（`pi/auth.json`、`pi/custom-models.json`、`publish-account-tokens.json`、`data-source-tokens.json`），应用目录 0700。挡不住：Windows 上同一用户的程序（DPAPI 只按用户区分）、Linux 钥匙串解锁后同一用户的程序、管理员 / root、读服务端内存或 Bukit 子进程环境变量的同一用户程序（构建和发布期间）。启动时清理无主 token 和临时文件。所有 token 不进数据库、不进日志、不返回浏览器；子进程只拿到显式构造的最小环境（7.3、8.5），只按 8.5 和 M6 的规则显式传给 Bukit（见 6.5） |
 | 预览页面脚本（AI 写的 JS） | 预览在另一个端口提供（不同源）+ 响应头 `CSP: sandbox allow-scripts allow-popups; connect-src 'none'; form-action 'none'` + iframe `sandbox`（见 8.4） |
 | DNS 重绑定读取预览内容 | 每个预览端口同样校验 `Host`，只接受 `127.0.0.1:<端口>` / `localhost:<端口>`（见 8.4） |
 | 管理端口上的 XSS（AI 写的 SVG / HTML 文件、对话里的 Markdown） | 管理界面响应头 `CSP: default-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src http://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`，另带 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`Cross-Origin-Opener-Policy: same-origin`、`Cross-Origin-Resource-Policy: same-origin`（`security/headers.ts`），没有 `unsafe-inline` 和 `unsafe-eval`；HTML 页面每次响应生成一个 nonce，CSP 加 `style-src 'self' 'nonce-…'`，页面里的 `<meta property="csp-nonce">` 把它交给 Radix（shadcn 的对话框、下拉框运行时插入的滚动锁定样式），没有 nonce 的 `<style>` 照样被拦；zod 设为 `jitless`，不用 `new Function`；端到端测试断言界面运行时没有任何 CSP 违规；文件接口不在管理端口直接打开 SVG / HTML / PDF，位图带 `nosniff` + `CSP: sandbox`（见 9.1）；对话 Markdown 不渲染原始 HTML，不加载远程图片 |

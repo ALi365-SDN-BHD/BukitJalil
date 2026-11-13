@@ -45,6 +45,7 @@ import {
   type RestoreResult,
   type RgResponse,
   type SavedDataSource,
+  type SecretsStatus,
   type SendMessageRequest,
   type SessionDetail,
   type SessionInfo,
@@ -112,6 +113,8 @@ export const api = {
   git: (refresh = false) => request<GitResponse>(`/git${refresh ? "?refresh=1" : ""}`),
   installGit: () => post<unknown>("/git/install"),
   pi: (refresh = false) => request<PiStatus>(`/pi${refresh ? "?refresh=1" : ""}`),
+  secrets: () => request<SecretsStatus>("/secrets"),
+  resetSecrets: () => post<SecretsStatus>("/secrets/reset"),
   dirs: (path: string | null, hidden = false) =>
     request<FsDirsResponse>(`/fs/dirs?${query({ ...(path ? { path } : {}), ...(hidden ? { hidden: "1" } : {}) })}`),
 
@@ -257,6 +260,7 @@ export const keys = {
   rg: ["rg"] as const,
   git: ["git"] as const,
   pi: ["pi"] as const,
+  secrets: ["secrets"] as const,
   dataSources: ["data-sources"] as const,
   publishAccounts: ["publish-accounts"] as const,
   customModels: ["custom-models"] as const,

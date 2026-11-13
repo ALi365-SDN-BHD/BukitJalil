@@ -901,6 +901,23 @@ const en: Messages = {
       keyNotEditable: "This provider needs several settings; set it up with environment variables.",
     },
   },
+  secrets: {
+    plain:
+      "Development mode: tokens and model keys are saved as unencrypted files (mode 600). The desktop app encrypts them with the system keychain.",
+    plainLeft: "Some unencrypted token or key files from an earlier version could not be encrypted; see the logs.",
+    plainUsed:
+      "Unencrypted files from an earlier version are in use; new tokens and keys cannot be saved until they can be encrypted.",
+    unavailable: {
+      no_keyring:
+        "No system keychain was found, so tokens and model keys cannot be saved safely and saving is turned off. On Linux, install and unlock gnome-keyring or KWallet, then start BukitJalil again.",
+      locked:
+        "The key in the keychain cannot be unlocked (access was denied, the keychain item was removed, or the data folder comes from another computer), so saved tokens and model keys cannot be used. Start again and choose Allow when asked, or reset and enter them again.",
+      no_answer: "The keychain did not answer (maybe its access prompt was not answered). Start BukitJalil again.",
+      reset: "All saved tokens and model keys were removed. Start BukitJalil again, then enter them again.",
+    },
+    reset: "Reset keys",
+    resetConfirm: "This removes every saved token and model key; you will enter them again. Continue?",
+  },
   errors: {
     "auth.required": "Your session has expired. Press Enter in the terminal running BukitJalil and open the new link.",
     "request.bad_host": "This address is not allowed",
@@ -941,6 +958,9 @@ const en: Messages = {
     "server.shutting_down": "BukitJalil is shutting down",
     "storage.unreadable": "A saved settings file cannot be read; fix or remove it before saving again",
     "storage.too_large": "Too much data to save; remove some saved entries and try again",
+    "secrets.unavailable":
+      "There is no safe place to keep tokens and keys, so they cannot be saved now; see the note at the top of the settings",
+    "secrets.reset_unsupported": "Development mode has no encryption key to reset",
     "build.not_found": "Build not found",
     "site.read_only": "The site is read-only because it does not meet the safety rules",
     "build.bukit_missing": "Bukit is not installed or its version is not supported",

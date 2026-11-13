@@ -857,6 +857,21 @@ const zhCN = {
       keyNotEditable: "这个服务商需要多项配置，请用环境变量设置。",
     },
   },
+  secrets: {
+    plain: "开发模式：token 和模型密钥以未加密文件保存（权限 600）。桌面版会用系统钥匙串加密。",
+    plainLeft: "有旧版本留下的未加密 token 或密钥文件没能加密，请查看日志。",
+    plainUsed: "正在使用旧版本留下的未加密文件；在能加密之前，不能保存新的 token 或密钥。",
+    unavailable: {
+      no_keyring:
+        "找不到系统钥匙串，token 和模型密钥不能安全保存，所以暂时不能保存。在 Linux 上请安装并解锁 gnome-keyring 或 KWallet，然后重新启动 BukitJalil。",
+      locked:
+        '无法解开钥匙串里的密钥（可能拒绝了访问、删除了钥匙串项目，或者数据目录来自另一台电脑），已保存的 token 和模型密钥暂时不能用。可以重新启动后在提示里点"允许"，或者重置后重新输入。',
+      no_answer: "钥匙串一直没有回应（可能没有回答访问提示）。请重新启动 BukitJalil。",
+      reset: "已清除所有保存的 token 和模型密钥。请重新启动 BukitJalil，之后重新输入。",
+    },
+    reset: "重置密钥",
+    resetConfirm: "会删除所有保存的 token 和模型密钥，需要重新输入。确定吗？",
+  },
   errors: {
     "auth.required": "登录已失效：在运行 BukitJalil 的终端里按回车，打开新打印的地址",
     "request.bad_host": "请求的地址不被允许",
@@ -897,6 +912,8 @@ const zhCN = {
     "server.shutting_down": "BukitJalil 正在关闭",
     "storage.unreadable": "保存的设置文件读不出来；请修复或删除它后再保存",
     "storage.too_large": "要保存的数据太多；请先删除一些已保存的条目再试",
+    "secrets.unavailable": "没有安全的地方保存 token 和密钥，所以现在不能保存；请看设置页最上面的说明",
+    "secrets.reset_unsupported": "开发模式下没有加密密钥，不需要重置",
     "build.not_found": "找不到这次构建",
     "site.read_only": "网站不满足安全规则，处于只读状态",
     "build.bukit_missing": "没有安装 Bukit，或者版本不受支持",

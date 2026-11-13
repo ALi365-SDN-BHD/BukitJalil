@@ -69,6 +69,9 @@ export interface AppPaths {
   dataSourceTokens: string;
   /** Per-publishing-account GitHub tokens, 0600. */
   publishAccountTokens: string;
+  /** The same token files encrypted with the desktop app's keychain key (plan 6.7). */
+  dataSourceTokensEnc: string;
+  publishAccountTokensEnc: string;
   /** Pid of the server using this directory (plan M7). */
   lock: string;
 }
@@ -89,6 +92,8 @@ export function ensureAppHome(home: string): AppPaths {
     tmp: path.join(home, "tmp"),
     dataSourceTokens: path.join(home, "data-source-tokens.json"),
     publishAccountTokens: path.join(home, "publish-account-tokens.json"),
+    dataSourceTokensEnc: path.join(home, "data-source-tokens.enc.json"),
+    publishAccountTokensEnc: path.join(home, "publish-account-tokens.enc.json"),
     lock: path.join(home, "server.lock"),
   };
   // mkdir's mode only applies to new directories, so existing ones are tightened as well. The database

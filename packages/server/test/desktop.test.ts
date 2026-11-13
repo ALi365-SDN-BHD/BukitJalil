@@ -1,4 +1,5 @@
 import { type ChildProcess, execFileSync, fork, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -102,7 +103,12 @@ afterEach(() => {
 });
 
 /** main.ts started as the desktop app starts it, with an IPC channel in place of Electron's parentPort. */
-function startDesktop(home: string, port: number) {
+function startDesktop(
+  home: string,
+  port: number,
+  // What the desktop app answers when the server asks for the secret key (plan 6.7).
+  secrets: { key: string | null; reason: string | null } = { key: randomBytes(32).toString("base64"), reason: null },
+) {
   const child = fork(MAIN, ["--desktop", "--port", String(port), "--preview-port-base", String(port + 1)], {
     cwd: SERVER_DIR,
     execArgv: ["--import", "tsx", "--no-warnings"],
@@ -110,6 +116,9 @@ function startDesktop(home: string, port: number) {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   children.push(child);
+  child.on("message", (m: DesktopOutbound) => {
+    if (m.type === "secrets" && !m.reset) child.send({ type: "secrets", ...secrets });
+  });
   let stdout = "";
   child.stdout?.on("data", (d) => {
     stdout += d;
@@ -150,6 +159,20 @@ describe("desktop mode (plan M7)", () => {
     s.child.send({ type: "shutdown" });
     expect(await s.exited).toBe(0);
     expect(fs.existsSync(path.join(home, "server.lock"))).toBe(false);
+  }, 30_000);
+
+  it("asks for the secret key and starts without saving when there is none", async () => {
+    const home = tmp();
+    const s = startDesktop(home, 49750, { key: null, reason: "no_keyring" });
+    await s.next("ready");
+    s.child.send({ type: "login" });
+    const login = (await s.next("login")) as { url: string };
+    const res = await fetch(login.url, { redirect: "manual" });
+    const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const status = await fetch("http://127.0.0.1:49750/api/secrets", { headers: { cookie } });
+    expect(await status.json()).toEqual({ mode: "unavailable", reason: "no_keyring", plainFiles: false });
+    s.child.send({ type: "shutdown" });
+    expect(await s.exited).toBe(0);
   }, 30_000);
 
   it("shuts down when the desktop app goes away without asking", async () => {

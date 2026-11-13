@@ -159,9 +159,15 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 
 1. 在 GitHub 上建好仓库。仓库名是 `用户名.github.io` 时网站在 `https://用户名.github.io/`，其他仓库名在 `https://用户名.github.io/仓库名/`
 2. 建一个 token：GitHub 的 Settings → Developer settings → Personal access tokens。推荐 fine-grained token，只选这个仓库，权限 Contents 设为 Read and write
-3. 在 BukitJalil 的设置 → 发布 → 发布账号里添加一个 GitHub 账号：填名称和 token。token 保存在本机 `~/.bukitjalil/publish-account-tokens.json`（权限 600），界面只显示末四位；可以保存多个账号，网站发布时选择使用哪一个
+3. 在 BukitJalil 的设置 → 发布 → 发布账号里添加一个 GitHub 账号：填名称和 token。token 加密保存在本机（见下面"token 和密钥怎么保存"），界面只显示末四位；可以保存多个账号，网站发布时选择使用哪一个
    - 从旧版本升级时，全局 GitHub / Notion token 只导入一次。改导入账号或数据源的名称不影响网站关联；删除导入的账号/数据源后，即使环境变量还在，重启也不会自动重建
-   - 这些 token 和 Notion 数据源 token 都是本机 0600 明文，依赖操作系统账户权限。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密；Windows 上文件权限不是完整的 NTFS ACL
+   - **token 和密钥怎么保存**：桌面版把 GitHub token、Notion token、模型 API Key 和自定义模型的密钥加密保存（`~/.bukitjalil` 里的 `*.enc.json`），加密用的密钥由系统钥匙串保管（macOS 钥匙串、Windows DPAPI、Linux 的 gnome-keyring 或 KWallet）。从旧版本升级时，原来的明文文件会在第一次启动时自动加密并删除，不用重新输入；删除只是普通删除，固态硬盘上不保证抹掉旧数据。
+     - **macOS**：其他程序读这个密钥时，系统会弹出提示，不点"允许"就读不到。现在的安装包是临时签名，每次升级后 macOS 会询问"BukitJalil 想使用钥匙串中的 BukitJalil Safe Storage"，点"始终允许"即可。
+     - **Windows**：DPAPI 只挡其他 Windows 用户，以及把文件拷到别的电脑；同一个用户运行的程序仍能解密。
+     - **Linux**：钥匙串解锁后，同一个用户运行的程序都能读到。没有钥匙串服务时，BukitJalil 不保存 token 和密钥，设置页最上面会说明怎么处理。
+     - **钥匙串里的密钥解不开时**（拒绝了访问、删了钥匙串项目、数据目录拷到了别的电脑），已保存的 token 和密钥暂时不能用；可以重新启动后在提示里点"允许"，或者在设置页最上面点"重置密钥"，再重新输入。
+     - 构建和发布时，token 会以环境变量交给 Bukit，运行期间同一用户的程序能读到。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密。
+     - 用 `pnpm dev` 从源码运行时没有钥匙串，token 和密钥仍是权限 600 的明文文件，设置页会提示"开发模式"。
 4. 在网站主页的"发布"区点"部署设置"：选择发布账号，填写仓库（`owner/name`，例如 `alice/my-blog`），分支默认 `gh-pages`，有自定义域名再填。保存时会检查这个 token 对仓库是否有 Contents 写权限，并把 `deploy` 段、`site.url` 和 `site.baseUrl` 写进 `site.yaml`。没有自定义域名的项目站点，`site.baseUrl` 是 `/<仓库名>/`：之后的预览也会打开在这个路径下，和发布后的网址一致，模板或正文里漏写这个前缀的链接在预览里就会坏掉。`site.baseUrl` 只能用字母、数字和 `. _ ~ -`，以 `/` 分隔，否则预览构建会失败（结果为"site.baseUrl 不是可以用来预览的路径"）
 5. 在 GitHub 仓库的 Settings → Pages 里，把 Build and deployment 设为 Deploy from a branch，分支选 `gh-pages`（或你设置的分支）。第一次发布后这个分支才会出现
 

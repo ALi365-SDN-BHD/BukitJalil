@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { PublishAccount, PublishAccountRequest } from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
-import { JsonFile, JsonFileError } from "../store/json-file.ts";
+import { JsonFile, JsonFileError, type StoredJson } from "../store/json-file.ts";
 
 interface Row {
   id: string;
@@ -12,7 +12,7 @@ interface Row {
   created_at: string;
 }
 
-const MAX_TOKEN_FILE = 256 * 1024;
+export const MAX_TOKEN_FILE = 256 * 1024;
 const GITHUB_API = "https://api.github.com";
 const GITHUB_TIMEOUT_MS = 10_000;
 
@@ -21,18 +21,20 @@ const GITHUB_TIMEOUT_MS = 10_000;
  * one. Tokens live in a 0600 file keyed by account id, never in the database or an API response.
  */
 export class PublishAccountService {
-  private readonly tokens: JsonFile;
+  private readonly tokens: StoredJson;
 
   constructor(
     private readonly opts: {
       db: DatabaseSync;
-      tokenFile: string;
+      /** A path (plain 0600 file) or the secret store's file (plan 6.7). */
+      tokenFile: string | StoredJson;
       /** null in tests and offline mode: repository access cannot be checked. */
       fetchImpl: typeof fetch | null;
       githubApi?: string;
     },
   ) {
-    this.tokens = new JsonFile(opts.tokenFile, { maxBytes: MAX_TOKEN_FILE });
+    this.tokens =
+      typeof opts.tokenFile === "string" ? new JsonFile(opts.tokenFile, { maxBytes: MAX_TOKEN_FILE }) : opts.tokenFile;
   }
 
   list(): PublishAccount[] {
@@ -189,10 +191,10 @@ export class PublishAccountService {
     try {
       const value = this.tokens.read();
       if (value === undefined) return {};
-      if (!isRecord(value)) throw new JsonFileError(this.opts.tokenFile, "token file is not an object");
+      if (!isRecord(value)) throw new JsonFileError(this.tokens.file, "token file is not an object");
       const tokens: Record<string, string> = {};
       for (const [id, token] of Object.entries(value)) {
-        if (typeof token !== "string") throw new JsonFileError(this.opts.tokenFile, "token is not a string");
+        if (typeof token !== "string") throw new JsonFileError(this.tokens.file, "token is not a string");
         tokens[id] = token;
       }
       return tokens;

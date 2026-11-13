@@ -3,6 +3,7 @@ import { type UtilityProcess, utilityProcess } from "electron";
 /** Messages from the server's desktop mode (packages/server/src/desktop.ts). */
 type Outbound =
   | { type: "ready"; port: number }
+  | { type: "secrets"; reset?: boolean }
   | { type: "login"; url: string }
   | { type: "error"; code: string; message: string };
 
@@ -16,6 +17,10 @@ export interface ServerOptions {
   env: NodeJS.ProcessEnv;
   /** First admin port to try; the next attempts move up by PORT_STEP. */
   firstPort: number;
+  /** The secret key for tokens and model keys (plan 6.7), handed over the message channel only. */
+  secretKey: () => { key: string | null; reason: string | null };
+  /** The user reset the keys: forget the key, a new one is made at the next start. */
+  resetSecrets: () => void;
 }
 
 const ATTEMPTS = 10;
@@ -91,6 +96,11 @@ export class ServerProcess {
     return new Promise((resolve) => {
       let settled = false;
       child.on("message", (message: Outbound) => {
+        if (message.type === "secrets") {
+          if (message.reset) this.opts.resetSecrets();
+          else child.postMessage({ type: "secrets", ...this.opts.secretKey() });
+          return;
+        }
         if (message.type === "login") {
           this.logins.shift()?.(message.url);
           return;

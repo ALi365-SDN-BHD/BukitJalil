@@ -2,7 +2,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, Menu, session, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  type IpcMainInvokeEvent,
+  ipcMain,
+  Menu,
+  safeStorage,
+  session,
+  shell,
+} from "electron";
+import { loadSecretKey, removeSecretKey } from "./secrets.ts";
 import { ServerProcess, type StartResult } from "./server.ts";
 
 /** The desktop shell (plan M7): starts the server, opens it in a locked-down window, stops it on quit. */
@@ -56,6 +67,8 @@ const server = new ServerProcess({
     ...(packaged ? { BUKITJALIL_RESOURCES: resources, BUKITJALIL_VERSION: app.getVersion() } : {}),
   },
   firstPort: Number(process.env.BUKITJALIL_DESKTOP_PORT) || DEFAULT_PORT,
+  secretKey: () => loadSecretKey(dataDir, safeStorage),
+  resetSecrets: () => removeSecretKey(dataDir),
 });
 
 let win: BrowserWindow | null = null;
