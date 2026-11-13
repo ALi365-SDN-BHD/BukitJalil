@@ -27,7 +27,8 @@ test.afterAll(async ({ browser, server }) => {
   await putSettings(page, { model: null });
   await page.close();
   removeImportedSites();
-  fs.rmSync(work, { recursive: true, force: true });
+  // `work` is left in the temp folder: the app's Bukit link still points at the stand-in in it, and the
+  // spec files that run next on this server use it (deleting it made their site checks fail with ENOENT).
 });
 
 /** Log in, choose the scripted model and the test Bukit, open a new conversation on a fresh site. */
