@@ -459,6 +459,11 @@ function DeployReportDialog({ siteId, deployId, onClose }: { siteId: string; dep
               {errorText(report.problem)}
             </p>
           )}
+          {report?.notionProblem && (
+            <p role="alert" className="text-destructive" data-testid="deploy-notion-problem">
+              {m.notion.problem[report.notionProblem]}
+            </p>
+          )}
           {report?.detail && <pre className="whitespace-pre-wrap rounded-md bg-muted p-2 text-xs">{report.detail}</pre>}
           {report?.reasons && report.reasons.length > 0 && (
             <ul className="list-disc pl-5">

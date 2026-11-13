@@ -158,6 +158,11 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
               {errorText(report.problem)}
             </p>
           )}
+          {report?.notionProblem && (
+            <p role="alert" className="text-destructive" data-testid="build-notion-problem">
+              {m.notion.problem[report.notionProblem]}
+            </p>
+          )}
           {build.data?.outcome === "failed" && !report?.problem && (
             <p className="text-muted-foreground" data-testid="build-crashed">
               {m.build.crashed}

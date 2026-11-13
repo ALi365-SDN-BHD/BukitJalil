@@ -33,6 +33,7 @@ import {
   type ImportSiteRequest,
   type ModelsResponse,
   type NotionDatabasesResponse,
+  type NotionSourceSchema,
   type PanelRef,
   type PiStatus,
   type PreviewResponse,
@@ -128,6 +129,7 @@ export const api = {
   importSite: (req: ImportSiteRequest) => post<Site>("/sites/import", req),
   patchSite: (id: string, patch: SitePatch) =>
     request<Site>(`/sites/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  notionSource: (id: string, index: number) => request<NotionSourceSchema>(`/sites/${id}/notion/sources/${index}`),
   setNotionSource: (id: string, req: SiteNotionSourceRequest) =>
     request<Site>(`/sites/${id}/notion-source`, { method: "PUT", body: JSON.stringify(req) }),
   recheck: (id: string) => post<Site>(`/sites/${id}/recheck`),

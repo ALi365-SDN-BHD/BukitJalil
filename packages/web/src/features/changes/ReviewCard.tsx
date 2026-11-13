@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { ChangedFileList } from "./ChangedFileList";
 import { useCurrentChange } from "./hooks";
+import { NotionChangesNote } from "./NotionChangesNote";
 import { RestoreNote } from "./RestoreNote";
 import { type Notice, NoticeView, ReviewActions } from "./ReviewActions";
 
@@ -66,6 +67,7 @@ export function ReviewCard({ siteId }: { siteId: string }) {
       {!collapsed && (
         <>
           {change.restoreOf && <RestoreNote commit={change.restoreOf} />}
+          <NotionChangesNote changes={change.notionChanges} />
           <p className="whitespace-pre-wrap text-sm text-muted-foreground" data-testid="review-summary">
             {change.summary?.trim() || m.changes.noSummary}
           </p>

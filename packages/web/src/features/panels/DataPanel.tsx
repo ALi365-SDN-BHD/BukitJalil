@@ -1,10 +1,12 @@
-import type { DataSource } from "@bukitjalil/shared";
+import type { DataSource, PanelRef } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { usePanelRef } from "@/features/changes/hooks";
 import { settingsSelectClass } from "@/features/settings/SettingsLayout";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { formatTime } from "@/lib/format";
 import { Facts, PanelError, PanelLoading, RefSwitch, Section, Table } from "./common";
 
 /** Data panel (plan 5.3): content sources as cards; `mode: data` sources also as a table. */
@@ -24,7 +26,7 @@ export function DataPanel({ siteId }: { siteId: string }) {
         {data.data.truncated && <p className="text-sm text-muted-foreground">{m.data.truncated}</p>}
         {data.data.sources.some((s) => s.type === "notion") && <NotionBinding siteId={siteId} />}
         {data.data.sources.map((s) => (
-          <SourceCard key={s.index} source={s} />
+          <SourceCard key={s.index} siteId={siteId} refName={ref} source={s} />
         ))}
       </div>
     );
@@ -54,6 +56,8 @@ function NotionBinding({ siteId }: { siteId: string }) {
       queryClient.setQueryData(keys.site(siteId), updated);
       void queryClient.invalidateQueries({ queryKey: keys.sites });
       void queryClient.invalidateQueries({ queryKey: keys.dataSources });
+      // Fields read with the previous token no longer say what this one can read.
+      queryClient.removeQueries({ queryKey: ["notion-fields", siteId] });
     },
   });
   if (site.isPending || sources.isPending) return null;
@@ -96,7 +100,7 @@ function NotionBinding({ siteId }: { siteId: string }) {
   );
 }
 
-function SourceCard({ source: s }: { source: DataSource }) {
+function SourceCard({ siteId, refName, source: s }: { siteId: string; refName: PanelRef; source: DataSource }) {
   const { m, t } = useI18n();
   const typeLabel =
     s.type === "markdown"
@@ -122,9 +126,65 @@ function SourceCard({ source: s }: { source: DataSource }) {
               [m.data.cacheMode, s.cacheMode],
             ]}
           />
+          {refName === "main" ? (
+            s.databaseId && <NotionFields siteId={siteId} index={s.index} />
+          ) : (
+            <p className="text-xs text-muted-foreground">{m.data.fieldsMainOnly}</p>
+          )}
         </>
       )}
     </article>
+  );
+}
+
+/**
+ * A Notion source's database fields (plan 5.4), read only when the user asks: Notion is called with the
+ * bound token for the database on the default branch. Kept for the page's life, read again on request.
+ */
+function NotionFields({ siteId, index }: { siteId: string; index: number }) {
+  const { m, t, locale, errorOf } = useI18n();
+  const fields = useQuery({
+    queryKey: ["notion-fields", siteId, index],
+    queryFn: () => api.notionSource(siteId, index),
+    enabled: false,
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  return (
+    <div className="flex flex-col gap-2" data-testid="notion-fields">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={fields.isFetching}
+          onClick={() => void fields.refetch()}
+          data-testid="notion-read-fields"
+        >
+          {fields.isFetching ? m.data.readingFields : fields.data ? m.data.rereadFields : m.data.readFields}
+        </Button>
+        <span className="text-xs text-muted-foreground">{m.data.pagesLater}</span>
+      </div>
+      {fields.error && !fields.isFetching && (
+        <p role="alert" className="text-xs text-destructive" data-testid="notion-fields-error">
+          {errorOf(fields.error)}
+        </p>
+      )}
+      {fields.data && (
+        <Section title={t(m.data.fieldsTitle, { title: fields.data.title ?? fields.data.databaseId })}>
+          <div className="flex flex-wrap gap-1" data-testid="notion-field-list">
+            {fields.data.properties.map((p) => (
+              <Badge key={p.name}>
+                {p.name} <span className="text-muted-foreground">{p.type}</span>
+              </Badge>
+            ))}
+          </div>
+          {fields.data.propertiesTruncated && <p className="text-xs text-muted-foreground">{m.data.fieldsMore}</p>}
+          <p className="text-xs text-muted-foreground">
+            {t(m.data.fieldsRead, { time: formatTime(fields.data.readAt, locale) })}
+          </p>
+        </Section>
+      )}
+    </div>
   );
 }
 

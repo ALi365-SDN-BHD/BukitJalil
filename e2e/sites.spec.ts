@@ -438,6 +438,36 @@ test("a Notion data source keeps its token and several databases are used when c
   await expect(page.getByTestId("notion-binding")).not.toContainText(/fail|失败/);
   await expect(binding).toBeEnabled();
 
+  // Fields are read only on request (plan 5.4). The server calls Notion; here the API answer is stubbed.
+  let fieldsAnswer: { status: number; body: unknown } = {
+    status: 200,
+    body: {
+      index: 0,
+      databaseId: "db_posts",
+      title: "Posts",
+      properties: [
+        { name: "Name", type: "title" },
+        { name: "Published", type: "checkbox" },
+      ],
+      propertiesTruncated: false,
+      readAt: new Date().toISOString(),
+    },
+  };
+  let fieldCalls = 0;
+  await page.route(`**/api/sites/${siteId}/notion/sources/*`, (route) => {
+    fieldCalls++;
+    return route.fulfill({ status: fieldsAnswer.status, json: fieldsAnswer.body });
+  });
+  const postsCard = page.getByTestId("data-source").filter({ hasText: "posts" }).first();
+  await expect(postsCard.getByTestId("notion-read-fields")).toBeVisible();
+  expect(fieldCalls).toBe(0);
+  await postsCard.getByTestId("notion-read-fields").click();
+  await expect(postsCard.getByTestId("notion-field-list")).toContainText("Published");
+  await expect(postsCard.getByTestId("notion-field-list")).toContainText("checkbox");
+  fieldsAnswer = { status: 503, body: { code: "datasource.notion_not_shared" } };
+  await postsCard.getByTestId("notion-read-fields").click();
+  await expect(postsCard.getByTestId("notion-fields-error")).toContainText(/Connections|连接/);
+
   // The source is linked to this site, so remove the site before deleting the source.
   await page.getByTestId(`site-menu-${siteId}`).click();
   await page.getByTestId("site-remove").click();
