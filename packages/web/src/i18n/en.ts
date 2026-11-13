@@ -445,6 +445,7 @@ const en: Messages = {
     status: { added: "Added", modified: "Modified", deleted: "Deleted", type_changed: "Type changed" },
     outcome: {
       applied: "Applied to the main version.",
+      partial: "The selected changes were applied to the main version. The rest is still waiting for review.",
       rebased: "The main version changed in the meantime. The changes were merged onto it; review them again.",
       stale:
         "The main version changed in a way that conflicts with these changes, so they were closed. Ask the AI to make them again.",
@@ -871,6 +872,9 @@ const en: Messages = {
     "change.merge_failed": "The change could not be merged into the site folder: {detail}",
     "change.open_exists": "Apply or reject the changes waiting for review first",
     "change.same_version": "The site already is at this version",
+    "change.nothing_selected": "Select at least one change to apply",
+    "change.partial_unsupported": "This file can only be applied as a whole",
+    "change.partial_restore": "A restore can only be applied as a whole",
     "history.not_found": "This version is not in the site's history",
     "panel.not_found": "This file or folder does not exist in this version",
     "panel.not_directory": "This is not a folder",

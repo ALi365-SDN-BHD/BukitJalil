@@ -73,13 +73,24 @@ export interface ApplyCheck {
 /**
  * What applying did: `applied` (merged into the default branch); `rebased` (the default branch had moved:
  * the change was merged onto it and must be reviewed again); `stale` (that merge had conflicts: the change
- * set is closed, the AI has to redo it); `check_failed` (nothing applied; send `force` to apply anyway).
+ * set is closed, the AI has to redo it); `check_failed` (nothing applied; send `force` to apply anyway);
+ * `partial` (the selected part was applied; the change set stays open with the rest, plan 7.5).
  */
-export type ApplyOutcome = "applied" | "rebased" | "stale" | "check_failed";
+export type ApplyOutcome = "applied" | "partial" | "rebased" | "stale" | "check_failed";
 
 /** A full tree or commit id (SHA-1 or SHA-256). */
 export const ObjectId = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
 
+/** Files a partial apply may list (plan 7.5): the review lists at most 2000 changed files. */
+export const MAX_SELECTION = 2000;
+/** One selected file of a partial apply. */
+export const ApplySelection = z
+  .object({
+    path: TreePath.refine((p) => p !== "", { message: "must name a file" }),
+    hunks: z.array(z.number().int().min(0).max(100_000)).min(1).max(10_000).optional(),
+  })
+  .strict();
+export type ApplySelection = z.infer<typeof ApplySelection>;
 /** POST /api/changes/:changeId/apply. */
 export const ApplyRequest = z
   .object({
@@ -87,6 +98,19 @@ export const ApplyRequest = z
     treeHash: ObjectId,
     /** Apply although the check failed. */
     force: z.boolean().optional(),
+    /**
+     * Apply only these files (plan 7.5); the rest stays in the change set. `hunks`: indexes of the file's
+     * diff hunks as the review shows them; without it, the whole file.
+     */
+    selection: z
+      .array(ApplySelection)
+      .min(1)
+      .max(MAX_SELECTION)
+      .refine((items) => new Set(items.map((i) => i.path)).size === items.length, { message: "paths must differ" })
+      .refine((items) => items.every((i) => !i.hunks || new Set(i.hunks).size === i.hunks.length), {
+        message: "hunks must differ",
+      })
+      .optional(),
   })
   .strict();
 export type ApplyRequest = z.infer<typeof ApplyRequest>;

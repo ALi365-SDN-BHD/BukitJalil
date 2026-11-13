@@ -54,6 +54,8 @@ export interface RunOptions {
    * such as a dotfiles repo in the home folder.
    */
   discover?: boolean;
+  /** A separate index file (GIT_INDEX_FILE), for building a tree without touching any checkout's index. */
+  indexFile?: string;
 }
 
 export interface RunResult {
@@ -201,7 +203,10 @@ export class GitRunner {
     return new Promise((resolve, reject) => {
       const child = spawn(this.opts.gitPath, fullArgs, {
         cwd: opts.cwd,
-        env: this.env(opts.discover ? undefined : opts.cwd),
+        env: {
+          ...this.env(opts.discover ? undefined : opts.cwd),
+          ...(opts.indexFile ? { GIT_INDEX_FILE: opts.indexFile } : {}),
+        },
         stdio: ["pipe", "pipe", "pipe"],
         shell: false,
       });

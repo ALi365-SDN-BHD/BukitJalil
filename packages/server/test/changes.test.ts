@@ -683,6 +683,154 @@ describe("applying and rejecting", () => {
   });
 });
 
+describe("partial apply (plan 7.5)", () => {
+  /** A change set that adds faq.md, edits site.yaml and deletes about.md, with an AI summary. */
+  async function threeChanges() {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+    fs.appendFileSync(path.join(cwd, "site.yaml"), "# reviewed\n");
+    fs.rmSync(path.join(cwd, "content/pages/about.md"));
+    await ctx.changes.snapshot(s.id, cwd);
+    ctx.changes.setSummary(s.id, "Added an FAQ page.");
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    return { s, session, cwd, view };
+  }
+
+  it("applies only the selected files and keeps the rest open for review", async () => {
+    const { s, session, cwd, view } = await threeChanges();
+    const head = s.git("rev-parse", "HEAD");
+    const result = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      selection: [{ path: "content/pages/faq.md" }, { path: "content/pages/about.md" }],
+    });
+    expect(result.outcome).toBe("partial");
+    expect(result.check).toMatchObject({ passed: true });
+
+    // One commit on main with just those two files; the site folder follows.
+    expect(s.git("rev-parse", "HEAD^")).toBe(head);
+    expect(s.git("diff", "--name-status", "HEAD^", "HEAD")).toBe("D\tcontent/pages/about.md\nA\tcontent/pages/faq.md");
+    expect(s.git("log", "-1", "--format=%an|%B")).toBe(
+      `BukitJalil AI|Add 1 file, delete 1 file: content/pages/about.md, content/pages/faq.md\n\nPart of: Added an FAQ page.\n\nBukitJalil-Sessions: ${session.id}`,
+    );
+    expect(fs.existsSync(path.join(s.dir, "content/pages/faq.md"))).toBe(true);
+    expect(fs.readFileSync(path.join(s.dir, "site.yaml"), "utf8")).not.toContain("# reviewed");
+    expect(s.git("status", "--porcelain")).toBe("");
+
+    // The change set stays open on top of the result, with the same snapshot tree: only site.yaml is left.
+    const rest = await ctx.changes.current(s.id, false);
+    expect(rest).toMatchObject({ id: view.id, status: "open", baseCommit: s.git("rev-parse", "HEAD") });
+    expect(rest?.treeHash).toBe(view.treeHash);
+    expect(rest?.files.map((f) => f.path)).toEqual(["site.yaml"]);
+    expect(s.git("rev-parse", changeRef(view.id))).toBe(rest?.snapshotCommit);
+    expect(s.git("rev-parse", `${rest?.snapshotCommit}^`)).toBe(s.git("rev-parse", "HEAD"));
+    // The AI's working copy is as it was, and still clean against the new snapshot.
+    expect(fs.readFileSync(path.join(cwd, "site.yaml"), "utf8")).toContain("# reviewed");
+    expect(rawGit(base, cwd, "status", "--porcelain").trim()).toBe("");
+    expect(rawGit(base, cwd, "rev-parse", "HEAD").trim()).toBe(rest?.snapshotCommit);
+
+    // Applying the rest brings main to exactly what was reviewed in the first place.
+    const all = await ctx.changes.apply(view.id, { treeHash: rest?.treeHash ?? "" });
+    expect(all.outcome).toBe("applied");
+    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
+    expect(s.git("log", "-1", "--format=%s")).toBe("Rest of: Added an FAQ page.");
+  });
+
+  it("refuses to take one side of a file replaced by a folder of the same name", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.rmSync(path.join(cwd, "content/pages/about.md"));
+    fs.mkdirSync(path.join(cwd, "content/pages/about.md"));
+    fs.writeFileSync(path.join(cwd, "content/pages/about.md/index.md"), "# About\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    expect(view.files.map((f) => `${f.status} ${f.path}`)).toEqual([
+      "deleted content/pages/about.md",
+      "added content/pages/about.md/index.md",
+    ]);
+    await expect(
+      ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "content/pages/about.md/index.md" }] }),
+    ).rejects.toMatchObject({ code: "change.partial_unsupported" });
+    const both = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      selection: view.files.map((f) => ({ path: f.path })),
+    });
+    expect(both.outcome).toBe("applied");
+  });
+
+  it("applies the whole change set when everything is selected", async () => {
+    const { s, view } = await threeChanges();
+    const result = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      selection: view.files.map((f) => ({ path: f.path })),
+    });
+    expect(result.outcome).toBe("applied");
+    expect(result.change.status).toBe("applied");
+    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
+  });
+
+  it("checks the selected result, not the whole snapshot", async () => {
+    const { s, cwd } = await threeChanges();
+    // fake-doctor makes the stand-in Bukit's doctor fail.
+    fs.writeFileSync(path.join(cwd, "fake-doctor"), "x");
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    const head = s.git("rev-parse", "HEAD");
+
+    const failed = await ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "fake-doctor" }] });
+    expect(failed.outcome).toBe("check_failed");
+    expect(s.git("rev-parse", "HEAD")).toBe(head);
+    expect(ctx.changes.store.open(s.id)).toMatchObject({
+      id: view.id,
+      baseCommit: head,
+      snapshotCommit: view.snapshotCommit,
+    });
+
+    const ok = await ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "site.yaml" }] });
+    expect(ok.outcome).toBe("partial");
+    expect(s.git("diff", "--name-only", "HEAD^", "HEAD")).toBe("site.yaml");
+  });
+
+  it("refuses paths that did not change, hunks it cannot split, restores and an old fingerprint", async () => {
+    const { s, view } = await threeChanges();
+    await expect(
+      ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "content/posts/welcome.md" }] }),
+    ).rejects.toMatchObject({ code: "change.file_not_found" });
+    await expect(
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        selection: [{ path: "content/pages/faq.md", hunks: [0] }],
+      }),
+    ).rejects.toMatchObject({ code: "change.partial_unsupported" });
+    await expect(
+      ctx.changes.apply(view.id, { treeHash: "0".repeat(40), selection: [{ path: "site.yaml" }] }),
+    ).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+    await ctx.changes.reject(view.id);
+
+    const init = s.git("rev-list", "--max-parents=0", "HEAD");
+    fs.appendFileSync(path.join(s.dir, "site.yaml"), "# later\n");
+    commitAllAs(base, s.dir, "later");
+    const restored = await ctx.changes.restore(s.id, init);
+    await expect(
+      ctx.changes.apply(restored.change.id, { treeHash: restored.change.treeHash, selection: [{ path: "site.yaml" }] }),
+    ).rejects.toMatchObject({ code: "change.partial_restore" });
+  });
+
+  it("rebases instead when the default branch moved, ignoring the selection", async () => {
+    const { s, view } = await threeChanges();
+    fs.writeFileSync(path.join(s.dir, "other.md"), "other\n");
+    commitAllAs(base, s.dir, "elsewhere");
+    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "site.yaml" }] });
+    expect(result.outcome).toBe("rebased");
+    expect(s.git("log", "-1", "--format=%s")).toBe("elsewhere");
+  });
+});
+
 describe("the change set API and events", () => {
   async function call<T>(method: string, url: string, body?: unknown) {
     const init: RequestInit =
@@ -768,6 +916,12 @@ describe("the change set API and events", () => {
       { treeHash: "abc" },
       { treeHash: change.treeHash, extra: 1 },
       { treeHash: change.treeHash, force: "yes" },
+      { treeHash: change.treeHash, selection: [] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md" }, { path: "a.md" }] },
+      { treeHash: change.treeHash, selection: [{ path: "../a.md" }] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [] }] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [1, 1] }] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [-1] }] },
     ]) {
       expect((await call("POST", `/api/changes/${change.id}/apply`, bad)).json).toEqual({
         code: "request.invalid_body",

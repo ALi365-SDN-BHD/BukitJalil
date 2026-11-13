@@ -433,6 +433,7 @@ const zhCN = {
     status: { added: "新增", modified: "修改", deleted: "删除", type_changed: "类型变化" },
     outcome: {
       applied: "已应用到正式版本。",
+      partial: "所选的改动已应用到正式版本，其余的仍在等待审核。",
       rebased: "正式版本在这期间有了新提交，改动已经合并上去，请重新审核。",
       stale: "正式版本的新提交和这些改动冲突，改动集已关闭。请让 AI 重新修改。",
       rejected: "已拒绝这些改动。",
@@ -835,6 +836,9 @@ const zhCN = {
     "change.merge_failed": "改动无法合入网站文件夹：{detail}",
     "change.open_exists": "请先应用或拒绝待审核的改动",
     "change.same_version": "网站已经是这个版本",
+    "change.nothing_selected": "请至少选择一处改动再应用",
+    "change.partial_unsupported": "这个文件只能整个应用",
+    "change.partial_restore": "恢复只能整份应用",
     "history.not_found": "这个版本不在网站的历史里",
     "panel.not_found": "这个版本里没有这个文件或文件夹",
     "panel.not_directory": "这不是一个文件夹",

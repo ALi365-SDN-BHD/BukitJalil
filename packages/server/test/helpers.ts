@@ -145,7 +145,8 @@ export function makeApp(
     git,
     sites,
     locks,
-    check: (siteId, cwd) => aiBukit.checkForApply(siteId, cwd),
+    check: (siteId, cwd, commit) => aiBukit.checkForApply(siteId, cwd, commit),
+    tmpDir: paths.tmp,
     logger,
   });
   const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
