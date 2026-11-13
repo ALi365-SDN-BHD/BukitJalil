@@ -53,6 +53,8 @@ export interface FileDiff {
   /** The unified diff of this file; null when binary or too large. */
   patch: string | null;
   tooLarge: boolean;
+  /** Change set diffs: whether its hunks can be applied one by one (plan 7.5). */
+  splittable?: boolean;
 }
 
 /** The check run before applying (plan 7.2): Bukit `config check` and `doctor` on the snapshot. */
@@ -98,6 +100,8 @@ export const ApplyRequest = z
     treeHash: ObjectId,
     /** Apply although the check failed. */
     force: z.boolean().optional(),
+    /** The base the review showed (ChangeSet.baseCommit); required with `selection` (plan 7.5). */
+    baseCommit: ObjectId.optional(),
     /**
      * Apply only these files (plan 7.5); the rest stays in the change set. `hunks`: indexes of the file's
      * diff hunks as the review shows them; without it, the whole file.
@@ -112,7 +116,8 @@ export const ApplyRequest = z
       })
       .optional(),
   })
-  .strict();
+  .strict()
+  .refine((r) => !r.selection || r.baseCommit !== undefined, { message: "a selection needs baseCommit" });
 export type ApplyRequest = z.infer<typeof ApplyRequest>;
 
 /** GET /api/changes/:changeId/diff?path= */

@@ -36,7 +36,7 @@ import {
   onBranch,
   parentsOf,
 } from "./history.ts";
-import { selectedTree } from "./partial.ts";
+import { hunkPlan, rawChanges, selectedTree } from "./partial.ts";
 import { SNAPSHOT_IDENTITY, type Snapshot, snapshotCheckout } from "./snapshot.ts";
 import { type ChangeRecord, ChangeStore, isChangeId, newChangeId } from "./store.ts";
 
@@ -313,6 +313,10 @@ export class ChangeService {
       let change = this.openChange(id);
       const tree = await this.treeOf(site.path, change.snapshotCommit);
       if (tree !== req.treeHash) throw new SiteError("change.fingerprint_mismatch", 409);
+      // Hunks are numbered in the diff against the base; after a partial apply the rest keeps its tree but
+      // has a new base, so a selection must name the base it was made on too (plan 7.5).
+      if (req.selection && req.baseCommit !== change.baseCommit)
+        throw new SiteError("change.fingerprint_mismatch", 409);
       if (tree === (await this.treeOf(site.path, change.baseCommit))) throw new SiteError("change.no_changes", 409);
       await this.assertSiteReady(site);
 
@@ -461,7 +465,7 @@ export class ChangeService {
     // computed from the snapshot the user reviewed.
     const now = this.openChange(change.id);
     const tree = await this.treeOf(site.path, now.snapshotCommit);
-    if (now.snapshotCommit !== change.snapshotCommit || tree !== req.treeHash) {
+    if (now.snapshotCommit !== change.snapshotCommit || now.baseCommit !== change.baseCommit || tree !== req.treeHash) {
       throw new SiteError("change.fingerprint_mismatch", 409);
     }
     // The rest: the same snapshot tree on top of the result, made before the default branch moves so that
@@ -622,7 +626,14 @@ export class ChangeService {
     const { files } = await changedFiles(git, site.path, change.baseCommit, change.snapshotCommit, { path: file });
     const entry = files.find((f) => f.path === file);
     if (!entry) throw new SiteError("change.file_not_found", 404);
-    return fileDiff(git, site.path, change.baseCommit, change.snapshotCommit, entry);
+    const diff = await fileDiff(git, site.path, change.baseCommit, change.snapshotCommit, entry);
+    // Whether its hunks can be applied one by one (plan 7.5); a restore applies only as a whole.
+    const raw = (await rawChanges(git, site.path, change.baseCommit, change.snapshotCommit, file)).get(file);
+    const splittable =
+      change.restoreCommit === null &&
+      raw !== undefined &&
+      (await hunkPlan(git, site.path, change.baseCommit, change.snapshotCommit, raw)) !== null;
+    return { ...diff, splittable };
   }
 
   async toChangeSet(change: ChangeRecord): Promise<ChangeSet> {

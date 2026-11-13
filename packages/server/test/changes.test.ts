@@ -20,6 +20,7 @@ import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { MAX_FILES, MAX_PATCH_BYTES } from "../src/changes/diff.ts";
 import { listHistory } from "../src/changes/history.ts";
+import { applyHunks, parseHunks } from "../src/changes/partial.ts";
 import { changeRef, commitText, diffSummary } from "../src/changes/service.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
@@ -348,6 +349,7 @@ describe("diffs", () => {
       binary: true,
       patch: null,
       tooLarge: false,
+      splittable: false,
     });
     expect(await ctx.changes.diff(change.id, "big.txt")).toMatchObject({ patch: null, tooLarge: true });
     await expect(ctx.changes.diff(change.id, "README.md")).rejects.toMatchObject({ code: "change.file_not_found" });
@@ -704,6 +706,7 @@ describe("partial apply (plan 7.5)", () => {
     const head = s.git("rev-parse", "HEAD");
     const result = await ctx.changes.apply(view.id, {
       treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
       selection: [{ path: "content/pages/faq.md" }, { path: "content/pages/about.md" }],
     });
     expect(result.outcome).toBe("partial");
@@ -753,19 +756,119 @@ describe("partial apply (plan 7.5)", () => {
       "added content/pages/about.md/index.md",
     ]);
     await expect(
-      ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "content/pages/about.md/index.md" }] }),
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "content/pages/about.md/index.md" }],
+      }),
     ).rejects.toMatchObject({ code: "change.partial_unsupported" });
     const both = await ctx.changes.apply(view.id, {
       treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
       selection: view.files.map((f) => ({ path: f.path })),
     });
     expect(both.outcome).toBe("applied");
+  });
+
+  it("applies only the selected hunks of a file, byte for byte", async () => {
+    const s = await site();
+    const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
+    // No final newline, and a byte that is not UTF-8, both kept exactly.
+    const before = Buffer.concat([Buffer.from(`${lines.join("\n")}\n\xff`, "latin1")]);
+    fs.writeFileSync(path.join(s.dir, "notes.txt"), before);
+    commitAllAs(base, s.dir, "notes");
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    const edited = [...lines];
+    edited[1] = "line 2 edited";
+    edited[24] = "line 25 edited";
+    const after = Buffer.from(`${edited.join("\n")}\n\xff end`, "latin1");
+    fs.writeFileSync(path.join(cwd, "notes.txt"), after);
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    const diff = await ctx.changes.diff(view.id, "notes.txt");
+    expect(parseHunks(diff.patch ?? "")).toHaveLength(2);
+
+    await expect(
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "notes.txt", hunks: [2] }],
+      }),
+    ).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+    const result = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "notes.txt", hunks: [1] }],
+    });
+    expect(result.outcome).toBe("partial");
+    const applied = [...lines];
+    applied[24] = "line 25 edited";
+    expect(fs.readFileSync(path.join(s.dir, "notes.txt"))).toEqual(
+      Buffer.from(`${applied.join("\n")}\n\xff end`, "latin1"),
+    );
+    // What is left is the first hunk; the AI's copy is the full edit still.
+    const rest = await ctx.changes.diff(view.id, "notes.txt");
+    expect(parseHunks(rest.patch ?? "")).toHaveLength(1);
+    expect(rest.patch).toContain("+line 2 edited");
+    expect(rest.patch).not.toContain("line 25 edited");
+    expect(fs.readFileSync(path.join(cwd, "notes.txt"))).toEqual(after);
+
+    // The rest has the same tree but a new base: hunk numbers made on the old diff are refused.
+    const now = await ctx.changes.current(s.id, false);
+    expect(now?.treeHash).toBe(view.treeHash);
+    await expect(
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "notes.txt", hunks: [0] }],
+      }),
+    ).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+    expect((await ctx.changes.diff(view.id, "notes.txt")).splittable).toBe(true);
+
+    // All hunks of a file are the whole file.
+    const all = await ctx.changes.apply(view.id, {
+      treeHash: now?.treeHash ?? "",
+      baseCommit: now?.baseCommit,
+      selection: [{ path: "notes.txt", hunks: [0] }],
+    });
+    expect(all.outcome).toBe("applied");
+    expect(fs.readFileSync(path.join(s.dir, "notes.txt"))).toEqual(after);
+  });
+
+  it("takes only whole new files, deleted files and files whose mode changed", async () => {
+    const { s, cwd } = await threeChanges();
+    fs.chmodSync(path.join(cwd, "content/posts/welcome.md"), 0o755);
+    fs.appendFileSync(path.join(cwd, "content/posts/welcome.md"), "more\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    for (const p of ["content/pages/faq.md", "content/pages/about.md", "content/posts/welcome.md"]) {
+      await expect(
+        ctx.changes.apply(view.id, {
+          treeHash: view.treeHash,
+          baseCommit: view.baseCommit,
+          selection: [{ path: p, hunks: [0] }],
+        }),
+      ).rejects.toMatchObject({ code: "change.partial_unsupported" });
+    }
+    expect((await ctx.changes.diff(view.id, "content/pages/faq.md")).splittable).toBe(false);
+    expect((await ctx.changes.diff(view.id, "content/posts/welcome.md")).splittable).toBe(false);
+    expect((await ctx.changes.diff(view.id, "site.yaml")).splittable).toBe(true);
+    const ok = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "site.yaml", hunks: [0] }],
+    });
+    expect(ok.outcome).toBe("partial");
   });
 
   it("applies the whole change set when everything is selected", async () => {
     const { s, view } = await threeChanges();
     const result = await ctx.changes.apply(view.id, {
       treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
       selection: view.files.map((f) => ({ path: f.path })),
     });
     expect(result.outcome).toBe("applied");
@@ -782,7 +885,11 @@ describe("partial apply (plan 7.5)", () => {
     if (!view) throw new Error("no change set");
     const head = s.git("rev-parse", "HEAD");
 
-    const failed = await ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "fake-doctor" }] });
+    const failed = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "fake-doctor" }],
+    });
     expect(failed.outcome).toBe("check_failed");
     expect(s.git("rev-parse", "HEAD")).toBe(head);
     expect(ctx.changes.store.open(s.id)).toMatchObject({
@@ -791,7 +898,11 @@ describe("partial apply (plan 7.5)", () => {
       snapshotCommit: view.snapshotCommit,
     });
 
-    const ok = await ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "site.yaml" }] });
+    const ok = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "site.yaml" }],
+    });
     expect(ok.outcome).toBe("partial");
     expect(s.git("diff", "--name-only", "HEAD^", "HEAD")).toBe("site.yaml");
   });
@@ -799,16 +910,25 @@ describe("partial apply (plan 7.5)", () => {
   it("refuses paths that did not change, hunks it cannot split, restores and an old fingerprint", async () => {
     const { s, view } = await threeChanges();
     await expect(
-      ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "content/posts/welcome.md" }] }),
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "content/posts/welcome.md" }],
+      }),
     ).rejects.toMatchObject({ code: "change.file_not_found" });
     await expect(
       ctx.changes.apply(view.id, {
         treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
         selection: [{ path: "content/pages/faq.md", hunks: [0] }],
       }),
     ).rejects.toMatchObject({ code: "change.partial_unsupported" });
     await expect(
-      ctx.changes.apply(view.id, { treeHash: "0".repeat(40), selection: [{ path: "site.yaml" }] }),
+      ctx.changes.apply(view.id, {
+        treeHash: "0".repeat(40),
+        baseCommit: view.baseCommit,
+        selection: [{ path: "site.yaml" }],
+      }),
     ).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
     await ctx.changes.reject(view.id);
 
@@ -817,7 +937,11 @@ describe("partial apply (plan 7.5)", () => {
     commitAllAs(base, s.dir, "later");
     const restored = await ctx.changes.restore(s.id, init);
     await expect(
-      ctx.changes.apply(restored.change.id, { treeHash: restored.change.treeHash, selection: [{ path: "site.yaml" }] }),
+      ctx.changes.apply(restored.change.id, {
+        treeHash: restored.change.treeHash,
+        baseCommit: restored.change.baseCommit,
+        selection: [{ path: "site.yaml" }],
+      }),
     ).rejects.toMatchObject({ code: "change.partial_restore" });
   });
 
@@ -825,7 +949,11 @@ describe("partial apply (plan 7.5)", () => {
     const { s, view } = await threeChanges();
     fs.writeFileSync(path.join(s.dir, "other.md"), "other\n");
     commitAllAs(base, s.dir, "elsewhere");
-    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash, selection: [{ path: "site.yaml" }] });
+    const result = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "site.yaml" }],
+    });
     expect(result.outcome).toBe("rebased");
     expect(s.git("log", "-1", "--format=%s")).toBe("elsewhere");
   });
@@ -922,6 +1050,7 @@ describe("the change set API and events", () => {
       { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [] }] },
       { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [1, 1] }] },
       { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [-1] }] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md" }] },
     ]) {
       expect((await call("POST", `/api/changes/${change.id}/apply`, bad)).json).toEqual({
         code: "request.invalid_body",
@@ -1350,6 +1479,35 @@ describe("commitText", () => {
     const long = commitText("x".repeat(100)).split("\n")[0] ?? "";
     expect([...long]).toHaveLength(72);
     expect(long.endsWith("…")).toBe(true);
+  });
+});
+
+describe("hunks (plan 7.5)", () => {
+  const b = (text: string) => Buffer.from(text);
+  it("reads the line ranges of each hunk header, empty sides included", () => {
+    const patch =
+      "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -0,0 +1,2 @@\n+a\n+b\n@@ -5 +7,0 @@ ctx\n-gone\n+@@ -9,9 +9,9 @@\n";
+    expect(parseHunks(patch)).toEqual([
+      { oldStart: 0, oldCount: 0, newStart: 0, newCount: 2 },
+      { oldStart: 4, oldCount: 1, newStart: 7, newCount: 0 },
+    ]);
+  });
+  it("replaces the selected ranges and keeps the rest of the old file", () => {
+    const before = b("a\nb\nc\nd\n");
+    const after = b("A\nb\nc\nD");
+    const hunks = [
+      { oldStart: 0, oldCount: 1, newStart: 0, newCount: 1 },
+      { oldStart: 3, oldCount: 1, newStart: 3, newCount: 1 },
+    ];
+    expect(applyHunks(before, after, hunks, new Set([0, 1]))?.toString()).toBe("A\nb\nc\nD");
+    expect(applyHunks(before, after, hunks, new Set([0]))?.toString()).toBe("A\nb\nc\nd\n");
+    expect(applyHunks(before, after, hunks, new Set([1]))?.toString()).toBe("a\nb\nc\nD");
+    expect(applyHunks(before, after, hunks, new Set())?.toString()).toBe("a\nb\nc\nd\n");
+    // Ranges outside the files, or out of order, do not fit.
+    expect(
+      applyHunks(before, after, [{ oldStart: 3, oldCount: 5, newStart: 0, newCount: 1 }], new Set([0])),
+    ).toBeNull();
+    expect(applyHunks(before, after, [...hunks].reverse(), new Set([0]))).toBeNull();
   });
 });
 
