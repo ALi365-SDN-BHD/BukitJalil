@@ -58,7 +58,13 @@ test("settings lists skills and Bukit plugins, and a site can toggle a plugin th
   await page.getByTestId("tab-config").click();
   await page.getByTestId("config-tab-plugins").click();
   await expect(page.getByTestId("plugin-toggle-related-content")).toBeVisible();
-  await page.getByTestId("plugin-toggle-related-content").click();
+  // Importing ran a check on the site; until it ends the switch answers 409 "site busy" (slow runners with a
+  // real Bukit). Click again only after such an answer, so a slow success is never switched back.
+  await expect(async () => {
+    const answer = page.waitForResponse((r) => r.url().includes(`/api/sites/${siteId}/plugins/related-content`));
+    await page.getByTestId("plugin-toggle-related-content").click({ timeout: 2_000 });
+    expect((await answer).status()).toBe(200);
+  }).toPass({ timeout: 60_000 });
   await expect(page.getByTestId("config-view-change")).toBeVisible();
   // With a change set open, choosing the main version must send the plugin tab back to "in change".
   await page.getByTestId("ref-main").click();
