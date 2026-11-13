@@ -45,19 +45,24 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **工作量**：Bukit 支持后约 2–3 天，包括试运行和确认界面。
 
-### 5. Notion 数据源管理
+### 5. Notion 数据源管理（第一步已完成，第二步等 Bukit 改动）
 
-**现状**（按 2026-11-13 的代码核对）：
+**已定的问题**（2026-11-13）：
 
-- 已做：
-  - "设置 → 数据源"可以添加 Notion 数据源，每个数据源有自己的 token，显示后四位，可以替换、删除。token 存在 `data-source-tokens.json`（权限 600），接口不返回 token 本身。
-  - 新建网站时可以选一个 Notion 数据源，BukitJalil 调 Notion `/search` 列出这个 token 能读的数据库，可以勾选多个，写进 `site.yaml`（源名称用下划线、以字母开头）。
-  - 正式构建会传 `NOTION_TOKEN`（`builds/service.ts`），而且只用网站绑定的数据源的 token。新建网站时选的数据源自动绑定，导入的网站在数据面板里显式绑定（`PUT /api/sites/:siteId/notion-source`），不再"只有一个数据源就自动用"。
-  - 绑定了数据源的网站：网站检查的 `config check` 带 token 跑，新建后自动构建；发布时 check、doctor、build 带 token（`deploy --skip-build` 不需要，Bukit 源码核对过）。没绑定时状态和结果都是 `notion`。
-  - 应用改动：网站已绑定、默认分支本来就用 Notion 时，"检查不了"不算失败，不要求强制，界面提示看正式构建的结果；改动自己加进 Notion 源时仍要求强制。
-- 还缺：
-  - AI 检查、AI 构建和改动集预览：`ai-bukit.ts` 遇到 Notion 源直接拒绝（不给未审核内容 token），所以 AI 改动不能检查、不能预览。
-  - 数据面板里的 Notion 源只显示配置。
+- 预览：短期不能预览（方案 A），长期给 Bukit 加离线快照（方案 C）。预览时把 token 给 Bukit（方案 D）**不能选**：没审核的 `site.yaml` 可以把 `databaseId` 换成别的库，AI 就能从构建输出里读到别的数据库的内容。
+- 字段显示放在现有数据面板的 Notion 卡片里展开。
+- 每个源的页数先不显示，等 Bukit 输出每个源的数量（2.0.15 只有所有源合计的 `event=content.loaded count=`），不自己重算。
+
+**第一步已完成**（2026-11-13，开发方案 5.4）：
+
+- 数据面板"读取字段"：只在点击时、只按正式分支的 `databaseId`、用绑定的 token 调 `GET /v1/databases/{id}`，结果不交给 AI。
+- 审核卡和改动面板突出 Notion 配置的变化（新增、删除、换 `databaseId`、改了哪些键）。
+- BukitJalil 自己调 Notion 时按 401/403/404/429 翻译报错；构建、发布失败时从 Bukit 输出（含 `doctor`）认出 Notion 报错，在结果里给出处理办法。这些文字来自 Bukit 2.0.15 源码，升级 Bukit 时要核对 `bukit/notion-errors.ts`。
+
+**还缺**：
+
+- AI 检查、AI 构建和改动集预览：`ai-bukit.ts` 遇到 Notion 源直接拒绝（不给未审核内容 token）。
+- 每个源的页数。
 
 **Bukit 的限制**（源码 v2.0.15 核对）：
 
@@ -66,34 +71,12 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 所以"先缓存，预览只读缓存"用现在的 Bukit 做不到，塞一个假 token 也不行。
 
-**要做的**，分两步：
+**第二步：AI 改动的预览**（约 4–6 天，含 Bukit 的改动）：给 Bukit 加完整的离线快照。
 
-1. 不改 Bukit（剩余约 1–2 天）：
-   - 数据面板显示 Notion 数据：
-     - 字段由 BukitJalil 调 `GET /databases/{id}` 读取（Bukit 没有列出 Notion 数据的命令）。
-     - 页数取上次正式构建报告里的数字，不要自己重新实现 Bukit 的过滤条件，否则两边对不上。
-     - 只用正式分支 `site.yaml` 里的 `databaseId`，只在用户打开面板或点刷新时调用，结果不交给 AI 工具。
-   - 审核卡上突出显示 Notion 配置的变化（`databaseId`、过滤条件等），因为应用后正式构建会带 token 去拉那个库。
-   - token 失效、数据库没共享给 integration 时，把 Bukit 的报错翻译成明确的提示。
-   - 同步开发方案和用户指南。
-2. AI 改动的预览（约 4–6 天，含 Bukit 的改动）：给 Bukit 加完整的离线快照。
-   - readwrite 时把数据库结构和查询结果也存下来。
-   - 新增一个不要 token、不联网的离线模式。
-   - BukitJalil 正式构建时把快照写到 AI 工作副本之外，预览时只读放进检出，预览显示的就是"上次正式构建时的 Notion 数据"。
-   - BukitJalil 的最低 Bukit 版本要跟着升。
-
-**要先定的问题**：
-
-- 预览方案。备选：
-  - A：继续不能预览。
-  - B：BukitJalil 自己把 Notion 转成 Markdown 快照，预览时换掉数据源。缺点是 Notion 正文由 Bukit 自己的渲染器生成，转成 Markdown 后关联、`propertyMap`、颜色块等和正式版不一致，还要多维护一套转换器。
-  - C：Bukit 离线快照。保真度最高，Bukit 也是自己的仓库。
-  - D：预览时把 token 给 Bukit。**不能选**：没审核的 `site.yaml` 可以把 `databaseId` 换成别的库，AI 就能从构建输出里读到别的数据库的内容，违反密钥规则。
-
-  建议短期 A（加上上面应用流程的改进），长期 C。
-- 选 C 的话：
-  - 缓存目录和模式必须由 BukitJalil 指定，不能读 `site.yaml`（AI 能改它），所以 Bukit 要提供命令行覆盖，或者由 BukitJalil 生成一份临时配置。
-  - 快照内容会进入 AI 能读的检出目录。快照只包含按正式分支过滤条件查出的页面，这些本来就要发布，但要写进安全规则。
-- 数据面板放在现有的数据面板卡片里展开，还是单独做 Notion 详情页？
-
-**工作量**：第一步约 2–3 天，第二步约 4–6 天。
+- readwrite 时把数据库结构和查询结果也存下来。
+- 新增一个不要 token、不联网的离线模式。
+- BukitJalil 正式构建时把快照写到 AI 工作副本之外，预览时只读放进检出，预览显示的就是"上次正式构建时的 Notion 数据"。
+- 缓存目录和模式必须由 BukitJalil 指定，不能读 `site.yaml`（AI 能改它），所以 Bukit 要提供命令行覆盖，或者由 BukitJalil 生成一份临时配置。
+- 快照内容会进入 AI 能读的检出目录。快照只包含按正式分支过滤条件查出的页面，这些本来就要发布，但要写进安全规则。
+- 顺便让 Bukit 输出每个源的页数，数据面板再接上。
+- BukitJalil 的最低 Bukit 版本要跟着升。
