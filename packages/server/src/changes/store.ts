@@ -127,6 +127,17 @@ export class ChangeStore {
     this.db.prepare("UPDATE change_sets SET ai_joined = 1 WHERE id = ?").run(id);
   }
 
+  /** How the newest change set the session took part in, other than `exceptId`, ended; null if none. */
+  lastJoined(sessionId: string, exceptId: string): Exclude<ChangeStatus, "open"> | null {
+    const row = this.db
+      .prepare(
+        `SELECT cs.status FROM change_set_sessions s JOIN change_sets cs ON cs.id = s.change_set_id
+         WHERE s.session_id = ? AND cs.id <> ? ORDER BY s.first_turn_at DESC, s.rowid DESC LIMIT 1`,
+      )
+      .get(sessionId, exceptId) as { status: ChangeStatus } | undefined;
+    return row && row.status !== "open" ? row.status : null;
+  }
+
   sessions(id: string): string[] {
     const rows = this.db
       .prepare("SELECT session_id FROM change_set_sessions WHERE change_set_id = ? ORDER BY first_turn_at, rowid")

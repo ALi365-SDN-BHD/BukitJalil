@@ -111,8 +111,9 @@ export function agentEventTranslator(): (event: AgentEvent) => ServerEventInput[
       }
       case "message_end":
         streamed.delete(sessionId);
-        // The system prompt is not part of the conversation the user sees.
-        if (e.message.role === "system") return [];
+        // The system prompt and BukitJalil's notes to the model (plan 6.2) are not part of the
+        // conversation the user sees.
+        if (e.message.role === "system" || e.message.role === "custom") return [];
         return [{ ...base, type: "message.end", data: { message: e.message as unknown as ChatMessage } }];
       case "tool_execution_start":
         return [

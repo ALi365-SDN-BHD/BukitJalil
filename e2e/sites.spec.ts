@@ -33,7 +33,7 @@ test.beforeAll(() => {
 test.afterAll(async ({ browser, server }) => {
   const page = await browser.newPage();
   await page.goto(await server.loginUrl());
-  await putSettings(page, { bukitPath: null, commitName: null, commitEmail: null });
+  await putSettings(page, { commitName: null, commitEmail: null });
   await page.close();
   fs.rmSync(work, { recursive: true, force: true });
 });
@@ -55,9 +55,11 @@ function git(cwd: string, ...args: string[]) {
 }
 
 /** Log in, then point the server at the test Bukit and give it a commit identity. */
-async function login(page: Page, url: string) {
-  await page.goto(url);
-  await putSettings(page, { bukitPath: bukitBin, commitName: "E2E Tester", commitEmail: "e2e@example.com" });
+async function login(page: Page, server: { loginUrl(): Promise<string>; setBukit(source: string): void }) {
+  await page.goto(await server.loginUrl());
+  server.setBukit(bukitBin);
+  await page.evaluate(() => fetch("/api/bukit?refresh=1"));
+  await putSettings(page, { commitName: "E2E Tester", commitEmail: "e2e@example.com" });
   await page.reload();
   await expect(page.getByTestId("site-list")).toBeVisible();
 }
@@ -79,17 +81,17 @@ async function createSite(page: Page, name: string, parent: string) {
   await expect(page.getByTestId("site-home")).toBeVisible();
 }
 
-const headerBuild = (page: Page) => page.locator("header").getByTestId("build-status");
+const headerBuild = (page: Page) => page.getByTestId("build-list").getByTestId("build-status").first();
 
 async function sitePath(page: Page): Promise<string> {
   return (await page.getByTestId("site-path").textContent())?.trim() ?? "";
 }
 
 test("a new site builds once, shows its preview and the read-only panels", async ({ page, server }) => {
-  await login(page, await server.loginUrl());
+  await login(page, server);
   const { name, parent } = fresh("New");
   await createSite(page, name, parent);
-  await expect(page.getByTestId("header-site-title")).toHaveText(name);
+  await expect(page.getByTestId("site-title")).toHaveText(name);
   await expect(headerBuild(page)).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
   await expect(page.getByTestId("site-list").getByRole("link", { name })).toBeVisible();
 
@@ -126,7 +128,7 @@ test("a new site builds once, shows its preview and the read-only panels", async
 });
 
 test("a build report shows the SEO / GEO summary", async ({ page, server }) => {
-  await login(page, await server.loginUrl());
+  await login(page, server);
   const { name, parent } = fresh("Seo");
   await createSite(page, name, parent);
   await expect(headerBuild(page)).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
@@ -137,12 +139,42 @@ test("a build report shows the SEO / GEO summary", async ({ page, server }) => {
   await expect(audit.getByTestId("audit-site-url")).toContainText("site.url");
   await expect(audit.getByTestId("audit-group").filter({ hasText: "seo.canonical_not_absolute" })).toHaveCount(0);
   await expect(audit.getByTestId("audit-geo-score")).toContainText(/\d+\/100/);
-  await page.keyboard.press("Escape");
+
+  // The full report is in the SEO panel (plan 10.4).
+  await audit.getByTestId("audit-open-panel").click();
+  await expect(page.getByTestId("build-report")).toBeHidden();
+  await expect(page.getByTestId("tab-seo")).toHaveAttribute("aria-selected", "true");
+  const panel = page.getByTestId("seo-panel");
+  await expect(panel.getByTestId("seo-site-url")).toContainText("site.url");
+  await expect(panel.getByTestId("seo-compare")).toHaveText(/No earlier report|没有更早的报告/);
+  const groups = panel.getByTestId("seo-group");
+  await expect(groups.first()).toBeVisible();
+  await expect(groups.filter({ hasText: "seo.canonical_not_absolute" })).toHaveCount(0);
+  // Filter by a page, then hand the issues to a new conversation without sending them.
+  const filter = panel.getByTestId("seo-page-filter");
+  const all = await groups.count();
+  const firstPage = (await filter.locator("option").nth(1).getAttribute("value")) ?? "";
+  await filter.selectOption(firstPage);
+  await expect(groups.first()).toBeVisible();
+  expect(await groups.count()).toBeLessThanOrEqual(all);
+  if (!REAL_BUKIT) {
+    // The stand-in reports "/" and "/about/": the filter keeps only the first page's issue.
+    expect(all).toBe(2);
+    await expect(groups).toHaveCount(1);
+    await expect(groups.first()).toContainText("seo.description_missing");
+  }
+  const firstCode = (await groups.first().locator("code").textContent()) ?? "";
+  await panel.getByTestId("seo-ask-ai").click();
+  await expect(page).toHaveURL(/\/sessions\//);
+  const input = page.getByTestId("composer-input");
+  await expect(input).toHaveValue(/SEO \/ GEO/);
+  if (!REAL_BUKIT) await expect(input).not.toHaveValue(/seo\.title_missing/);
+  await expect(input).toHaveValue(new RegExp(firstCode.replace(/\./g, "\\.")));
 });
 
 test("a failed build shows its outcome and report", async ({ page, server }) => {
   test.skip(!!REAL_BUKIT, "the failure comes from the stand-in Bukit");
-  await login(page, await server.loginUrl());
+  await login(page, server);
   const { name, parent } = fresh("Fail");
   await createSite(page, name, parent);
   await expect(headerBuild(page)).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
@@ -161,7 +193,7 @@ test("a failed build shows its outcome and report", async ({ page, server }) => 
 });
 
 test("a folder that is not a git repository yet is imported after confirming its files", async ({ page, server }) => {
-  await login(page, await server.loginUrl());
+  await login(page, server);
   const { name, parent } = fresh("Import");
   const dir = path.join(parent, "existing");
   copyStarter(STARTER, dir, { title: "Imported Original", language: "en-US" });
@@ -176,14 +208,14 @@ test("a folder that is not a git repository yet is imported after confirming its
   await page.getByTestId("import-submit").click();
 
   await expect(page).toHaveURL(/\/sites\/[0-9a-f]+$/);
-  await expect(page.getByTestId("header-site-title")).toHaveText(name);
+  await expect(page.getByTestId("site-title")).toHaveText(name);
   await expect(page.getByTestId("site-state")).toContainText(/Usable|可用/);
   await expect(headerBuild(page)).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
   expect(fs.existsSync(path.join(dir, ".git"))).toBe(true);
 });
 
 test("a site with a plugin folder is imported read-only and cannot build", async ({ page, server }) => {
-  await login(page, await server.loginUrl());
+  await login(page, server);
   const { name, parent } = fresh("ReadOnly");
   const dir = path.join(parent, "plugged");
   copyStarter(STARTER, dir, { title: "Plugged", language: "en-US" });
@@ -226,23 +258,26 @@ test("a site with a plugin folder is imported read-only and cannot build", async
 });
 
 test("a site can be archived, restored and removed", async ({ page, server }) => {
-  await login(page, await server.loginUrl());
+  await login(page, server);
   const { name, parent } = fresh("Archive");
   await createSite(page, name, parent);
   await expect(headerBuild(page)).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
   const dir = await sitePath(page);
   const list = page.getByTestId("site-list");
+  const siteId = new URL(page.url()).pathname.split("/").pop() ?? "";
 
+  await page.getByTestId(`site-menu-${siteId}`).click();
   await page.getByTestId("site-archive").click();
   const archivedToggle = list.getByRole("button", { name: /Archived|已归档/ });
   await expect(archivedToggle).toBeVisible();
   await archivedToggle.click();
   await expect(list.getByRole("link", { name })).toBeVisible();
+  await page.getByTestId(`site-menu-${siteId}`).click();
   await page.getByTestId("site-archive").click();
-  await expect(page.getByTestId("site-archive")).toHaveText(/^\s*(Archive|归档)$/);
   await expect(archivedToggle).toHaveCount(0);
   await expect(list.getByRole("link", { name })).toBeVisible();
 
+  await page.getByTestId(`site-menu-${siteId}`).click();
   await page.getByTestId("site-remove").click();
   await page.getByTestId("site-remove-confirm").click();
   await expect(page).toHaveURL(/\/$/);
@@ -251,18 +286,42 @@ test("a site can be archived, restored and removed", async ({ page, server }) =>
   expect(fs.existsSync(path.join(dir, "site.yaml"))).toBe(true);
 });
 
-test("settings show Bukit and the identity; dialogs start empty each time", async ({ page, server }) => {
-  await login(page, await server.loginUrl());
+test("settings show Bukit and the identity; the new-site dialog starts empty each time", async ({ page, server }) => {
+  await login(page, server);
   await page.getByTestId("open-settings").click();
-  // The stand-in prints 2.0.11, a real Bukit the pinned version.
-  await expect(page.getByTestId("bukit-state")).toContainText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
-  await expect(page.locator("#commit-name")).toHaveValue("E2E Tester");
-  await expect(page.locator("#bukit-path")).toHaveValue(bukitBin);
-  // A fresh app home has no rg yet: the dialog offers the pinned version and asks before downloading.
+  await page.getByTestId("settings-nav-environment").click();
+  // The stand-in prints 2.0.11, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
+  // latest release, no install button.
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
+  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.0.11"}`);
+  await expect(page.getByTestId("bukit-latest")).toHaveCount(0);
+  await expect(page.getByTestId("bukit-install")).toHaveCount(0);
+  // A fresh app home has no rg yet: the page shows it as not installed and asks before downloading.
+  await expect(page.getByTestId("rg-version")).toHaveText(/Not installed|未安装/);
+  await expect(page.getByTestId("rg-latest")).toHaveText("15.2.0");
   await expect(page.getByTestId("rg-state")).toContainText("ripgrep");
+  // Pi ships with the app; with the e2e server offline only the bundled version is known.
+  await expect(page.getByTestId("pi-version")).toHaveText(/^\d+\.\d+\.\d+/);
+  await expect(page.getByTestId("pi-latest")).toHaveText(/Unknown|未知/);
+  await expect(page.getByTestId("pi-state")).toBeVisible();
+  // Git is a system tool: the install/update guide shows the commands and can recheck.
+  await page.getByTestId("git-guide-open").click();
+  await expect(page.getByTestId("git-guide")).toBeVisible();
+  await expect(page.getByTestId("git-guide")).toContainText(
+    /xcode-select|brew install|apt install|dnf install|pacman|winget|choco/,
+  );
+  await page.getByTestId("git-recheck").click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("git-guide")).toBeHidden();
+  await page.getByTestId("check-updates").click();
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
   await page.getByTestId("rg-install").click();
   await expect(page.getByTestId("rg-install-confirm")).toContainText("15.2.0");
-  await page.keyboard.press("Escape");
+
+  await page.getByTestId("settings-nav-publishing").click();
+  await expect(page.locator("#commit-name")).toHaveValue("E2E Tester");
+  await page.getByTestId("settings-close").click();
+  await expect(page).toHaveURL(/\/$/);
 
   await page.getByTestId("new-site").click();
   await page.locator("#site-name").fill("Left behind");
@@ -271,16 +330,209 @@ test("settings show Bukit and the identity; dialogs start empty each time", asyn
   await expect(page.locator("#site-name")).toHaveValue("");
 });
 
-test("the GitHub token is saved, shown by its last four characters and removed", async ({ page, server }) => {
-  await login(page, await server.loginUrl());
+test("publish accounts are saved, edited and removed", async ({ page, server }) => {
+  await login(page, server);
   await page.getByTestId("open-settings").click();
-  const status = page.getByTestId("github-token-status");
-  await expect(status).toContainText(/GitHub token/i);
-  await page.getByTestId("github-token-input").fill("ghp_e2eexampletoken9876");
-  await page.getByTestId("github-token-input").press("Enter");
-  await expect(status).toContainText("9876");
-  await expect(page.getByTestId("github-token-input")).toHaveCount(0);
-  await expect(page.getByTestId("github-token-section")).not.toContainText("ghp_e2e");
-  await page.getByTestId("github-token-remove").click();
-  await expect(page.getByTestId("github-token-input")).toBeVisible();
+  await page.getByTestId("settings-nav-publishing").click();
+  await page.getByTestId("publish-account-add").click();
+  await page.getByTestId("publish-account-name").fill("E2E Settings GitHub");
+  await page.getByTestId("publish-account-token").fill("ghp_e2esettings9876");
+  await page.getByTestId("publish-account-save").click();
+  const row = page.getByTestId(/^publish-account-pub_[0-9a-f]{12}$/).filter({ hasText: "E2E Settings GitHub" });
+  await expect(row).toContainText(/Token saved|已保存 token/);
+  const id = (await row.getAttribute("data-testid"))?.replace("publish-account-", "") ?? "";
+  expect(id).toMatch(/^pub_/);
+
+  await row.getByTestId(`publish-account-edit-${id}`).click();
+  await page.getByTestId("publish-account-name").fill("E2E Settings GitHub 2");
+  await page.getByTestId("publish-account-save").click();
+  await expect(
+    page.getByTestId(/^publish-account-pub_[0-9a-f]{12}$/).filter({ hasText: "E2E Settings GitHub 2" }),
+  ).toBeVisible();
+
+  await page.getByTestId(`publish-account-delete-${id}`).click();
+  await page.getByTestId(`publish-account-delete-confirm-${id}`).click();
+  await expect(page.getByTestId(`publish-account-${id}`)).toHaveCount(0);
+});
+
+test("a new site uses Markdown by default and creates its Markdown files", async ({ page, server }) => {
+  await login(page, server);
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("settings-nav-data").click();
+  await expect(page.getByTestId("data-source-empty")).toBeVisible();
+  await page.getByTestId("settings-close").click();
+
+  const { name, parent } = fresh("Markdown");
+  await page.getByTestId("new-site").click();
+  await page.locator("#site-name").fill(name);
+  await goToFolder(page, parent);
+  await expect(page.getByTestId("new-site-data-sources")).toContainText(/Markdown/);
+  await page.getByTestId("new-site-create").click();
+  await expect(page).toHaveURL(/\/sites\/[0-9a-f]+$/);
+  const dir = await sitePath(page);
+  const yaml = fs.readFileSync(path.join(dir, "site.yaml"), "utf8");
+  expect(yaml).toContain("dir: content/posts");
+  expect(fs.existsSync(path.join(dir, "content/posts/welcome.md"))).toBe(true);
+  expect(fs.existsSync(path.join(dir, "content/pages/about.md"))).toBe(true);
+});
+
+test("a Notion data source keeps its token and several databases are used when creating a site", async ({
+  page,
+  server,
+}) => {
+  await login(page, server);
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("settings-nav-data").click();
+  await page.getByTestId("data-source-add").click();
+  await page.getByTestId("data-source-name").fill("E2E Notion");
+  await page.getByTestId("data-source-token").fill("ntn_e2eexampletoken4321");
+  await page.getByTestId("data-source-save").click();
+  const row = page.getByTestId(/^data-source-ds_[0-9a-f]{12}$/).filter({ hasText: "E2E Notion" });
+  await expect(row).toContainText(/Token saved|已保存 token/);
+  const id = (await row.getAttribute("data-testid"))?.replace("data-source-", "") ?? "";
+  await page.getByTestId("settings-close").click();
+
+  // The e2e server is offline, so the picker explains that it cannot list the databases.
+  await page.getByTestId("new-site").click();
+  await page.getByTestId("new-site-notion-source").selectOption(id);
+  await expect(page.getByTestId("new-site-data-sources")).toContainText(/offline|离线/);
+  await expect(page.getByTestId("new-site-create")).toBeDisabled();
+  await page.keyboard.press("Escape");
+
+  // Once the databases are listed, check several and give each one its use.
+  await page.route("**/api/data-sources/*/notion/databases", (route) =>
+    route.fulfill({
+      json: {
+        databases: [
+          { id: "db_posts", title: "Posts" },
+          { id: "db_pages", title: "Pages" },
+          { id: "db_menu", title: "菜单 Menu" },
+        ],
+      },
+    }),
+  );
+  const { name, parent } = fresh("Notion");
+  await page.getByTestId("new-site").click();
+  await page.locator("#site-name").fill(name);
+  await goToFolder(page, parent);
+  await page.getByTestId("new-site-notion-source").selectOption(id);
+  await page.getByTestId("new-site-notion-db-db_posts").check();
+  await page.getByTestId("new-site-notion-db-db_pages").check();
+  await page.getByTestId("new-site-notion-use-db_pages").selectOption("page");
+  await page.getByTestId("new-site-notion-db-db_menu").check();
+  await page.getByTestId("new-site-notion-use-db_menu").selectOption("data");
+  await page.getByTestId("new-site-create").click();
+  await expect(page).toHaveURL(/\/sites\/[0-9a-f]+$/);
+  const siteId = page.url().split("/sites/")[1] ?? "";
+  const dir = await sitePath(page);
+  const yaml = fs.readFileSync(path.join(dir, "site.yaml"), "utf8");
+  expect(yaml).toMatch(/name: posts\n\s+mode: content\n\s+collection: post\n\s+notion:\n\s+databaseId: db_posts/);
+  expect(yaml).toMatch(/name: pages\n\s+mode: content\n\s+collection: page\n\s+notion:\n\s+databaseId: db_pages/);
+  expect(yaml).toMatch(/name: menu\n\s+mode: data\n\s+notion:\n\s+databaseId: db_menu/);
+
+  // The data panel shows the bound source; unbinding and binding again go through the API.
+  await page.getByTestId("tab-data").click();
+  const binding = page.getByTestId("notion-binding-select");
+  await expect(binding).toHaveValue(id);
+  // Creating the site started a main build; the site says it is busy until that build ends.
+  await expect(async () => {
+    await binding.selectOption("", { timeout: 2_000 });
+    expect((await (await page.request.get(`/api/sites/${siteId}`)).json()).notionDataSourceId).toBeNull();
+  }).toPass({ timeout: 60_000 });
+  await expect(page.getByTestId("notion-binding")).toContainText(/fail|失败/);
+  await binding.selectOption(id);
+  await expect(page.getByTestId("notion-binding")).not.toContainText(/fail|失败/);
+  await expect(binding).toBeEnabled();
+
+  // Fields are read only on request (plan 5.4). The server calls Notion; here the API answer is stubbed.
+  let fieldsAnswer: { status: number; body: unknown } = {
+    status: 200,
+    body: {
+      index: 0,
+      databaseId: "db_posts",
+      title: "Posts",
+      properties: [
+        { name: "Name", type: "title" },
+        { name: "Published", type: "checkbox" },
+      ],
+      propertiesTruncated: false,
+      readAt: new Date().toISOString(),
+    },
+  };
+  let fieldCalls = 0;
+  await page.route(`**/api/sites/${siteId}/notion/sources/*`, (route) => {
+    fieldCalls++;
+    return route.fulfill({ status: fieldsAnswer.status, json: fieldsAnswer.body });
+  });
+  const postsCard = page.getByTestId("data-source").filter({ hasText: "posts" }).first();
+  await expect(postsCard.getByTestId("notion-read-fields")).toBeVisible();
+  expect(fieldCalls).toBe(0);
+  await postsCard.getByTestId("notion-read-fields").click();
+  await expect(postsCard.getByTestId("notion-field-list")).toContainText("Published");
+  await expect(postsCard.getByTestId("notion-field-list")).toContainText("checkbox");
+  fieldsAnswer = { status: 503, body: { code: "datasource.notion_not_shared" } };
+  await postsCard.getByTestId("notion-read-fields").click();
+  await expect(postsCard.getByTestId("notion-fields-error")).toContainText(/Connections|连接/);
+
+  // The source is linked to this site, so remove the site before deleting the source.
+  await page.getByTestId(`site-menu-${siteId}`).click();
+  await page.getByTestId("site-remove").click();
+  await page.getByTestId("site-remove-confirm").click();
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("settings-nav-data").click();
+  await page.getByTestId(`data-source-delete-${id}`).click();
+  await page.getByTestId(`data-source-delete-confirm-${id}`).click();
+  await expect(page.getByTestId(`data-source-${id}`)).toHaveCount(0);
+});
+
+test("a multilingual site starts a conversation asking for the other languages", async ({ page, server }) => {
+  await login(page, server);
+  await putSettings(page, { model: null, locale: "zh-CN" });
+  await page.reload();
+  await expect(page.getByTestId("site-list")).toBeVisible();
+
+  const { name, parent } = fresh("Multilingual");
+  await page.getByTestId("new-site").click();
+  await page.locator("#site-name").fill(name);
+  await goToFolder(page, parent);
+  const language = await page.locator("#site-language").inputValue();
+  await page.getByTestId("new-site-multilingual").check();
+  await expect(page.getByTestId("new-site-multilingual-hint")).toContainText(/语言|language/);
+  await page.getByTestId("new-site-create").click();
+  await expect(page).toHaveURL(/\/sites\/[0-9a-f]+\/sessions\/[0-9a-f]+$/);
+  const input = page.getByTestId("composer-input");
+  await expect(input).toHaveValue(new RegExp(language));
+  await expect(input).toHaveValue(/多语言|several languages/);
+});
+
+test("the settings search filters the sections", async ({ page, server }) => {
+  await login(page, server);
+  await page.getByTestId("open-settings").click();
+  const search = page.getByRole("textbox", { name: /Search|搜索/ });
+  await search.fill("AI");
+  await expect(page.getByTestId("settings-nav-model")).toBeVisible();
+  await expect(page.getByTestId("settings-nav-general")).toHaveCount(0);
+  await search.fill("no such section");
+  await expect(page.getByText(/No settings found|没有找到设置项/)).toBeVisible();
+});
+
+test("reopening settings looks at the bundled Bukit again", async ({ page, server }) => {
+  await login(page, server);
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("settings-nav-environment").click();
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
+
+  // The bundled copy changes between visits; opening settings asks the server for a fresh look.
+  const updated = path.join(work, "bukit-2.0.14");
+  fs.writeFileSync(updated, '#!/bin/sh\nif [ "$1" = "version" ]; then echo "bukit 2.0.14"; exit 0; fi\nexit 0\n', {
+    mode: 0o755,
+  });
+  server.setBukit(updated);
+
+  await page.getByTestId("settings-close").click();
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("settings-nav-environment").click();
+  await expect(page.getByTestId("bukit-version")).toHaveText("2.0.14");
+  await expect(page.getByTestId("bukit-state")).toContainText("Bukit 2.0.14");
+  await expect(page.getByTestId("bukit-install")).toHaveCount(0);
 });

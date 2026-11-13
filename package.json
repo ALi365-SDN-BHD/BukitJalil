@@ -10,6 +10,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "pnpm --filter @bukitjalil/web build",
     "start": "pnpm --filter @bukitjalil/server start",
+    "fetch:bukit": "pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts ../../vendor",
     "check": "biome check . && pnpm -r typecheck && tsc -p tsconfig.json",
     "format": "biome check --write .",
     "test": "vitest run",

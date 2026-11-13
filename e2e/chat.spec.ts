@@ -51,12 +51,17 @@ test("conversations: start, send, rename and delete, with a second tab kept in s
   await input.press("Enter");
   await expect(page.getByTestId("composer-error")).toHaveText(/model|模型/, { timeout: 20_000 });
   await expect(input).toHaveValue("Change the home page title");
+  // The first message names the conversation automatically, in both tabs.
+  await expect(items).toHaveText("Change the home page title");
+  await expect(other.getByTestId("session-list").getByTestId("session-item")).toHaveText("Change the home page title");
 
-  // Rename: shown here at once, and in the other tab through the event stream.
-  await page.getByTestId("rename-session").click();
+  // Rename from the session row's menu: shown here at once, and in the other tab through the event stream.
+  const sessionId = new URL(page.url()).pathname.split("/").pop() ?? "";
+  await page.getByTestId(`session-menu-${sessionId}`).click();
+  await page.getByTestId("session-rename").click();
   await page.getByTestId("rename-input").fill("Home page title");
   await page.getByTestId("rename-save").click();
-  await expect(page.getByTestId("chat-title")).toHaveText("Home page title");
+  await expect(items).toHaveText("Home page title");
   await expect(other.getByTestId("session-list").getByTestId("session-item")).toHaveText("Home page title");
 
   // A conversation started in the other tab shows up here.
@@ -64,8 +69,9 @@ test("conversations: start, send, rename and delete, with a second tab kept in s
   await expect(other).toHaveURL(/\/sessions\/[0-9a-f]{16}$/);
   await expect(items).toHaveCount(2);
 
-  // Delete: back to the site home here, and gone from the other tab's list.
-  await page.getByTestId("delete-session").click();
+  // Delete from the session menu: back to the site home here, and gone from the other tab's list.
+  await page.getByTestId(`session-menu-${sessionId}`).click();
+  await page.getByTestId("session-delete").click();
   await page.getByTestId("delete-confirm").click();
   await expect(page).toHaveURL(new RegExp(`/sites/${siteId}$`));
   await expect(items).toHaveCount(1);

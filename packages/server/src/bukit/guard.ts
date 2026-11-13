@@ -185,7 +185,10 @@ export function checkSiteConfig(text: string): { reasons: GuardReason[]; usesNot
   const plugins = isRecord(config.site) ? config.site.plugins : undefined;
   if (isRecord(plugins)) {
     for (const name of Object.keys(plugins)) {
-      if (!BUILTIN_PLUGINS.has(name)) reasons.push({ code: "unknown_plugin", where: `site.plugins.${name}` });
+      // Bukit's ReadPluginToggles trims the name and uses a case-insensitive dictionary.
+      if (!BUILTIN_PLUGINS.has(name.trim().toLowerCase())) {
+        reasons.push({ code: "unknown_plugin", where: `site.plugins.${name}` });
+      }
     }
   }
 

@@ -25,7 +25,7 @@ case "$1" in
     echo "<!doctype html><meta charset=utf-8><title>$title</title><h1>$title</h1>" > "$out/index.html"
     # The SEO / GEO reports real Bukit writes with every build (a site without site.url).
     mkdir -p "$out/.bukit"
-    echo '{"siteUrl":null,"routes":[{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/","message":"SEO description is missing."}]}' > "$out/.bukit/seo-report.json"
+    echo '{"siteUrl":null,"routes":[{},{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/","message":"SEO description is missing."},{"severity":"error","code":"seo.title_missing","route":"/about/","message":"Title is missing."}]}' > "$out/.bukit/seo-report.json"
     echo '{"geoScore":25,"llmsTxtGenerated":true,"llmsFullTxtGenerated":false,"geoEnhancedCount":0}' > "$out/.bukit/geo-report.json"
     echo '{"siteUrl":null,"documents":[{}],"issues":[{"severity":"warning","code":"publish.time_missing","route":"/","message":"Dated content is missing a visible time element."}]}' > "$out/.bukit/publish-audit-report.json"
     exit 0;;

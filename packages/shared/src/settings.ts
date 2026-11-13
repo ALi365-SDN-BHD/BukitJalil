@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { SUPPORTED_LOCALES } from "./constants.ts";
-import { AbsolutePath } from "./sites.ts";
 
 export const Locale = z.enum(SUPPORTED_LOCALES);
 export type Locale = z.infer<typeof Locale>;
@@ -25,8 +24,6 @@ export const Settings = z.object({
   locale: Locale.nullable(),
   /** Parent directory chosen last time in the site directory picker (plan 5.2). */
   lastParentDir: z.string().nullable(),
-  /** Custom Bukit executable (plan 8.1), e.g. a self-built one on Intel Mac; null uses the app copy or PATH. */
-  bukitPath: AbsolutePath.nullable(),
   /** Committer identity for commits BukitJalil makes (plan 7.2); the UI suggests the global git identity. */
   commitName: z
     .string()
@@ -45,6 +42,15 @@ export const Settings = z.object({
   model: ModelRef.nullable(),
   thinkingLevel: ThinkingLevel,
   appearance: Appearance,
+  /** Optional Pi skills turned off in Settings; required skills stay on regardless. */
+  disabledSkills: z
+    .array(
+      z
+        .string()
+        .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+        .max(64),
+    )
+    .max(200),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -54,10 +60,10 @@ export type SettingsPatch = z.infer<typeof SettingsPatch>;
 export const defaultSettings: Settings = {
   locale: null,
   lastParentDir: null,
-  bukitPath: null,
   commitName: null,
   commitEmail: null,
   model: null,
   thinkingLevel: "medium",
   appearance: "system",
+  disabledSkills: [],
 };

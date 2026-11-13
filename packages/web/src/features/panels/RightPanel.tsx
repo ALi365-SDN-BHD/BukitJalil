@@ -11,9 +11,10 @@ const FilesPanel = lazy(() => import("./FilesPanel").then((x) => ({ default: x.F
 const ConfigPanel = lazy(() => import("./ConfigPanel").then((x) => ({ default: x.ConfigPanel })));
 const ThemePanel = lazy(() => import("./ThemePanel").then((x) => ({ default: x.ThemePanel })));
 const DataPanel = lazy(() => import("./DataPanel").then((x) => ({ default: x.DataPanel })));
+const SeoPanel = lazy(() => import("./SeoPanel").then((x) => ({ default: x.SeoPanel })));
 const ChangesPanel = lazy(() => import("@/features/changes/ChangesPanel").then((x) => ({ default: x.ChangesPanel })));
 
-const PANEL_TABS = ["preview", "changes", "files", "config", "theme", "data"] as const;
+const PANEL_TABS = ["preview", "changes", "files", "config", "theme", "data", "seo"] as const;
 type PanelTab = (typeof PANEL_TABS)[number];
 
 const isTab = (v: string | null): v is PanelTab => PANEL_TABS.includes(v as PanelTab);
@@ -34,12 +35,12 @@ export function RightPanel({ siteId, readOnly }: { siteId: string | null; readOn
   const tab: PanelTab = isTab(raw) ? raw : "preview";
   const select = (key: PanelTab) => setParams((p) => withTab(p, key), { replace: true });
 
-  // Alt+1…6 picks a tab (plan M5 layer 3). e.code, since Alt+digit types another character on macOS; for
+  // Alt+1…7 picks a tab (plan M5 layer 3). e.code, since Alt+digit types another character on macOS; for
   // the same reason not in text fields, where Option+digit types characters such as [ and ] on some layouts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || isTypingTarget(e.target) || dialogOpen()) return;
-      const n = /^Digit([1-6])$/.exec(e.code)?.[1];
+      const n = /^Digit([1-7])$/.exec(e.code)?.[1];
       if (!n) return;
       e.preventDefault();
       setParams((p) => withTab(p, PANEL_TABS[Number(n) - 1] ?? "preview"), { replace: true });
@@ -57,9 +58,10 @@ export function RightPanel({ siteId, readOnly }: { siteId: string | null; readOn
     );
   else if (tab === "preview") body = <PreviewPanel siteId={siteId} readOnly={readOnly} />;
   else if (tab === "files") body = <FilesPanel siteId={siteId} />;
-  else if (tab === "config") body = <ConfigPanel siteId={siteId} />;
+  else if (tab === "config") body = <ConfigPanel siteId={siteId} readOnly={readOnly} />;
   else if (tab === "theme") body = <ThemePanel siteId={siteId} />;
   else if (tab === "data") body = <DataPanel siteId={siteId} />;
+  else if (tab === "seo") body = <SeoPanel siteId={siteId} readOnly={readOnly} />;
   else body = <ChangesPanel siteId={siteId} />;
 
   return (

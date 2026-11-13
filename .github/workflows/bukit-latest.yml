@@ -1,0 +1,52 @@
+name: Latest Bukit
+
+# BukitJalil ships a pinned Bukit (plan 8.1, BUKIT_VERSION). Every day, and on demand, this runs the tests
+# of the Bukit behaviour BukitJalil relies on (packages/server/test/bukit-behavior.test.ts) against the latest
+# Bukit release, as an early warning: users are not affected, but a failure means Bukit changed and must be
+# dealt with (in BukitJalil or Bukit) before BUKIT_VERSION is raised to that release.
+# GitHub runs schedule and workflow_dispatch from the default branch only: this starts once merged to main.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  behaviour:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    name: ${{ matrix.os }} / latest bukit
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Enable corepack (pnpm from packageManager)
+        run: |
+          npm install --global corepack@0.34.6
+          corepack enable
+          pnpm --version
+      - run: pnpm install --frozen-lockfile
+      # The app's installer code: the asset's SHA-256 as GitHub reports it, strict unpacking. The token only
+      # raises the API rate limit.
+      - name: Fetch the latest Bukit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts "$RUNNER_TEMP/bukit" --latest >> "$GITHUB_ENV"
+      - name: Show the Bukit version
+        run: |
+          echo "Latest release: $BUKIT_FETCHED_VERSION"
+          "$BUKIT_BIN" version
+      - name: Behaviour tests
+        env:
+          BUKIT_BEHAVIOUR_REQUIRED: "1"
+        # From the root, so the root vitest.config.ts (and its longer timeout for real Bukit runs) applies.
+        run: pnpm exec vitest run packages/server/test/bukit-behavior.test.ts

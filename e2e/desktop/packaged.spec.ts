@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { _electron, expect, test } from "@playwright/test";
+import { BUKIT_VERSION } from "../../packages/server/src/bukit/install.ts";
 
 // The packaged app (plan M7 layer 4), after `pnpm package:desktop`; skipped when it has not been built.
 const out = path.resolve(import.meta.dirname, "../../packages/desktop/out");
@@ -39,6 +40,7 @@ function launchEnv(home: string): Record<string, string> {
     BUKITJALIL_HOME: path.join(home, ".bukitjalil"),
     BUKITJALIL_DESKTOP_PROFILE: path.join(home, "profile"),
     BUKITJALIL_DESKTOP_PORT: "49850",
+    BUKITJALIL_OFFLINE: "1",
   };
 }
 
@@ -64,6 +66,24 @@ test("the packaged app runs its bundled server and creates a site from its own f
       throw new Error(`${err.message}\n\nThe window shows:\n${shown}`);
     });
 
+  // The settings page works in the packaged app: footer entry, model OAuth entry, appearance, close.
+  await page.getByTestId("open-settings").click();
+  await expect(page.getByTestId("settings-page")).toBeVisible();
+  await page.getByTestId("settings-nav-model").click();
+  await expect(page.getByTestId("model-provider-anthropic")).toBeVisible();
+  await page.getByTestId("model-provider-anthropic").click();
+  await expect(page.getByTestId("provider-oauth-sign-in")).toBeVisible();
+  await page.getByTestId("model-back").click();
+  await page.getByTestId("local-models-open").click();
+  await expect(page.getByTestId("local-models")).toBeVisible();
+  await page.getByTestId("local-back").click();
+  await page.getByTestId("settings-nav-general").click();
+  await page.getByTestId("appearance-dark").click();
+  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+  await page.getByTestId("appearance-system").click();
+  await page.getByTestId("settings-close").click();
+  await expect(page.getByTestId("new-site")).toBeVisible();
+
   const result = await page.evaluate(
     async (dir) => {
       const headers = { "content-type": "application/json", "x-bukitjalil": "1" };
@@ -78,7 +98,8 @@ test("the packaged app runs its bundled server and creates a site from its own f
         body: JSON.stringify({ name: "Packaged", path: dir, language: "en-US" }),
       });
       const health = await fetch("/api/health").then((r) => r.json());
-      return { settings: settings.status, site: site.status, body: await site.json(), health };
+      const bukit = await fetch("/api/bukit").then((r) => r.json());
+      return { settings: settings.status, site: site.status, body: await site.json(), health, bukit };
     },
     path.join(home, "packaged-site"),
   );
@@ -88,6 +109,9 @@ test("the packaged app runs its bundled server and creates a site from its own f
   expect(fs.existsSync(path.join(home, "packaged-site/site.yaml"))).toBe(true);
   expect(fs.existsSync(path.join(home, "packaged-site/.git"))).toBe(true);
   expect(result.health).toMatchObject({ ok: true });
+  // Bukit ships inside the app (plan 8.1), in its Resources folder, at the pinned version.
+  expect(result.bukit.status).toMatchObject({ state: "ok", version: BUKIT_VERSION, bundledVersion: BUKIT_VERSION });
+  expect(result.bukit.status.path).toContain(`${path.sep}app${path.sep}bukit${path.sep}`);
 
   // A conversation can start: the server found its AI skills in the app.
   const session = await page.evaluate(

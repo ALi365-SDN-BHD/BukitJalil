@@ -1,10 +1,11 @@
-import { FileDiff } from "lucide-react";
+import { ChevronDown, ChevronUp, FileDiff } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { ChangedFileList } from "./ChangedFileList";
 import { useCurrentChange } from "./hooks";
+import { NotionChangesNote } from "./NotionChangesNote";
 import { RestoreNote } from "./RestoreNote";
 import { type Notice, NoticeView, ReviewActions } from "./ReviewActions";
 
@@ -18,6 +19,7 @@ const LISTED = 8;
 export function ReviewCard({ siteId }: { siteId: string }) {
   const { m, t } = useI18n();
   const { change } = useCurrentChange(siteId);
+  const [collapsed, setCollapsed] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [, setParams] = useSearchParams();
   const hasFiles = !!change && (change.files.length > 0 || change.filesTruncated);
@@ -50,24 +52,40 @@ export function ReviewCard({ siteId }: { siteId: string }) {
         <Button size="xs" variant="ghost" onClick={() => viewDiff()} data-testid="review-view-diff">
           <FileDiff /> {m.changes.viewDiff}
         </Button>
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          onClick={() => setCollapsed((v) => !v)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? m.changes.expand : m.changes.collapse}
+          title={collapsed ? m.changes.expand : m.changes.collapse}
+          data-testid="review-collapse"
+        >
+          {collapsed ? <ChevronDown /> : <ChevronUp />}
+        </Button>
       </div>
-      {change.restoreOf && <RestoreNote commit={change.restoreOf} />}
-      <p className="whitespace-pre-wrap text-sm text-muted-foreground" data-testid="review-summary">
-        {change.summary?.trim() || m.changes.noSummary}
-      </p>
-      <ChangedFileList files={change.files.slice(0, LISTED)} onSelect={viewDiff} compact />
-      {(change.files.length > LISTED || change.filesTruncated) && (
-        <button type="button" className="w-fit text-xs text-muted-foreground underline" onClick={() => viewDiff()}>
-          {m.changes.more}
-        </button>
+      {!collapsed && (
+        <>
+          {change.restoreOf && <RestoreNote commit={change.restoreOf} />}
+          <NotionChangesNote changes={change.notionChanges} />
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground" data-testid="review-summary">
+            {change.summary?.trim() || m.changes.noSummary}
+          </p>
+          <ChangedFileList files={change.files.slice(0, LISTED)} onSelect={viewDiff} compact />
+          {(change.files.length > LISTED || change.filesTruncated) && (
+            <button type="button" className="w-fit text-xs text-muted-foreground underline" onClick={() => viewDiff()}>
+              {m.changes.more}
+            </button>
+          )}
+          {!change.reviewable && (
+            <p className="text-xs text-muted-foreground" data-testid="review-working">
+              {m.changes.working}
+            </p>
+          )}
+          {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
+          <ReviewActions siteId={siteId} change={change} onNotice={setNotice} />
+        </>
       )}
-      {!change.reviewable && (
-        <p className="text-xs text-muted-foreground" data-testid="review-working">
-          {m.changes.working}
-        </p>
-      )}
-      {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
-      <ReviewActions siteId={siteId} change={change} onNotice={setNotice} />
     </section>
   );
 }

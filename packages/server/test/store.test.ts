@@ -20,7 +20,9 @@ describe("SQLite store (plan 4.2)", () => {
         "builds",
         "change_set_sessions",
         "change_sets",
+        "data_sources",
         "deploys",
+        "publish_accounts",
         "schema_migrations",
         "sessions",
         "settings",
@@ -72,34 +74,34 @@ describe("SQLite store (plan 4.2)", () => {
     expect(store.get()).toEqual({
       locale: null,
       lastParentDir: null,
-      bukitPath: null,
       commitName: null,
       commitEmail: null,
       model: null,
       thinkingLevel: "medium",
       appearance: "system",
+      disabledSkills: [],
     });
     db.prepare("INSERT INTO settings (key, value_json) VALUES ('locale', '\"fr\"'), ('junk', '1')").run();
     expect(store.get()).toEqual({
       locale: null,
       lastParentDir: null,
-      bukitPath: null,
       commitName: null,
       commitEmail: null,
       model: null,
       thinkingLevel: "medium",
       appearance: "system",
+      disabledSkills: [],
     });
     expect(store.update({ appearance: "dark" }).appearance).toBe("dark");
     expect(store.update({ appearance: "system", locale: "en", lastParentDir: "/Users/x/Sites" })).toEqual({
       locale: "en",
       lastParentDir: "/Users/x/Sites",
-      bukitPath: null,
       commitName: null,
       commitEmail: null,
       model: null,
       thinkingLevel: "medium",
       appearance: "system",
+      disabledSkills: [],
     });
   });
 });

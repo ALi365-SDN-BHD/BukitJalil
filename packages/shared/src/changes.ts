@@ -38,8 +38,24 @@ export interface ChangeSet {
   restoreOf: string | null;
 }
 
+/**
+ * How a change set changes a Notion source in site.yaml (plan 5.4): once applied, main builds read these
+ * databases with the bound token. Sources match by name (else "#<n>", 1-based). "unreadable" means the
+ * change's site.yaml could not be read, so nothing can be said about its Notion sources.
+ */
+export interface NotionConfigChange {
+  source: string;
+  change: "added" | "removed" | "changed" | "unreadable";
+  /** Set when databaseId differs (or the source was added or removed). */
+  databaseId?: { before: string | null; after: string | null };
+  /** Other keys of the `notion` section that differ, by name only (filter, propertyMap, …). */
+  keys: string[];
+}
+
 /** A change set with its file list, as the review shows it. */
 export interface ChangeView extends ChangeSet {
+  /** Notion sources the change adds, removes or changes; absent when site.yaml is untouched or none do. */
+  notionChanges?: NotionConfigChange[];
   files: ChangedFile[];
   /** More files changed than the list holds. */
   filesTruncated: boolean;
@@ -53,6 +69,8 @@ export interface FileDiff {
   /** The unified diff of this file; null when binary or too large. */
   patch: string | null;
   tooLarge: boolean;
+  /** Change set diffs: whether its hunks can be applied one by one (plan 7.5). */
+  splittable?: boolean;
 }
 
 /** The check run before applying (plan 7.2): Bukit `config check` and `doctor` on the snapshot. */
@@ -73,13 +91,24 @@ export interface ApplyCheck {
 /**
  * What applying did: `applied` (merged into the default branch); `rebased` (the default branch had moved:
  * the change was merged onto it and must be reviewed again); `stale` (that merge had conflicts: the change
- * set is closed, the AI has to redo it); `check_failed` (nothing applied; send `force` to apply anyway).
+ * set is closed, the AI has to redo it); `check_failed` (nothing applied; send `force` to apply anyway);
+ * `partial` (the selected part was applied; the change set stays open with the rest, plan 7.5).
  */
-export type ApplyOutcome = "applied" | "rebased" | "stale" | "check_failed";
+export type ApplyOutcome = "applied" | "partial" | "rebased" | "stale" | "check_failed";
 
 /** A full tree or commit id (SHA-1 or SHA-256). */
 export const ObjectId = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
 
+/** Files a partial apply may list (plan 7.5): the review lists at most 2000 changed files. */
+export const MAX_SELECTION = 2000;
+/** One selected file of a partial apply. */
+export const ApplySelection = z
+  .object({
+    path: TreePath.refine((p) => p !== "", { message: "must name a file" }),
+    hunks: z.array(z.number().int().min(0).max(100_000)).min(1).max(10_000).optional(),
+  })
+  .strict();
+export type ApplySelection = z.infer<typeof ApplySelection>;
 /** POST /api/changes/:changeId/apply. */
 export const ApplyRequest = z
   .object({
@@ -87,8 +116,24 @@ export const ApplyRequest = z
     treeHash: ObjectId,
     /** Apply although the check failed. */
     force: z.boolean().optional(),
+    /** The base the review showed (ChangeSet.baseCommit); required with `selection` (plan 7.5). */
+    baseCommit: ObjectId.optional(),
+    /**
+     * Apply only these files (plan 7.5); the rest stays in the change set. `hunks`: indexes of the file's
+     * diff hunks as the review shows them; without it, the whole file.
+     */
+    selection: z
+      .array(ApplySelection)
+      .min(1)
+      .max(MAX_SELECTION)
+      .refine((items) => new Set(items.map((i) => i.path)).size === items.length, { message: "paths must differ" })
+      .refine((items) => items.every((i) => !i.hunks || new Set(i.hunks).size === i.hunks.length), {
+        message: "hunks must differ",
+      })
+      .optional(),
   })
-  .strict();
+  .strict()
+  .refine((r) => !r.selection || r.baseCommit !== undefined, { message: "a selection needs baseCommit" });
 export type ApplyRequest = z.infer<typeof ApplyRequest>;
 
 /** GET /api/changes/:changeId/diff?path= */

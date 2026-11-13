@@ -4,6 +4,7 @@ import path from "node:path";
 import type {
   ApplyResult,
   Build,
+  ChangedFile,
   ChangeSet,
   CurrentChange,
   FileDiff,
@@ -19,11 +20,22 @@ import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { MAX_FILES, MAX_PATCH_BYTES } from "../src/changes/diff.ts";
 import { listHistory } from "../src/changes/history.ts";
-import { changeRef, commitText } from "../src/changes/service.ts";
+import { applyHunks, parseHunks } from "../src/changes/partial.ts";
+import { changeRef, commitText, diffSummary } from "../src/changes/service.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
-import { ADMIN, commitAllAs, httpGet, makeApp, rawGit, req } from "./helpers.ts";
+import {
+  ADMIN,
+  commitAllAs,
+  httpGet,
+  installAppBukit,
+  jsonPut,
+  makeApp,
+  rawGit,
+  req,
+  testBukitDir,
+} from "./helpers.ts";
 
 // M4 layers 1 to 3, 5 and 6 (plan 7.2, 7.4, 8.4, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
 // works in the ai/ checkout, and its result is snapshotted into the change set; the site folder only
@@ -60,12 +72,12 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(base, "home"));
   const fakeBin = path.join(base, "fake-bukit");
   fs.writeFileSync(fakeBin, FAKE_BUKIT, { mode: 0o755 });
+  const home = path.join(base, "bk");
+  installAppBukit(home, fakeBin);
   ctx = makeApp({
     bukit: new BukitService({
-      home: path.join(base, "bk"),
+      dir: testBukitDir(home),
       tmpDir: path.join(base, "bk-tmp"),
-      customPath: () => fakeBin,
-      envPath: "",
     }),
     userHome: path.join(base, "home"),
     appHome: path.join(base, "app"),
@@ -347,6 +359,7 @@ describe("diffs", () => {
       binary: true,
       patch: null,
       tooLarge: false,
+      splittable: false,
     });
     expect(await ctx.changes.diff(change.id, "big.txt")).toMatchObject({ patch: null, tooLarge: true });
     await expect(ctx.changes.diff(change.id, "README.md")).rejects.toMatchObject({ code: "change.file_not_found" });
@@ -612,6 +625,29 @@ describe("applying and rejecting", () => {
     });
   });
 
+  it("writes a one-line message from the diff when the AI gave no summary", async () => {
+    const { s, view } = await reviewed();
+    ctx.changes.setSummary(s.id, "");
+    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(result.outcome).toBe("applied");
+    expect(s.git("log", "-1", "--format=%s")).toBe("Update 1 file, add 1 file: content/pages/faq.md, site.yaml");
+  });
+
+  it("tells a session joining a newer change set how its last one ended", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const first = await ctx.changes.begin(s.id, session.id);
+    expect(first.previous).toBeNull();
+    expect((await ctx.changes.begin(s.id, session.id)).previous).toBeNull();
+    await ctx.changes.reject(first.change.id);
+    const second = await ctx.changes.begin(s.id, session.id);
+    expect(second.previous).toBe("rejected");
+    // Every later run in the same change set still says so; the agent sends the note once (plan 6.2).
+    expect((await ctx.changes.begin(s.id, session.id)).previous).toBe("rejected");
+    // Another conversation that never took part gets nothing.
+    expect((await ctx.changes.begin(s.id, ctx.agent.create(s.id).id)).previous).toBeNull();
+  });
+
   it("says why the check could not run, and applies only when told to", async () => {
     const { s, view, cwd } = await reviewed();
     // A plugins/ folder makes the pre-build guard refuse the snapshot.
@@ -625,6 +661,312 @@ describe("applying and rejecting", () => {
     expect(failed.check?.problem).toContain("plugin");
     const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
     expect(forced.outcome).toBe("applied");
+  });
+
+  const NOTION_SITE_YAML =
+    "site:\n  name: n\n  title: N\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n";
+
+  it("applies a bound Notion site's change without force: it cannot be checked, which is not a failure", async () => {
+    const { s, view } = await reviewed((dir, git) => {
+      fs.writeFileSync(path.join(dir, "site.yaml"), NOTION_SITE_YAML);
+      git("add", "-A");
+      // An explicit identity: CI machines have no global git user.
+      git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "notion");
+    });
+    const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_apply_token" });
+    await ctx.sites.bindNotionSource(s.id, source.id);
+    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(result.outcome).toBe("applied");
+    expect(result.check).toMatchObject({ passed: false, problemCode: "notion", steps: [] });
+    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
+  });
+
+  it("still asks for force when the change itself adds a Notion source", async () => {
+    const { s, view, cwd } = await reviewed();
+    const source = ctx.dataSources.create({ platform: "notion", name: "Notion two", token: "ntn_apply_token2" });
+    await ctx.sites.bindNotionSource(s.id, source.id);
+    fs.writeFileSync(path.join(cwd, "site.yaml"), NOTION_SITE_YAML);
+    await ctx.changes.snapshot(s.id, cwd);
+    const now = await ctx.changes.current(s.id, false);
+    const failed = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" });
+    expect(failed.outcome).toBe("check_failed");
+    expect(failed.check).toMatchObject({ problemCode: "notion" });
+    const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
+    expect(forced.outcome).toBe("applied");
+  });
+});
+
+describe("partial apply (plan 7.5)", () => {
+  /** A change set that adds faq.md, edits site.yaml and deletes about.md, with an AI summary. */
+  async function threeChanges() {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+    fs.appendFileSync(path.join(cwd, "site.yaml"), "# reviewed\n");
+    fs.rmSync(path.join(cwd, "content/pages/about.md"));
+    await ctx.changes.snapshot(s.id, cwd);
+    ctx.changes.setSummary(s.id, "Added an FAQ page.");
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    return { s, session, cwd, view };
+  }
+
+  it("applies only the selected files and keeps the rest open for review", async () => {
+    const { s, session, cwd, view } = await threeChanges();
+    const head = s.git("rev-parse", "HEAD");
+    const result = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "content/pages/faq.md" }, { path: "content/pages/about.md" }],
+    });
+    expect(result.outcome).toBe("partial");
+    expect(result.check).toMatchObject({ passed: true });
+
+    // One commit on main with just those two files; the site folder follows.
+    expect(s.git("rev-parse", "HEAD^")).toBe(head);
+    expect(s.git("diff", "--name-status", "HEAD^", "HEAD")).toBe("D\tcontent/pages/about.md\nA\tcontent/pages/faq.md");
+    expect(s.git("log", "-1", "--format=%an|%B")).toBe(
+      `BukitJalil AI|Add 1 file, delete 1 file: content/pages/about.md, content/pages/faq.md\n\nPart of: Added an FAQ page.\n\nBukitJalil-Sessions: ${session.id}`,
+    );
+    expect(fs.existsSync(path.join(s.dir, "content/pages/faq.md"))).toBe(true);
+    expect(fs.readFileSync(path.join(s.dir, "site.yaml"), "utf8")).not.toContain("# reviewed");
+    expect(s.git("status", "--porcelain")).toBe("");
+
+    // The change set stays open on top of the result, with the same snapshot tree: only site.yaml is left.
+    const rest = await ctx.changes.current(s.id, false);
+    expect(rest).toMatchObject({ id: view.id, status: "open", baseCommit: s.git("rev-parse", "HEAD") });
+    expect(rest?.treeHash).toBe(view.treeHash);
+    expect(rest?.files.map((f) => f.path)).toEqual(["site.yaml"]);
+    expect(s.git("rev-parse", changeRef(view.id))).toBe(rest?.snapshotCommit);
+    expect(s.git("rev-parse", `${rest?.snapshotCommit}^`)).toBe(s.git("rev-parse", "HEAD"));
+    // The AI's working copy is as it was, and still clean against the new snapshot.
+    expect(fs.readFileSync(path.join(cwd, "site.yaml"), "utf8")).toContain("# reviewed");
+    expect(rawGit(base, cwd, "status", "--porcelain").trim()).toBe("");
+    expect(rawGit(base, cwd, "rev-parse", "HEAD").trim()).toBe(rest?.snapshotCommit);
+
+    // Applying the rest brings main to exactly what was reviewed in the first place.
+    const all = await ctx.changes.apply(view.id, { treeHash: rest?.treeHash ?? "" });
+    expect(all.outcome).toBe("applied");
+    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
+    expect(s.git("log", "-1", "--format=%s")).toBe("Rest of: Added an FAQ page.");
+  });
+
+  it("refuses to take one side of a file replaced by a folder of the same name", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.rmSync(path.join(cwd, "content/pages/about.md"));
+    fs.mkdirSync(path.join(cwd, "content/pages/about.md"));
+    fs.writeFileSync(path.join(cwd, "content/pages/about.md/index.md"), "# About\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    expect(view.files.map((f) => `${f.status} ${f.path}`)).toEqual([
+      "deleted content/pages/about.md",
+      "added content/pages/about.md/index.md",
+    ]);
+    await expect(
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "content/pages/about.md/index.md" }],
+      }),
+    ).rejects.toMatchObject({ code: "change.partial_unsupported" });
+    const both = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: view.files.map((f) => ({ path: f.path })),
+    });
+    expect(both.outcome).toBe("applied");
+  });
+
+  it("applies only the selected hunks of a file, byte for byte", async () => {
+    const s = await site();
+    const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
+    // No final newline, and a byte that is not UTF-8, both kept exactly.
+    const before = Buffer.concat([Buffer.from(`${lines.join("\n")}\n\xff`, "latin1")]);
+    fs.writeFileSync(path.join(s.dir, "notes.txt"), before);
+    commitAllAs(base, s.dir, "notes");
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    const edited = [...lines];
+    edited[1] = "line 2 edited";
+    edited[24] = "line 25 edited";
+    const after = Buffer.from(`${edited.join("\n")}\n\xff end`, "latin1");
+    fs.writeFileSync(path.join(cwd, "notes.txt"), after);
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    const diff = await ctx.changes.diff(view.id, "notes.txt");
+    expect(parseHunks(diff.patch ?? "")).toHaveLength(2);
+
+    await expect(
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "notes.txt", hunks: [2] }],
+      }),
+    ).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+    const result = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "notes.txt", hunks: [1] }],
+    });
+    expect(result.outcome).toBe("partial");
+    const applied = [...lines];
+    applied[24] = "line 25 edited";
+    expect(fs.readFileSync(path.join(s.dir, "notes.txt"))).toEqual(
+      Buffer.from(`${applied.join("\n")}\n\xff end`, "latin1"),
+    );
+    // What is left is the first hunk; the AI's copy is the full edit still.
+    const rest = await ctx.changes.diff(view.id, "notes.txt");
+    expect(parseHunks(rest.patch ?? "")).toHaveLength(1);
+    expect(rest.patch).toContain("+line 2 edited");
+    expect(rest.patch).not.toContain("line 25 edited");
+    expect(fs.readFileSync(path.join(cwd, "notes.txt"))).toEqual(after);
+
+    // The rest has the same tree but a new base: hunk numbers made on the old diff are refused.
+    const now = await ctx.changes.current(s.id, false);
+    expect(now?.treeHash).toBe(view.treeHash);
+    await expect(
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "notes.txt", hunks: [0] }],
+      }),
+    ).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+    expect((await ctx.changes.diff(view.id, "notes.txt")).splittable).toBe(true);
+
+    // All hunks of a file are the whole file.
+    const all = await ctx.changes.apply(view.id, {
+      treeHash: now?.treeHash ?? "",
+      baseCommit: now?.baseCommit,
+      selection: [{ path: "notes.txt", hunks: [0] }],
+    });
+    expect(all.outcome).toBe("applied");
+    expect(fs.readFileSync(path.join(s.dir, "notes.txt"))).toEqual(after);
+  });
+
+  it("takes only whole new files, deleted files and files whose mode changed", async () => {
+    const { s, cwd } = await threeChanges();
+    fs.chmodSync(path.join(cwd, "content/posts/welcome.md"), 0o755);
+    fs.appendFileSync(path.join(cwd, "content/posts/welcome.md"), "more\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    for (const p of ["content/pages/faq.md", "content/pages/about.md", "content/posts/welcome.md"]) {
+      await expect(
+        ctx.changes.apply(view.id, {
+          treeHash: view.treeHash,
+          baseCommit: view.baseCommit,
+          selection: [{ path: p, hunks: [0] }],
+        }),
+      ).rejects.toMatchObject({ code: "change.partial_unsupported" });
+    }
+    expect((await ctx.changes.diff(view.id, "content/pages/faq.md")).splittable).toBe(false);
+    expect((await ctx.changes.diff(view.id, "content/posts/welcome.md")).splittable).toBe(false);
+    expect((await ctx.changes.diff(view.id, "site.yaml")).splittable).toBe(true);
+    const ok = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "site.yaml", hunks: [0] }],
+    });
+    expect(ok.outcome).toBe("partial");
+  });
+
+  it("applies the whole change set when everything is selected", async () => {
+    const { s, view } = await threeChanges();
+    const result = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: view.files.map((f) => ({ path: f.path })),
+    });
+    expect(result.outcome).toBe("applied");
+    expect(result.change.status).toBe("applied");
+    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
+  });
+
+  it("checks the selected result, not the whole snapshot", async () => {
+    const { s, cwd } = await threeChanges();
+    // fake-doctor makes the stand-in Bukit's doctor fail.
+    fs.writeFileSync(path.join(cwd, "fake-doctor"), "x");
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    const head = s.git("rev-parse", "HEAD");
+
+    const failed = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "fake-doctor" }],
+    });
+    expect(failed.outcome).toBe("check_failed");
+    expect(s.git("rev-parse", "HEAD")).toBe(head);
+    expect(ctx.changes.store.open(s.id)).toMatchObject({
+      id: view.id,
+      baseCommit: head,
+      snapshotCommit: view.snapshotCommit,
+    });
+
+    const ok = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "site.yaml" }],
+    });
+    expect(ok.outcome).toBe("partial");
+    expect(s.git("diff", "--name-only", "HEAD^", "HEAD")).toBe("site.yaml");
+  });
+
+  it("refuses paths that did not change, hunks it cannot split, restores and an old fingerprint", async () => {
+    const { s, view } = await threeChanges();
+    await expect(
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "content/posts/welcome.md" }],
+      }),
+    ).rejects.toMatchObject({ code: "change.file_not_found" });
+    await expect(
+      ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "content/pages/faq.md", hunks: [0] }],
+      }),
+    ).rejects.toMatchObject({ code: "change.partial_unsupported" });
+    await expect(
+      ctx.changes.apply(view.id, {
+        treeHash: "0".repeat(40),
+        baseCommit: view.baseCommit,
+        selection: [{ path: "site.yaml" }],
+      }),
+    ).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+    await ctx.changes.reject(view.id);
+
+    const init = s.git("rev-list", "--max-parents=0", "HEAD");
+    fs.appendFileSync(path.join(s.dir, "site.yaml"), "# later\n");
+    commitAllAs(base, s.dir, "later");
+    const restored = await ctx.changes.restore(s.id, init);
+    await expect(
+      ctx.changes.apply(restored.change.id, {
+        treeHash: restored.change.treeHash,
+        baseCommit: restored.change.baseCommit,
+        selection: [{ path: "site.yaml" }],
+      }),
+    ).rejects.toMatchObject({ code: "change.partial_restore" });
+  });
+
+  it("rebases instead when the default branch moved, ignoring the selection", async () => {
+    const { s, view } = await threeChanges();
+    fs.writeFileSync(path.join(s.dir, "other.md"), "other\n");
+    commitAllAs(base, s.dir, "elsewhere");
+    const result = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "site.yaml" }],
+    });
+    expect(result.outcome).toBe("rebased");
+    expect(s.git("log", "-1", "--format=%s")).toBe("elsewhere");
   });
 });
 
@@ -699,6 +1041,41 @@ describe("the change set API and events", () => {
     expect((await call("GET", "/api/changes/nope/diff?path=a")).json).toEqual({ code: "change.not_found" });
   });
 
+  it("points out a Notion source the change adds to site.yaml (plan 5.4)", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    expect((await ctx.changes.current(s.id, false))?.notionChanges).toBeUndefined();
+
+    const yaml = path.join(cwd, "site.yaml");
+    const text = fs.readFileSync(yaml, "utf8");
+    fs.writeFileSync(
+      yaml,
+      text.replace(
+        /^ {2}sources:\n/m,
+        "  sources:\n    - type: Notion\n      name: stolen\n      collection: post\n      notion:\n        databaseId: 12345678901234567890123456789012\n",
+      ),
+    );
+    await ctx.changes.snapshot(s.id, cwd);
+    // The unquoted all-digit id stays text, as Bukit reads it.
+    expect((await ctx.changes.current(s.id, false))?.notionChanges).toEqual([
+      {
+        source: "stolen",
+        change: "added",
+        databaseId: { before: null, after: "12345678901234567890123456789012" },
+        keys: [],
+      },
+    ]);
+
+    fs.writeFileSync(yaml, `${text}\n: : not yaml [\n`);
+    await ctx.changes.snapshot(s.id, cwd);
+    expect((await ctx.changes.current(s.id, false))?.notionChanges).toEqual([
+      { source: "site.yaml", change: "unreadable", keys: [] },
+    ]);
+  });
+
   it("applies with the fingerprint, rebuilds the main preview, and rejects", async () => {
     const s = await site();
     const session = ctx.agent.create(s.id);
@@ -713,6 +1090,13 @@ describe("the change set API and events", () => {
       { treeHash: "abc" },
       { treeHash: change.treeHash, extra: 1 },
       { treeHash: change.treeHash, force: "yes" },
+      { treeHash: change.treeHash, selection: [] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md" }, { path: "a.md" }] },
+      { treeHash: change.treeHash, selection: [{ path: "../a.md" }] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [] }] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [1, 1] }] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [-1] }] },
+      { treeHash: change.treeHash, selection: [{ path: "a.md" }] },
     ]) {
       expect((await call("POST", `/api/changes/${change.id}/apply`, bad)).json).toEqual({
         code: "request.invalid_body",
@@ -1038,6 +1422,93 @@ describe("history and restore", () => {
   });
 });
 
+describe("built-in plugin switches (Settings → site Config)", () => {
+  it("creates a reviewable site.yaml change and leaves the site unchanged when rejected", async () => {
+    const s = await site();
+    const before = fs.readFileSync(path.join(s.dir, "site.yaml"), "utf8");
+    const result = await ctx.changes.setPlugin(s.id, "related-content", false);
+    expect(result.change?.files).toEqual([expect.objectContaining({ path: "site.yaml", status: "modified" })]);
+    expect(result.change?.summary).toBe("Plugin settings: related-content off");
+    const diff = await ctx.changes.diff(result.change?.id ?? "", "site.yaml");
+    expect(diff.patch).toContain("related-content");
+    expect(diff.patch).toContain("false");
+    await ctx.changes.reject(result.change?.id ?? "");
+    expect(fs.readFileSync(path.join(s.dir, "site.yaml"), "utf8")).toBe(before);
+    expect(ctx.changes.store.open(s.id)).toBeNull();
+  });
+
+  it("applies as the user and keeps a site.plugins entry", async () => {
+    const s = await site();
+    const change = (await ctx.changes.setPlugin(s.id, "related-content", false)).change;
+    const applied = await ctx.changes.apply(change?.id ?? "", { treeHash: change?.treeHash ?? "" });
+    expect(applied.outcome).toBe("applied");
+    expect(s.git("show", "HEAD:site.yaml")).toContain("related-content: false");
+    expect(s.git("log", "-1", "--format=%an|%cn")).toBe("Site Owner|Site Owner");
+    expect(s.git("log", "-1", "--format=%s")).toBe("Plugin settings: related-content off");
+  });
+
+  it("exposes the toggle through the API", async () => {
+    const s = await site();
+    const res = await ctx.app.fetch(req(`/api/sites/${s.id}/plugins/related-content`, jsonPut({ enabled: false })));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as CurrentChange;
+    expect(body.change?.files).toContainEqual(expect.objectContaining({ path: "site.yaml" }));
+    await ctx.changes.reject(body.change?.id ?? "");
+  });
+
+  it("rejects an invalid site.plugins without leaving a change set", async () => {
+    const s = await site();
+    fs.writeFileSync(
+      path.join(s.dir, "site.yaml"),
+      "site:\n  name: bad\n  title: Bad\n  plugins: bad\ncontent:\n  sources: []\n",
+    );
+    commitAllAs(base, s.dir, "bad plugins");
+    await expect(ctx.changes.setPlugin(s.id, "related-content", false)).rejects.toMatchObject({
+      code: "config.plugins_invalid",
+    });
+    expect(ctx.changes.store.open(s.id)).toBeNull();
+  });
+
+  it("refuses read-only and busy sites before writing", async () => {
+    const readOnly = await site();
+    ctx.sites.store.setState(readOnly.id, {
+      readOnly: [{ code: "missing_site_yaml" }],
+      checkedCommit: null,
+      configCheck: null,
+    });
+    await expect(ctx.changes.setPlugin(readOnly.id, "related-content", false)).rejects.toMatchObject({
+      code: "site.read_only",
+    });
+
+    const busy = await site();
+    const release = ctx.locks.acquire(busy.id, "build");
+    try {
+      await expect(ctx.changes.setPlugin(busy.id, "related-content", false)).rejects.toMatchObject({
+        code: "site.busy",
+      });
+    } finally {
+      release();
+    }
+  });
+
+  it("does not create a change set for a no-op toggle", async () => {
+    const s = await site();
+    const result = await ctx.changes.setPlugin(s.id, "related-content", true);
+    expect(result.change).toBeNull();
+    expect(ctx.changes.store.open(s.id)).toBeNull();
+  });
+
+  it("joins an existing AI change set", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { change } = await ctx.changes.begin(s.id, session.id);
+    const result = await ctx.changes.setPlugin(s.id, "related-content", false);
+    expect(result.change?.id).toBe(change.id);
+    expect(result.change?.sessionIds).toContain(session.id);
+    await ctx.changes.reject(change.id);
+  });
+});
+
 describe("commitText", () => {
   it("keeps a short first line and gives a long paragraph a subject from its first sentence", () => {
     expect(commitText("Add FAQ page")).toBe("Add FAQ page");
@@ -1054,5 +1525,64 @@ describe("commitText", () => {
     const long = commitText("x".repeat(100)).split("\n")[0] ?? "";
     expect([...long]).toHaveLength(72);
     expect(long.endsWith("…")).toBe(true);
+  });
+});
+
+describe("hunks (plan 7.5)", () => {
+  const b = (text: string) => Buffer.from(text);
+  it("reads the line ranges of each hunk header, empty sides included", () => {
+    const patch =
+      "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -0,0 +1,2 @@\n+a\n+b\n@@ -5 +7,0 @@ ctx\n-gone\n+@@ -9,9 +9,9 @@\n";
+    expect(parseHunks(patch)).toEqual([
+      { oldStart: 0, oldCount: 0, newStart: 0, newCount: 2 },
+      { oldStart: 4, oldCount: 1, newStart: 7, newCount: 0 },
+    ]);
+  });
+  it("replaces the selected ranges and keeps the rest of the old file", () => {
+    const before = b("a\nb\nc\nd\n");
+    const after = b("A\nb\nc\nD");
+    const hunks = [
+      { oldStart: 0, oldCount: 1, newStart: 0, newCount: 1 },
+      { oldStart: 3, oldCount: 1, newStart: 3, newCount: 1 },
+    ];
+    expect(applyHunks(before, after, hunks, new Set([0, 1]))?.toString()).toBe("A\nb\nc\nD");
+    expect(applyHunks(before, after, hunks, new Set([0]))?.toString()).toBe("A\nb\nc\nd\n");
+    expect(applyHunks(before, after, hunks, new Set([1]))?.toString()).toBe("a\nb\nc\nD");
+    expect(applyHunks(before, after, hunks, new Set())?.toString()).toBe("a\nb\nc\nd\n");
+    // Ranges outside the files, or out of order, do not fit.
+    expect(
+      applyHunks(before, after, [{ oldStart: 3, oldCount: 5, newStart: 0, newCount: 1 }], new Set([0])),
+    ).toBeNull();
+    expect(applyHunks(before, after, [...hunks].reverse(), new Set([0]))).toBeNull();
+  });
+});
+
+describe("diffSummary (plan 6.3)", () => {
+  const file = (path: string, status: ChangedFile["status"]): ChangedFile => ({
+    path,
+    status,
+    additions: 1,
+    deletions: 0,
+    binary: false,
+  });
+  it("counts by kind and names at most three files", () => {
+    expect(diffSummary({ files: [file("a.md", "added")], truncated: false })).toBe("Add 1 file: a.md");
+    expect(
+      diffSummary({
+        files: [file("a", "modified"), file("b", "deleted"), file("c", "type_changed"), file("d", "added")],
+        truncated: false,
+      }),
+    ).toBe("Update 2 files, add 1 file, delete 1 file: a, b, c, ...");
+  });
+  it("drops names to fit the subject line, keeping the counts", () => {
+    const long = (n: number) => `content/pages/${"x".repeat(n)}.md`;
+    const two = diffSummary({ files: [file(long(20), "added"), file(long(40), "added")], truncated: false });
+    expect(two).toBe(`Add 2 files: ${long(20)}, ...`);
+    expect(two.length).toBeLessThanOrEqual(72);
+    expect(diffSummary({ files: [file(long(80), "modified")], truncated: false })).toBe("Update 1 file");
+  });
+  it("falls back to the fixed text for an empty or cut list", () => {
+    expect(diffSummary({ files: [], truncated: false })).toBe("Changes made with BukitJalil AI");
+    expect(diffSummary({ files: [file("a", "added")], truncated: true })).toBe("Changes made with BukitJalil AI");
   });
 });

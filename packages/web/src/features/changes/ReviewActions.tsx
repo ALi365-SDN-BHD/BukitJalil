@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { clearSelection, reviewKey, useSelection } from "./selection";
 
 export type Notice = { tone: "ok" | "warn" | "error"; text: string; detail?: string };
 
@@ -24,14 +25,23 @@ export function ReviewActions({
   const { m, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const [confirmReject, setConfirmReject] = useState(false);
-  const [failed, setFailed] = useState<ApplyResult | null>(null);
+  const [failed, setFailed] = useState<{ result: ApplyResult; picked: string } | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: keys.change(siteId) });
+  // Only part of it, when the user left some files or hunks out (plan 7.5).
+  const selection = useSelection(change);
+  const picked = selection.request();
 
   const apply = useMutation({
-    mutationFn: (force: boolean) => api.applyChange(change.id, { treeHash: change.treeHash, force }),
+    mutationFn: (force: boolean) =>
+      api.applyChange(change.id, {
+        treeHash: change.treeHash,
+        force,
+        ...(picked ? { baseCommit: change.baseCommit, selection: picked } : {}),
+      }),
     onMutate: () => onNotice(null),
     onSuccess: (result) => {
-      setFailed(result.outcome === "check_failed" ? result : null);
+      setFailed(result.outcome === "check_failed" ? { result, picked: JSON.stringify(picked ?? null) } : null);
+      if (result.outcome !== "check_failed") clearSelection();
       if (result.outcome === "check_failed") {
         const problem = result.check?.problemCode;
         onNotice({
@@ -39,8 +49,15 @@ export function ReviewActions({
           text: problem ? `${m.changes.checkFailed} ${m.changes.problem[problem]}` : m.changes.checkFailed,
           detail: checkDetail(result),
         });
+      } else if (
+        (result.outcome === "applied" || result.outcome === "partial") &&
+        result.check?.problemCode === "notion"
+      ) {
+        // Applied without a Bukit check: say so, and where the result shows.
+        onNotice({ tone: "warn", text: `${m.changes.outcome[result.outcome]} ${m.changes.appliedUnchecked}` });
       } else {
-        onNotice({ tone: result.outcome === "applied" ? "ok" : "warn", text: m.changes.outcome[result.outcome] });
+        const ok = result.outcome === "applied" || result.outcome === "partial";
+        onNotice({ tone: ok ? "ok" : "warn", text: m.changes.outcome[result.outcome] });
       }
       void refresh();
     },
@@ -61,9 +78,14 @@ export function ReviewActions({
   });
 
   const busy = apply.isPending || reject.isPending;
-  // A failed check is only worth overriding for the fingerprint it ran on.
-  const canForce = failed?.change.treeHash === change.treeHash;
+  // A failed check is only worth overriding for the fingerprint and the selection it ran on.
+  const canForce =
+    !!failed &&
+    reviewKey(failed.result.change) === reviewKey(change) &&
+    failed.picked === JSON.stringify(picked ?? null);
   const disabled = busy || !change.reviewable;
+  // Everything left out: there is nothing to apply.
+  const nothing = picked !== undefined && picked.length === 0;
 
   if (confirmReject) {
     return (
@@ -80,15 +102,25 @@ export function ReviewActions({
   }
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button size="sm" disabled={disabled} onClick={() => apply.mutate(false)} data-testid="change-apply">
+      {selection.dropped && (
+        <p className="w-full text-xs text-amber-700 dark:text-amber-400" role="status" data-testid="selection-reset">
+          {m.changes.selectionReset}
+        </p>
+      )}
+      {picked && (
+        <p className="w-full text-xs text-muted-foreground" data-testid="selection-partial">
+          {m.changes.selectionPartial}
+        </p>
+      )}
+      <Button size="sm" disabled={disabled || nothing} onClick={() => apply.mutate(false)} data-testid="change-apply">
         {apply.isPending ? <Loader2 className="animate-spin" /> : <Check />}
-        {apply.isPending ? m.changes.applying : m.changes.apply}
+        {apply.isPending ? m.changes.applying : picked ? m.changes.applySelected : m.changes.apply}
       </Button>
       {canForce && (
         <Button
           size="sm"
           variant="outline"
-          disabled={disabled}
+          disabled={disabled || nothing}
           onClick={() => apply.mutate(true)}
           data-testid="change-apply-force"
         >

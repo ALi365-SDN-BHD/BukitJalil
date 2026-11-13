@@ -160,6 +160,7 @@ const OUTCOME_TEXT: Record<BuildResult["outcome"], string> = {
   render_error: "The build failed: a template rendering error (exit code 3).",
   stopped: "The build was stopped.",
   failed: "Bukit failed to run the build.",
+  base_url: "The build did not run: site.baseUrl is not a path the preview can be served under.",
 };
 
 function formatBuild(r: BuildResult) {

@@ -11,6 +11,7 @@ import type { ChangeService } from "../changes/service.ts";
 import type { Snapshot } from "../changes/snapshot.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
+import { checkoutBasePath } from "../preview/base-path.ts";
 import type { SiteService } from "../sites/service.ts";
 
 /**
@@ -54,7 +55,8 @@ export interface CheckResult {
 }
 
 export interface BuildResult {
-  outcome: ReturnType<typeof buildOutcome>;
+  /** Bukit's outcome, or "base_url" when site.baseUrl is not a path a preview can be served under. */
+  outcome: ReturnType<typeof buildOutcome> | "base_url";
   commit: string;
   removed: string[];
   exitCode: number;
@@ -94,9 +96,13 @@ export class AiBukit {
     }
   }
 
-  /** `config check`, then `doctor` (it finds content and template errors check does not; plan 8.2). */
-  check(siteId: string, cwd: string, signal?: AbortSignal): Promise<CheckResult> {
-    return this.guarded(siteId, cwd, async (runner, { commit, removed }) => {
+  /**
+   * `config check`, then `doctor` (it finds content and template errors check does not; plan 8.2). With
+   * `commit`, `cwd` is a checkout of that commit that is not the AI's: it is guarded as it is, not
+   * snapshotted (a partial apply, plan 7.5).
+   */
+  check(siteId: string, cwd: string, signal?: AbortSignal, commit?: string): Promise<CheckResult> {
+    return this.guarded(siteId, cwd, commit, async (runner, { commit, removed }) => {
       const steps: CheckStep[] = [];
       for (const [command, args] of [
         ["config check", ["config", "check", "--config", "site.yaml"]],
@@ -120,9 +126,9 @@ export class AiBukit {
    * The check before applying a change set (plan 7.2), with the site lock held by the caller: like
    * bukit_check, but a refusal (no Bukit, the pre-build guard) is a failed check the user may override.
    */
-  async checkForApply(siteId: string, cwd: string): Promise<ApplyCheck> {
+  async checkForApply(siteId: string, cwd: string, commit?: string): Promise<ApplyCheck> {
     try {
-      const { passed, steps } = await this.check(siteId, cwd);
+      const { passed, steps } = await this.check(siteId, cwd, undefined, commit);
       return {
         passed,
         problemCode: null,
@@ -137,11 +143,26 @@ export class AiBukit {
 
   /** Build into a fresh .bukitjalil-build/ai-<id>/ and report, with its SEO / GEO summary; the output is deleted. */
   build(siteId: string, cwd: string, signal?: AbortSignal): Promise<BuildResult> {
-    return this.guarded(siteId, cwd, async (runner, { commit, removed }) => {
+    return this.guarded(siteId, cwd, undefined, async (runner, { commit, removed }) => {
+      // Built under the site's own baseUrl, as the preview of the change will be (plan 16 #8).
+      const base = checkoutBasePath(cwd);
+      if (!base.ok) {
+        const msg = `${base.detail}; the preview cannot be served, fix site.baseUrl`;
+        return {
+          outcome: "base_url",
+          commit,
+          removed,
+          exitCode: -1,
+          pages: 0,
+          messages: [{ level: "error", msg }],
+          output: "",
+          audit: null,
+        };
+      }
       const name = `ai-${crypto.randomBytes(6).toString("hex")}`;
       const out = path.join(cwd, BUILD_OUTPUT_PARENT, name);
       try {
-        const result = await runner.run("build", buildArgs(name), { cwd, signal });
+        const result = await runner.run("build", buildArgs(name, base.basePath), { cwd, signal });
         const report = buildReport(result);
         const outcome = buildOutcome(result);
         return {
@@ -177,13 +198,17 @@ export class AiBukit {
 
   // --- internals ---
 
-  /** Snapshot and guard, then run `fn` with a runner; any refusal is an AiBukitError. */
+  /**
+   * Snapshot (or, with `commit`, take that commit as it is) and guard, then run `fn` with a runner; any
+   * refusal is an AiBukitError.
+   */
   private guarded<T>(
     siteId: string,
     cwd: string,
+    commit: string | undefined,
     fn: (runner: BukitRunner, snapshot: Snapshot) => Promise<T>,
   ): Promise<T> {
-    const call = this.guardedCall(siteId, cwd, fn);
+    const call = this.guardedCall(siteId, cwd, commit, fn);
     const calls = this.inflight.get(siteId) ?? new Set();
     this.inflight.set(siteId, calls);
     calls.add(call);
@@ -198,12 +223,13 @@ export class AiBukit {
   private async guardedCall<T>(
     siteId: string,
     cwd: string,
+    commit: string | undefined,
     fn: (runner: BukitRunner, snapshot: Snapshot) => Promise<T>,
   ): Promise<T> {
     const site = this.opts.sites.get(siteId);
     if (site.readOnly) throw new AiBukitError("read_only", "The site is read-only, so Bukit cannot run on it.");
     const runner = await this.runner();
-    const snapshot = await this.opts.changes.snapshot(siteId, cwd);
+    const snapshot = commit ? { commit, removed: [] } : await this.opts.changes.snapshot(siteId, cwd);
     const guard = await guardCommit(this.opts.git, site.path, snapshot.commit);
     if (!guard.ok) {
       throw new AiBukitError(

@@ -15,17 +15,18 @@ test("the appearance choice switches the theme and is kept", async ({ page, serv
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto(await server.loginUrl());
   const html = page.locator("html");
-  await page.getByTestId("appearance-select").selectOption("dark");
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("appearance-dark").click();
   await expect(html).toHaveClass(/\bdark\b/);
   await page.reload();
   await expect(html).toHaveClass(/\bdark\b/);
-  await expect(page.getByTestId("appearance-select")).toHaveValue("dark");
+  await expect(page.getByTestId("appearance-dark")).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByTestId("appearance-select").selectOption("light");
+  await page.getByTestId("appearance-light").click();
   await expect(html).not.toHaveClass(/\bdark\b/);
 
   // "System" follows the browser.
-  await page.getByTestId("appearance-select").selectOption("system");
+  await page.getByTestId("appearance-system").click();
   await expect(html).not.toHaveClass(/\bdark\b/);
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(html).toHaveClass(/\bdark\b/);
@@ -44,16 +45,31 @@ test("Alt+number picks a panel and ? lists the shortcuts", async ({ page, server
   await page.keyboard.press("Alt+Digit2");
   await expect(page.getByTestId("tab-changes")).toHaveAttribute("aria-selected", "true");
   // Not inside a form field, where Option+digit types characters on some keyboard layouts.
-  await page.getByTestId("locale-select").focus();
+  await page.evaluate(() => {
+    const input = document.createElement("input");
+    input.dataset.testid = "typing-target";
+    document.body.append(input);
+    input.focus();
+  });
   await page.keyboard.press("Alt+Digit1");
   await expect(page.getByTestId("tab-changes")).toHaveAttribute("aria-selected", "true");
-  await page.getByTestId("locale-select").blur();
+  await page.evaluate(() => document.querySelector("[data-testid=typing-target]")?.remove());
 
   await page.keyboard.press("?");
   await expect(page.getByTestId("shortcuts-dialog")).toBeVisible();
   await expect(page.getByTestId("shortcuts-dialog")).toContainText("Alt+1");
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("shortcuts-dialog")).toBeHidden();
+});
+
+test("keyboard shortcuts are opened from Settings > General", async ({ page, server }) => {
+  await page.goto(await server.loginUrl());
+  await expect(page.getByTestId("open-shortcuts")).toHaveCount(0);
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("settings-nav-general").click();
+  await page.getByTestId("settings-shortcuts").click();
+  await expect(page.getByTestId("shortcuts-dialog")).toBeVisible();
+  await expect(page.getByTestId("shortcuts-dialog")).toContainText("Alt+1");
 });
 
 test("a narrow screen shows one column at a time", async ({ page, server }) => {

@@ -1,13 +1,20 @@
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import type {
   KeySource,
   ModelInfo,
   ModelsResponse,
+  ProviderAuth,
   ProviderInfo,
   ProviderKey,
+  ProviderLoginEvent,
+  ProviderLoginPrompt,
+  ProviderLoginStatus,
+  ProviderOAuth,
   ProviderTestResult,
 } from "@bukitjalil/shared";
-import type { Api, Model, Provider } from "@earendil-works/pi-ai";
+import type { Api, AuthEvent, AuthInteraction, AuthPrompt, Model, Provider } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { SiteError } from "../sites/location.ts";
 import type { SettingsStore } from "../store/settings.ts";
@@ -22,6 +29,24 @@ const MULTI_FIELD = new Set(["amazon-bedrock", "google-vertex", "cloudflare-ai-g
 
 const TEST_TIMEOUT_MS = 30_000;
 const TEST_PROMPT = "Reply with the single word OK.";
+const LOGIN_TIMEOUT_MS = 10 * 60_000;
+const LOGIN_KEEP_MS = 5 * 60_000;
+
+interface PendingPrompt {
+  value: ProviderLoginPrompt;
+  answer: (value: string) => void;
+  reject: (err: Error) => void;
+}
+
+interface LoginJob {
+  id: string;
+  providerId: string;
+  state: ProviderLoginStatus["state"];
+  events: ProviderLoginEvent[];
+  prompt: PendingPrompt | null;
+  error: string | null;
+  controller: AbortController;
+}
 
 export interface ModelServiceOptions {
   runtime: () => Promise<ModelRuntime>;
@@ -30,6 +55,8 @@ export interface ModelServiceOptions {
   /** Pi's directory, holding auth.json. */
   piDir: string;
   testTimeoutMs?: number;
+  /** Provider ids created by the local/self-hosted model settings. */
+  customProviderIds?: () => Set<string>;
 }
 
 /**
@@ -38,22 +65,31 @@ export interface ModelServiceOptions {
  * key is set, where it comes from, and its last four characters.
  */
 export class ModelService {
+  private readonly logins = new Map<string, LoginJob>();
+
   constructor(private readonly opts: ModelServiceOptions) {}
 
   async list(): Promise<ModelsResponse> {
     const [runtime, { pi }] = await Promise.all([this.opts.runtime(), this.opts.pi()]);
     const authPath = path.join(this.opts.piDir, "auth.json");
+    const customIds = this.opts.customProviderIds?.() ?? new Set<string>();
     // Checked side by side: a provider without a key in Pi's snapshot is asked directly.
-    const withModels = runtime.getProviders().filter((p) => runtime.getModels(p.id).length > 0);
+    const withModels = runtime.getProviders().filter((p) => runtime.getModels(p.id).length > 0 || !!p.auth.oauth);
     const providers: ProviderInfo[] = await Promise.all(
-      withModels.map(async (provider) => ({
-        id: provider.id,
-        name: provider.name,
-        keyEditable: keyEditable(provider),
-        envKey: !!provider.auth.apiKey,
-        key: await keyOf(runtime, provider.id, () => pi.readStoredCredential(provider.id, authPath)),
-        models: runtime.getModels(provider.id).map(modelInfo),
-      })),
+      withModels.map(async (provider) => {
+        const auth = await runtime.checkAuth(provider.id).catch(() => undefined);
+        return {
+          id: provider.id,
+          name: provider.name,
+          keyEditable: keyEditable(provider),
+          envKey: !!provider.auth.apiKey,
+          key: await keyOf(runtime, provider.id, () => pi.readStoredCredential(provider.id, authPath)),
+          oauth: oauthOf(provider),
+          auth: { configured: !!auth, type: auth?.type ?? null, source: auth?.source ?? null } as ProviderAuth,
+          custom: customIds.has(provider.id),
+          models: runtime.getModels(provider.id).map(modelInfo),
+        };
+      }),
     );
     const { model: selected, thinkingLevel } = this.opts.settings.get();
     return {
@@ -84,7 +120,9 @@ export class ModelService {
       });
     } catch (err) {
       if (asked > 1 || err instanceof UnsupportedLogin) throw new SiteError("model.key_unsupported", 400);
-      throw err;
+      if (err instanceof SiteError) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      throw new SiteError("model.key_invalid", 400, { message: redact(message, [apiKey]) });
     }
     return this.key(runtime, providerId);
   }
@@ -97,6 +135,154 @@ export class ModelService {
     if (source === "environment") throw new SiteError("model.key_from_environment", 409);
     if (source === "stored") await runtime.logout(providerId);
     return this.key(runtime, providerId);
+  }
+
+  /** Start Pi's native OAuth login (Claude Pro/Max, GitHub Copilot, Kimi, OpenRouter, xAI, ...). */
+  async startLogin(providerId: string): Promise<{ id: string }> {
+    const runtime = await this.opts.runtime();
+    const provider = this.provider(runtime, providerId);
+    if (!provider.auth.oauth) throw new SiteError("model.oauth_not_supported", 400);
+    const running = [...this.logins.values()].find((job) => job.providerId === providerId && job.state === "running");
+    if (running) return { id: running.id };
+
+    const id = randomUUID();
+    const controller = new AbortController();
+    const job: LoginJob = { id, providerId, state: "running", events: [], prompt: null, error: null, controller };
+    this.logins.set(id, job);
+
+    let timeout: NodeJS.Timeout;
+    const finish = (state: LoginJob["state"], error: string | null) => {
+      clearTimeout(timeout);
+      if (job.state !== "running") return;
+      job.state = state;
+      job.error = error;
+      const pending = job.prompt;
+      job.prompt = null;
+      pending?.reject(new Error("sign-in ended"));
+      const cleanup = setTimeout(() => this.logins.delete(id), LOGIN_KEEP_MS);
+      cleanup.unref?.();
+    };
+    timeout = setTimeout(() => {
+      controller.abort();
+      finish("cancelled", null);
+    }, LOGIN_TIMEOUT_MS);
+    timeout.unref?.();
+
+    const interaction: AuthInteraction = {
+      signal: controller.signal,
+      notify: (event) => {
+        if (job.state === "running") job.events.push(sharedEvent(event));
+      },
+      prompt: (prompt) =>
+        new Promise<string>((resolve, reject) => {
+          if (job.state !== "running") {
+            reject(new Error("sign-in is not running"));
+            return;
+          }
+          job.prompt?.reject(new Error("sign-in prompt replaced"));
+          const pending: PendingPrompt = {
+            value: sharedPrompt(prompt),
+            answer: (value) => {
+              if (job.prompt === pending) job.prompt = null;
+              resolve(value);
+            },
+            reject: (err) => {
+              if (job.prompt === pending) job.prompt = null;
+              reject(err);
+            },
+          };
+          job.prompt = pending;
+          prompt.signal?.addEventListener("abort", () => pending.reject(new Error("sign-in prompt cancelled")), {
+            once: true,
+          });
+        }),
+    };
+
+    void runtime
+      .login(providerId, "oauth", interaction, { agentName: "BukitJalil", getDeviceId: () => this.deviceId() })
+      .then(
+        () => finish("done", null),
+        (err: unknown) => {
+          if (controller.signal.aborted) finish("cancelled", null);
+          else finish("error", err instanceof Error ? err.message : String(err));
+        },
+      );
+    return { id };
+  }
+
+  loginStatus(providerId: string, id: string): ProviderLoginStatus {
+    return this.loginView(this.loginJob(providerId, id));
+  }
+
+  answerLogin(providerId: string, id: string, value: string): ProviderLoginStatus {
+    const job = this.loginJob(providerId, id);
+    const prompt = job.prompt;
+    if (!prompt) throw new SiteError("model.login_prompt_missing", 409);
+    prompt.answer(value);
+    return this.loginView(job);
+  }
+
+  cancelLogin(providerId: string, id: string): ProviderLoginStatus {
+    const job = this.loginJob(providerId, id);
+    job.controller.abort();
+    if (job.state === "running") {
+      job.state = "cancelled";
+      const pending = job.prompt;
+      job.prompt = null;
+      pending?.reject(new Error("sign-in cancelled"));
+      const cleanup = setTimeout(() => this.logins.delete(id), LOGIN_KEEP_MS);
+      cleanup.unref?.();
+    }
+    return this.loginView(job);
+  }
+
+  async logoutOAuth(providerId: string): Promise<void> {
+    const runtime = await this.opts.runtime();
+    this.provider(runtime, providerId);
+    await runtime.logout(providerId);
+  }
+
+  private loginJob(providerId: string, id: string): LoginJob {
+    const job = this.logins.get(id);
+    if (!job || job.providerId !== providerId) throw new SiteError("model.login_not_found", 404);
+    return job;
+  }
+
+  private loginView(job: LoginJob): ProviderLoginStatus {
+    return {
+      id: job.id,
+      provider: job.providerId,
+      state: job.state,
+      events: [...job.events],
+      prompt: job.prompt?.value ?? null,
+      error: job.error,
+    };
+  }
+
+  /** A stable installation id for OpenAI's "Sign in with ChatGPT" flow, kept next to Pi's auth file. */
+  private deviceId(): string {
+    const file = path.join(this.opts.piDir, "device-id");
+    const valid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+    const read = () => fs.readFileSync(file, "utf8").trim();
+    try {
+      const existing = read();
+      if (valid(existing)) return existing;
+    } catch {
+      // create it below
+    }
+    const id = randomUUID();
+    try {
+      fs.writeFileSync(file, `${id}\n`, { mode: 0o600, flag: "wx" });
+      return id;
+    } catch {
+      try {
+        const existing = read();
+        if (valid(existing)) return existing;
+      } catch {
+        // fall through: the login may still work, just without a stable id across restarts
+      }
+      return id;
+    }
   }
 
   /** One short request to a model of the provider: the given one, the selected one, or its first. */
@@ -186,6 +372,52 @@ export function settingsModel(settings: SettingsStore) {
     if (!model) throw new SiteError("agent.model_not_found", 409, { provider: ref.provider, model: ref.id });
     return model;
   };
+}
+
+function oauthOf(provider: Provider): ProviderOAuth | null {
+  const oauth = provider.auth.oauth;
+  return oauth ? { loginLabel: oauth.loginLabel ?? oauth.name, isSubscription: !!oauth.isSubscription } : null;
+}
+
+function sharedEvent(event: AuthEvent): ProviderLoginEvent {
+  switch (event.type) {
+    case "info":
+      return {
+        type: "info",
+        message: event.message,
+        links: event.links?.map((link) => ({ url: link.url, label: link.label })),
+      };
+    case "auth_url":
+      return { type: "auth_url", url: event.url, instructions: event.instructions };
+    case "device_code":
+      return {
+        type: "device_code",
+        userCode: event.userCode,
+        verificationUri: event.verificationUri,
+        expiresInSeconds: event.expiresInSeconds,
+      };
+    case "progress":
+      return { type: "progress", message: event.message };
+  }
+}
+
+function sharedPrompt(prompt: AuthPrompt): ProviderLoginPrompt {
+  switch (prompt.type) {
+    case "text":
+    case "secret":
+    case "manual_code":
+      return { type: prompt.type, message: prompt.message, placeholder: prompt.placeholder };
+    case "select":
+      return {
+        type: "select",
+        message: prompt.message,
+        options: prompt.options.map((option) => ({
+          id: option.id,
+          label: option.label,
+          description: option.description,
+        })),
+      };
+  }
 }
 
 function keyEditable(provider: Provider): boolean {

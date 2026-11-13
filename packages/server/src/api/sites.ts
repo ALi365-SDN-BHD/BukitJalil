@@ -3,14 +3,18 @@ import {
   type GitIdentityResponse,
   ImportSiteRequest,
   InspectImportRequest,
+  type NotionSourceSchema,
+  SiteNotionSourceRequest,
   SitePatch,
 } from "@bukitjalil/shared";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
 import type { BuildService } from "../builds/service.ts";
+import type { DataSourceService } from "../data-sources/service.ts";
 import type { GitIdentity } from "../git/identity.ts";
+import type { PanelService } from "../panels/service.ts";
 import { apiError } from "../security/guard.ts";
-import { listDirs } from "../sites/location.ts";
+import { listDirs, SiteError } from "../sites/location.ts";
 import type { SiteService } from "../sites/service.ts";
 import { body, handle } from "./common.ts";
 
@@ -20,11 +24,13 @@ export function siteRoutes(
   deps: {
     sites: SiteService;
     builds: BuildService;
+    dataSources: DataSourceService;
+    panels: PanelService;
     readIdentity: () => Promise<GitIdentity>;
     userHome?: string;
   },
 ) {
-  const { sites, builds } = deps;
+  const { sites, builds, dataSources, panels } = deps;
 
   api.get("/fs/dirs", (c) =>
     handle(c, () =>
@@ -70,6 +76,35 @@ export function siteRoutes(
       const req = await body(c, SitePatch);
       if (!req) return apiError(c, 400, "request.invalid_body");
       return c.json(sites.patch(c.req.param("siteId"), req));
+    }),
+  );
+
+  // Bind the saved Notion data source whose token main builds pass to Bukit. Only this route sets it (plus
+  // site creation), so an imported site never gets a token it was not given.
+  api.put("/sites/:siteId/notion-source", (c) =>
+    handle(c, async () => {
+      const req = await body(c, SiteNotionSourceRequest);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      const id = c.req.param("siteId");
+      sites.get(id);
+      if (req.dataSourceId !== null) dataSources.get(req.dataSourceId);
+      return c.json(await sites.bindNotionSource(id, req.dataSourceId));
+    }),
+  );
+
+  // A Notion source's database fields, only when the user asks (plan 5.4): the database named on the default
+  // branch, read with the bound token. The result goes to the UI only, never to the AI's tools.
+  api.get("/sites/:siteId/notion/sources/:index", (c) =>
+    handle(c, async () => {
+      const id = c.req.param("siteId");
+      if (!/^\d{1,3}$/.test(c.req.param("index"))) return apiError(c, 400, "request.invalid_query");
+      const index = Number(c.req.param("index"));
+      const databaseId = await panels.notionDatabaseId(id, index);
+      const token = sites.notionToken(id);
+      if (token === null) throw new SiteError("site.notion_unbound", 409);
+      const schema = await dataSources.notionSchema(token, databaseId);
+      const res: NotionSourceSchema = { index, databaseId, ...schema, readAt: new Date().toISOString() };
+      return c.json(res);
     }),
   );
 

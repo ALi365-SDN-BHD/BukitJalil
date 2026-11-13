@@ -1,22 +1,31 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type {
-  ApplyCheck,
-  ApplyRequest,
-  ApplyResult,
-  ChangeSet,
-  ChangeView,
-  FileDiff,
-  HistoryResponse,
-  RestoreResult,
-  Site,
-  VersionDiff,
+import {
+  type ApplyCheck,
+  type ApplyRequest,
+  type ApplyResult,
+  type ChangedFile,
+  type ChangeSet,
+  type ChangeStatus,
+  type ChangeView,
+  type CurrentChange,
+  type FileDiff,
+  type HistoryResponse,
+  isBukitPluginId,
+  type RestoreResult,
+  type Site,
+  type VersionDiff,
 } from "@bukitjalil/shared";
+import { parseDocument } from "yaml";
 import { guardCommit } from "../bukit/guard.ts";
+import { pluginStateFromDocument, setPluginInDocument } from "../bukit/plugins.ts";
 import { GitError, type GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
+import { storageErrorCode } from "../storage-errors.ts";
 import { changedFiles, fileDiff } from "./diff.ts";
 import {
   AI_AUTHOR_EMAIL,
@@ -27,6 +36,8 @@ import {
   onBranch,
   parentsOf,
 } from "./history.ts";
+import { notionChangesBetween } from "./notion-config.ts";
+import { hunkPlan, rawChanges, selectedTree } from "./partial.ts";
 import { SNAPSHOT_IDENTITY, type Snapshot, snapshotCheckout } from "./snapshot.ts";
 import { type ChangeRecord, ChangeStore, isChangeId, newChangeId } from "./store.ts";
 
@@ -35,7 +46,11 @@ export const changeRef = (id: string) => `refs/bukitjalil/changes/${id}`;
 /** Author of applied AI changes; the committer is the identity from the settings (plan 7.2). */
 const AI_AUTHOR = { "author.name": AI_AUTHOR_NAME, "author.email": AI_AUTHOR_EMAIL };
 const DEFAULT_MESSAGE = "Changes made with BukitJalil AI";
+/** Put before the summary of what is left after a partial apply (plan 7.5). */
+const REST_PREFIX = "Rest of: ";
 const MAX_SUBJECT = 72;
+/** site.yaml is small; a larger file is not one BukitJalil wrote and is refused rather than truncated. */
+const MAX_SITE_YAML_BYTES = 1024 * 1024;
 const TRAILER_LINE = /^\s*BukitJalil-[A-Za-z]+:/i;
 
 /**
@@ -69,13 +84,49 @@ export function commitText(summary: string): string {
   return `${subject}\n\n${summary}`;
 }
 
+const MAX_SUMMARY_PATHS = 3;
+
+/**
+ * A one-line commit message from the changed files, for a change set without a summary (plan 6.3):
+ * "Update 3 files, add 1 file: content/pages/about.md, site.yaml, themes/x/a.css, ...". Names are dropped from the end
+ * until the line fits in MAX_SUBJECT; the counts always stay. The fixed text when the list is empty or
+ * cut short.
+ */
+export function diffSummary({ files, truncated }: { files: ChangedFile[]; truncated: boolean }): string {
+  if (files.length === 0 || truncated) return DEFAULT_MESSAGE;
+  const count = (statuses: ChangedFile["status"][]) => files.filter((f) => statuses.includes(f.status)).length;
+  const plural = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
+  const parts = (
+    [
+      ["update", count(["modified", "type_changed"])],
+      ["add", count(["added"])],
+      ["delete", count(["deleted"])],
+    ] as const
+  )
+    .filter(([, n]) => n > 0)
+    .map(([verb, n]) => `${verb} ${plural(n)}`);
+  const joined = parts.join(", ");
+  const head = `${joined.charAt(0).toUpperCase()}${joined.slice(1)}`;
+  for (let shown = Math.min(files.length, MAX_SUMMARY_PATHS); shown > 0; shown--) {
+    const names = files.slice(0, shown).map((f) => f.path);
+    const line = `${head}: ${names.join(", ")}${files.length > shown ? ", ..." : ""}`;
+    if (line.length <= MAX_SUBJECT) return line;
+  }
+  return head;
+}
+
 export interface ChangeServiceOptions {
   db: DatabaseSync;
   git: GitRunner;
   sites: SiteService;
   locks: SiteLocks;
-  /** The check before applying: Bukit on the AI checkout (AiBukit.checkForApply), with the site lock held. */
-  check: (siteId: string, cwd: string) => Promise<ApplyCheck>;
+  /**
+   * The check before applying: Bukit on the AI checkout (AiBukit.checkForApply), with the site lock held.
+   * With `commit`, `cwd` is the main checkout at that commit (a partial apply, plan 7.5).
+   */
+  check: (siteId: string, cwd: string, commit?: string) => Promise<ApplyCheck>;
+  /** Temporary files (the index a partial apply builds its tree in). */
+  tmpDir: string;
   logger: Logger;
 }
 
@@ -102,29 +153,47 @@ export class ChangeService {
   }
 
   /**
-   * Before a run (site lock held): the open change set, or a new one. A new one resets the ai/ checkout to
-   * the head of the default branch and cleans it (plan 7.2), records that commit as the base and pins it
-   * with refs/bukitjalil/changes/<id>. Returns the checkout to run in.
+   * Before a run (site lock held): join the open change set, or start one. A new one resets the ai/
+   * checkout to the head of the default branch and cleans it (plan 7.2), records that commit as the base
+   * and pins it with refs/bukitjalil/changes/<id>. Returns the checkout to run in and `previous`: how the
+   * newest other change set this session took part in ended, if it did. The working copy was reset since
+   * then, which the AI is told once per change set (plan 6.2).
    */
-  async begin(siteId: string, sessionId: string): Promise<{ cwd: string; change: ChangeRecord }> {
+  async begin(
+    siteId: string,
+    sessionId: string,
+  ): Promise<{ cwd: string; change: ChangeRecord; previous: Exclude<ChangeStatus, "open"> | null }> {
+    const { cwd, change } = await this.openChangeSet(siteId, sessionId);
+    const previous = this.store.lastJoined(sessionId, change.id);
+    this.store.addSession(change.id, sessionId);
+    this.emit(siteId);
+    return { cwd, change, previous };
+  }
+
+  /** Open the site's change set for a Settings edit, without a conversation. */
+  private async beginUserChange(siteId: string): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
+    return this.openChangeSet(siteId, null);
+  }
+
+  private async openChangeSet(
+    siteId: string,
+    sessionId: string | null,
+  ): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
     const { sites, git } = this.opts;
     const site = sites.get(siteId);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
-    let change = this.store.open(siteId);
-    let cwd: string;
-    if (change) {
+    const open = this.store.open(siteId);
+    if (open) {
       // Keep the files as the last run left them; a checkout that went missing comes back at the snapshot.
-      cwd = await sites.aiWorktree(siteId, change.snapshotCommit, { reset: false });
-    } else {
-      const head = await sites.headOf(site);
-      cwd = await sites.aiWorktree(siteId, head, { reset: true });
-      const id = newChangeId();
-      await git.run(["update-ref", changeRef(id), head], { cwd: site.path });
-      change = this.store.insert({ id, siteId, sessionId, baseCommit: head });
+      const cwd = await sites.aiWorktree(siteId, open.snapshotCommit, { reset: false });
+      return { cwd, change: open, created: false };
     }
-    this.store.addSession(change.id, sessionId);
-    this.emit(siteId);
-    return { cwd, change };
+    const head = await sites.headOf(site);
+    const cwd = await sites.aiWorktree(siteId, head, { reset: true });
+    const id = newChangeId();
+    await git.run(["update-ref", changeRef(id), head], { cwd: site.path });
+    const change = this.store.insert({ id, siteId, sessionId, baseCommit: head });
+    return { cwd, change, created: true };
   }
 
   /**
@@ -157,11 +226,77 @@ export class ChangeService {
   }
 
   /**
+   * Turn a built-in Bukit plugin on or off for one site. It edits the AI checkout and snapshots it, so
+   * the switch becomes a normal reviewable change set; nothing is written to the default branch here.
+   */
+  async setPlugin(siteId: string, pluginId: string, enabled: boolean): Promise<CurrentChange> {
+    if (!isBukitPluginId(pluginId)) throw new SiteError("plugin.unknown", 400);
+    return this.opts.locks.run(siteId, "config", async () => {
+      const site = this.opts.sites.get(siteId);
+      if (site.readOnly) throw new SiteError("site.read_only", 409);
+      const { cwd, change, created } = await this.beginUserChange(siteId);
+      try {
+        const file = path.join(cwd, "site.yaml");
+        let raw: string;
+        try {
+          const stat = fs.lstatSync(file);
+          if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_SITE_YAML_BYTES)
+            throw new SiteError("config.invalid_yaml", 409);
+          raw = fs.readFileSync(file, "utf8");
+        } catch (err) {
+          if (err instanceof SiteError) throw err;
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") throw new SiteError("site.no_site_yaml", 409);
+          throw new SiteError(storageErrorCode(err) ?? "config.write_failed", 409);
+        }
+
+        const doc = parseDocument(raw);
+        if (doc.errors.length > 0) throw new SiteError("config.invalid_yaml", 409);
+        const current = pluginStateFromDocument(doc, pluginId);
+        if (!current) throw new SiteError("config.plugins_invalid", 409);
+        if (current.enabled === enabled) {
+          // A click that changes nothing: do not leave an empty change set behind.
+          if (created) await this.close(change, "rejected");
+          return { change: await this.current(siteId, false) };
+        }
+
+        try {
+          setPluginInDocument(doc, pluginId, enabled);
+        } catch {
+          throw new SiteError("config.plugins_invalid", 409);
+        }
+        try {
+          fs.writeFileSync(file, doc.toString({ lineWidth: 0 }));
+        } catch (err) {
+          throw new SiteError(storageErrorCode(err) ?? "config.write_failed", 409);
+        }
+        await this.snapshot(siteId, cwd);
+        if (this.store.sessions(change.id).length === 0) {
+          this.store.setSummary(change.id, `Plugin settings: ${pluginId} ${enabled ? "on" : "off"}`);
+        }
+        this.emit(siteId);
+        return { change: await this.current(siteId, false) };
+      } catch (err) {
+        // Do not strand a change set this request created; an existing AI change set is left untouched.
+        if (created && this.store.open(siteId)?.id === change.id) await this.close(change, "rejected");
+        throw err;
+      }
+    });
+  }
+
+  /** A site bound to a Notion data source whose default branch (at `main`) already uses Notion. */
+  private async notionSite(site: Site, main: string): Promise<boolean> {
+    if (this.opts.sites.notionDataSourceId(site.id) === null) return false;
+    const guard = await guardCommit(this.opts.git, site.path, main);
+    return guard.ok && guard.usesNotion;
+  }
+
+  /**
    * Apply a change set (plan 7.2), under the site lock: snapshot the checkout again and compare it with the
    * fingerprint the user reviewed; if the default branch moved since the base, merge onto it and ask for
    * another review (or close the change set as stale on conflicts); run the check; commit the snapshot's
    * tree on the default branch (author BukitJalil AI, committer from the settings) and fast-forward the
-   * site folder to it, refusing to overwrite ignored local files.
+   * site folder to it, refusing to overwrite ignored local files. With `selection`, only those files (plan
+   * 7.5): see applyPartial.
    */
   async apply(id: string, req: ApplyRequest): Promise<ApplyResult> {
     const { siteId } = this.get(id);
@@ -170,6 +305,8 @@ export class ChangeService {
       const open = this.openChange(id);
       const site = sites.get(siteId);
       if (site.readOnly) throw new SiteError("site.read_only", 409);
+      // A restore brings back version V as a whole; its trailer would say so of a part too (plan 7.5).
+      if (req.selection && open.restoreCommit !== null) throw new SiteError("change.partial_restore", 400);
       const identity = sites.commitIdentity();
       const cwd = await sites.aiWorktree(siteId, open.snapshotCommit, { reset: false });
       // The checkout can only differ from the snapshot if something touched it outside a run.
@@ -177,6 +314,10 @@ export class ChangeService {
       let change = this.openChange(id);
       const tree = await this.treeOf(site.path, change.snapshotCommit);
       if (tree !== req.treeHash) throw new SiteError("change.fingerprint_mismatch", 409);
+      // Hunks are numbered in the diff against the base; after a partial apply the rest keeps its tree but
+      // has a new base, so a selection must name the base it was made on too (plan 7.5).
+      if (req.selection && req.baseCommit !== change.baseCommit)
+        throw new SiteError("change.fingerprint_mismatch", 409);
       if (tree === (await this.treeOf(site.path, change.baseCommit))) throw new SiteError("change.no_changes", 409);
       await this.assertSiteReady(site);
 
@@ -202,24 +343,51 @@ export class ChangeService {
         return { outcome: "rebased", change: await this.toChangeSet(this.get(id)), check: null };
       }
 
+      if (req.selection) {
+        const selected = await selectedTree(git, {
+          cwd: site.path,
+          base: change.baseCommit,
+          snapshot: change.snapshotCommit,
+          selection: req.selection,
+          tmpDir: this.opts.tmpDir,
+        });
+        if (selected === (await this.treeOf(site.path, change.baseCommit))) {
+          throw new SiteError("change.nothing_selected", 400);
+        }
+        // Everything selected is a whole apply.
+        if (selected !== tree) return this.applyPartial(change, site, cwd, main, selected, req);
+      }
+
       const check = await this.opts.check(siteId, cwd);
       // The check snapshots too; it must still be what the user reviewed.
       change = this.openChange(id);
       if ((await this.treeOf(site.path, change.snapshotCommit)) !== req.treeHash) {
         throw new SiteError("change.fingerprint_mismatch", 409);
       }
-      if (!check.passed && !req.force)
+      // A Notion site cannot be checked before applying (unreviewed content never gets the token); that is
+      // not a failed check, so it needs no force. Only for a bound site whose default branch already uses
+      // Notion: a change that adds a Notion source itself must not skip the check that way. The guard still
+      // ran, and the main build checks the result.
+      const unchecked = check.problemCode === "notion" && (await this.notionSite(site, main));
+      if (!check.passed && !req.force && !unchecked)
         return { outcome: "check_failed", change: await this.toChangeSet(change), check };
 
       // A restore is the user's own act, so they are its author too (plan 7.4); once a conversation has taken
       // part, the AI wrote part of it. The flag outlives a deleted conversation and a rebase onto a newer main.
+      // A change set with no conversation at all is a Settings edit, also the user's own act.
       const sessions = this.store.sessions(change.id);
       const pureRestore = change.restoreCommit !== null && !change.aiJoined;
-      const author = pureRestore
-        ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
-        : AI_AUTHOR;
+      const userAuthored = change.restoreCommit === null && sessions.length === 0;
+      const author =
+        pureRestore || userAuthored
+          ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
+          : AI_AUTHOR;
+      // Without a summary from the AI (summarize_changes), the message says what changed (plan 6.3).
+      const text =
+        change.summary?.trim() ||
+        diffSummary(await changedFiles(git, site.path, change.baseCommit, change.snapshotCommit));
       const result = (
-        await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change, sessions)], {
+        await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change, sessions, text)], {
           cwd: site.path,
           config: { ...author, "committer.name": identity["user.name"], "committer.email": identity["user.email"] },
         })
@@ -245,6 +413,94 @@ export class ChangeService {
       await this.close(change, "applied", result);
       return { outcome: "applied", change: await this.toChangeSet(this.get(id)), check };
     });
+  }
+
+  /**
+   * Apply the `selected` tree (plan 7.5), with the site lock held and the default branch still at the
+   * change set's base: commit it on the default branch, check that commit in the main checkout (the AI
+   * checkout is not touched, since checking it would snapshot it), fast-forward the site folder, then move
+   * the change set onto the result with the rest of the snapshot, so the review shows what is left.
+   */
+  private async applyPartial(
+    change: ChangeRecord,
+    site: Site,
+    cwd: string,
+    main: string,
+    selected: string,
+    req: ApplyRequest,
+  ): Promise<ApplyResult> {
+    const { git, sites } = this.opts;
+    const identity = sites.commitIdentity();
+    const sessions = this.store.sessions(change.id);
+    // Restores never get here, so the author is the AI once a conversation took part, else the user.
+    const author =
+      sessions.length === 0
+        ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
+        : AI_AUTHOR;
+    const subject = diffSummary(await changedFiles(git, site.path, change.baseCommit, selected));
+    const summary = change.summary?.trim();
+    const whole = summary?.startsWith(REST_PREFIX) ? summary.slice(REST_PREFIX.length) : summary;
+    const text = whole ? `${subject}\n\nPart of: ${whole}` : subject;
+    const result = (
+      await git.text(["commit-tree", selected, "-p", main, "-m", this.message(change, sessions, text)], {
+        cwd: site.path,
+        config: { ...author, "committer.name": identity["user.name"], "committer.email": identity["user.email"] },
+      })
+    ).trim();
+
+    const checkout = await sites.mainCheckout(site.id, site.path, result);
+    const check = await this.opts.check(site.id, checkout, result);
+    const unchecked = check.problemCode === "notion" && (await this.notionSite(site, main));
+    if (!check.passed && !req.force && !unchecked) {
+      // Bukit's caches in the main checkout survive its resets; content that was not applied must not seed
+      // the next main build.
+      for (const dir of [".bukit", ".cache"]) fs.rmSync(path.join(checkout, dir), { recursive: true, force: true });
+      return { outcome: "check_failed", change: await this.toChangeSet(this.openChange(change.id)), check };
+    }
+    // As for a whole apply: the user's folder must still be ready, and the branch where it was.
+    await this.assertSiteReady(site);
+    if ((await sites.headOf(site)) !== main) {
+      throw new SiteError("change.merge_failed", 409, { detail: `${site.defaultBranch} moved during the check` });
+    }
+    // Nothing ran in the AI checkout meanwhile (the site lock is held), but compare anyway: the rest is
+    // computed from the snapshot the user reviewed.
+    const now = this.openChange(change.id);
+    const tree = await this.treeOf(site.path, now.snapshotCommit);
+    if (now.snapshotCommit !== change.snapshotCommit || now.baseCommit !== change.baseCommit || tree !== req.treeHash) {
+      throw new SiteError("change.fingerprint_mismatch", 409);
+    }
+    // The rest: the same snapshot tree on top of the result, made before the default branch moves so that
+    // nothing after the fast-forward can fail but bookkeeping. The checkout's files stay as they are.
+    const rest = (
+      await git.text(["commit-tree", tree, "-p", result, "-m", "BukitJalil AI snapshot (rest after partial apply)"], {
+        cwd: site.path,
+        config: SNAPSHOT_IDENTITY,
+      })
+    ).trim();
+    try {
+      await git.run(["merge", "-q", "--ff-only", "--no-overwrite-ignore", "--end-of-options", result], {
+        cwd: site.path,
+        config: identity,
+      });
+    } catch (err) {
+      if (!(err instanceof GitError) || err.kind !== "failed") throw err;
+      const detail = (err.details.stderr?.trim() || err.message).slice(0, 500);
+      throw new SiteError("change.merge_failed", 409, { detail });
+    }
+
+    this.store.rebase(change.id, result, rest);
+    // A later whole apply of the rest must not describe the part applied now as well.
+    if (summary && !summary.startsWith(REST_PREFIX)) this.store.setSummary(change.id, `${REST_PREFIX}${summary}`);
+    // The default branch has moved and the change set says so; the ref and the checkout's HEAD follow. If
+    // either fails, the snapshot still points at the same tree, and the next snapshot moves them.
+    try {
+      await git.run(["update-ref", changeRef(change.id), rest], { cwd: site.path });
+      await git.run(["reset", "-q", "--soft", rest], { cwd });
+    } catch (err) {
+      this.opts.logger.log("warn", "changes.partial_followup_failed", { changeId: change.id, error: String(err) });
+    }
+    this.emit(site.id);
+    return { outcome: "partial", change: await this.toChangeSet(this.get(change.id)), check };
   }
 
   /** Reject a change set (plan 7.2): it is closed; the checkout is reset when the next change set opens. */
@@ -354,8 +610,15 @@ export class ChangeService {
       changedFiles(git, site.path, change.baseCommit, change.snapshotCommit),
       this.treeOf(site.path, change.baseCommit),
     ]);
+    // A Notion source the change adds or points elsewhere is read with the bound token once applied (plan 5.4).
+    // A cut list may leave site.yaml out (it is in path order), so then compare the configs anyway.
+    const notion =
+      truncated || files.some((f) => f.path === "site.yaml")
+        ? await notionChangesBetween(git, site.path, change.baseCommit, change.snapshotCommit)
+        : [];
     return {
       ...info,
+      ...(notion.length > 0 ? { notionChanges: notion } : {}),
       files,
       filesTruncated: truncated,
       reviewable: !running && info.treeHash !== baseTree,
@@ -371,7 +634,14 @@ export class ChangeService {
     const { files } = await changedFiles(git, site.path, change.baseCommit, change.snapshotCommit, { path: file });
     const entry = files.find((f) => f.path === file);
     if (!entry) throw new SiteError("change.file_not_found", 404);
-    return fileDiff(git, site.path, change.baseCommit, change.snapshotCommit, entry);
+    const diff = await fileDiff(git, site.path, change.baseCommit, change.snapshotCommit, entry);
+    // Whether its hunks can be applied one by one (plan 7.5); a restore applies only as a whole.
+    const raw = (await rawChanges(git, site.path, change.baseCommit, change.snapshotCommit, file)).get(file);
+    const splittable =
+      change.restoreCommit === null &&
+      raw !== undefined &&
+      (await hunkPlan(git, site.path, change.baseCommit, change.snapshotCommit, raw)) !== null;
+    return { ...diff, splittable };
   }
 
   async toChangeSet(change: ChangeRecord): Promise<ChangeSet> {
@@ -441,13 +711,13 @@ export class ChangeService {
     return res.stdout.toString("utf8").split("\n")[0]?.trim() ?? null;
   }
 
-  /** The commit message: the summary, the sessions it came from and the version it restores. */
-  private message(change: ChangeRecord, sessions: string[]): string {
+  /** The commit message: `text` (the summary), the sessions it came from and the version it restores. */
+  private message(change: ChangeRecord, sessions: string[], text: string): string {
     const trailers = [
       ...(sessions.length > 0 ? [`BukitJalil-Sessions: ${sessions.join(", ")}`] : []),
       ...(change.restoreCommit ? [`BukitJalil-Restore: ${change.restoreCommit}`] : []),
     ];
-    const summary = commitText(change.summary?.trim() || DEFAULT_MESSAGE);
+    const summary = commitText(text);
     return trailers.length > 0 ? `${summary}\n\n${trailers.join("\n")}\n` : `${summary}\n`;
   }
 

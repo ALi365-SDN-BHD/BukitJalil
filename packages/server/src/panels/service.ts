@@ -13,6 +13,8 @@ import type {
   TreeResponse,
 } from "@bukitjalil/shared";
 import { isRecord, pathProblem } from "../bukit/guard.ts";
+import { pluginStatesFromConfig } from "../bukit/plugins.ts";
+import { sourceTypeOf } from "../changes/notion-config.ts";
 import {
   listTree,
   readBlob,
@@ -43,7 +45,8 @@ const MAX_DATA_BYTES = 32 * 1024 * 1024;
 const MAX_DATA_FILE_BYTES = 256 * 1024;
 /** Enough bytes to recognize any of the bitmap types. */
 const SNIFF_BYTES = 16;
-const MAX_DATA_ITEMS = 500;
+// The panel shows one row as an example; sending more only slows it down.
+const MAX_DATA_ITEMS = 1;
 /** Entries a single directory listing returns; a huge directory must not freeze the file panel. */
 const MAX_TREE_ENTRIES = 2000;
 
@@ -200,6 +203,25 @@ export class PanelService {
 
   // --- data ---
 
+  /**
+   * The databaseId of content source `index` on the default branch (plan 5.4), for reading its fields with
+   * the bound token. Never a change set's: an unreviewed site.yaml could name any database the token reads.
+   */
+  async notionDatabaseId(siteId: string, index: number): Promise<string> {
+    return this.withVersion(siteId, "main", async (v) => {
+      // Every value as text, as Bukit reads it: an unquoted all-digit id must not turn into a number.
+      const { raw } = await this.siteConfig(v);
+      const parsed = raw === null ? null : parseYaml(raw, { asText: true });
+      const config = parsed?.error === null ? parsed.value : null;
+      const content = isRecord(config) && isRecord(config.content) ? config.content : {};
+      const sources = Array.isArray(content.sources) ? content.sources : [];
+      const s = isRecord(sources[index]) ? sources[index] : {};
+      const databaseId = sourceTypeOf(s) === "notion" && isRecord(s.notion) ? str(s.notion.databaseId) : null;
+      if (!databaseId) throw new SiteError("datasource.notion_source_missing", 404);
+      return databaseId;
+    });
+  }
+
   async data(siteId: string, ref: PanelRef): Promise<DataResponse> {
     return this.withVersion(siteId, ref, async (v) => {
       const { config } = await this.siteConfig(v);
@@ -212,7 +234,7 @@ export class PanelService {
       for (const [index, source] of sources.entries()) {
         const s = isRecord(source) ? source : {};
         const base = { index, name: str(s.name), mode: str(s.mode), collection: str(s.collection) };
-        const type = str(s.type) ?? (isRecord(s.markdown) ? "markdown" : isRecord(s.notion) ? "notion" : null);
+        const type = sourceTypeOf(s);
         if (type === "notion") {
           const notion = isRecord(s.notion) ? s.notion : {};
           out.push({ ...base, type: "notion", databaseId: str(notion.databaseId), cacheMode: str(notion.cacheMode) });
@@ -384,6 +406,7 @@ export function summarizeConfig(config: Record<string, unknown>): ConfigSummary 
     build: { output: str(build.output), draft: bool(build.draft), clean: bool(build.clean) },
     theme: { name: str(theme.name) },
     plugins: isRecord(site.plugins) ? Object.keys(site.plugins) : [],
+    pluginStates: pluginStatesFromConfig(config),
     otherSections: Object.keys(config).filter((k) => !["site", "content", "build", "theme"].includes(k)),
   };
 }

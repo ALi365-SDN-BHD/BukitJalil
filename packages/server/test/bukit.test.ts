@@ -3,7 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
+import { zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { fetchBukit, latestBukitRelease } from "../src/bukit/fetch.ts";
 import {
   checkSiteConfig,
   guardCommit,
@@ -14,18 +16,22 @@ import {
 } from "../src/bukit/guard.ts";
 import {
   BUKIT_VERSION,
+  type BukitPackage,
   download,
   InstallError,
   installFiles,
+  PACKAGES,
   packageForPlatform,
+  readPackage,
   readStrictTarGz,
+  readStrictZip,
   verifySha256,
 } from "../src/bukit/install.ts";
-import { appBukitDir, BukitService, bukitInstaller, locateBukit, versionState } from "../src/bukit/locate.ts";
+import { BukitService, devBukitDir, locateBukit, removeOldAppCopies, versionState } from "../src/bukit/locate.ts";
 import { BukitRunner, buildOutcome, checkPassed, parseBukitVersion } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
-import { ensureAppHome } from "../src/paths.ts";
-import { commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
+import { ensureAppHome, resolveResources } from "../src/paths.ts";
+import { commitAllAs, installAppBukit, makeApp, rawGit, req, testBukitDir } from "./helpers.ts";
 import { tarEntry, tgz } from "./tar.ts";
 
 // Optional real-Bukit inputs: BUKIT_TARBALL (the official package for this platform) and BUKIT_BIN.
@@ -165,6 +171,10 @@ taxonomy:
     expect(codes("site:\n  plugins:\n    sitemap: true\n    indexnow: { enabled: true }\n")).toEqual([
       "unknown_plugin@site.plugins.indexnow",
     ]);
+  });
+
+  it("accepts built-in plugin names in any case, like Bukit", () => {
+    expect(codes("site:\n  plugins:\n    Analytics: false\n    Related-Content: false\n")).toEqual([]);
   });
 
   it.each(["false", '"false"', "'False'", " FALSE "])("treats blockPrivateNetworks: %s as off, like Bukit", (v) => {
@@ -421,6 +431,37 @@ const good = () => [
   tarEntry("./libSkiaSharp.dylib", "lib", "0", 0o744),
 ];
 
+const ZIP_FILES = ["bukit.exe", "libSkiaSharp.dll"];
+
+describe("readStrictZip", () => {
+  it("reads the Windows layout", () => {
+    const files = readStrictZip(
+      Buffer.from(
+        zipSync({
+          "bukit.exe": new Uint8Array([1, 2]),
+          "libSkiaSharp.dll": new Uint8Array([3]),
+        }),
+      ),
+      ZIP_FILES,
+    );
+    expect([...files.keys()].sort()).toEqual([...ZIP_FILES].sort());
+    expect(files.get("bukit.exe")?.data).toEqual(Buffer.from([1, 2]));
+  });
+
+  it("rejects extra, nested and missing files", () => {
+    const extra = zipSync({
+      "bukit.exe": new Uint8Array(),
+      "libSkiaSharp.dll": new Uint8Array(),
+      evil: new Uint8Array(),
+    });
+    expect(() => readStrictZip(Buffer.from(extra), ZIP_FILES)).toThrow(InstallError);
+    const nested = zipSync({ "sub/bukit.exe": new Uint8Array(), "libSkiaSharp.dll": new Uint8Array() });
+    expect(() => readStrictZip(Buffer.from(nested), ZIP_FILES)).toThrow(InstallError);
+    const missing = zipSync({ "bukit.exe": new Uint8Array() });
+    expect(() => readStrictZip(Buffer.from(missing), ZIP_FILES)).toThrow(InstallError);
+  });
+});
+
 describe("readStrictTarGz", () => {
   it("reads the expected layout", () => {
     const files = readStrictTarGz(tgz(...good()), FILES);
@@ -526,74 +567,131 @@ describe("install steps", () => {
   });
 });
 
-describe("bukitInstaller", () => {
-  it("fails on an unsupported platform", async () => {
-    const inst = bukitInstaller({ home: path.join(base, "i1"), tmpDir, platform: "darwin", arch: "x64" });
-    inst.start();
-    await inst.wait();
-    expect(inst.progress).toMatchObject({ state: "failed", code: "unsupported_platform" });
+describe("fetchBukit (packaging, plan 8.1)", () => {
+  const pkgOf = (data: Buffer, file = "bukit-test.tar.gz"): BukitPackage => ({
+    file,
+    sha256: crypto.createHash("sha256").update(data).digest("hex"),
+    files: ["bukit", "libSkiaSharp.dylib"],
+    executable: "bukit",
+  });
+  const fakePackage = (printed: string) =>
+    tgz(
+      tarEntry("./", "", "5"),
+      tarEntry("./bukit", `#!/bin/sh\necho "bukit ${printed}"\n`),
+      tarEntry("./libSkiaSharp.dylib", "lib"),
+    );
+  const serve = (data: Buffer) => (async () => new Response(data)) as typeof fetch;
+
+  it("installs a checked package readable by everyone and keeps the package when asked", async () => {
+    const dir = path.join(base, "fetch-ok");
+    const data = fakePackage("2.0.15");
+    const { bin, tarball } = await fetchBukit({
+      dir,
+      pkg: pkgOf(data),
+      url: "https://example.invalid/p",
+      version: "2.0.15",
+      keepPackage: true,
+      fetchImpl: serve(data),
+    });
+    expect(bin).toBe(path.join(dir, "bukit-2.0.15", "bukit"));
+    expect(fs.statSync(path.dirname(bin)).mode & 0o777).toBe(0o755);
+    expect(fs.statSync(bin).mode & 0o777).toBe(0o755);
+    expect(tarball && fs.readFileSync(tarball).equals(data)).toBe(true);
   });
 
-  it("refuses a package with the wrong checksum and installs nothing", async () => {
-    const home = path.join(base, "i2");
-    const fetchImpl = (async () => new Response(tgz(...good()))) as typeof fetch;
-    const inst = bukitInstaller({ home, tmpDir, fetchImpl, platform: "darwin", arch: "arm64" });
-    expect(inst.start()).toBe(true);
-    expect(inst.start()).toBe(false);
-    await inst.wait();
-    expect(inst.progress).toMatchObject({ state: "failed", code: "checksum_mismatch" });
-    expect(fs.existsSync(appBukitDir(home))).toBe(false);
+  it("installs nothing when the checksum does not match", async () => {
+    const dir = path.join(base, "fetch-sum");
+    const data = fakePackage("2.0.15");
+    const pkg = { ...pkgOf(data), sha256: "0".repeat(64) };
+    await expect(
+      fetchBukit({ dir, pkg, url: "https://example.invalid/p", version: "2.0.15", fetchImpl: serve(data) }),
+    ).rejects.toMatchObject({ code: "checksum_mismatch" });
+    expect(fs.existsSync(path.join(dir, "bukit-2.0.15"))).toBe(false);
   });
 
-  it.skipIf(!REAL_TARBALL || !packageForPlatform())("reports a local write failure as install_failed", async () => {
-    const home = path.join(base, "i4");
-    fs.mkdirSync(home);
-    fs.writeFileSync(path.join(home, "bin"), "not a directory");
+  it("removes the copy when bukit version prints another version", async () => {
+    const dir = path.join(base, "fetch-ver");
+    const data = fakePackage("2.0.14");
+    await expect(
+      fetchBukit({
+        dir,
+        pkg: pkgOf(data),
+        url: "https://example.invalid/p",
+        version: "2.0.15",
+        fetchImpl: serve(data),
+      }),
+    ).rejects.toMatchObject({ code: "verify_failed" });
+    expect(fs.existsSync(path.join(dir, "bukit-2.0.15"))).toBe(false);
+  });
+
+  it("pins a SHA-256 for every official package", () => {
+    for (const pkg of Object.values(PACKAGES)) {
+      expect(pkg.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(pkg.file).toContain(BUKIT_VERSION);
+    }
+  });
+
+  it("reads the latest release's digest for the daily CI, and nothing it cannot check", async () => {
+    const layout = PACKAGES["linux-x64"] as BukitPackage;
+    const answer = (body: unknown, status = 200) =>
+      (async () => new Response(JSON.stringify(body), { status })) as typeof fetch;
+    const asset = (digest: string | null) => ({
+      tag_name: "v2.0.16",
+      assets: [{ name: "bukit-2.0.16-linux-x64.tar.gz", browser_download_url: "https://example.invalid/b", digest }],
+    });
+    expect(
+      await latestBukitRelease({
+        layout,
+        pinnedVersion: BUKIT_VERSION,
+        fetchImpl: answer(asset(`sha256:${"b".repeat(64)}`)),
+      }),
+    ).toEqual({
+      version: "2.0.16",
+      pkg: { ...layout, file: "bukit-2.0.16-linux-x64.tar.gz", sha256: "b".repeat(64) },
+      url: "https://example.invalid/b",
+    });
+    expect(
+      await latestBukitRelease({ layout, pinnedVersion: BUKIT_VERSION, fetchImpl: answer(asset(null)) }),
+    ).toMatchObject({ version: "2.0.16", pkg: null });
+    await expect(
+      latestBukitRelease({ layout, pinnedVersion: BUKIT_VERSION, fetchImpl: answer({}, 403) }),
+    ).rejects.toThrow();
+    await expect(
+      latestBukitRelease({ layout, pinnedVersion: BUKIT_VERSION, fetchImpl: answer({ tag_name: "nightly" }) }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("readPackage", () => {
+  it.skipIf(!REAL_TARBALL || !packageForPlatform())("unpacks the official package for this platform", () => {
+    const pkg = packageForPlatform() as BukitPackage;
     const data = fs.readFileSync(REAL_TARBALL as string);
-    const inst = bukitInstaller({ home, tmpDir, fetchImpl: (async () => new Response(data)) as typeof fetch });
-    inst.start();
-    await inst.wait();
-    expect(inst.progress).toMatchObject({ state: "failed", code: "install_failed" });
+    verifySha256(data, pkg.sha256);
+    expect([...readPackage(pkg, data).keys()].sort()).toEqual([...pkg.files].sort());
   });
-
-  it.skipIf(!REAL_TARBALL || !packageForPlatform())(
-    "installs the official package and checks its version",
-    async () => {
-      const home = path.join(base, "i3");
-      const data = fs.readFileSync(REAL_TARBALL as string);
-      const fetchImpl = (async () =>
-        new Response(data, { headers: { "content-length": String(data.length) } })) as typeof fetch;
-      // An earlier app install is replaced by the upgrade.
-      const previous = appBukitDir(home, "2.0.11");
-      fs.mkdirSync(previous, { recursive: true });
-      fs.writeFileSync(path.join(previous, "bukit"), '#!/bin/sh\necho "bukit 2.0.11"\n', { mode: 0o755 });
-      const inst = bukitInstaller({ home, tmpDir, fetchImpl });
-      inst.start();
-      await inst.wait();
-      expect(inst.progress).toEqual({ state: "done" });
-      const status = await locateBukit({ customPath: null, home, tmpDir, envPath: "" });
-      expect(status).toMatchObject({ source: "app", version: BUKIT_VERSION, state: "ok", upgradable: false });
-      expect(fs.existsSync(previous)).toBe(false);
-    },
-    60_000,
-  );
 });
 
 // --- locate ---
 
-describe("locateBukit", () => {
-  const home = () => path.join(base, "no-app-home");
+/** Write a fake Bukit into a bundled-Bukit directory (the only place BukitService looks). */
+function installFakeBukit(dir: string, body: string): string {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, "bukit");
+  fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  return file;
+}
 
-  it("reports missing", async () => {
-    expect(await locateBukit({ customPath: null, home: home(), tmpDir, envPath: "" })).toMatchObject({
+describe("locateBukit", () => {
+  it("reports missing when the app has no copy", async () => {
+    expect(await locateBukit({ dir: path.join(base, "no-bukit"), tmpDir })).toEqual({
       path: null,
+      version: null,
+      bundledVersion: BUKIT_VERSION,
       state: "missing",
-      customProblem: null,
     });
   });
 
-  it("prefers the custom path and grades versions", async () => {
-    const v = (ver: string) => fakeBukit(`v-${ver}`, `echo "bukit ${ver}+abc"`);
+  it("grades the bundled copy's version", async () => {
     for (const [ver, state] of [
       ["2.0.11", "ok"],
       ["2.0.12", "ok"],
@@ -601,176 +699,116 @@ describe("locateBukit", () => {
       ["2.1.0", "unsupported"],
       ["1.9.0", "unsupported"],
     ] as const) {
-      expect(await locateBukit({ customPath: v(ver), home: home(), tmpDir, envPath: "" })).toMatchObject({
-        source: "custom",
+      const dir = path.join(base, `grade-${ver}`);
+      const file = installFakeBukit(dir, `echo "bukit ${ver}+abc"`);
+      expect(await locateBukit({ dir, tmpDir })).toEqual({
+        path: file,
         version: ver,
+        bundledVersion: BUKIT_VERSION,
         state,
       });
     }
     expect(versionState("2.0.10")).toBe("old");
   });
 
-  it("falls back from a bad custom path to the app copy, then PATH", async () => {
-    const appHome2 = path.join(base, "app2");
-    fs.mkdirSync(appBukitDir(appHome2), { recursive: true });
-    fs.writeFileSync(path.join(appBukitDir(appHome2), "bukit"), '#!/bin/sh\necho "bukit 2.0.11"\n', { mode: 0o755 });
-    const broken = fakeBukit("broken", "exit 1");
-    expect(await locateBukit({ customPath: "relative/bukit", home: appHome2, tmpDir, envPath: "" })).toMatchObject({
-      source: "app",
-      customProblem: "not_found",
-    });
-    expect(await locateBukit({ customPath: broken, home: appHome2, tmpDir, envPath: "" })).toMatchObject({
-      source: "app",
-      customProblem: "broken",
-    });
-
-    const pathDir = path.join(base, "pathdir");
-    fs.mkdirSync(pathDir);
-    fs.writeFileSync(path.join(pathDir, "bukit"), '#!/bin/sh\necho "bukit 2.0.11"\n', { mode: 0o755 });
-    expect(await locateBukit({ customPath: null, home: home(), tmpDir, envPath: `relative:${pathDir}` })).toMatchObject(
-      {
-        source: "path",
-        path: path.join(pathDir, "bukit"),
-      },
-    );
-  });
-
-  it("still uses an earlier app install (2.0.11) and offers the upgrade, never a downgrade", async () => {
-    const appHome3 = path.join(base, "app3");
-    const previous = appBukitDir(appHome3, "2.0.11");
-    fs.mkdirSync(previous, { recursive: true });
-    fs.writeFileSync(path.join(previous, "bukit"), '#!/bin/sh\necho "bukit 2.0.11"\n', { mode: 0o755 });
-    expect(await locateBukit({ customPath: null, home: appHome3, tmpDir, envPath: "" })).toMatchObject({
-      source: "app",
-      path: path.join(previous, "bukit"),
-      version: "2.0.11",
-      state: "ok",
-      upgradable: packageForPlatform() !== null,
-    });
-    expect(BUKIT_VERSION).toBe("2.0.12");
-    // A newer Bukit on PATH is not "upgraded" to the pinned one.
-    const newer = path.join(base, "newer-path");
-    fs.mkdirSync(newer);
-    fs.writeFileSync(path.join(newer, "bukit"), '#!/bin/sh\necho "bukit 2.0.13"\n', { mode: 0o755 });
-    expect(await locateBukit({ customPath: null, home: home(), tmpDir, envPath: newer })).toMatchObject({
-      source: "path",
-      state: "ok",
-      upgradable: false,
-    });
-  });
-
   it("does not cache a failed lookup", async () => {
-    const pathDir = path.join(base, "cachedir");
-    fs.mkdirSync(pathDir);
-    fs.writeFileSync(path.join(pathDir, "bukit"), '#!/bin/sh\necho "bukit 2.0.11"\n', { mode: 0o755 });
+    const dir = path.join(base, "cachedir");
+    installFakeBukit(dir, 'echo "bukit 2.0.11"');
     const badTmp = path.join(base, "tmp-is-a-file");
     fs.writeFileSync(badTmp, "");
-    const service = new BukitService({ home: home(), tmpDir: badTmp, customPath: () => null, envPath: pathDir });
+    const service = new BukitService({ dir, tmpDir: badTmp });
     await expect(service.status()).rejects.toThrow();
     fs.rmSync(badTmp);
-    expect(await service.status()).toMatchObject({ source: "path", state: "ok" });
+    expect(await service.status()).toMatchObject({ state: "ok", version: "2.0.11" });
   });
 
   it("reports a found but broken bukit", async () => {
-    const pathDir = path.join(base, "brokendir");
-    fs.mkdirSync(pathDir);
-    fs.writeFileSync(path.join(pathDir, "bukit"), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
-    expect(await locateBukit({ customPath: null, home: home(), tmpDir, envPath: pathDir })).toMatchObject({
-      source: "path",
-      state: "broken",
-      version: null,
-    });
+    const dir = path.join(base, "brokendir");
+    installFakeBukit(dir, "exit 2");
+    expect(await locateBukit({ dir, tmpDir })).toMatchObject({ state: "broken", version: null });
   });
 
   it.skipIf(!REAL_BIN)("runs the real bukit version", async () => {
-    expect(await locateBukit({ customPath: REAL_BIN as string, home: home(), tmpDir, envPath: "" })).toMatchObject({
-      source: "custom",
+    const home = path.join(base, "real-app-home");
+    installAppBukit(home, REAL_BIN as string);
+    expect(await locateBukit({ dir: testBukitDir(home), tmpDir })).toMatchObject({
       version: BUKIT_VERSION,
       state: "ok",
     });
   });
 });
 
+describe("bundled Bukit location (plan 8.1)", () => {
+  it("is the resources folder's bukit/ when packaged, vendor/bukit-<version>/ in the repository", () => {
+    expect(resolveResources("/repo", {}).bukit).toBe(path.join("/repo", "vendor", `bukit-${BUKIT_VERSION}`));
+    expect(devBukitDir("/repo")).toBe(path.join("/repo", "vendor", `bukit-${BUKIT_VERSION}`));
+    expect(resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app" }).bukit).toBe(
+      path.join("/App/Resources/app", "bukit"),
+    );
+    // The override is for tests and CI; the packaged app always uses its own copy.
+    expect(resolveResources("/repo", { BUKITJALIL_BUKIT_DIR: "/ci/bukit" }).bukit).toBe(path.resolve("/ci/bukit"));
+    expect(
+      resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app", BUKITJALIL_BUKIT_DIR: "/ci/bukit" })
+        .bukit,
+    ).toBe(path.join("/App/Resources/app", "bukit"));
+  });
+
+  it("removes only the bukit-* copies earlier versions installed in bin/", () => {
+    const home = path.join(base, "old-copies");
+    for (const name of ["bukit-2.0.11", "bukit-2.0.15", "git"])
+      fs.mkdirSync(path.join(home, "bin", name), { recursive: true });
+    fs.writeFileSync(path.join(home, "bin", "bukit-note"), "a file, not a copy");
+    removeOldAppCopies(home);
+    expect(fs.readdirSync(path.join(home, "bin")).sort()).toEqual(["bukit-note", "git"]);
+    removeOldAppCopies(path.join(base, "no-such-home"));
+  });
+});
+
 // --- API ---
 
 describe("/api/bukit", () => {
-  const post = () =>
-    req("/api/bukit/install", {
-      method: "POST",
-      body: "{}",
-      headers: { "content-type": "application/json", "x-bukitjalil": "1", origin: "http://127.0.0.1:47880" },
+  it("reports the bundled Bukit; there is no install endpoint", async () => {
+    const dir = path.join(base, "api");
+    const { app } = makeApp({ bukit: new BukitService({ dir, tmpDir }) });
+    expect(await (await app.fetch(req("/api/bukit"))).json()).toEqual({
+      status: { path: null, version: null, bundledVersion: BUKIT_VERSION, state: "missing" },
     });
-
-  it("reports status and install progress; one install at a time", async () => {
-    let release: () => void = () => {};
-    const gate = new Promise<void>((r) => {
-      release = r;
-    });
-    const fetchImpl = (async () => {
-      await gate;
-      return new Response("not a package");
-    }) as typeof fetch;
-    const bukit = new BukitService({
-      home: path.join(base, "api"),
-      tmpDir,
-      customPath: () => null,
-      envPath: "",
-      fetchImpl,
-    });
-    const { app } = makeApp({ bukit });
-
-    const first = (await (await app.fetch(req("/api/bukit"))).json()) as {
-      status: { state: string };
-      install: unknown;
-    };
-    expect(first.status.state).toBe("missing");
-    expect(first.install).toEqual({ state: "idle" });
-
-    if (!packageForPlatform()) {
-      expect((await app.fetch(post())).status).toBe(400);
-      return;
-    }
-    expect((await app.fetch(post())).status).toBe(202);
-    const again = await app.fetch(post());
-    expect(again.status).toBe(409);
-    expect(await again.json()).toEqual({ code: "bukit.install_running" });
-    release();
-    await bukit.installer.wait();
-    const after = (await (await app.fetch(req("/api/bukit"))).json()) as { install: { state: string; code?: string } };
-    expect(after.install).toMatchObject({ state: "failed", code: "checksum_mismatch" });
-  });
-
-  it("re-locates after the custom path changes", async () => {
-    const bukit = new BukitService({
-      home: path.join(base, "api2"),
-      tmpDir,
-      customPath: () => custom,
-      envPath: "",
-    });
-    let custom: string | null = null;
-    const { app, db } = makeApp({ bukit });
-    expect((await bukit.status()).state).toBe("missing");
-    const bin = fakeBukit("api-bukit", 'echo "bukit 2.0.11"');
-    const res = await app.fetch(
-      req("/api/settings", {
-        method: "PUT",
-        body: JSON.stringify({ bukitPath: bin }),
+    const install = await app.fetch(
+      req("/api/bukit/install", {
+        method: "POST",
+        body: "{}",
         headers: { "content-type": "application/json", "x-bukitjalil": "1", origin: "http://127.0.0.1:47880" },
       }),
     );
-    expect(res.status).toBe(200);
-    custom = bin;
-    const body = (await (await app.fetch(req("/api/bukit"))).json()) as { status: unknown };
-    expect(body.status).toMatchObject({ source: "custom", state: "ok" });
+    expect(install.status).toBe(404);
+  });
+
+  it("re-locates when the refresh query is set", async () => {
+    const dir = path.join(base, "api-refresh");
+    const bukit = new BukitService({ dir, tmpDir });
+    const { app, db } = makeApp({ bukit });
+    expect(await bukit.status()).toMatchObject({ state: "missing" });
+
+    // A working copy appears after the first (cached) lookup.
+    installFakeBukit(dir, 'echo "bukit 2.0.12"');
+
+    const stale = (await (await app.fetch(req("/api/bukit"))).json()) as { status: { state: string } };
+    expect(stale.status.state).toBe("missing");
+    const fresh = (await (await app.fetch(req("/api/bukit?refresh=1"))).json()) as {
+      status: { state: string; version: string };
+    };
+    expect(fresh.status).toMatchObject({ state: "ok", version: "2.0.12" });
     db.close();
   });
 
-  it("rejects a relative custom path", async () => {
+  it("rejects the removed Bukit path setting", async () => {
     const { app } = makeApp();
+    const settings = (await (await app.fetch(req("/api/settings"))).json()) as Record<string, unknown>;
+    expect(settings).not.toHaveProperty("bukitPath");
     const res = await app.fetch(
       req("/api/settings", {
         method: "PUT",
-        body: JSON.stringify({ bukitPath: "bin/bukit" }),
+        body: JSON.stringify({ bukitPath: "/usr/local/bin/bukit" }),
         headers: { "content-type": "application/json", "x-bukitjalil": "1", origin: "http://127.0.0.1:47880" },
       }),
     );

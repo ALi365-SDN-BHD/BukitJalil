@@ -1,4 +1,5 @@
 import path from "node:path";
+import { REQUIRED_SKILLS } from "@bukitjalil/shared";
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { PiModules } from "./pi.ts";
 
@@ -39,6 +40,8 @@ export interface ResourceOptions {
   systemPrompt: string;
   /** BukitJalil's skills directory; the only skills loaded. */
   skillsDir: string;
+  /** Optional skills turned off in Settings; required skills stay on. */
+  disabledSkills?: readonly string[];
 }
 
 /**
@@ -47,6 +50,8 @@ export interface ResourceOptions {
  * the user's home. With noSkills, Pi loads only `additionalSkillPaths`.
  */
 export async function createResourceLoader({ pi }: PiModules, opts: ResourceOptions) {
+  const off = new Set(opts.disabledSkills ?? []);
+  const required = new Set<string>(REQUIRED_SKILLS);
   const loader = new pi.DefaultResourceLoader({
     cwd: opts.cwd,
     agentDir: opts.piDir,
@@ -57,6 +62,11 @@ export async function createResourceLoader({ pi }: PiModules, opts: ResourceOpti
     noThemes: true,
     noSkills: true,
     additionalSkillPaths: [opts.skillsDir],
+    // Settings can hide a skill from the prompt; site-editing is part of the site workflow and stays.
+    skillsOverride: ({ skills, diagnostics }) => ({
+      skills: skills.filter((skill) => !off.has(skill.name) || required.has(skill.name)),
+      diagnostics,
+    }),
     noExtensions: true,
   });
   await loader.reload();

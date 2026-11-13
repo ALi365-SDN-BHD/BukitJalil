@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NotionDatabaseChoice } from "./data-sources.ts";
 
 /** Sites, directory picker and import (plan 5.1, 5.2, 9.1). */
 
@@ -25,6 +26,13 @@ export const CreateSiteRequest = z
     /** The new site directory itself; it must not exist or be empty. */
     path: AbsolutePath,
     language: SiteLanguage,
+    /**
+     * The optional saved Notion source for the new site. Omit (or leave empty) to keep the starter's
+     * default Markdown sources, which are created automatically with the project.
+     */
+    dataSourceIds: z.array(z.string().min(1).max(100)).max(1).optional(),
+    /** The databases picked from the selected Notion data source, each with its use on the site. */
+    notionDatabases: z.array(NotionDatabaseChoice).max(100).optional(),
   })
   .strict();
 export type CreateSiteRequest = z.infer<typeof CreateSiteRequest>;
@@ -54,6 +62,10 @@ export type ImportInspection =
 
 export const SitePatch = z.object({ name: SiteName.optional(), archived: z.boolean().optional() }).strict();
 export type SitePatch = z.infer<typeof SitePatch>;
+
+/** Which saved Notion data source a site's main builds use; null unbinds it. Only the user sets this. */
+export const SiteNotionSourceRequest = z.object({ dataSourceId: z.string().min(1).max(64).nullable() }).strict();
+export type SiteNotionSourceRequest = z.infer<typeof SiteNotionSourceRequest>;
 
 export type SiteReasonCode =
   | "missing_site_yaml"
@@ -97,6 +109,8 @@ export interface Site {
   readOnly: SiteReason[] | null;
   checkedCommit: string | null;
   configCheck: ConfigCheck | null;
+  /** The saved Notion data source whose token main builds use; null: none, so Notion builds fail. */
+  notionDataSourceId: string | null;
 }
 
 export interface FsDirsResponse {

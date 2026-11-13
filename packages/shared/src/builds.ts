@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { NotionProblem } from "./data-sources.ts";
 import { PanelRef } from "./panels.ts";
 import type { SiteReason } from "./sites.ts";
 
@@ -23,6 +24,8 @@ export type BuildOutcome =
   | "refused"
   /** The site uses a Notion source, which needs a token (plan 5.1); not available yet. */
   | "notion"
+  /** site.baseUrl is not a path the preview can be served under (plan 16 #8); `report.detail` says why. */
+  | "base_url"
   /** The output contained a symbolic link (plan 8.4). */
   | "symlink"
   /** The server stopped while the build was running. */
@@ -79,6 +82,65 @@ export interface BuildAudit {
 export const AUDIT_ROUTES_PER_GROUP = 5;
 export const AUDIT_MAX_GROUPS = 40;
 
+/** The SEO / GEO report panel (plan 10.4). */
+export const AuditQuery = z.object({ ref: PanelRef.default("main") }).strict();
+
+/** One SEO issue from a build's full report. */
+export interface AuditIssue {
+  severity: AuditIssueGroup["severity"];
+  code: string;
+  /** "" stands for the site as a whole. */
+  route: string;
+  message: string;
+}
+
+/** "unknown": the previous summary was cut short and does not list this kind. */
+export type AuditChange = "new" | "fixed" | "more" | "fewer" | "same" | "unknown";
+
+/** One kind of issue (severity + code) compared with the previous report. */
+export interface AuditCompareGroup {
+  code: string;
+  severity: AuditIssueGroup["severity"];
+  count: number;
+  /** Null when unknown (see `change`). */
+  previous: number | null;
+  change: AuditChange;
+}
+
+export interface AuditCompare {
+  groups: AuditCompareGroup[];
+  /** The previous summary held only some kinds of issues: a kind it does not list may not be new. */
+  previousTruncated: boolean;
+  /** Null when either report has no SEO part. */
+  errors: number | null;
+  warnings: number | null;
+  /** Null when either report has no GEO score. */
+  geoScore: number | null;
+}
+
+export interface AuditBuildRef {
+  buildId: string;
+  commit: string;
+  finishedAt: string | null;
+}
+
+export interface AuditReportResponse {
+  ref: PanelRef;
+  build: AuditBuildRef;
+  /** The summary saved with the build (the one build details show). */
+  summary: BuildAudit;
+  /** Every issue, read again from the kept output; null when the output is gone or unreadable. */
+  issues: AuditIssue[] | null;
+  issuesTruncated: boolean;
+  /** A newer build of the same version ended without a report (it failed), so this report may be out of date. */
+  stale: boolean;
+  /** For main: the previous main build with a report; for change: the newest main build with one. */
+  previous: (AuditBuildRef & { summary: BuildAudit }) | null;
+  compare: AuditCompare | null;
+}
+
+export const AUDIT_MAX_ISSUES = 5000;
+
 export interface BuildReport {
   /** Warning and error lines from Bukit's JSON log, in order. */
   messages: BuildMessage[];
@@ -88,6 +150,8 @@ export interface BuildReport {
   detail?: string;
   /** A disk write failure behind the failed build (plan M5 layer 2). */
   problem?: "fs.disk_full" | "fs.read_only" | "fs.permission_denied";
+  /** A Notion failure recognised in Bukit's output (plan 5.4). */
+  notionProblem?: NotionProblem;
   /** SEO / GEO summary of a successful build (plan M4 layer 7); absent when Bukit wrote no reports. */
   audit?: BuildAudit;
   /**
@@ -95,6 +159,8 @@ export interface BuildReport {
    * each language under /<lang>/): the default language's home, such as "/zh-CN/".
    */
   entry?: string;
+  /** The path the preview is served under, site.baseUrl such as "/blog/"; absent for "/" (plan 16 #8). */
+  basePath?: string;
 }
 
 export interface Build {

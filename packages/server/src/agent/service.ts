@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type { SessionInfo, SessionMessage, SessionStatus, ThinkingLevel } from "@bukitjalil/shared";
+import type { SessionInfo, SessionMessage, SessionStatus, SkillsResponse, ThinkingLevel } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ChangeService } from "../changes/service.ts";
@@ -17,7 +17,9 @@ import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
 import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
 import { createSiteTools, SITE_TOOLS } from "./site-tools.ts";
+import { listSkills, skillReadRoots } from "./skills.ts";
 import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./store.ts";
+import { autoTitle } from "./title.ts";
 import { BUILTIN_TOOLS, createGatedTools } from "./tools.ts";
 
 const IDLE_MS = 10 * 60_000;
@@ -61,6 +63,8 @@ export interface AgentServiceOptions {
   bukit: AiBukit;
   /** BukitJalil's skills (plan 6.4): listed in the system prompt, readable but never writable by the AI. */
   skillsDir: string;
+  /** Optional skills turned off in Settings; read before every session opens. */
+  disabledSkills?: () => readonly string[];
   /** Dispose an unused AgentSession after this long; its file stays (plan 6.2). */
   idleMs?: number;
   /** Longest shutdown waits for runs that ignore abort (tests set it short). */
@@ -90,6 +94,28 @@ interface Run {
   cwd: string | null;
   /** Settles when the run has ended and touched nothing more. */
   done: Promise<void>;
+}
+
+/** customType of the note that tells the model its working copy was reset (plan 6.2). */
+export const RESET_NOTE_TYPE = "bukitjalil.worktree_reset";
+
+const RESET_OUTCOME = {
+  applied: "was applied to the main version",
+  rejected: "was closed without being applied",
+  stale: "was closed because it conflicted with newer changes on the main version",
+} as const;
+
+/**
+ * The note for a conversation whose last change set ended as `previous`. `restoring`: the new change set
+ * starts from an older version the user is restoring, not from the latest main version.
+ */
+export function resetNote(previous: keyof typeof RESET_OUTCOME, restoring = false): string {
+  const target = restoring ? "the older version the user is restoring" : "the latest main version";
+  return [
+    `Note from BukitJalil: since your last turn, the working copy was reset to ${target}.`,
+    `The change set your earlier edits were in ${RESET_OUTCOME[previous]}.`,
+    "Read files again before editing them; what you remember of them may be out of date.",
+  ].join(" ");
 }
 
 /**
@@ -122,6 +148,12 @@ export class AgentService {
   /** Pi's modules, loaded on first use. */
   piModules(): Promise<PiModules> {
     return this.pi();
+  }
+
+  /** The skills loaded from BukitJalil's directory, with the current on/off setting. */
+  async skills(): Promise<SkillsResponse> {
+    const pi = await this.pi();
+    return listSkills(pi, this.opts.skillsDir, this.opts.paths.pi, this.opts.disabledSkills?.() ?? []);
   }
 
   /** The one model runtime (catalog and keys) every session and the model settings use. */
@@ -271,6 +303,14 @@ export class AgentService {
     this.assertOpen();
     const session = this.get(id);
     if (this.opts.sites.get(session.siteId).readOnly) throw new SiteError("site.read_only", 409);
+    // The first message names the conversation; manual rename can still replace it later.
+    if (!session.title) {
+      const title = autoTitle(text);
+      if (title) {
+        this.store.rename(id, title);
+        this.announce(id);
+      }
+    }
     const run = this.running.get(session.siteId);
     if (run?.sessionId === id && !run.cancelled) {
       const live = this.live.get(id);
@@ -488,6 +528,18 @@ export class AgentService {
     }
   }
 
+  /** Whether the session's branch already has the reset note for change set `changeSetId`. */
+  private hasResetNote(live: Live, changeSetId: string): boolean {
+    return live.session.sessionManager
+      .getBranch()
+      .some(
+        (e) =>
+          e.type === "custom_message" &&
+          e.customType === RESET_NOTE_TYPE &&
+          (e.details as { changeSetId?: unknown } | undefined)?.changeSetId === changeSetId,
+      );
+  }
+
   /** Run a session's prompts; resolves to an error code, never rejects. */
   private async execute(run: Run, text: string): Promise<string | undefined> {
     const id = run.sessionId;
@@ -498,13 +550,25 @@ export class AgentService {
       // Every run joins the site's open change set, or starts one (plan 7.2), before the AI touches files.
       const record = this.store.get(id);
       if (!record || run.cancelled || this.closing) return undefined;
-      run.cwd = (await this.opts.changes.begin(record.siteId, id)).cwd;
+      const joined = await this.opts.changes.begin(record.siteId, id);
+      run.cwd = joined.cwd;
       live = await this.open(run);
       if (!live) return undefined;
       if (live.idleTimer) clearTimeout(live.idleTimer);
       live.idleTimer = null;
       if (wasOpen) await this.applyModel(live.session);
       this.store.touch(id);
+      // The working copy was reset since this conversation last changed files (plan 6.2): tell the model
+      // before the user's message, once per change set (a run that ended before sending it leaves no note,
+      // and the next run sends it). Only the model sees it; the transcript shows message entries only.
+      if (joined.previous && !this.hasResetNote(live, joined.change.id)) {
+        await live.session.sendCustomMessage({
+          customType: RESET_NOTE_TYPE,
+          content: resetNote(joined.previous, joined.change.restoreCommit !== null),
+          display: false,
+          details: { changeSetId: joined.change.id },
+        });
+      }
       let prompt: string | undefined = text;
       while (prompt !== undefined && !run.cancelled) {
         await live.session.prompt(prompt);
@@ -546,8 +610,6 @@ export class AgentService {
     const [modelRuntime, model] = await Promise.all([this.modelRuntime(), this.model()]);
     if (gone()) return null;
     const settingsManager = createSettings(pi);
-    // Skills are the one place outside the working copy the AI may read (plan 6.3).
-    const gate = new PathGate(cwd, [this.opts.skillsDir]);
     const piDir = this.opts.paths.pi;
     const resourceLoader = await createResourceLoader(pi, {
       cwd,
@@ -555,7 +617,16 @@ export class AgentService {
       settings: settingsManager,
       systemPrompt: buildSystemPrompt(site),
       skillsDir: this.opts.skillsDir,
+      disabledSkills: this.opts.disabledSkills?.() ?? [],
     });
+    // Skills are the one place outside the working copy the AI may read (plan 6.3). Only the enabled
+    // skills' real directories are readable; a disabled skill cannot be read in a new conversation.
+    const gate = new PathGate(
+      cwd,
+      skillReadRoots(resourceLoader.getSkills().skills, this.opts.skillsDir, (name, reason) =>
+        this.opts.logger.log("warn", "agent.skill_read_root_skipped", { skill: name, reason }),
+      ),
+    );
     if (gone()) return null;
     const dir = this.sessionDir(site.id);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });

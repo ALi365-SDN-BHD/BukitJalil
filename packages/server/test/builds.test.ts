@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Build, BuildListResponse, PreviewResponse, ServerEvent, Site } from "@bukitjalil/shared";
+import type {
+  AuditReportResponse,
+  Build,
+  BuildListResponse,
+  PreviewResponse,
+  ServerEvent,
+  Site,
+} from "@bukitjalil/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KEEP_OUTPUTS } from "../src/builds/service.ts";
 import { BuildStore } from "../src/builds/store.ts";
@@ -11,7 +18,17 @@ import { silentLogger } from "../src/log.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { openDatabase } from "../src/store/db.ts";
-import { ADMIN, commitAllAs, httpGet, makeApp, rawGit, req } from "./helpers.ts";
+import {
+  ADMIN,
+  commitAllAs,
+  httpGet,
+  installAppBukit,
+  jsonPut,
+  makeApp,
+  rawGit,
+  req,
+  testBukitDir,
+} from "./helpers.ts";
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const REAL_BIN = process.env.BUKIT_BIN;
@@ -30,6 +47,7 @@ case "$1" in
     out=""; prev=""
     for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
     [ -n "$NOTION_TOKEN" ] && printf '%s' "$NOTION_TOKEN" > "\${0}.notion"
+    printf '%s' "$*" > "\${0}.args"
     mode=$(cat fake-mode 2>/dev/null)
     echo '{"ts":"t","level":"info","msg":"event=build.start"}'
     case "$mode" in
@@ -42,7 +60,8 @@ case "$1" in
         mkdir -p "$out/.bukit"; echo "<h1>a</h1>" > "$out/index.html"
         echo '{"ts":"t","level":"Warn","msg":"seo.audit severity=warning code=seo.canonical_not_absolute route=/ message=x"}' >&2
         echo '{"ts":"t","level":"Warn","msg":"event=content.slow file=a.md"}' >&2
-        echo '{"siteUrl":null,"routes":[{},{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/a/","message":"SEO description is missing."},{"severity":"error","code":"seo.title_missing","route":"/b/","message":"Title is missing."}]}' > "$out/.bukit/seo-report.json"
+        if [ -f seo.json ]; then cp seo.json "$out/.bukit/seo-report.json"; else
+        echo '{"siteUrl":null,"routes":[{},{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/a/","message":"SEO description is missing."},{"severity":"error","code":"seo.title_missing","route":"/b/","message":"Title is missing."}]}' > "$out/.bukit/seo-report.json"; fi
         echo '{"geoScore":25,"llmsTxtGenerated":true,"llmsFullTxtGenerated":false,"geoEnhancedCount":0}' > "$out/.bukit/geo-report.json";;
       multi) for l in en-US zh-CN; do mkdir -p "$out/$l"; echo "<h1>$l</h1>" > "$out/$l/index.html"; done;;
       slow) trap 'exit 130' INT; while true; do sleep 0.05; done;;
@@ -80,11 +99,11 @@ const raw = (cwd: string, ...args: string[]) => rawGit(base, cwd, ...args);
 const commitAll = (dir: string, message: string) => commitAllAs(base, dir, message);
 
 function bukitFor(bin: string | null) {
+  const home = path.join(base, "bk");
+  installAppBukit(home, bin);
   return new BukitService({
-    home: path.join(base, "bk"),
+    dir: testBukitDir(home),
     tmpDir: path.join(base, "bk-tmp"),
-    customPath: () => bin,
-    envPath: "",
   });
 }
 
@@ -144,13 +163,12 @@ async function setup(name: string, opts: { mode?: string; bin?: string | null } 
 
 const fetchPreview = (port: number) => httpGet(port);
 
-it("passes the Notion token to a main build but never to a change build", async () => {
+it("passes the Notion token of the site's data source to a main build but never to a change build", async () => {
   const ctx = makeApp({
     userHome,
     appHome: fs.mkdtempSync(path.join(base, "app-notion-")),
     bukit: bukitFor(fakeBin),
     previewBase: nextPreviewBase(),
-    secretEnv: { BUKITJALIL_NOTION_TOKEN: "ntn_main_only" },
   });
   contexts.push(ctx);
   const dir = path.join(userHome, "notion");
@@ -164,10 +182,30 @@ it("passes the Notion token to a main build but never to a change build", async 
   const site = await ctx.sites.import({ path: dir });
   await ctx.builds.settled();
   expect(site.configCheck).toBe("notion");
-  expect(ctx.secrets.get("notion")).toBe("ntn_main_only");
+  const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_main_only" });
+  expect(ctx.dataSources.token(source.id)).toBe("ntn_main_only");
 
-  const tokenFile = `${fakeBin}.notion`;
+  const tokenFile = path.join(testBukitDir(path.join(base, "bk")), "bukit.notion");
+  const bind = async (dataSourceId: string | null) =>
+    ctx.app.fetch(req(`/api/sites/${site.id}/notion-source`, jsonPut({ dataSourceId })));
+
+  // An imported site gets no token until the user binds one, even when only one source is saved: its
+  // site.yaml could name any database that token reads.
   fs.rmSync(tokenFile, { force: true });
+  await ctx.builds.start(site.id, "main");
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "failed", outcome: "notion" });
+  expect(fs.existsSync(tokenFile)).toBe(false);
+
+  expect((await bind("missing")).status).toBe(404);
+  const otherSite = await ctx.app.fetch(
+    req("/api/sites/0000000000000000/notion-source", jsonPut({ dataSourceId: source.id })),
+  );
+  expect(otherSite.status).toBe(404);
+  const bound = await bind(source.id);
+  expect(bound.status).toBe(200);
+  // Binding rechecks the site, whose config check now runs with the token.
+  expect((await bound.json()) as Site).toMatchObject({ notionDataSourceId: source.id, configCheck: "ok" });
   await ctx.builds.start(site.id, "main");
   await ctx.builds.settled();
   expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "succeeded", outcome: "ok" });
@@ -186,9 +224,76 @@ it("passes the Notion token to a main build but never to a change build", async 
     outcome: "notion",
   });
   expect(fs.existsSync(tokenFile)).toBe(false);
+
+  // Unbinding takes the token away again, and the site state says a source must be bound.
+  const unbound = await bind(null);
+  expect((await unbound.json()) as Site).toMatchObject({ notionDataSourceId: null, configCheck: "notion" });
+  await ctx.builds.start(site.id, "main");
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id).find((b) => b.ref === "main")).toMatchObject({ status: "failed", outcome: "notion" });
+  expect(fs.existsSync(tokenFile)).toBe(false);
+
+  // An unreadable token file fails the config check but leaves the site usable.
+  await bind(source.id);
+  const tokens = path.join(ctx.paths.home, "data-source-tokens.json");
+  fs.chmodSync(tokens, 0o000);
+  try {
+    expect(await ctx.sites.recheck(site.id)).toMatchObject({ readOnly: null, configCheck: "failed" });
+  } finally {
+    fs.chmodSync(tokens, 0o600);
+  }
+});
+
+it("checks and builds a new Notion site with its bound token right after creating it", async () => {
+  const ctx = makeApp({
+    userHome,
+    appHome: fs.mkdtempSync(path.join(base, "app-notion-new-")),
+    bukit: bukitFor(fakeBin),
+    previewBase: nextPreviewBase(),
+  });
+  contexts.push(ctx);
+  ctx.db
+    .prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('commitName', ?), ('commitEmail', ?)")
+    .run(JSON.stringify("Site Owner"), JSON.stringify("owner@example.com"));
+  const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_new_site_token" });
+  const tokenFile = path.join(testBukitDir(path.join(base, "bk")), "bukit.notion");
+  fs.rmSync(tokenFile, { force: true });
+  const site = await ctx.sites.create({
+    name: "New Notion",
+    path: path.join(userHome, "new-notion"),
+    language: "en-US",
+    dataSourceIds: [source.id],
+    notionDatabases: [{ databaseId: "db_posts", title: "Posts", use: "post" }],
+  });
+  expect(site).toMatchObject({ readOnly: null, configCheck: "ok", notionDataSourceId: source.id });
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id)).toMatchObject([{ ref: "main", status: "succeeded", outcome: "ok" }]);
+  expect(fs.readFileSync(tokenFile, "utf8")).toBe("ntn_new_site_token");
 });
 
 describe("main builds (plan 8.3, 8.4)", () => {
+  it("builds and previews a subpath site under its own baseUrl; a bad baseUrl fails the build", async () => {
+    const s = await setup("subpath");
+    const yaml = path.join(s.dir, "site.yaml");
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog"));
+    commitAll(s.dir, "subpath");
+    const b = await s.build();
+    expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
+    expect(b.report?.basePath).toBe("/blog/");
+    const args = fs.readFileSync(path.join(testBukitDir(path.join(base, "bk")), "bukit.args"), "utf8");
+    expect(args).toContain("--base-url /blog/ ");
+    const opened = (await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" })).json;
+    expect(opened.url).toBe(`http://127.0.0.1:${opened.port}/blog/`);
+    expect((await httpGet(opened.port, { path: "/blog/" })).body).toContain("v1");
+    expect((await httpGet(opened.port, { path: "/" })).headers.location).toBe("/blog/");
+
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /blog", "baseUrl: /a b/"));
+    commitAll(s.dir, "bad base");
+    const bad = await s.build();
+    expect(bad).toMatchObject({ status: "failed", outcome: "base_url" });
+    expect(bad.report?.detail).toContain("site.baseUrl");
+  });
+
   it("builds in the main checkout and keeps the output under previews/", async () => {
     const s = await setup("ok");
     expect(s.site).toMatchObject({ readOnly: null, configCheck: "ok" });
@@ -305,6 +410,91 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect(b.report?.output).not.toContain('"level"');
     // A build without reports has no audit.
     expect((await (await setup("noaudit")).build()).report?.audit).toBeUndefined();
+  });
+
+  it("serves the full SEO report and compares it with the previous main build (plan 10.4)", async () => {
+    const s = await setup("audit-report", { mode: "audit" });
+    type R = AuditReportResponse & { code?: string };
+    // The import's first build wrote no reports.
+    expect((await s.call<R>("GET", s.api("/audit"))).json.code).toBe("audit.not_built");
+    expect((await s.call<R>("GET", s.api("/audit?ref=nope"))).status).toBe(400);
+    expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("change.not_found");
+
+    const first = await s.build();
+    let r = await s.call<R>("GET", s.api("/audit"));
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ ref: "main", build: { buildId: first.id }, previous: null, compare: null });
+    expect(r.json.summary).toEqual(first.report?.audit);
+    // The site.url warning is folded away, as in the summary; errors first.
+    expect(r.json.issues).toEqual([
+      { severity: "error", code: "seo.title_missing", route: "/b/", message: "Title is missing." },
+      { severity: "warning", code: "seo.description_missing", route: "/a/", message: "SEO description is missing." },
+    ]);
+
+    // Second build: the title error is fixed, the description issue spreads, a new kind appears.
+    const issue = (severity: string, code: string, route: string) => ({ severity, code, route, message: code });
+    fs.writeFileSync(
+      path.join(s.dir, "seo.json"),
+      JSON.stringify({
+        siteUrl: "https://x.test",
+        routes: [{}, {}, {}],
+        issues: [
+          issue("warning", "seo.description_missing", "/a/"),
+          issue("warning", "seo.description_missing", "/c/"),
+          issue("info", "seo.new_kind", ""),
+        ],
+      }),
+    );
+    commitAll(s.dir, "seo");
+    const second = await s.build();
+    r = await s.call<R>("GET", s.api("/audit"));
+    expect(r.json.build.buildId).toBe(second.id);
+    expect(r.json.previous?.buildId).toBe(first.id);
+    expect(r.json.issues).toHaveLength(3);
+    expect(r.json.compare).toMatchObject({ errors: -1, warnings: 0, geoScore: 0, previousTruncated: false });
+    expect(r.json.compare?.groups.map((g) => [g.code, g.change, g.count, g.previous])).toEqual([
+      ["seo.title_missing", "fixed", 0, 1],
+      ["seo.description_missing", "more", 2, 1],
+      ["seo.new_kind", "new", 1, 0],
+    ]);
+
+    // The output is gone: the summary is still there, the full list is not.
+    fs.rmSync(path.join(s.paths.previews, s.site.id, second.id), { recursive: true, force: true });
+    r = await s.call<R>("GET", s.api("/audit"));
+    expect(r.json).toMatchObject({ issues: null, issuesTruncated: false, build: { buildId: second.id } });
+    expect(r.json.compare?.groups.find((g) => g.code === "seo.description_missing")?.change).toBe("more");
+    expect(r.json.stale).toBe(false);
+
+    // The change version: its own build, compared with the main version's newest report.
+    const session = s.agent.create(s.site.id);
+    const { cwd } = await s.changes.begin(s.site.id, session.id);
+    fs.writeFileSync(
+      path.join(cwd, "seo.json"),
+      JSON.stringify({ siteUrl: "https://x.test", issues: [issue("warning", "seo.description_missing", "/a/")] }),
+    );
+    await s.changes.snapshot(s.site.id, cwd);
+    expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("audit.not_built");
+    const change = await s.call<Build>("POST", s.api("/builds"), { ref: "change" });
+    await s.builds.settled();
+    r = await s.call<R>("GET", s.api("/audit?ref=change"));
+    expect(r.json).toMatchObject({
+      ref: "change",
+      build: { buildId: change.json.id },
+      previous: { buildId: second.id },
+    });
+    expect(r.json.compare?.groups.map((g) => [g.code, g.change])).toEqual([
+      ["seo.description_missing", "fewer"],
+      ["seo.new_kind", "fixed"],
+    ]);
+    // The main report is still the main build's.
+    expect((await s.call<R>("GET", s.api("/audit"))).json.build.buildId).toBe(second.id);
+
+    // A newer main build fails: the report shown is the last good one, marked out of date.
+    fs.writeFileSync(path.join(s.dir, "fake-mode"), "fail");
+    commitAll(s.dir, "fail");
+    expect((await s.build()).status).toBe("failed");
+    r = await s.call<R>("GET", s.api("/audit"));
+    expect(r.json).toMatchObject({ build: { buildId: second.id }, previous: { buildId: first.id }, stale: true });
   });
 
   it("does not keep an output that contains a symbolic link", async () => {

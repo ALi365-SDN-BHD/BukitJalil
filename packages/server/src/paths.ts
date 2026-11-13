@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { devBukitDir } from "./bukit/locate.ts";
 
 /** Application data directory (plan 4.1); BUKITJALIL_HOME overrides ~/.bukitjalil. */
 export function resolveAppHome(env: NodeJS.ProcessEnv = process.env): string {
@@ -8,16 +9,20 @@ export function resolveAppHome(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(override && override.length > 0 ? override : path.join(os.homedir(), ".bukitjalil"));
 }
 
-/** Files the server ships with: the AI skills, the starter template and the built web pages. */
+/** Files the server ships with: the AI skills, the starter template, the built web pages and Bukit. */
 export interface ResourcePaths {
   skills: string;
   starter: string;
   web: string;
+  /** The directory holding the bundled Bukit executable (plan 8.1). */
+  bukit: string;
 }
 
 /**
- * Where those files are (plan M7): BUKITJALIL_RESOURCES names the desktop app's resources folder
- * (skills/, templates/starter/, web/); without it they are read from the repository.
+ * Where those files are (plan M7, 8.1): BUKITJALIL_RESOURCES names the desktop app's resources folder
+ * (skills/, templates/starter/, web/, bukit/); without it they are read from the repository, with Bukit in
+ * vendor/bukit-<version>/ from `pnpm fetch:bukit`. BUKITJALIL_BUKIT_DIR picks another Bukit directory, for
+ * tests and CI only: the packaged app (BUKITJALIL_RESOURCES set) always uses the copy it ships with.
  */
 export function resolveResources(repoRoot: string, env: NodeJS.ProcessEnv = process.env): ResourcePaths {
   const root = env.BUKITJALIL_RESOURCES;
@@ -27,12 +32,16 @@ export function resolveResources(repoRoot: string, env: NodeJS.ProcessEnv = proc
       skills: path.join(dir, "skills"),
       starter: path.join(dir, "templates", "starter"),
       web: path.join(dir, "web"),
+      bukit: path.join(dir, "bukit"),
     };
   }
+  const bukitDir = env.BUKITJALIL_BUKIT_DIR;
+  const bukit = bukitDir && bukitDir.length > 0 ? path.resolve(bukitDir) : null;
   return {
     skills: path.join(repoRoot, "skills"),
     starter: path.join(repoRoot, "templates", "starter"),
     web: path.join(repoRoot, "packages", "web", "dist"),
+    bukit: bukit ?? devBukitDir(repoRoot),
   };
 }
 
@@ -56,8 +65,10 @@ export interface AppPaths {
   piBin: string;
   /** Scratch space for git work that must not touch a user's directory. */
   tmp: string;
-  /** Deploy tokens set in the UI (plan 6.5), 0600. */
-  secrets: string;
+  /** Per-data-source Notion tokens, 0600. */
+  dataSourceTokens: string;
+  /** Per-publishing-account GitHub tokens, 0600. */
+  publishAccountTokens: string;
   /** Pid of the server using this directory (plan M7). */
   lock: string;
 }
@@ -76,7 +87,8 @@ export function ensureAppHome(home: string): AppPaths {
     pi: path.join(home, "pi"),
     piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
-    secrets: path.join(home, "secrets.json"),
+    dataSourceTokens: path.join(home, "data-source-tokens.json"),
+    publishAccountTokens: path.join(home, "publish-account-tokens.json"),
     lock: path.join(home, "server.lock"),
   };
   // mkdir's mode only applies to new directories, so existing ones are tightened as well. The database
@@ -99,9 +111,11 @@ export function ensureAppHome(home: string): AppPaths {
     `${paths.db}-wal`,
     `${paths.db}-shm`,
     path.join(paths.logs, "server.log"),
-    paths.secrets,
+    paths.dataSourceTokens,
+    paths.publishAccountTokens,
   ]) {
-    if (fs.existsSync(file)) fs.chmodSync(file, 0o600);
+    // lstat, not exists: a symlink must not make startup chmod a file outside the app home.
+    if (fs.lstatSync(file, { throwIfNoEntry: false })?.isFile()) fs.chmodSync(file, 0o600);
   }
   // git hardening relies on these being empty; refuse to start rather than run git with them.
   if (fs.lstatSync(paths.emptyGitConfig).size !== 0 || !fs.lstatSync(paths.emptyGitConfig).isFile()) {

@@ -23,7 +23,7 @@ export function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenC
     ["Enter", m.shortcuts.send],
     ["Shift+Enter", m.shortcuts.newline],
     ["Esc", m.shortcuts.stop],
-    ["Alt+1 … Alt+6", m.shortcuts.panels],
+    ["Alt+1 … Alt+7", m.shortcuts.panels],
     ["?", m.shortcuts.help],
   ];
   return (

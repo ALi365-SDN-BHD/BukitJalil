@@ -1,6 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
-import { AUDIT_MAX_GROUPS, AUDIT_ROUTES_PER_GROUP, type AuditIssueGroup, type BuildAudit } from "@bukitjalil/shared";
+import {
+  AUDIT_MAX_GROUPS,
+  AUDIT_MAX_ISSUES,
+  AUDIT_ROUTES_PER_GROUP,
+  type AuditCompare,
+  type AuditCompareGroup,
+  type AuditIssue,
+  type AuditIssueGroup,
+  type BuildAudit,
+} from "@bukitjalil/shared";
 import { z } from "zod";
 
 /**
@@ -138,6 +147,110 @@ export function summarizeGeo(raw: unknown): BuildAudit["geo"] {
     llmsTxt: r.llmsTxtGenerated ?? false,
     llmsFullTxt: r.llmsFullTxtGenerated ?? false,
     enhancedRoutes: r.geoEnhancedCount ?? 0,
+  };
+}
+
+/**
+ * Every SEO issue of a build output (plan 10.4), errors first, then by code and page, at most
+ * AUDIT_MAX_ISSUES. Warnings that only exist because site.url is missing are left out, as in the summary.
+ * Null when the report is missing or unreadable.
+ */
+export function readIssues(outputDir: string): { issues: AuditIssue[]; truncated: boolean } | null {
+  const parsed = SeoReport.safeParse(readJson(path.join(outputDir, ".bukit", "seo-report.json"), MAX_SEO_REPORT));
+  if (!parsed.success) return null;
+  const siteUrlMissing = !parsed.data.siteUrl;
+  const issues: AuditIssue[] = [];
+  for (const issue of parsed.data.issues) {
+    const severity = severityOf(issue.severity);
+    if (siteUrlMissing && severity === "warning" && SITE_URL_CODES.has(issue.code)) continue;
+    issues.push({
+      severity,
+      code: issue.code.slice(0, 100),
+      route: (issue.route ?? "").slice(0, MAX_TEXT),
+      message: (issue.message ?? "").slice(0, MAX_TEXT),
+    });
+  }
+  issues.sort(
+    (a, b) =>
+      RANK[a.severity] - RANK[b.severity] ||
+      a.code.localeCompare(b.code) ||
+      a.route.localeCompare(b.route) ||
+      a.message.localeCompare(b.message),
+  );
+  return { issues: issues.slice(0, AUDIT_MAX_ISSUES), truncated: issues.length > AUDIT_MAX_ISSUES };
+}
+
+const groupKey = (g: { severity: string; code: string }) => `${g.severity}:${g.code}`;
+
+/**
+ * How a report compares with an earlier one (plan 10.4), by kind of issue (severity + code). The current
+ * counts come from `issues`, the full list (pass null when it is missing or was cut), else from the summary.
+ * A summary holds at most AUDIT_MAX_GROUPS kinds: a kind missing from a cut-short summary is not called
+ * new or fixed. Nor are the site.url warnings when site.url was set or removed in between (one side
+ * folds them away).
+ */
+export function compareAudits(
+  current: BuildAudit,
+  issues: AuditIssue[] | null,
+  previous: BuildAudit,
+): AuditCompare | null {
+  if (!current.seo || !previous.seo) {
+    const geoScore = current.geo && previous.geo ? current.geo.score - previous.geo.score : null;
+    return geoScore === null ? null : { groups: [], previousTruncated: false, errors: null, warnings: null, geoScore };
+  }
+  const now = new Map<string, { code: string; severity: AuditIssueGroup["severity"]; count: number }>();
+  if (issues) {
+    for (const i of issues) {
+      const key = groupKey(i);
+      const g = now.get(key) ?? { code: i.code, severity: i.severity, count: 0 };
+      g.count++;
+      now.set(key, g);
+    }
+  } else {
+    for (const g of current.seo.groups) now.set(groupKey(g), { code: g.code, severity: g.severity, count: g.count });
+  }
+  const currentTruncated = !issues && current.seo.groupsTruncated;
+  const before = new Map(previous.seo.groups.map((g) => [groupKey(g), g]));
+  const previousTruncated = previous.seo.groupsTruncated;
+  // site.url was set or removed in between: one side folds its warnings away, the other lists them.
+  const folding = current.seo.siteUrlMissing !== previous.seo.siteUrlMissing;
+  const blurred = (g: { severity: string; code: string }) =>
+    folding && g.severity === "warning" && SITE_URL_CODES.has(g.code);
+  const groups: AuditCompareGroup[] = [];
+  for (const [key, g] of now) {
+    const p = before.get(key);
+    if (blurred(g)) {
+      groups.push({ ...g, previous: null, change: "unknown" });
+      continue;
+    }
+    if (!p) {
+      groups.push({ ...g, previous: previousTruncated ? null : 0, change: previousTruncated ? "unknown" : "new" });
+      continue;
+    }
+    const change = g.count > p.count ? "more" : g.count < p.count ? "fewer" : "same";
+    groups.push({ ...g, previous: p.count, change });
+  }
+  for (const [key, p] of before) {
+    if (now.has(key)) continue;
+    if (blurred(p)) {
+      groups.push({ code: p.code, severity: p.severity, count: 0, previous: p.count, change: "unknown" });
+      continue;
+    }
+    groups.push({
+      code: p.code,
+      severity: p.severity,
+      count: 0,
+      previous: p.count,
+      change: currentTruncated ? "unknown" : "fixed",
+    });
+  }
+  groups.sort((a, b) => RANK[a.severity] - RANK[b.severity] || b.count - a.count || a.code.localeCompare(b.code));
+  return {
+    groups,
+    previousTruncated,
+    errors: current.seo.errors - previous.seo.errors,
+    warnings: current.seo.warnings - previous.seo.warnings,
+    geoScore: current.geo && previous.geo ? current.geo.score - previous.geo.score : null,
   };
 }
 

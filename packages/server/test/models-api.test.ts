@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ModelsResponse, ProviderKey, ProviderTestResult, ServerEvent, SessionDetail } from "@bukitjalil/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
-import { redact, settingsModel } from "../src/agent/models.ts";
+import { ModelService, redact, settingsModel } from "../src/agent/models.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
@@ -85,6 +85,8 @@ describe("model catalog and keys", () => {
       reasoning: expect.any(Boolean),
       contextWindow: expect.any(Number),
     });
+    expect(anthropic?.oauth).toMatchObject({ isSubscription: true });
+    expect(anthropic?.auth).toEqual({ configured: false, type: null, source: null });
     expect(list.providers.find((p) => p.id === "cerebras")).toMatchObject({
       keyEditable: true,
       envKey: true,
@@ -101,8 +103,16 @@ describe("model catalog and keys", () => {
       keyEditable: false,
       key: { configured: true, source: "other" },
     });
-    // A provider without models is left out.
-    expect(list.providers.every((p) => p.models.length > 0)).toBe(true);
+    // A provider without models is left out, unless it has an OAuth login to offer.
+    expect(list.providers.every((p) => p.models.length > 0 || p.oauth !== null)).toBe(true);
+  });
+
+  it("rejects OAuth for a provider without it and for an unknown login", async () => {
+    const noOauth = await call("POST", "/api/providers/cerebras/oauth");
+    expect(noOauth.status).toBe(400);
+    expect(await noOauth.json()).toMatchObject({ code: "model.oauth_not_supported" });
+    expect((await get("/api/providers/anthropic/oauth/not-a-login")).status).toBe(404);
+    expect((await call("POST", "/api/providers/anthropic/oauth/not-a-login/answer", { value: "x" })).status).toBe(404);
   });
 
   it("saves a key in Pi's auth.json, shows only its last four characters, and removes it", async () => {
@@ -138,6 +148,33 @@ describe("model catalog and keys", () => {
     for (const apiKey of ["", "two words", "line\nbreak"]) {
       expect((await call("PUT", "/api/providers/cerebras/key", { apiKey })).status).toBe(400);
     }
+  });
+
+  it("turns a provider login error into a readable code without the key", async () => {
+    const secret = "gsk_provider_secret_1234";
+    const runtime = {
+      getProvider: () => ({ id: "test", name: "Test", auth: { apiKey: { login: true } } }),
+      getModels: () => [{ id: "m", name: "M" }],
+      getProviderAuthStatus: () => ({ configured: false }),
+      checkAuth: async () => undefined,
+      login: async () => {
+        throw new Error(`bad key ${secret}`);
+      },
+    };
+    const service = new ModelService({
+      runtime: async () => runtime as never,
+      pi: async () => ({ pi: { readStoredCredential: () => undefined } }) as unknown as PiModules,
+      settings: new SettingsStore(ctx.db),
+      piDir: ctx.paths.pi,
+    });
+    let error: unknown;
+    try {
+      await service.setKey("test", secret);
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toMatchObject({ code: "model.key_invalid" });
+    expect((error as { params?: { message?: string } }).params?.message ?? "").not.toContain(secret);
   });
 
   it("shows a key from the environment by its variable and does not let the UI change it", async () => {

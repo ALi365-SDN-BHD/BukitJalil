@@ -2,6 +2,7 @@ import type { AuditIssueGroup, Build, BuildAudit, BuildMessage, PanelRef } from 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -157,6 +158,11 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
               {errorText(report.problem)}
             </p>
           )}
+          {report?.notionProblem && (
+            <p role="alert" className="text-destructive" data-testid="build-notion-problem">
+              {m.notion.problem[report.notionProblem]}
+            </p>
+          )}
           {build.data?.outcome === "failed" && !report?.problem && (
             <p className="text-muted-foreground" data-testid="build-crashed">
               {m.build.crashed}
@@ -173,7 +179,9 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
               ))}
             </ul>
           )}
-          {report && build.data?.status === "succeeded" && <AuditSection audit={report.audit ?? null} />}
+          {report && build.data?.status === "succeeded" && (
+            <AuditSection audit={report.audit ?? null} refName={build.data.ref} onOpenPanel={onClose} />
+          )}
           {report && <ReportLog messages={report.messages} output={report.output} />}
         </div>
       </DialogContent>
@@ -182,9 +190,33 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
 }
 
 /** The SEO / GEO summary of a successful build (plan M4 layer 7). */
-function AuditSection({ audit }: { audit: BuildAudit | null }) {
+function AuditSection({
+  audit,
+  refName,
+  onOpenPanel,
+}: {
+  audit: BuildAudit | null;
+  refName: PanelRef;
+  onOpenPanel: () => void;
+}) {
   const { m, t } = useI18n();
+  const [, setParams] = useSearchParams();
   const a = m.build.audit;
+  // The full list, by page and against the previous build, is in the SEO panel (plan 10.4).
+  const openPanel = () => {
+    setParams(
+      (p) => {
+        p.set("panel", "seo");
+        p.delete("file");
+        p.delete("diff");
+        if (refName === "change") p.set("ref", "change");
+        else p.delete("ref");
+        return p;
+      },
+      { replace: true },
+    );
+    onOpenPanel();
+  };
   if (!audit) {
     return (
       <section data-testid="build-audit">
@@ -196,7 +228,12 @@ function AuditSection({ audit }: { audit: BuildAudit | null }) {
   const { seo, geo } = audit;
   return (
     <section className="flex flex-col gap-2" data-testid="build-audit">
-      <h3 className="font-medium">{a.title}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="font-medium">{a.title}</h3>
+        <Button size="xs" variant="link" className="ml-auto" onClick={openPanel} data-testid="audit-open-panel">
+          {a.openPanel}
+        </Button>
+      </div>
       {seo && (
         <div className="flex flex-col gap-1.5" data-testid="audit-seo">
           <p>

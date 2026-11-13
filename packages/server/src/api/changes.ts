@@ -51,7 +51,7 @@ export function changeRoutes(api: Hono<AppEnv>, { changes, agent, builds, logger
       const result = await changes.apply(changeId, req);
       // The default branch moved: rebuild the main preview (plan 7.2). When that cannot start now (no Bukit,
       // the site is busy), the preview stays on the previous build until the next one.
-      if (result.outcome === "applied") {
+      if (result.outcome === "applied" || result.outcome === "partial") {
         builds.start(result.change.siteId, "main").catch((err) => {
           if (err instanceof SiteError) return;
           logger.log("error", "changes.build_failed", { siteId: result.change.siteId, error: String(err) });

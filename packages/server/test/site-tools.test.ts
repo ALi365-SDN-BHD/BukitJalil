@@ -8,7 +8,7 @@ import { PathGate } from "../src/agent/gate.ts";
 import { createSiteTools, type SITE_TOOLS, schemaText } from "../src/agent/site-tools.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { copyStarter } from "../src/sites/template.ts";
-import { commitAllAs, makeApp, rawGit } from "./helpers.ts";
+import { commitAllAs, installAppBukit, makeApp, rawGit, testBukitDir } from "./helpers.ts";
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
@@ -69,11 +69,11 @@ let n = 0;
  * fake Bukit, and the site tools. The tools run outside an AI run here, so nothing holds the site lock.
  */
 async function setup(opts: { bin?: string | null; files?: Record<string, string> } = {}) {
+  const home = path.join(base, `bk-${++n}`);
+  installAppBukit(home, opts.bin === undefined ? fakeBin : opts.bin);
   const bukit = new BukitService({
-    home: path.join(base, `bk-${++n}`),
+    dir: testBukitDir(home),
     tmpDir: path.join(base, `bk-tmp-${n}`),
-    customPath: () => (opts.bin === undefined ? fakeBin : opts.bin),
-    envPath: "",
   });
   const ctx = makeApp({ userHome: path.join(base, "home"), appHome: path.join(base, `app-${n}`), bukit });
   contexts.push(ctx);
@@ -216,6 +216,21 @@ describe("bukit_check and bukit_build", () => {
     const failed = await call(tools.bukit_build);
     expect(failed.value).toMatchObject({ succeeded: false, pages: 0, messages: [{ level: "error" }] });
     expect(failed.text).toContain("configuration or content error");
+  });
+
+  it("builds under the site's own baseUrl, and does not run Bukit for one a preview cannot use", async () => {
+    const { tools, cwd } = await setup();
+    const yaml = path.join(cwd, "site.yaml");
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /docs/v2"));
+    expect((await call(tools.bukit_build)).value).toMatchObject({ succeeded: true });
+    expect(bukitCalls()[0]).toContain(" --base-url /docs/v2/ ");
+
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /docs/v2", "baseUrl: /a b/"));
+    const before = bukitCalls().length;
+    const bad = await call(tools.bukit_build);
+    expect(bad.value).toMatchObject({ succeeded: false, pages: 0, messages: [{ level: "error" }] });
+    expect(bad.text).toContain("site.baseUrl");
+    expect(bukitCalls()).toHaveLength(before);
   });
 
   it("does not run Bukit when the pre-build guard refuses the snapshot", async () => {

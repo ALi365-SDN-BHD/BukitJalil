@@ -5,8 +5,22 @@ import { GitError, type GitRunner } from "../git/run.ts";
 export const MAX_FILES = 2000;
 /** One file's diff larger than this is not shown. */
 export const MAX_PATCH_BYTES = 1024 * 1024;
-/** Diffs never run external drivers or text conversion (plan 7.3), and list a rename as delete + add. */
-const DIFF = ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--no-color"];
+/**
+ * Diffs never run external drivers or text conversion (plan 7.3), and list a rename as delete + add. The
+ * hunk layout is pinned, whatever the repository config says, because a partial apply names hunks by their
+ * index in the diff the review showed (plan 7.5).
+ */
+const DIFF = [
+  "diff",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-renames",
+  "--no-color",
+  "--unified=3",
+  "--inter-hunk-context=0",
+  "--diff-algorithm=myers",
+  "--indent-heuristic",
+];
 
 const STATUS: Record<string, ChangedFileStatus> = { A: "added", M: "modified", D: "deleted", T: "type_changed" };
 

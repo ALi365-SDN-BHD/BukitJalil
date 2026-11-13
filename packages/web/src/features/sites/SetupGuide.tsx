@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Circle, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useOpenSettings } from "@/features/settings/useOpenSettings";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { type SiteDialog, SiteDialogs } from "./SiteDialogs";
@@ -12,11 +13,12 @@ type StepState = "done" | "todo" | "blocked" | "checking";
  * First-run guide on the home page (plan M5 layer 1): git, Bukit, the commit identity, a model and the
  * first site, in that order, each with its state and the place to fix it. Gone once all are done.
  */
-export function SetupGuide({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function SetupGuide() {
   const { m } = useI18n();
+  const openSettings = useOpenSettings();
   const [dialog, setDialog] = useState<SiteDialog>(null);
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, retry: false });
-  const bukit = useQuery({ queryKey: keys.bukit, queryFn: api.bukit });
+  const bukit = useQuery({ queryKey: keys.bukit, queryFn: () => api.bukit() });
   const settings = useQuery({ queryKey: keys.settings, queryFn: api.settings, retry: false });
   const models = useQuery({ queryKey: keys.models, queryFn: api.models });
   const sites = useQuery({ queryKey: keys.sites, queryFn: api.sites });
@@ -36,12 +38,8 @@ export function SetupGuide({ onOpenSettings }: { onOpenSettings: () => void }) {
       id: "bukit",
       title: m.setup.bukit,
       hint: m.setup.bukitHint,
+      // Bukit ships with the app (plan 8.1): nothing to do in settings, the hint says to reinstall.
       state: state(bukit.data ? bukit.data.status.state === "ok" : undefined, !!bukit.error),
-      action: (
-        <Button size="xs" variant="outline" onClick={onOpenSettings}>
-          {m.setup.openSettings}
-        </Button>
-      ),
     },
     {
       id: "identity",
@@ -52,7 +50,7 @@ export function SetupGuide({ onOpenSettings }: { onOpenSettings: () => void }) {
         !!settings.error,
       ),
       action: (
-        <Button size="xs" variant="outline" onClick={onOpenSettings}>
+        <Button size="xs" variant="outline" onClick={() => openSettings("publishing")}>
           {m.setup.openSettings}
         </Button>
       ),
@@ -66,7 +64,7 @@ export function SetupGuide({ onOpenSettings }: { onOpenSettings: () => void }) {
         !!models.error,
       ),
       action: (
-        <Button size="xs" variant="outline" onClick={onOpenSettings}>
+        <Button size="xs" variant="outline" onClick={() => openSettings("model")}>
           {m.setup.openSettings}
         </Button>
       ),

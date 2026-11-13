@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type {
+  AuditReportResponse,
   Build,
   BuildAudit,
   BuildOutcome,
@@ -13,6 +14,7 @@ import type {
 } from "@bukitjalil/shared";
 import { guardCommit, isRecord } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
+import { notionProblemIn } from "../bukit/notion-errors.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, logEntry, usableRunner } from "../bukit/runner.ts";
 import type { ChangeService } from "../changes/service.ts";
 import { readBlobAt } from "../git/objects.ts";
@@ -20,13 +22,13 @@ import type { GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
 import { parseYaml } from "../panels/yaml.ts";
 import type { AppPaths } from "../paths.ts";
-import { NoPreviewPortError, PreviewPool } from "../preview/pool.ts";
-import type { SecretStore } from "../settings/secrets.ts";
+import { checkoutBasePath } from "../preview/base-path.ts";
+import { NoPreviewPortError, PreviewPool, previewUrl } from "../preview/pool.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
-import { readAudit } from "./audit.ts";
+import { compareAudits, readAudit, readIssues } from "./audit.ts";
 import { type BuildRecord, BuildStore, newBuildId } from "./store.ts";
 
 export interface BuildServiceOptions {
@@ -38,7 +40,8 @@ export interface BuildServiceOptions {
   locks: SiteLocks;
   previews: PreviewPool;
   changes: ChangeService;
-  secrets: SecretStore;
+  /** The Notion token of the site's saved data source, or null when it has none. */
+  notionToken: (siteId: string) => string | null;
   logger: Logger;
 }
 
@@ -52,15 +55,18 @@ const MAX_OUTPUT_CHARS = 8000;
 /** Bukit builds into a fresh directory under this one in the checkout (plan 8.4); it is a BUILD_DIR. */
 export const BUILD_OUTPUT_PARENT = ".bukitjalil-build";
 
-/** `bukit build` into BUILD_OUTPUT_PARENT/<name> for a preview served at "/" (plan 8.3). */
-export const buildArgs = (name: string) => [
+/**
+ * `bukit build` into BUILD_OUTPUT_PARENT/<name> for a preview served under `basePath` (plan 8.3, 16 #8): the
+ * site's own baseUrl, checked by previewBasePath, so a subpath site previews as it publishes.
+ */
+export const buildArgs = (name: string, basePath: string) => [
   "build",
   "--config",
   "site.yaml",
   "--output",
   `${BUILD_OUTPUT_PARENT}/${name}`,
   "--base-url",
-  "/",
+  basePath,
   "--no-clean",
   "--log-format",
   "json",
@@ -139,6 +145,64 @@ export class BuildService {
   }
 
   /**
+   * The SEO / GEO report panel (plan 10.4): the newest successful build of `ref` with an audit summary, its
+   * full issue list from the kept output, and how it compares with the previous main build (for `change`:
+   * the newest main build). Reads files only; never runs Bukit.
+   */
+  auditReport(siteId: string, ref: PanelRef): AuditReportResponse {
+    this.opts.sites.get(siteId);
+    const changeSetId = ref === "change" ? (this.opts.changes.store.open(siteId)?.id ?? null) : null;
+    if (ref === "change" && changeSetId === null) throw new SiteError("change.not_found", 404);
+    const audited = (b: BuildRecord): b is BuildRecord & { report: { audit: BuildAudit } } =>
+      b.status === "succeeded" && !!b.report?.audit;
+    const mains = this.store.finishedOf(siteId, null, KEEP_RECORDS);
+    const own = ref === "main" ? mains : this.store.finishedOf(siteId, changeSetId, KEEP_RECORDS);
+    const build = own.find(audited);
+    if (!build) throw new SiteError("audit.not_built", 404);
+    const previous = ref === "main" ? mains.filter(audited)[1] : mains.find(audited);
+    const read = this.issuesOf(siteId, build);
+    const summary = build.report.audit;
+    const at = (b: BuildRecord) => ({ buildId: b.id, commit: b.commit, finishedAt: b.finishedAt });
+    return {
+      ref,
+      build: at(build),
+      summary,
+      issues: read?.issues ?? null,
+      issuesTruncated: read?.truncated ?? false,
+      // A newer build of the same version ended without a report (it failed): this one is older than its content.
+      stale: own[0]?.id !== build.id,
+      previous: previous ? { ...at(previous), summary: previous.report.audit } : null,
+      compare: previous
+        ? compareAudits(summary, read && !read.truncated ? read.issues : null, previous.report.audit)
+        : null,
+    };
+  }
+
+  /** Full issue lists by output directory: an output never changes, and the report can be 16 MiB of JSON. */
+  private readonly issueCache = new Map<string, NonNullable<ReturnType<typeof readIssues>>>();
+
+  private issuesOf(siteId: string, build: BuildRecord): ReturnType<typeof readIssues> {
+    if (!build.outputDir || !fs.existsSync(build.outputDir)) return null;
+    const cached = this.issueCache.get(build.outputDir);
+    if (cached) return cached;
+    try {
+      const read = readIssues(build.outputDir);
+      if (read) {
+        this.issueCache.set(build.outputDir, read);
+        // Keep the newest few: one per version is all the panel shows.
+        for (const key of this.issueCache.keys()) {
+          if (this.issueCache.size <= 4) break;
+          this.issueCache.delete(key);
+        }
+      }
+      return read;
+    } catch (err) {
+      this.opts.logger.log("warn", "build.audit_unreadable", { siteId, buildId: build.id, error: String(err) });
+      return null;
+    }
+  }
+
+  /**
    * Start a build and return it as `running`; it finishes in the background (poll the list).
    * `guardedCommit`: a commit the pre-build guard passed moments ago, so it is not scanned twice.
    */
@@ -191,13 +255,17 @@ export class BuildService {
 
   /**
    * The preview build of a site that was just created or imported (plan 5.2 step 5). Only for a usable
-   * site whose `config check` passed; a busy site or a missing Bukit is not an error for the caller.
+   * site whose `config check` passed (a Notion site passes it only with a bound data source); a busy site
+   * or a missing Bukit is not an error for the caller.
    */
   async startAfterAdd(site: Site): Promise<void> {
     if (site.readOnly !== null || site.configCheck !== "ok") return;
     try {
-      // The site check that just finished guarded checkedCommit; a newer head is guarded as usual.
-      await this.start(site.id, "main", { guardedCommit: site.checkedCommit ?? undefined });
+      // The site check that just finished guarded checkedCommit; a newer head is guarded as usual. The guard
+      // also decides whether the build gets the Notion token, so a site with a bound source is guarded again
+      // (a new site from the starter, so it costs little).
+      const guardedCommit = site.notionDataSourceId === null ? (site.checkedCommit ?? undefined) : undefined;
+      await this.start(site.id, "main", { guardedCommit });
     } catch (err) {
       this.opts.logger.log("warn", "build.after_add_skipped", { siteId: site.id, error: String(err) });
     }
@@ -213,7 +281,12 @@ export class BuildService {
     let port: number;
     let url: string;
     try {
-      ({ port, url } = await this.opts.previews.open(key, build.outputDir, await this.entryOf(site.path, build)));
+      ({ port, url } = await this.opts.previews.open(
+        key,
+        build.outputDir,
+        await this.entryOf(site.path, build),
+        build.report?.basePath,
+      ));
     } catch (err) {
       if (err instanceof NoPreviewPortError) throw new SiteError("preview.no_port", 503);
       throw err;
@@ -224,11 +297,13 @@ export class BuildService {
       const entry = await this.entryOf(site.path, newest);
       const now = this.newestOutput(siteId, ref);
       if (now?.id === newest.id) {
-        this.opts.previews.repoint(key, newest.outputDir, entry);
+        this.opts.previews.repoint(key, newest.outputDir, entry, newest.report?.basePath);
         build = newest;
       }
       newest = now;
     }
+    // The served build may have changed above; its base path makes the address.
+    url = previewUrl(port, build.report?.basePath);
     return { ref, url, port, buildId: build.id, commit: build.commit };
   }
 
@@ -293,8 +368,8 @@ export class BuildService {
     ) => this.store.finish(id, { status, outcome, exitCode }, { messages: [], output: "", ...report }, outputDir);
 
     let temp: string | null = null;
-    // Unreviewed (change) builds never get the Notion token; a main build of the reviewed version may.
-    const notionToken = target.ref === "main" ? this.opts.secrets.get("notion") : null;
+    // The token is read only for a main build whose commit uses Notion, after the guard says so.
+    let notionToken: string | null = null;
     let passNotionToken = false;
     try {
       // The guard reads the commit's git objects, so it judges exactly what the checkout will hold.
@@ -305,14 +380,26 @@ export class BuildService {
         if (target.ref === "main" && (!guard.ok || guard.usesNotion))
           this.opts.sites.applyGuard(site.id, commit, guard);
         if (!guard.ok) return finish("failed", "refused", null, { reasons: guard.reasons });
-        if (guard.usesNotion && notionToken === null) return finish("failed", "notion", null, {});
-        passNotionToken = guard.usesNotion;
+        if (guard.usesNotion) {
+          // Unreviewed change builds never get the Notion token; they cannot be built here.
+          if (target.ref !== "main") return finish("failed", "notion", null, {});
+          try {
+            notionToken = this.opts.notionToken(site.id);
+          } catch {
+            return finish("failed", "error", null, { detail: "the saved Notion token cannot be read" });
+          }
+          if (notionToken === null) return finish("failed", "notion", null, {});
+          passNotionToken = true;
+        }
       }
 
       const checkout = target.cwd ?? (await this.opts.sites.mainCheckout(site.id, site.path, commit));
+      const base = checkoutBasePath(checkout);
+      if (!base.ok) return finish("failed", "base_url", null, { detail: base.detail });
+      const { basePath } = base;
       temp = path.join(checkout, BUILD_OUTPUT_PARENT, id);
       fs.rmSync(temp, { recursive: true, force: true });
-      const result = await runner.run("build", buildArgs(id), {
+      const result = await runner.run("build", buildArgs(id, basePath), {
         cwd: checkout,
         signal,
         ...(passNotionToken && notionToken !== null ? { env: { NOTION_TOKEN: notionToken } } : {}),
@@ -340,12 +427,17 @@ export class BuildService {
         "succeeded",
         "ok",
         result.exitCode,
-        { ...report, ...(audit ? { audit } : {}), ...(entry ? { entry } : {}) },
+        {
+          ...report,
+          ...(audit ? { audit } : {}),
+          ...(entry ? { entry } : {}),
+          ...(basePath !== "/" ? { basePath } : {}),
+        },
         dest,
       );
       // An open preview switches to the new build at once (a change preview: while its change set is open).
       if (target.ref === "main" || this.opts.changes.store.open(site.id)?.id === target.changeSetId) {
-        this.opts.previews.repoint(PreviewPool.key(site.id, target.ref), dest, entry);
+        this.opts.previews.repoint(PreviewPool.key(site.id, target.ref), dest, entry, basePath);
       }
     } catch (err) {
       const problem = storageErrorCode(err) ?? undefined;
@@ -463,7 +555,16 @@ export function buildReport(result: BukitRunResult): BuildReport {
       messages.push({ level: entry.level, msg: entry.msg.slice(0, MAX_MESSAGE_CHARS) });
     }
   }
-  return { messages: limitMessages(messages, MAX_MESSAGES), output: other.join("\n").slice(-MAX_OUTPUT_CHARS) };
+  const report: BuildReport = {
+    messages: limitMessages(messages, MAX_MESSAGES),
+    output: other.join("\n").slice(-MAX_OUTPUT_CHARS),
+  };
+  // Only a failed run: a build that succeeded may still log Notion warnings it got past (plan 5.4).
+  if (result.exitCode !== 0) {
+    const notionProblem = notionProblemIn(`${result.stderr}\n${result.stdout}`);
+    if (notionProblem) report.notionProblem = notionProblem;
+  }
+  return report;
 }
 
 /**

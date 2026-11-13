@@ -15,6 +15,7 @@ import { parseDocument } from "yaml";
 import { type GuardResult, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { checkPassed, usableRunner } from "../bukit/runner.ts";
+import type { DataSourceService } from "../data-sources/service.ts";
 import { resolveBranch } from "../git/objects.ts";
 import { clearIndexLock, GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
@@ -23,7 +24,7 @@ import { EXCLUDE_PATTERNS, IMPORT_INIT_PATTERNS, removeExcludeBlock, writeExclud
 import { assertDirectory, assertEmptyOrMissing, checkSiteLocation, inside, SiteError } from "./location.ts";
 import type { SiteLocks } from "./locks.ts";
 import { isSiteId, newSiteId, type SiteState, SiteStore } from "./store.ts";
-import { copyStarter } from "./template.ts";
+import { copyStarter, type StarterSource } from "./template.ts";
 
 export interface SiteServiceOptions {
   db: DatabaseSync;
@@ -32,6 +33,8 @@ export interface SiteServiceOptions {
   settings: SettingsStore;
   bukit: BukitService;
   locks: SiteLocks;
+  /** Optional saved Notion source copied into a new site. */
+  dataSources: DataSourceService;
   /** templates/starter */
   templateDir: string;
   /** Overrides os.homedir() (tests). */
@@ -89,8 +92,19 @@ export class SiteService {
    */
   applyGuard(id: string, commit: string, guard: GuardResult): void {
     if (!guard.ok) this.store.setState(id, { readOnly: guard.reasons, checkedCommit: commit, configCheck: null });
-    else if (guard.usesNotion)
+    // "notion" means the site has no bound data source; a bound one keeps its last config check result.
+    else if (guard.usesNotion && this.store.notionDataSourceId(id) === null)
       this.store.setState(id, { readOnly: null, checkedCommit: commit, configCheck: "notion" });
+  }
+
+  /**
+   * The Notion token of the data source bound to the site, or null when none is bound (plan 7 key rules).
+   * Never another saved source: an imported site's site.yaml could name any database that token reads.
+   * Only reviewed content on the default branch may run Bukit with it.
+   */
+  notionToken(id: string): string | null {
+    const linked = this.store.notionDataSourceId(id);
+    return linked ? this.opts.dataSources.token(linked) : null;
   }
 
   get(id: string): Site {
@@ -101,6 +115,20 @@ export class SiteService {
 
   private rules() {
     return { appHome: this.opts.paths.home, userHome: this.opts.userHome, sites: this.store.list() };
+  }
+
+  /** The saved Notion source bound to the site, if any (set at creation or with bindNotionSource). */
+  notionDataSourceId(id: string): string | null {
+    return this.store.notionDataSourceId(id);
+  }
+
+  /** Which saved publishing account the site deploys with, if any. */
+  publishAccountId(id: string): string | null {
+    return this.store.publishAccountId(id);
+  }
+
+  setPublishAccountId(id: string, accountId: string | null): void {
+    this.store.setPublishAccountId(id, accountId);
   }
 
   /** The commit identity from the settings, as git config (400 `site.identity_required` when unset). */
@@ -131,10 +159,11 @@ export class SiteService {
   async create(req: CreateSiteRequest): Promise<Site> {
     const identity = this.commitIdentity();
     const real = checkSiteLocation(req.path, this.rules());
+    const selected = this.selectedSources(req);
     const site = await this.reserved(real, async () => {
       assertEmptyOrMissing(real);
       const existed = fs.existsSync(real);
-      copyStarter(this.opts.templateDir, real, { title: req.name, language: req.language });
+      copyStarter(this.opts.templateDir, real, { title: req.name, language: req.language, sources: selected?.sources });
       try {
         const { git } = this.opts;
         // -b main: global config (init.defaultBranch) is not read, so git would pick "master".
@@ -146,9 +175,37 @@ export class SiteService {
         removeCreated(real, existed);
         throw err;
       }
-      return this.register(real, req.name, "main");
+      return this.register(real, req.name, "main", undefined, selected?.notionDataSourceId ?? null);
     });
     return this.added(site);
+  }
+
+  /**
+   * The optional Notion source chosen for a new site. Without one site.yaml keeps the starter's
+   * Markdown sources; with one the site uses the picked databases, each in the role the user chose.
+   */
+  private selectedSources(req: CreateSiteRequest): { sources: StarterSource[]; notionDataSourceId: string } | null {
+    const ids = [...new Set(req.dataSourceIds ?? [])];
+    if (ids.length === 0) return null;
+    const id = ids[0];
+    if (ids.length > 1 || !id) throw new SiteError("datasource.multiple_notion", 400);
+    const source = this.opts.dataSources.get(id);
+    const picks = req.notionDatabases ?? [];
+    if (picks.length === 0) throw new SiteError("datasource.notion_database_required", 400);
+    const seen = new Set<string>();
+    const names = new Set<string>();
+    const sources: StarterSource[] = [];
+    for (const pick of picks) {
+      if (seen.has(pick.databaseId)) continue;
+      seen.add(pick.databaseId);
+      sources.push({
+        type: "notion",
+        name: uniqueSourceName(pick.title, names),
+        ...(pick.use === "data" ? { mode: "data" as const } : { mode: "content" as const, collection: pick.use }),
+        notion: { databaseId: pick.databaseId },
+      });
+    }
+    return { sources, notionDataSourceId: source.id };
   }
 
   // --- import (plan 5.1) ---
@@ -259,11 +316,17 @@ export class SiteService {
 
   // --- shared by create and import ---
 
-  private async register(real: string, name: string, defaultBranch: string, checked?: Prechecked): Promise<Site> {
+  private async register(
+    real: string,
+    name: string,
+    defaultBranch: string,
+    checked?: Prechecked,
+    notionDataSourceId: string | null = null,
+  ): Promise<Site> {
     if (!(await isValidBranchName(this.opts.git, defaultBranch, real))) throw new SiteError("site.bad_branch", 400);
     const id = newSiteId();
     try {
-      this.store.insert({ id, name, path: real, defaultBranch });
+      this.store.insert({ id, name, path: real, defaultBranch, notionDataSourceId });
     } catch (err) {
       if (/UNIQUE/i.test((err as Error).message)) throw new SiteError("site.already_registered", 409);
       throw err;
@@ -281,9 +344,19 @@ export class SiteService {
    * Re-evaluate a site (plan 5.1 steps 2–4). The site stays usable only if every step finishes: a check
    * that fails part-way leaves it read-only with "not_checked" rather than keeping an older result.
    */
-  private async check(id: string, checked?: Prechecked): Promise<Site> {
+  /**
+   * Bind (or with null, unbind) the saved Notion data source whose token main builds use, then check the
+   * site again, since its config check depends on the binding. Both happen under the site lock, so a busy
+   * site keeps its old binding.
+   */
+  bindNotionSource(id: string, sourceId: string | null): Promise<Site> {
+    return this.check(id, undefined, () => this.store.setNotionDataSourceId(id, sourceId));
+  }
+
+  private async check(id: string, checked?: Prechecked, before?: () => void): Promise<Site> {
     const site = this.get(id);
     await this.opts.locks.run(id, "recheck", async () => {
+      before?.();
       let state: SiteState;
       try {
         state = await this.evaluate(id, site, checked);
@@ -316,7 +389,19 @@ export class SiteService {
     if (!guard.ok) return unusable(guard.reasons, commit);
     writeExcludeBlock(await this.commonDir(site.path));
     const checkout = await this.mainCheckout(id, site.path, commit);
-    const configCheck = guard.usesNotion ? "notion" : await this.configCheck(checkout);
+    // The default branch is reviewed content, so a Notion site is checked with its bound token; without one
+    // Bukit refuses the config, so the state says a data source must be bound.
+    let configCheck: ConfigCheck;
+    if (guard.usesNotion) {
+      let token: string | null;
+      try {
+        token = this.notionToken(id);
+      } catch {
+        // An unreadable token file fails the check, not the site: builds say why when they run.
+        token = "";
+      }
+      configCheck = token === null ? "notion" : token === "" ? "failed" : await this.configCheck(checkout, token);
+    } else configCheck = await this.configCheck(checkout);
     return { readOnly: null, checkedCommit: commit, configCheck };
   }
 
@@ -400,14 +485,15 @@ export class SiteService {
     }
   }
 
-  private async configCheck(checkout: string): Promise<ConfigCheck> {
+  private async configCheck(checkout: string, notionToken?: string): Promise<ConfigCheck> {
     const runner = await usableRunner(this.opts.bukit, {
       git: this.opts.git,
       home: this.opts.paths.home,
       tmpDir: this.opts.paths.bukitTmp,
     });
     if (!runner) return "not_run";
-    return checkPassed(await runner.run("check", ["config", "check"], { cwd: checkout })) ? "ok" : "failed";
+    const env = notionToken === undefined ? {} : { env: { NOTION_TOKEN: notionToken } };
+    return checkPassed(await runner.run("check", ["config", "check"], { cwd: checkout, ...env })) ? "ok" : "failed";
   }
 
   // --- patch / remove ---
@@ -584,6 +670,28 @@ function removeCreated(dir: string, existed: boolean): void {
     return;
   }
   for (const name of fs.readdirSync(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+}
+
+// Built-in site.data keys, so a database titled like one of them gets a safe name.
+const RESERVED_SOURCE_NAMES = new Set(["taxonomy", "pages_by_id", "taxonomy_ensure_terms", "menus"]);
+
+/**
+ * A unique source name from a Notion database title: its ASCII slug, or notion, notion_2, ... Names match
+ * Bukit's rule for sources with a dataIndex (^[a-z][a-z0-9_]*$) and work as site.data keys in templates.
+ */
+function uniqueSourceName(title: string, used: Set<string>): string {
+  const slug = title
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^[_0-9]+|_+$/g, "")
+    .slice(0, 40)
+    .replace(/_+$/, "");
+  const base = slug || "notion";
+  let name = RESERVED_SOURCE_NAMES.has(base) ? `${base}_source` : base;
+  for (let n = 2; used.has(name); n++) name = `${base}_${n}`;
+  used.add(name);
+  return name;
 }
 
 const splitZ = (out: string) => out.split("\0").filter((s) => s.length > 0);

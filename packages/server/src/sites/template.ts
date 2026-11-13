@@ -9,11 +9,22 @@ import { parseDocument } from "yaml";
  * Checking where the site may be created belongs to the caller; this only needs an empty or missing target.
  */
 
+export interface StarterSource {
+  type: "markdown" | "notion";
+  name: string;
+  mode?: "content" | "data";
+  collection?: string;
+  markdown?: { dir: string };
+  notion?: { databaseId: string };
+}
+
 export interface StarterValues {
   /** Display name, used as site.title and the theme's brand text. */
   title: string;
   /** BCP 47 tag, e.g. "zh-CN" or "en-US". */
   language: string;
+  /** Content sources chosen for this site; omitted keeps the starter's default Markdown sources. */
+  sources?: StarterSource[];
 }
 
 export function validateStarterValues(values: StarterValues): string | null {
@@ -77,6 +88,7 @@ export function fillSiteYaml(text: string, values: StarterValues): string {
   doc.setIn(["site", "language"], values.language);
   doc.setIn(["theme", "params", "brand"], title);
   doc.setIn(["theme", "params", "footer_text"], title);
+  if (values.sources) doc.setIn(["content", "sources"], values.sources);
   return doc.toString();
 }
 

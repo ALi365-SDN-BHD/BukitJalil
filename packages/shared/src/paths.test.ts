@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { SettingsPatch } from "./settings.ts";
 import { CreateSiteRequest, InspectImportRequest } from "./sites.ts";
 
 describe("absolute paths", () => {
@@ -15,9 +14,8 @@ describe("absolute paths", () => {
     }
   });
 
-  it("uses the same rule for a new site and for the Bukit path", () => {
+  it("uses the same rule for a new site", () => {
     expect(CreateSiteRequest.safeParse({ name: "S", path: "C:\\Sites\\s", language: "en-US" }).success).toBe(true);
-    expect(SettingsPatch.safeParse({ bukitPath: "C:\\tools\\bukit.exe" }).success).toBe(true);
-    expect(SettingsPatch.safeParse({ bukitPath: "bukit.exe" }).success).toBe(false);
+    expect(CreateSiteRequest.safeParse({ name: "S", path: "sites\\s", language: "en-US" }).success).toBe(false);
   });
 });

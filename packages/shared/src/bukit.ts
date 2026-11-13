@@ -1,22 +1,17 @@
-/** GET /api/bukit (plan 8.1, 10.x). Install progress is polled from the same endpoint. */
-
-export type BukitSource = "custom" | "app" | "path";
+/** GET /api/bukit (plan 8.1): the Bukit that ships with BukitJalil. There is no install or upgrade. */
 
 export interface BukitStatus {
+  /** The bundled executable; null when it is missing. */
   path: string | null;
-  source: BukitSource | null;
+  /** What `bukit version` printed; null when missing or it does not run. */
   version: string | null;
-  /** ok: 2.0.x and >= 2.0.11 (the minimum); old: 2.0.x below 2.0.11; unsupported: not 2.0.x; broken: found but `bukit version` failed. */
+  /** The version this BukitJalil ships (BUKIT_VERSION). */
+  bundledVersion: string;
+  /** ok: 2.0.x and >= the minimum; old: 2.0.x below it; unsupported: not 2.0.x; broken: found but `bukit version` failed. */
   state: "ok" | "old" | "unsupported" | "missing" | "broken";
-  /** The custom path from settings is set but not usable; the next source was used. */
-  customProblem: "not_found" | "broken" | null;
-  /** An official package exists for this platform (osx-arm64, linux-x64). */
-  installable: boolean;
-  /** A working app or PATH copy older than the version BukitJalil installs (plan 8.1): offer the upgrade. */
-  upgradable: boolean;
 }
 
-/** Progress of a download-and-install job (Bukit, rg), polled from its GET endpoint. */
+/** Progress of a download-and-install job (rg), polled from its GET endpoint. */
 export type InstallProgress =
   | { state: "idle" }
   | { state: "downloading"; received: number; total: number | null }
@@ -37,5 +32,4 @@ export type InstallProgress =
 
 export interface BukitResponse {
   status: BukitStatus;
-  install: InstallProgress;
 }
