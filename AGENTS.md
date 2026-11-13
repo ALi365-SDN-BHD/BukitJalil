@@ -60,13 +60,13 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 - 已做：
   - "设置 → 数据源"可以添加 Notion 数据源，每个数据源有自己的 token，显示后四位，可以替换、删除。token 存在 `data-source-tokens.json`（权限 600），接口不返回 token 本身。
-  - 新建网站时可以选一个 Notion 数据源，BukitJalil 调 Notion `/search` 列出这个 token 能读的数据库，选中的写进 `site.yaml`。
+  - 新建网站时可以选一个 Notion 数据源，BukitJalil 调 Notion `/search` 列出这个 token 能读的数据库，可以勾选多个，写进 `site.yaml`（源名称用下划线、以字母开头）。
   - 正式构建会传 `NOTION_TOKEN`（`builds/service.ts`），而且只用网站绑定的数据源的 token。新建网站时选的数据源自动绑定，导入的网站在数据面板里显式绑定（`PUT /api/sites/:siteId/notion-source`），不再"只有一个数据源就自动用"。
+  - 绑定了数据源的网站：网站检查的 `config check` 带 token 跑，新建后自动构建；发布时 check、doctor、build 带 token（`deploy --skip-build` 不需要，Bukit 源码核对过）。没绑定时状态和结果都是 `notion`。
+  - 应用改动：网站已绑定、默认分支本来就用 Notion 时，"检查不了"不算失败，不要求强制，界面提示看正式构建的结果；改动自己加进 Notion 源时仍要求强制。
 - 还缺：
-  - 发布：`deploys/service.ts` 遇到 Notion 网站直接返回 `notion`。
-  - AI 检查、AI 构建和改动集预览：`ai-bukit.ts` 遇到 Notion 源直接拒绝。所以应用改动前的检查一定失败，每次都得强制应用，用户分不清是"出错了"还是"检查不了"。
-  - 新建的 Notion 网站，状态记为 `configCheck: "notion"` 后既不跑 `config check`，也不自动做第一次构建（`builds/service.ts` 的 `startAfterAdd`）。但正式分支是审核过的内容，可以带 token 跑。
-  - 数据面板里的 Notion 源只显示配置，文案还是"MVP 不连接 Notion"。
+  - AI 检查、AI 构建和改动集预览：`ai-bukit.ts` 遇到 Notion 源直接拒绝（不给未审核内容 token），所以 AI 改动不能检查、不能预览。
+  - 数据面板里的 Notion 源只显示配置。
 
 **Bukit 的限制**（源码 v2.0.15 核对）：
 
@@ -77,14 +77,11 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **要做的**，分两步：
 
-1. 不改 Bukit（约 2–3 天）：
-   - 发布支持 Notion：check、doctor、build 都传 token；`deploy --skip-build` 本身要不要 token 需要实测。
-   - 新建 Notion 网站后自动跑 `config check` 和第一次构建，都带 token。
+1. 不改 Bukit（剩余约 1–2 天）：
    - 数据面板显示 Notion 数据：
      - 字段由 BukitJalil 调 `GET /databases/{id}` 读取（Bukit 没有列出 Notion 数据的命令）。
      - 页数取上次正式构建报告里的数字，不要自己重新实现 Bukit 的过滤条件，否则两边对不上。
      - 只用正式分支 `site.yaml` 里的 `databaseId`，只在用户打开面板或点刷新时调用，结果不交给 AI 工具。
-   - 应用改动时，"Notion 网站检查不了"和"检查失败"分开，前者不要求强制应用。
    - 审核卡上突出显示 Notion 配置的变化（`databaseId`、过滤条件等），因为应用后正式构建会带 token 去拉那个库。
    - token 失效、数据库没共享给 integration 时，把 Bukit 的报错翻译成明确的提示。
    - 同步开发方案和用户指南。

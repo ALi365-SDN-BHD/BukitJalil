@@ -39,6 +39,9 @@ export function ReviewActions({
           text: problem ? `${m.changes.checkFailed} ${m.changes.problem[problem]}` : m.changes.checkFailed,
           detail: checkDetail(result),
         });
+      } else if (result.outcome === "applied" && result.check?.problemCode === "notion") {
+        // Applied without a Bukit check: say so, and where the result shows.
+        onNotice({ tone: "warn", text: `${m.changes.outcome.applied} ${m.changes.appliedUnchecked}` });
       } else {
         onNotice({ tone: result.outcome === "applied" ? "ok" : "warn", text: m.changes.outcome[result.outcome] });
       }

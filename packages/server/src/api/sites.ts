@@ -85,8 +85,7 @@ export function siteRoutes(
       const id = c.req.param("siteId");
       sites.get(id);
       if (req.dataSourceId !== null) dataSources.get(req.dataSourceId);
-      sites.setNotionDataSourceId(id, req.dataSourceId);
-      return c.json(sites.get(id));
+      return c.json(await sites.bindNotionSource(id, req.dataSourceId));
     }),
   );
 

@@ -159,10 +159,7 @@ export function makeApp(
     locks,
     previews,
     changes,
-    notionToken: (siteId) => {
-      const linked = sites.notionDataSourceId(siteId);
-      return linked ? dataSources.token(linked) : null;
-    },
+    notionToken: (siteId) => sites.notionToken(siteId),
     logger,
   });
   const agent = new AgentService({

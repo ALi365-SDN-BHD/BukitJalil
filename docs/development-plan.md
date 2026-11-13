@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.30（2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.31（2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。代码现在用 Pi SDK 1.5.2、Bukit 2.0.15，从 1.5.1 和 2.0.12 升级时的核对结论本文没有记录。
 
@@ -272,7 +272,7 @@ BukitJalil/
 2. 服务端把 `templates/starter/` 复制到目标目录（包含 `site.yaml`、`content/`、`themes/starter/`）。Bukit 没有"生成初始网站"的命令，官方 starter 主题只以资源文件形式嵌在 CLI 源码里（`src/Bukit-Core/Bukit.Cli/Resources/StarterTheme/`，MIT 协议）。BukitJalil 从 v2.0.11 复制这些模板，补上 `theme.yaml` 和最小内容，作为自己维护的模板，并记录来源 commit。M1 的 `make-starter.sh` 是这一步的草稿，已用真实 Bukit 构建通过。注意：模板里的占位符是 `{{-- bukit:name --}}`；不能照搬 Bukit Labs 的博客模板——它和 Core 2.0.11 有出入（`archive` 必须是布尔值，发布时间读 `publishAt` 而不是 `date`）；starter 的标签索引页用了 `{{ term.url }}` 这类手写根路径，配合 8.4 的 `--base-url /` 才正确。M2 已实现：`scripts/make-starter.sh` 生成 `templates/starter/`，来源记录在 `templates/starter.source.json`；草稿里文章和页面共用一个数据源，源级别的 `collection: post` 会把页面也当成文章，正式模板拆成 `content/posts`、`content/pages` 两个源；分享图改为 1200×630 的 PNG；页头的站名占位符留空（草稿填了固定的 "starter"），主题里输出站名、标题的地方由脚本加上 `html.escape`；示例文章用相对链接，部署到 GitHub Pages 项目地址也能用；模板不写 `site.url`，避免每个网站都把 canonical、站点地图指向占位域名——Bukit 会提示"需要 site.url"，由用户在设置或发布前填写。`starter.source.json` 记录每个文件的 SHA-256，测试发现手改模板就失败。真实 Bukit 2.0.11 下 check、doctor、build 都通过
 3. 用表单值替换 `site.name`、`site.title`、`site.language`
 4. `git init -b main`（git 不读全局配置后，`init.defaultBranch` 不生效，不写 `-b` 会得到 `master`）、写入排除规则、首次提交 "Initial site from BukitJalil starter"；提交需要设置页里的身份（7.2），没有填写时先引导填写
-5. 对首次提交跑构建前安全检查（8.5），再创建 `worktrees/<siteId>/main/` 检出并执行 `bukit config check` 和预览构建（8.3），确认可以构建；不在用户的网站目录里调用 Bukit，网站目录不会出现 `dist/`。M2 第 4 层实现了 `config check`，第 6 层接上了预览构建：新建或导入的网站可用且 `config check` 通过时，接口返回前就启动第一次正式版本构建，构建在后台进行；结果存在 `sites` 表（迁移 002：`read_only_reasons`、`checked_commit`、`config_check`，后者为 `ok` / `failed` / `not_run`（找不到可用的 Bukit）/ `notion`）。新建和导入失败时撤销已做的步骤（删除复制的文件或新建的 `.git`）。提交身份存在设置的 `commitName` / `commitEmail`，界面可用 `GET /api/git/identity` 读到的全局 git 身份预填
+5. 对首次提交跑构建前安全检查（8.5），再创建 `worktrees/<siteId>/main/` 检出并执行 `bukit config check` 和预览构建（8.3），确认可以构建；不在用户的网站目录里调用 Bukit，网站目录不会出现 `dist/`。M2 第 4 层实现了 `config check`，第 6 层接上了预览构建：新建或导入的网站可用且 `config check` 通过时，接口返回前就启动第一次正式版本构建，构建在后台进行；结果存在 `sites` 表（迁移 002：`read_only_reasons`、`checked_commit`、`config_check`，后者为 `ok` / `failed` / `not_run`（找不到可用的 Bukit）/ `notion`（使用 Notion 源但没有绑定数据源））。使用 Notion 源、已绑定数据源的网站，`config check` 带这个数据源的 token 在 `main/` 检出里跑（Bukit 只检查 token 是否存在，不联网）；绑定或解绑数据源时在网站锁里重新检查。token 文件读不出来时 `config_check` 记为 `failed`，网站不变只读。新建和导入失败时撤销已做的步骤（删除复制的文件或新建的 `.git`）。提交身份存在设置的 `commitName` / `commitEmail`，界面可用 `GET /api/git/identity` 读到的全局 git 身份预填
 6. 创建完成后由用户从网站主页开始第一个会话；创建接口不接受首条消息
 
 ### 5.3 面板数据来源
@@ -409,7 +409,7 @@ BukitJalil/
 1. **GitHub token 按发布账号保存**：设置页的"发布账号"里添加账号和 token，存在 `~/.bukitjalil/publish-account-tokens.json`（`publish/accounts.ts`）；网站在 `sites.publish_account_id` 里选用一个账号
 2. **Notion token 按数据源保存**：设置页的"数据源"里添加，存在 `~/.bukitjalil/data-source-tokens.json`（`data-sources/service.ts`）；网站在 `sites.notion_data_source_id` 里选用一个数据源：新建网站时选的数据源自动绑定，其他情况（包括导入的网站）由用户在数据面板里显式绑定或解绑（`PUT /api/sites/:siteId/notion-source`）。没有绑定就不给 token，正式构建结果为 `notion`；不会因为只保存了一个 Notion 数据源就自动使用它，否则导入的网站可以在 `site.yaml` 里指向这个 integration 能读的任何数据库，构建后再发布出去
 3. **不读环境变量和旧文件**：`BUKITJALIL_GITHUB_TOKEN`、`BUKITJALIL_NOTION_TOKEN` 和旧的 `secrets.json` 都不再读取，也不做迁移（没有需要升级的存量用户）；token 只能在设置页添加
-4. **token 的用途**：每次调用 Bukit 都显式构造环境变量（8.5），只在需要时放入对应 token——Notion token 只在正式版本构建时传（不传给 AI 工作副本和改动集的构建；使用 Notion 源的网站目前不能发布，发布结果为 `notion`），GitHub token 在发布时传；另外 GitHub token 会用来调用 GitHub API 检查账号对目标仓库的权限（保存部署设置时和每次发布前，见 M6）；数据源设置会用 Notion token 调用 Notion API 列出数据库
+4. **token 的用途**：每次调用 Bukit 都显式构造环境变量（8.5），只在需要时放入对应 token——Notion token 只给默认分支上审核过的内容：网站检查的 `config check`、正式版本构建、发布时的 `config check` / `doctor` / `build`（`publish audit` 和 `deploy --skip-build` 不传；Bukit 的 `deploy --skip-build` 不校验数据源密钥）；不传给 AI 工作副本和改动集的构建；没有绑定数据源时这些步骤的结果为 `notion`，GitHub token 在发布时传；另外 GitHub token 会用来调用 GitHub API 检查账号对目标仓库的权限（保存部署设置时和每次发布前，见 M6）；数据源设置会用 Notion token 调用 Notion API 列出数据库
 
 早期设计（M6 时）是"环境变量优先，否则 `secrets.json`，由 `settings/secrets.ts` 统一处理"，这些文件和接口（`/api/secrets`）都已删除。不只用环境变量的原因仍然成立：从 Finder / Dock 启动的桌面版（M7）读不到 shell 里设置的环境变量；界面里没法修改；而且放在进程环境里的密钥默认会被所有子进程继承。AI 没有执行命令的工具，读写又限制在工作副本内，读不到这些文件。
 
@@ -744,7 +744,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 
 > M2 第 6 层实现说明（构建与预览托管）：
 > - `POST /builds` 先检查网站可用（否则 409 `site.read_only`）、能找到受支持的 Bukit（否则 409 `build.bukit_missing`），再拿网站操作锁（构建中其他操作返回 409 `site.busy`），记下默认分支的提交后返回 202 和 `running` 状态的记录。构建在后台进行，界面轮询 `GET /builds`（列表不含报告，报告用 `GET /builds/:buildId` 取）；服务正在关闭时返回 503 `server.shutting_down`；`build.start` / `build.end` 事件随 SSE 一起接入。`ref=change` 返回 404 `change.not_found`，随 M4 接入。
-> - 构建步骤：对该提交跑构建前检查（不通过时结果为 `refused`，带原因，网站同时变成只读）；使用 Notion 源时结果为 `notion`，网站的 `config_check` 同时记为 `notion`（token 从 M6 开始保存）。新建或导入后的第一次构建由 `SiteService` 在网站加入后触发，不论从哪里加入，它构建的正是刚检查过的提交，所以不重复检查；在 `worktrees/<siteId>/main/` 检出该提交，执行 8.3 的构建命令；成功且输出里没有符号链接时，把输出搬到 `previews/<siteId>/<buildId>/`。
+> - 构建步骤：对该提交跑构建前检查（不通过时结果为 `refused`，带原因，网站同时变成只读）；使用 Notion 源而没有绑定数据源时结果为 `notion`，网站的 `config_check` 同时记为 `notion`；绑定了数据源就带它的 token 构建。新建或导入后的第一次构建由 `SiteService` 在网站加入后触发，不论从哪里加入，它构建的正是刚检查过的提交，所以不重复检查；只有绑定了 Notion 数据源的网站（新建时选了 Notion）会再跑一次构建前检查，因为是否传 token 由这次检查决定；在 `worktrees/<siteId>/main/` 检出该提交，执行 8.3 的构建命令；成功且输出里没有符号链接时，把输出搬到 `previews/<siteId>/<buildId>/`。
 > - 结果字段 `outcome`：`ok`、`config_or_content_error`、`render_error`、`stopped`、`failed` 来自 Bukit 的退出码；另有 `refused`、`notion`、`symlink`、`interrupted`（服务重启时还在运行的构建）、`error`（BukitJalil 自己出错）。报告里有 JSON 日志中的警告和错误，以及 stderr 的末尾。
 > - 已打开的预览在新构建成功后立即切换过去；打开预览期间刚好有构建完成时，打开后再切到最新的一次。最新的输出被外部删掉时，退回到更早一份还在的输出。每个网站保留最近 10 份构建输出，最新的正式版本和改动集构建、以及预览正在显示的那份始终保留；构建记录最多保留 50 条。预览端口空闲 30 分钟后释放（只有被接受的请求才算使用，Host 不对的请求不算），移除网站时一并释放。服务关闭时，正在运行的构建会收到 SIGINT。
 
@@ -850,7 +850,7 @@ packages/web/src/
 | AI 借 Bukit 插件 / 编译选项间接执行代码 | 只调用 Bukit 内置命令（外部插件只在非内置命令时加载）；Bukit 的 `PATH` 固定为只含 git 链接的私有目录加 `/usr/bin:/bin`，找不到 `sass`、`magick` 等外部程序；构建前检查插件配置，AI 不能写 `plugins/**`、`.bukit/**`（见 6.3、8.2、8.5） |
 | AI 借 `site.yaml` 路径字段或远程素材读取工作副本外的文件、访问内网 | 所有构建前校验路径字段必须在检出目录内，强制 `blockPrivateNetworks: true`（见 8.5） |
 | 密钥进入未审核内容的构建 | 只有构建正式版本或发布时才传密钥，改动集和 AI 工作副本的构建从不传（见 8.5） |
-| token 发往第三方服务 | GitHub token 只发给 `api.github.com`（检查仓库权限）和 `bukit deploy`；Notion token 只发给 `api.notion.com`（列出数据库）和正式版本构建；地址写死在代码里，不接受用户或网站配置指定（见 6.5、M6） |
+| token 发往第三方服务 | GitHub token 只发给 `api.github.com`（检查仓库权限）和 `bukit deploy`；Notion token 只发给 `api.notion.com`（列出数据库）和默认分支上的 Bukit 调用（网站检查、正式版本构建、发布时的 check / doctor / build）；地址写死在代码里，不接受用户或网站配置指定（见 6.5、M6） |
 | 安装被篡改的 Bukit | 下载后校验 SHA-256；最新版的摘要来自 GitHub API，内置兜底版本的摘要写死在代码里；解压检查条目（见 8.1，信任模型的取舍见 16） |
 | AI 读到被跟踪的 `.env` | 闸门禁止读取和列出任何一级以 `.env` 开头的路径，`grep` 也排除（见 6.3） |
 | 导入仓库借 git 配置或钩子执行命令（`core.fsmonitor`、hooks、filter、`gpg.program` + 签名、`config.worktree` 等） | 所有 git 调用统一加固（关闭 fsmonitor、钩子、签名、外部差异和文本转换，不读系统和全局配置，最小环境变量）；仓库和 worktree 级配置按**白名单**检查，在 `git/run.ts` 里每次调用前执行，不满足就只读并拒绝操作（见 7.3） |
@@ -1164,7 +1164,7 @@ M4 分层实施（每层做完先审计、修复，再提交）：
 >   2. 再快照一次工作副本，快照的树必须等于请求里的指纹，否则 409 `change.fingerprint_mismatch`；树和 base 一样时 409 `change.no_changes`
 >   3. 网站目录必须在默认分支上（`symbolic-ref HEAD`，否则 409 `change.wrong_branch`），被跟踪的文件没有未提交的改动（`status --untracked-files=no`，否则 409 `change.site_dirty`）
 >   4. 默认分支已经不是 base 时：`git merge-tree --write-tree <main> <快照>`。成功就把结果作为新快照（`commit-tree -p <main>`，工作副本 `reset --hard` 到它，base 改为 main，引用跟着移动），返回 `rebased`，用户要看过新的差异、带新指纹再应用一次；有冲突，或者合并结果和默认分支一样（改动已经在默认分支里了），就把改动集标为 `stale`，返回 `stale`，下一轮对话从新的默认分支开新改动集
->   5. 运行检查（`AiBukit.checkForApply`：和 `bukit_check` 一样快照、过构建前检查、跑 `config check` 和 `doctor`；没有 Bukit 或构建前检查拒绝时也算检查失败，`problemCode` 写明是哪一种（`bukit_missing` / `guard` / `notion` / `read_only`），`problem` 写明原因）。检查之后再核对一次指纹。失败且没有 `force` 时返回 `check_failed`，什么都不改
+>   5. 运行检查（`AiBukit.checkForApply`：和 `bukit_check` 一样快照、过构建前检查、跑 `config check` 和 `doctor`；没有 Bukit 或构建前检查拒绝时也算检查失败，`problemCode` 写明是哪一种（`bukit_missing` / `guard` / `notion` / `read_only`），`problem` 写明原因）。检查之后再核对一次指纹。失败且没有 `force` 时返回 `check_failed`，什么都不改。例外：`problemCode` 为 `notion`、网站绑定了 Notion 数据源、默认分支本身已经使用 Notion 时，不算检查失败，直接应用（界面提示没有检查、看正式构建的结果）；改动自己加进 Notion 源时仍要求强制，不能借这个例外跳过检查
 >   6. `git commit-tree <指纹> -p <main>` 生成结果提交：作者固定为 `BukitJalil AI <ai@bukitjalil.local>`，提交者是设置里的身份（`-c author.* -c committer.*`）；提交信息是 AI 的改动说明（没有时用默认说明）加一行 `BukitJalil-Sessions: <会话 ID…>`
 >   7. 在网站目录里 `git merge --ff-only --no-overwrite-ignore <结果提交>`；git 拒绝时（例如会覆盖网站目录里被忽略的本地文件）返回 409 `change.merge_failed`，带 git 的说明，改动集保持 `open`
 >   8. 改动集标为 `applied`，记下 `result_commit`
@@ -1300,7 +1300,7 @@ M5 分层实施（每层做完先审计、修复，再提交）：
 > - **和打开的改动集的关系**：配置提交让默认分支前进，打开的改动集在应用时按 7.2 的"正式版本已前进"处理（`merge-tree` 合并后重新审核，冲突时 `stale`）
 > - **保存时的错误**：`site.read_only`、`site.busy`（网站锁被占）、`deploy.config_invalid`（字段不合法或 `site.yaml` 解析失败）、`deploy.config_dirty` / `deploy.config_wrong_branch`（网站目录有未提交改动或不在默认分支）、`deploy.config_failed`（快进合并失败）、`deploy.commit_changed`（期间默认分支变了）、`publish.not_found` / `publish.no_token`
 > - **GitHub API 检查仓库权限**：保存部署设置时和每次发布前，用账号的 token 请求 `https://api.github.com/repos/<owner>/<repo>`（`Authorization: Bearer`），确认能推送；没有权限返回 409 `publish.repo_access`，GitHub 出错返回 503 `publish.github_failed`；`BUKITJALIL_OFFLINE=1` 时跳过。这是 token 在 `bukit deploy` 之外的第二个用途
-> - **发布开始前的检查**（按代码顺序）：`site.read_only`、`site.identity_required`、`deploy.no_account`（网站没选账号）、`deploy.no_token`、`build.bukit_missing`；拿到网站锁后 `deploy.commit_changed`、`deploy.no_target`（带 `problem`）、`publish.repo_access` / `publish.github_failed`。使用 Notion 源的网站在发布流程里以结果 `notion` 停止
+> - **发布开始前的检查**（按代码顺序）：`site.read_only`、`site.identity_required`、`deploy.no_account`（网站没选账号）、`deploy.no_token`、`build.bukit_missing`；拿到网站锁后 `deploy.commit_changed`、`deploy.no_target`（带 `problem`）、`publish.repo_access` / `publish.github_failed`。使用 Notion 源而没有绑定数据源的网站在发布流程里以结果 `notion` 停止
 > - **目标的问题**（`problem`）：`no_config`、`not_configured`、`bad_provider`、`bad_repo`、`bad_branch`、`bad_cname`，以及 `source_branch`（发布分支和网站的默认分支相同，会把构建输出推到源码分支上，拒绝）
 
 以下是 M6 实施时的设计和记录：
@@ -1352,7 +1352,7 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 > M6 第 3 层实现说明（发布服务）：
 > - 新表 `deploys`（迁移 `004_deploys.sql`）：提交、仓库、分支、网站地址、状态（running / succeeded / failed / stopped）、当前或失败的步骤、结果、报告（各步结果、消息、发布审计摘要）；每个网站保留最近 50 条，服务重启时把还在运行的记成 `interrupted`
 > - `POST /api/sites/:id/deploys` 带上用户确认的提交：在网站锁（和构建共用，`site.busy`）里核对它仍是默认分支的最新提交（否则 409 `deploy.commit_changed`，附上新提交），再从**这个提交**的 `site.yaml` 读发布目标（没有有效目标 409 `deploy.no_target`）；还要求有 token（`deploy.no_token`）、提交身份（`site.identity_required`）、可用的 Bukit、网站不是只读。返回 202，后台按步骤执行，每进入一步发一次 `deploy` 事件；`GET` 列表和单条、`POST .../stop` 停止（Bukit 收到 SIGINT）
-> - 步骤：8.5 安全检查（拒绝时网站状态照常更新；Notion 网站暂不能发布）→ `config check` → `doctor` → 在 `main/` 检出里构建到新的空目录 `.bukitjalil-deploy/<id>`（用网站自己的 baseUrl，不像预览那样改成 `/`）→ 不允许符号链接 → `publish audit --dir`（失败就停，摘要照样保存）→ `deploy --config site.yaml --skip-build --output <同一目录> --repo <deploy.repo> --branch <分支> --token-env BUKIT_DEPLOY_TOKEN`。任何一步失败都不再往下走，结束后删除输出目录
+> - 步骤：8.5 安全检查（拒绝时网站状态照常更新；Notion 网站读取绑定数据源的 token，只传给下面的 check、doctor、build，并从报告里抹掉）→ `config check` → `doctor` → 在 `main/` 检出里构建到新的空目录 `.bukitjalil-deploy/<id>`（用网站自己的 baseUrl，不像预览那样改成 `/`）→ 不允许符号链接 → `publish audit --dir`（失败就停，摘要照样保存）→ `deploy --config site.yaml --skip-build --output <同一目录> --repo <deploy.repo> --branch <分支> --token-env BUKIT_DEPLOY_TOKEN`。任何一步失败都不再往下走，结束后删除输出目录
 > - `BukitRunner` 新增 `publish`（60 秒）和 `deploy`（10 分钟）命令；只有 `deploy` 拿到 `BUKIT_DEPLOY_TOKEN` 和 `GIT_AUTHOR_*` / `GIT_COMMITTER_*`（设置里的身份），并去掉 `GIT_CONFIG_COUNT` 一组（Bukit 本来就会删）；其他步骤的环境不变
 > - 测试：`deploys.test.ts` 补假 Bukit 的完整流程（参数、只在 deploy 传 token 和身份、发布的就是审计过的目录、事件顺序、输出目录删除）、每一步失败都停下、未确认的提交 / 没有 token / 没有身份 / 没有目标被拒、安全检查拒绝、发布中网站被锁住和停止；真实 Bukit 2.0.12 加 git 替身推到本地裸仓库（gh-pages 有 `index.html` 和 `.nojekyll`、没有 `.bukit/`，提交作者和提交者是设置里的身份，网站目录和检出都没有留下东西）
 
@@ -1491,7 +1491,7 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 
 1. ~~**网站默认存放位置**~~：已确定每次由用户选择，没有默认目录（5.2）
 2. **素材上传**：~~待定~~ **已确认（2026-11-12）**。用户上传图片和 PDF 到当前主题的静态目录 `themes/<主题>/static/uploads/`（设计 v3.2 已和本文 v2.29 对齐），网址 `/uploads/`（原提议的 `content/media` 和 v2 的 `assets/uploads` 都发布不出去，已改）；上传同样进改动集、走审核；不收 SVG。设计和分 5 层的实施计划见 [plans/2026-11-12-media-upload-design.md](plans/2026-11-12-media-upload-design.md)，约 2 天
-3. **Notion 数据源**：~~待定~~ **已做（M7 之后）**：设置页按数据源管理 Notion token，新建网站时可选数据源和数据库，正式版本构建时传 token（使用 Notion 源的网站目前不能发布，见 M6）（5.1、6.5）。数据面板仍只显示配置，不预览 Notion 数据
+3. **Notion 数据源**：~~待定~~ **已做（M7 之后）**：设置页按数据源管理 Notion token，新建网站时可选数据源和数据库，正式版本构建、网站检查和发布时传绑定数据源的 token，新建后自动构建；导入的网站在数据面板里显式绑定（5.1、6.5）。数据面板仍只显示配置，不预览 Notion 数据；AI 改动不能检查、不能预览
 4. **多会话并发改同一网站**：MVP 限制一个 open 改动集，是否够用？
 5. ~~**界面语言**~~：已确定做多语言，MVP 提供简体中文和英文（10.1）
 6. **默认主题的外观**：MVP 已确定从 Bukit 源码复制 StarterTheme 作为起点（5.2、M2）；是否在此基础上做一套更好看的默认主题，可以放到 MVP 之后决定

@@ -328,6 +328,6 @@ pnpm e2e            # 或只跑受影响的 spec
 ## 21. 新建网站时多选 Notion 数据库（2026-11-12）
 
 - Notion 数据源下面的数据库列表改为复选框；勾选后每个数据库旁选择用途：文章（`collection: post`）、页面（`collection: page`）或数据（`mode: data`）。
-- 每个勾选的数据库生成一个 `content.sources[]` notion 源；源名取数据库标题里的 ASCII 部分并去重（例如“菜单 Menu” → `menu`），没有 ASCII 时用 `notion`、`notion-2`。
+- 每个勾选的数据库生成一个 `content.sources[]` notion 源；源名取数据库标题里的 ASCII 部分并去重（例如“菜单 Menu” → `menu`），没有 ASCII 时用 `notion`、`notion_2`（2026-11-13 起用下划线，名称以字母开头，符合 Bukit 对源名称的要求）。
 - 创建请求用 `notionDatabases: [{ databaseId, title, use }]` 代替单个 `notionDatabaseId`；服务端仍然只允许选择一个已保存的 Notion 数据源（token 来源）。
 - 至少勾选一个数据库才能创建；之前自动选中第一个数据库的行为移除，由用户明确选择。

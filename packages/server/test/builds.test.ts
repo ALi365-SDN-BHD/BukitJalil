@@ -185,7 +185,8 @@ it("passes the Notion token of the site's data source to a main build but never 
   expect(otherSite.status).toBe(404);
   const bound = await bind(source.id);
   expect(bound.status).toBe(200);
-  expect(((await bound.json()) as Site).notionDataSourceId).toBe(source.id);
+  // Binding rechecks the site, whose config check now runs with the token.
+  expect((await bound.json()) as Site).toMatchObject({ notionDataSourceId: source.id, configCheck: "ok" });
   await ctx.builds.start(site.id, "main");
   await ctx.builds.settled();
   expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "succeeded", outcome: "ok" });
@@ -205,13 +206,50 @@ it("passes the Notion token of the site's data source to a main build but never 
   });
   expect(fs.existsSync(tokenFile)).toBe(false);
 
-  // Unbinding takes the token away again.
+  // Unbinding takes the token away again, and the site state says a source must be bound.
   const unbound = await bind(null);
-  expect(((await unbound.json()) as Site).notionDataSourceId).toBeNull();
+  expect((await unbound.json()) as Site).toMatchObject({ notionDataSourceId: null, configCheck: "notion" });
   await ctx.builds.start(site.id, "main");
   await ctx.builds.settled();
   expect(ctx.builds.list(site.id).find((b) => b.ref === "main")).toMatchObject({ status: "failed", outcome: "notion" });
   expect(fs.existsSync(tokenFile)).toBe(false);
+
+  // An unreadable token file fails the config check but leaves the site usable.
+  await bind(source.id);
+  const tokens = path.join(ctx.paths.home, "data-source-tokens.json");
+  fs.chmodSync(tokens, 0o000);
+  try {
+    expect(await ctx.sites.recheck(site.id)).toMatchObject({ readOnly: null, configCheck: "failed" });
+  } finally {
+    fs.chmodSync(tokens, 0o600);
+  }
+});
+
+it("checks and builds a new Notion site with its bound token right after creating it", async () => {
+  const ctx = makeApp({
+    userHome,
+    appHome: fs.mkdtempSync(path.join(base, "app-notion-new-")),
+    bukit: bukitFor(fakeBin),
+    previewBase: nextPreviewBase(),
+  });
+  contexts.push(ctx);
+  ctx.db
+    .prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('commitName', ?), ('commitEmail', ?)")
+    .run(JSON.stringify("Site Owner"), JSON.stringify("owner@example.com"));
+  const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_new_site_token" });
+  const tokenFile = path.join(appBukitDir(path.join(base, "bk")), "bukit.notion");
+  fs.rmSync(tokenFile, { force: true });
+  const site = await ctx.sites.create({
+    name: "New Notion",
+    path: path.join(userHome, "new-notion"),
+    language: "en-US",
+    dataSourceIds: [source.id],
+    notionDatabases: [{ databaseId: "db_posts", title: "Posts", use: "post" }],
+  });
+  expect(site).toMatchObject({ readOnly: null, configCheck: "ok", notionDataSourceId: source.id });
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id)).toMatchObject([{ ref: "main", status: "succeeded", outcome: "ok" }]);
+  expect(fs.readFileSync(tokenFile, "utf8")).toBe("ntn_new_site_token");
 });
 
 describe("main builds (plan 8.3, 8.4)", () => {

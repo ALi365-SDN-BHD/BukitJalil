@@ -242,6 +242,13 @@ export class ChangeService {
    * tree on the default branch (author BukitJalil AI, committer from the settings) and fast-forward the
    * site folder to it, refusing to overwrite ignored local files.
    */
+  /** A site bound to a Notion data source whose default branch (at `main`) already uses Notion. */
+  private async notionSite(site: Site, main: string): Promise<boolean> {
+    if (this.opts.sites.notionDataSourceId(site.id) === null) return false;
+    const guard = await guardCommit(this.opts.git, site.path, main);
+    return guard.ok && guard.usesNotion;
+  }
+
   async apply(id: string, req: ApplyRequest): Promise<ApplyResult> {
     const { siteId } = this.get(id);
     return this.opts.locks.run(siteId, "apply", async () => {
@@ -287,7 +294,12 @@ export class ChangeService {
       if ((await this.treeOf(site.path, change.snapshotCommit)) !== req.treeHash) {
         throw new SiteError("change.fingerprint_mismatch", 409);
       }
-      if (!check.passed && !req.force)
+      // A Notion site cannot be checked before applying (unreviewed content never gets the token); that is
+      // not a failed check, so it needs no force. Only for a bound site whose default branch already uses
+      // Notion: a change that adds a Notion source itself must not skip the check that way. The guard still
+      // ran, and the main build checks the result.
+      const unchecked = check.problemCode === "notion" && (await this.notionSite(site, main));
+      if (!check.passed && !req.force && !unchecked)
         return { outcome: "check_failed", change: await this.toChangeSet(change), check };
 
       // A restore is the user's own act, so they are its author too (plan 7.4); once a conversation has taken

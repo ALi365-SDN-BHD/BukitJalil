@@ -626,6 +626,37 @@ describe("applying and rejecting", () => {
     const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
     expect(forced.outcome).toBe("applied");
   });
+
+  const NOTION_SITE_YAML =
+    "site:\n  name: n\n  title: N\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n";
+
+  it("applies a bound Notion site's change without force: it cannot be checked, which is not a failure", async () => {
+    const { s, view } = await reviewed((dir, git) => {
+      fs.writeFileSync(path.join(dir, "site.yaml"), NOTION_SITE_YAML);
+      git("add", "-A");
+      git("commit", "-q", "-m", "notion");
+    });
+    const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_apply_token" });
+    await ctx.sites.bindNotionSource(s.id, source.id);
+    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(result.outcome).toBe("applied");
+    expect(result.check).toMatchObject({ passed: false, problemCode: "notion", steps: [] });
+    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
+  });
+
+  it("still asks for force when the change itself adds a Notion source", async () => {
+    const { s, view, cwd } = await reviewed();
+    const source = ctx.dataSources.create({ platform: "notion", name: "Notion two", token: "ntn_apply_token2" });
+    await ctx.sites.bindNotionSource(s.id, source.id);
+    fs.writeFileSync(path.join(cwd, "site.yaml"), NOTION_SITE_YAML);
+    await ctx.changes.snapshot(s.id, cwd);
+    const now = await ctx.changes.current(s.id, false);
+    const failed = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" });
+    expect(failed.outcome).toBe("check_failed");
+    expect(failed.check).toMatchObject({ problemCode: "notion" });
+    const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
+    expect(forced.outcome).toBe("applied");
+  });
 });
 
 describe("the change set API and events", () => {

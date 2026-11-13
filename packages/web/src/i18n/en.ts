@@ -406,7 +406,8 @@ const en: Messages = {
     items: "Data",
     itemsDemo: "Showing only the first entry as an example",
     truncated: "Too many files; only some were read",
-    notionNote: "The MVP does not connect to Notion; only the configuration is shown",
+    notionNote:
+      "BukitJalil does not read the Notion data; only the configuration is shown. Main builds show the pages.",
     notionBinding: "Notion data source",
     notionUnbound: "Not bound",
     notionNoSources: "No saved Notion data source yet. Add one in Settings → Data sources first.",
@@ -449,6 +450,7 @@ const en: Messages = {
       rejected: "The changes were rejected.",
     },
     checkFailed: "The check before applying failed, so nothing was applied.",
+    appliedUnchecked: "The site uses a Notion source, which Bukit cannot check before applying; see the main build.",
     problem: {
       bukit_missing: "Bukit is not installed, so the changes could not be checked.",
       guard: "The safety check before building refused the changes.",
@@ -575,7 +577,7 @@ const en: Messages = {
     outcome: {
       ok: "Published",
       refused: "Safety check failed",
-      notion: "Sites using Notion cannot be published yet",
+      notion: "The site uses a Notion source; bind a data source in the Data panel first",
       step_failed: "Failed",
       symlink: "The build output has a symbolic link",
       stopped: "Stopped",
@@ -701,7 +703,7 @@ const en: Messages = {
       tokenStored: "Token saved (ends in {last4})",
       tokenStoredShort: "Token saved",
       tokenMissing: "No token yet",
-      notionNote: "When creating a site, its accessible databases are listed and you pick one.",
+      notionNote: "When creating a site, its accessible databases are listed and you check one or more.",
       save: "Save data source",
       edit: "Edit",
       delete: "Delete",

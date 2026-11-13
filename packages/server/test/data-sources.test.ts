@@ -171,6 +171,7 @@ describe("new site data sources", () => {
         { databaseId: "db_blog", title: "Blog", use: "post" },
         { databaseId: "db_docs", title: "文章 Docs", use: "page" },
         { databaseId: "db_settings", title: "Site Settings", use: "data" },
+        { databaseId: "db_blog_2024", title: "2024 Blog", use: "post" },
       ],
     });
 
@@ -178,7 +179,9 @@ describe("new site data sources", () => {
     expect((parse(yaml) as { content: { sources: unknown } }).content.sources).toEqual([
       { type: "notion", name: "blog", mode: "content", collection: "post", notion: { databaseId: "db_blog" } },
       { type: "notion", name: "docs", mode: "content", collection: "page", notion: { databaseId: "db_docs" } },
-      { type: "notion", name: "site-settings", mode: "data", notion: { databaseId: "db_settings" } },
+      { type: "notion", name: "site_settings", mode: "data", notion: { databaseId: "db_settings" } },
+      // Names start with a letter and stay unique: "2024 Blog" slugs to "blog", which is taken.
+      { type: "notion", name: "blog_2", mode: "content", collection: "post", notion: { databaseId: "db_blog_2024" } },
     ]);
     expect(yaml).not.toContain("dir: content/posts");
     expect(fs.existsSync(path.join(dir, "content/posts/welcome.md"))).toBe(true);

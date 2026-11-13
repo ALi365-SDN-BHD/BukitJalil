@@ -180,12 +180,7 @@ const builds = new BuildService({
   locks,
   previews,
   changes,
-  // Only the data source bound to the site: never another saved one, or an imported site could pull any
-  // database that token can read.
-  notionToken: (siteId) => {
-    const linked = sites.notionDataSourceId(siteId);
-    return linked ? dataSources.token(linked) : null;
-  },
+  notionToken: (siteId) => sites.notionToken(siteId),
   logger,
 });
 const customModels = new CustomModelStore(path.join(paths.pi, "custom-models.json"));

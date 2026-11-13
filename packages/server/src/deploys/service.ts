@@ -57,6 +57,9 @@ const LIST_LIMIT = 20;
 const KEEP_RECORDS = 50;
 const MAX_SITE_YAML = 1024 * 1024;
 
+/** Bukit commands that validate or load a Notion source; `publish audit` and `deploy --skip-build` do not. */
+const NOTION_STEPS: ReadonlySet<string> = new Set(["check", "doctor", "build"]);
+
 /** The report with every copy of `secret` replaced (a token shorter than 8 characters is not looked for). */
 export function redact(report: DeployReport, secret: string): DeployReport {
   if (secret.length < 8) return report;
@@ -374,10 +377,13 @@ export class DeployService {
     signal: AbortSignal,
   ): Promise<void> {
     const steps: DeployStepResult[] = [];
+    // Read after the guard, only for a commit that uses Notion; only the steps that load the config get it.
+    let notionToken: string | null = null;
     const finish = (outcome: DeployOutcome, report: Partial<DeployReport> = {}) => {
       const status = outcome === "ok" ? "succeeded" : outcome === "stopped" ? "stopped" : "failed";
-      // Nothing Bukit or its git printed may carry the token into app.db or the UI.
-      const full = redact({ messages: [], output: "", ...report, steps }, env.token);
+      // Nothing Bukit or its git printed may carry a token into app.db or the UI.
+      let full = redact({ messages: [], output: "", ...report, steps }, env.token);
+      if (notionToken !== null) full = redact(full, notionToken);
       this.store.finish(id, status, outcome, full);
     };
     const begin = (step: DeployStep) => {
@@ -391,6 +397,7 @@ export class DeployService {
         cwd: checkout,
         signal,
         ...(command === "deploy" ? { deploy: env } : {}),
+        ...(NOTION_STEPS.has(command) && notionToken !== null ? { env: { NOTION_TOKEN: notionToken } } : {}),
       });
       const ok = checkPassed(result);
       steps.push({ step, ok, exitCode: result.exitCode, durationMs: result.durationMs });
@@ -414,14 +421,21 @@ export class DeployService {
       const guard = await guardCommit(this.opts.git, site.path, commit);
       steps.push({
         step: "guard",
-        ok: guard.ok && !guard.usesNotion,
+        ok: guard.ok,
         exitCode: null,
         durationMs: Date.now() - started,
       });
       if (!guard.ok || guard.usesNotion) this.opts.sites.applyGuard(site.id, commit, guard);
       if (!guard.ok) return finish("refused", { reasons: guard.reasons });
-      // Publishing a Notion site needs the Notion token in the build, which is not offered yet.
-      if (guard.usesNotion) return finish("notion");
+      // The published commit is reviewed content on the default branch, so its build gets the bound token.
+      if (guard.usesNotion) {
+        try {
+          notionToken = this.opts.sites.notionToken(site.id);
+        } catch {
+          return finish("error", { detail: "the saved Notion token cannot be read" });
+        }
+        if (notionToken === null) return finish("notion");
+      }
       if (signal.aborted) return finish("stopped");
 
       checkout = await this.opts.sites.mainCheckout(site.id, site.path, commit);

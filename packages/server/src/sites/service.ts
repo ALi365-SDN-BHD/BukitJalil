@@ -92,8 +92,19 @@ export class SiteService {
    */
   applyGuard(id: string, commit: string, guard: GuardResult): void {
     if (!guard.ok) this.store.setState(id, { readOnly: guard.reasons, checkedCommit: commit, configCheck: null });
-    else if (guard.usesNotion)
+    // "notion" means the site has no bound data source; a bound one keeps its last config check result.
+    else if (guard.usesNotion && this.store.notionDataSourceId(id) === null)
       this.store.setState(id, { readOnly: null, checkedCommit: commit, configCheck: "notion" });
+  }
+
+  /**
+   * The Notion token of the data source bound to the site, or null when none is bound (plan 7 key rules).
+   * Never another saved source: an imported site's site.yaml could name any database that token reads.
+   * Only reviewed content on the default branch may run Bukit with it.
+   */
+  notionToken(id: string): string | null {
+    const linked = this.store.notionDataSourceId(id);
+    return linked ? this.opts.dataSources.token(linked) : null;
   }
 
   get(id: string): Site {
@@ -106,13 +117,9 @@ export class SiteService {
     return { appHome: this.opts.paths.home, userHome: this.opts.userHome, sites: this.store.list() };
   }
 
-  /** Which saved Notion source the site was created with, if any. */
+  /** The saved Notion source bound to the site, if any (set at creation or with bindNotionSource). */
   notionDataSourceId(id: string): string | null {
     return this.store.notionDataSourceId(id);
-  }
-
-  setNotionDataSourceId(id: string, sourceId: string | null): void {
-    this.store.setNotionDataSourceId(id, sourceId);
   }
 
   /** Which saved publishing account the site deploys with, if any. */
@@ -337,9 +344,19 @@ export class SiteService {
    * Re-evaluate a site (plan 5.1 steps 2–4). The site stays usable only if every step finishes: a check
    * that fails part-way leaves it read-only with "not_checked" rather than keeping an older result.
    */
-  private async check(id: string, checked?: Prechecked): Promise<Site> {
+  /**
+   * Bind (or with null, unbind) the saved Notion data source whose token main builds use, then check the
+   * site again, since its config check depends on the binding. Both happen under the site lock, so a busy
+   * site keeps its old binding.
+   */
+  bindNotionSource(id: string, sourceId: string | null): Promise<Site> {
+    return this.check(id, undefined, () => this.store.setNotionDataSourceId(id, sourceId));
+  }
+
+  private async check(id: string, checked?: Prechecked, before?: () => void): Promise<Site> {
     const site = this.get(id);
     await this.opts.locks.run(id, "recheck", async () => {
+      before?.();
       let state: SiteState;
       try {
         state = await this.evaluate(id, site, checked);
@@ -372,7 +389,19 @@ export class SiteService {
     if (!guard.ok) return unusable(guard.reasons, commit);
     writeExcludeBlock(await this.commonDir(site.path));
     const checkout = await this.mainCheckout(id, site.path, commit);
-    const configCheck = guard.usesNotion ? "notion" : await this.configCheck(checkout);
+    // The default branch is reviewed content, so a Notion site is checked with its bound token; without one
+    // Bukit refuses the config, so the state says a data source must be bound.
+    let configCheck: ConfigCheck;
+    if (guard.usesNotion) {
+      let token: string | null;
+      try {
+        token = this.notionToken(id);
+      } catch {
+        // An unreadable token file fails the check, not the site: builds say why when they run.
+        token = "";
+      }
+      configCheck = token === null ? "notion" : token === "" ? "failed" : await this.configCheck(checkout, token);
+    } else configCheck = await this.configCheck(checkout);
     return { readOnly: null, checkedCommit: commit, configCheck };
   }
 
@@ -456,14 +485,15 @@ export class SiteService {
     }
   }
 
-  private async configCheck(checkout: string): Promise<ConfigCheck> {
+  private async configCheck(checkout: string, notionToken?: string): Promise<ConfigCheck> {
     const runner = await usableRunner(this.opts.bukit, {
       git: this.opts.git,
       home: this.opts.paths.home,
       tmpDir: this.opts.paths.bukitTmp,
     });
     if (!runner) return "not_run";
-    return checkPassed(await runner.run("check", ["config", "check"], { cwd: checkout })) ? "ok" : "failed";
+    const env = notionToken === undefined ? {} : { env: { NOTION_TOKEN: notionToken } };
+    return checkPassed(await runner.run("check", ["config", "check"], { cwd: checkout, ...env })) ? "ok" : "failed";
   }
 
   // --- patch / remove ---
@@ -643,20 +673,23 @@ function removeCreated(dir: string, existed: boolean): void {
 }
 
 // Built-in site.data keys, so a database titled like one of them gets a safe name.
-const RESERVED_SOURCE_NAMES = new Set(["taxonomy", "pages_by_id", "taxonomy_ensure_terms"]);
+const RESERVED_SOURCE_NAMES = new Set(["taxonomy", "pages_by_id", "taxonomy_ensure_terms", "menus"]);
 
-/** A unique source name from a Notion database title: its ASCII slug, or notion, notion-2, ... */
+/**
+ * A unique source name from a Notion database title: its ASCII slug, or notion, notion_2, ... Names match
+ * Bukit's rule for sources with a dataIndex (^[a-z][a-z0-9_]*$) and work as site.data keys in templates.
+ */
 function uniqueSourceName(title: string, used: Set<string>): string {
-  const base =
-    title
-      .normalize("NFKD")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40)
-      .replace(/-+$/, "") || "notion";
-  let name = RESERVED_SOURCE_NAMES.has(base) ? `${base}-source` : base;
-  for (let n = 2; used.has(name); n++) name = `${base}-${n}`;
+  const slug = title
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^[_0-9]+|_+$/g, "")
+    .slice(0, 40)
+    .replace(/_+$/, "");
+  const base = slug || "notion";
+  let name = RESERVED_SOURCE_NAMES.has(base) ? `${base}_source` : base;
+  for (let n = 2; used.has(name); n++) name = `${base}_${n}`;
   used.add(name);
   return name;
 }

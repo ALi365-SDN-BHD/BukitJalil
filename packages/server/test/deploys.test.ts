@@ -117,6 +117,7 @@ describe("GET /api/sites/:id/deploy", () => {
  */
 const FAKE = (log: string) => `#!/bin/sh
 echo "$* | token=\${BUKIT_DEPLOY_TOKEN:-} author=\${GIT_AUTHOR_NAME:-} committer=\${GIT_COMMITTER_EMAIL:-} gitcount=\${GIT_CONFIG_COUNT:-}" >> "${log}"
+[ -n "\${NOTION_TOKEN:-}" ] && echo "$1 $NOTION_TOKEN" >> "${log}.notion"
 fail=$(cat fake-fail 2>/dev/null)
 case "$1" in
   version) echo "bukit 2.0.12+fake"; exit 0;;
@@ -150,7 +151,7 @@ afterEach(async () => {
 });
 
 let counter = 0;
-async function publishable(opts: { fail?: string; branch?: string } = {}) {
+async function publishable(opts: { fail?: string; branch?: string; notion?: boolean } = {}) {
   const name = `pub${++counter}`;
   const fakeDir = path.join(base, `${name}-bin`);
   fs.mkdirSync(fakeDir);
@@ -174,6 +175,11 @@ async function publishable(opts: { fail?: string; branch?: string } = {}) {
     path.join(dir, "site.yaml"),
     `\ndeploy:\n  repo: someone/blog\n  branch: ${opts.branch ?? "gh-pages"}\n`,
   );
+  if (opts.notion)
+    fs.writeFileSync(
+      path.join(dir, "site.yaml"),
+      `site:\n  name: ${name}\n  title: ${name}\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\ndeploy:\n  repo: someone/blog\n  branch: gh-pages\n`,
+    );
   if (opts.fail) fs.writeFileSync(path.join(dir, "fake-fail"), opts.fail);
   rawGit(base, dir, "init", "-q", "-b", "main");
   commitAllAs(base, dir, "init");
@@ -308,6 +314,34 @@ describe("publishing (M6 layer 3)", () => {
       if (fail === "deploy") expect(d.report?.output).toContain("push rejected");
     });
   }
+
+  it("publishes a Notion site with its bound token in check, doctor and build, never in deploy", async () => {
+    const p = await publishable({ notion: true });
+    expect(p.ctx.sites.get(p.site.id).configCheck).toBe("notion");
+    const notionLog = `${p.log}.notion`;
+
+    // Without a bound data source nothing runs.
+    const unbound = await p.publish();
+    expect(unbound).toMatchObject({ status: "failed", outcome: "notion" });
+    expect(p.calls()).toEqual([]);
+
+    const source = p.ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_publishtoken1234" });
+    const bound = await p.call("PUT", "/notion-source", { dataSourceId: source.id });
+    // Binding rechecks the site: its config check now runs with the token.
+    expect(bound.json).toMatchObject({ notionDataSourceId: source.id, configCheck: "ok" });
+    fs.rmSync(notionLog, { force: true });
+    fs.writeFileSync(p.log, "");
+
+    const d = await p.publish();
+    expect(d).toMatchObject({ status: "succeeded", outcome: "ok" });
+    expect(d.report?.steps[0]).toMatchObject({ step: "guard", ok: true });
+    expect(fs.readFileSync(notionLog, "utf8").trim().split("\n")).toEqual([
+      "config ntn_publishtoken1234",
+      "doctor ntn_publishtoken1234",
+      "build ntn_publishtoken1234",
+    ]);
+    expect(p.calls().map((c) => c.split(" ")[0])).toEqual(["config", "doctor", "build", "publish", "deploy"]);
+  });
 
   it("adds a root page that leads to the default language when the build has none", async () => {
     const p = await publishable({ fail: "multilingual" });

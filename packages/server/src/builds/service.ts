@@ -191,13 +191,17 @@ export class BuildService {
 
   /**
    * The preview build of a site that was just created or imported (plan 5.2 step 5). Only for a usable
-   * site whose `config check` passed; a busy site or a missing Bukit is not an error for the caller.
+   * site whose `config check` passed (a Notion site passes it only with a bound data source); a busy site
+   * or a missing Bukit is not an error for the caller.
    */
   async startAfterAdd(site: Site): Promise<void> {
     if (site.readOnly !== null || site.configCheck !== "ok") return;
     try {
-      // The site check that just finished guarded checkedCommit; a newer head is guarded as usual.
-      await this.start(site.id, "main", { guardedCommit: site.checkedCommit ?? undefined });
+      // The site check that just finished guarded checkedCommit; a newer head is guarded as usual. The guard
+      // also decides whether the build gets the Notion token, so a site with a bound source is guarded again
+      // (a new site from the starter, so it costs little).
+      const guardedCommit = site.notionDataSourceId === null ? (site.checkedCommit ?? undefined) : undefined;
+      await this.start(site.id, "main", { guardedCommit });
     } catch (err) {
       this.opts.logger.log("warn", "build.after_add_skipped", { siteId: site.id, error: String(err) });
     }
