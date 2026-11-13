@@ -176,8 +176,11 @@ test("part of a change is applied and the rest stays for review", async ({ page,
   await expect(panel.getByTestId("changed-files")).not.toContainText("site.yaml");
   await expect(panel.getByTestId("include-file").and(page.getByRole("checkbox", { name: /faq\.md/ }))).toBeChecked();
   await expect(apply).toHaveText(/^\s*(Apply|应用)\s*$/);
-  await apply.click();
-  await expect(page.getByTestId("changes-empty")).toBeVisible();
+  // The partial apply rebuilt the main version; the site says it is busy until that build ends.
+  await expect(async () => {
+    await apply.click({ timeout: 2_000 });
+    await expect(page.getByTestId("changes-empty")).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
   expect(fs.existsSync(path.join(folder, "content/pages/faq.md"))).toBe(true);
 });
 
