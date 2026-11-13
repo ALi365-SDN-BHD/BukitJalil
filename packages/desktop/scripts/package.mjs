@@ -10,6 +10,8 @@
 //                                      bundle because Pi SDK reads files next to its own modules
 //   node_modules/                      the server's production dependencies (pnpm deploy, lockfile versions)
 //   skills/, templates/starter/, web/  read through BUKITJALIL_RESOURCES
+//   bukit/                             the pinned Bukit (plan 8.1), checked against the SHA-256 in the
+//                                      server's bukit/install.ts; the app never installs another
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -92,6 +94,30 @@ fs.rmSync(deployed, { recursive: true, force: true });
 
 // Files the server reads.
 fs.cpSync(path.join(repo, "skills"), path.join(stage, "skills"), { recursive: true });
+// Bukit ships with the app (plan 8.1): the release pinned in install.ts, fetched and checked (SHA-256, strict
+// unpacking, `bukit version`) by the server's own script.
+const fetched = fs.mkdtempSync(path.join(os.tmpdir(), "bukitjalil-bukit-"));
+try {
+  const fetchArgs = ["--filter", "@bukitjalil/server", "exec", "tsx", "scripts/fetch-bukit.ts", fetched];
+  const winShell = process.platform === "win32";
+  const fetchOut = execFileSync(
+    "pnpm",
+    winShell ? fetchArgs.map((a) => (/[\s&^|<>()]/.test(a) ? `"${a}"` : a)) : fetchArgs,
+    {
+      cwd: repo,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "inherit"],
+      shell: winShell,
+    },
+  );
+  const bukitBin = /^BUKIT_BIN=(.+)$/m.exec(fetchOut)?.[1]?.trim();
+  if (!bukitBin || !fs.existsSync(bukitBin)) throw new Error(`fetching Bukit printed no executable:\n${fetchOut}`);
+  fs.cpSync(path.dirname(bukitBin), path.join(stage, "bukit"), { recursive: true });
+  // Readable by everyone: a root-owned install (/opt, a .deb) must still let the user run Bukit.
+  fs.chmodSync(path.join(stage, "bukit"), 0o755);
+} finally {
+  fs.rmSync(fetched, { recursive: true, force: true });
+}
 fs.cpSync(path.join(repo, "templates/starter"), path.join(stage, "templates/starter"), { recursive: true });
 fs.cpSync(web, path.join(stage, "web"), { recursive: true });
 // The window icon on Windows and Linux, read next to main.cjs.

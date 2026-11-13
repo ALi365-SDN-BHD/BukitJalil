@@ -106,14 +106,7 @@ export const api = {
     request("/settings", { method: "PUT", body: JSON.stringify(patch) }, Settings),
   skills: () => request<SkillsResponse>("/skills"),
   identity: () => request<GitIdentityResponse>("/git/identity"),
-  bukit: (refresh = false, force = false) => {
-    const params = new URLSearchParams();
-    if (refresh) params.set("refresh", "1");
-    if (force) params.set("force", "1");
-    const search = params.toString();
-    return request<BukitResponse>(`/bukit${search ? `?${search}` : ""}`);
-  },
-  installBukit: () => post<unknown>("/bukit/install"),
+  bukit: (refresh = false) => request<BukitResponse>(`/bukit${refresh ? "?refresh=1" : ""}`),
   rg: () => request<RgResponse>("/rg"),
   installRg: () => post<unknown>("/rg/install"),
   git: (refresh = false) => request<GitResponse>(`/git${refresh ? "?refresh=1" : ""}`),

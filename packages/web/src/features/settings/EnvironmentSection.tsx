@@ -21,7 +21,7 @@ export function EnvironmentSection() {
   const checkUpdates = async () => {
     setChecking(true);
     try {
-      const [bukit, rg, git, pi] = await Promise.all([api.bukit(true, true), api.rg(), api.git(true), api.pi(true)]);
+      const [bukit, rg, git, pi] = await Promise.all([api.bukit(true), api.rg(), api.git(true), api.pi(true)]);
       queryClient.setQueryData(keys.bukit, bukit);
       queryClient.setQueryData(keys.rg, rg);
       queryClient.setQueryData(keys.git, git);
@@ -345,18 +345,10 @@ function GitGuide({
 const installing = (b: { install: InstallProgress } | undefined) =>
   b?.install.state === "downloading" || b?.install.state === "verifying";
 
+/** Bukit ships inside the app (plan 8.1), like Pi: it is never installed or upgraded on its own. */
 function BukitRow() {
   const { m, t, errorOf } = useI18n();
-  const queryClient = useQueryClient();
-  const bukit = useQuery({
-    queryKey: keys.bukit,
-    queryFn: () => api.bukit(),
-    refetchInterval: (q) => (installing(q.state.data) ? 1000 : false),
-  });
-  const install = useMutation({
-    mutationFn: api.installBukit,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.bukit }),
-  });
+  const bukit = useQuery({ queryKey: keys.bukit, queryFn: () => api.bukit() });
 
   if (bukit.isPending)
     return <SettingsRow testId="bukit-section" label={m.settings.bukit} description={m.common.loading} />;
@@ -372,17 +364,10 @@ function BukitRow() {
         }
       />
     );
-  const { status, install: progress } = bukit.data;
+  const { status } = bukit.data;
   const s = m.settings;
-  const latest = status.latestVersion;
-  const stateText = t(s.bukitState[status.state], {
-    version: status.version ?? "",
-    latest,
-  });
   const tone = status.state === "ok" ? "ok" : status.state === "old" ? "warn" : "error";
   const installed = status.state === "missing" ? s.notInstalled : (status.version ?? s.versionUnknown);
-  const upToDate = status.state === "ok" && !status.upgradable;
-  const offer = status.installable && (status.state !== "ok" || status.upgradable);
 
   return (
     <SettingsRow
@@ -396,41 +381,14 @@ function BukitRow() {
               {installed}
             </strong>
           </span>
-          <span>
-            {s.latestVersion}:{" "}
-            <strong className="font-medium text-foreground" data-testid="bukit-latest">
-              {latest}
-            </strong>
-          </span>
           {status.path && <code className="break-all text-xs">{status.path}</code>}
-          {!status.installable && status.state !== "ok" && <span>{s.bukitUnavailable}</span>}
-          {upToDate ? (
-            <Badge tone="ok" className="self-start" data-testid="bukit-state">
-              {s.upToDate}
-            </Badge>
-          ) : status.upgradable ? (
-            <Badge tone="warn" className="self-start" data-testid="bukit-state">
-              {t(s.updateAvailable, { version: latest })}
-            </Badge>
-          ) : (
-            <Badge tone={tone} className="self-start" data-testid="bukit-state">
-              {stateText}
-            </Badge>
-          )}
+          <Badge tone={tone} className="self-start" data-testid="bukit-state">
+            {t(s.bukitState[status.state], { version: status.version ?? "", bundled: status.bundledVersion })}
+          </Badge>
+          <span>{s.bukitHint}</span>
         </span>
       }
-    >
-      {offer && (
-        <InstallControl
-          progress={progress}
-          offer
-          label={t(s.install, { version: latest })}
-          confirm={t(s.installConfirm, { version: latest })}
-          mutation={install}
-          testId="bukit-install"
-        />
-      )}
-    </SettingsRow>
+    />
   );
 }
 

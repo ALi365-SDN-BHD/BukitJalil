@@ -179,17 +179,12 @@ export function createAdminApp(opts: AdminAppOptions) {
     return c.json(updated);
   });
 
+  // The Bukit that ships with BukitJalil (plan 8.1); it is never installed or upgraded at run time.
   api.get("/bukit", async (c) => {
-    // The settings page asks for a fresh look when it opens; `force` also refreshes the latest release.
-    if (c.req.query("refresh") === "1") opts.bukit.invalidate(c.req.query("force") === "1");
-    const body: BukitResponse = { status: await opts.bukit.status(), install: opts.bukit.installer.progress };
+    // The settings page asks for a fresh look when it opens.
+    if (c.req.query("refresh") === "1") opts.bukit.invalidate();
+    const body: BukitResponse = { status: await opts.bukit.status() };
     return c.json(body);
-  });
-  // Install the latest official Bukit (plan 8.1) after the user confirmed in the UI. Progress is polled from GET /bukit.
-  api.post("/bukit/install", async (c) => {
-    if (!(await opts.bukit.status()).installable) return apiError(c, 400, "bukit.unsupported_platform");
-    if (!opts.bukit.install()) return apiError(c, 409, "bukit.install_running");
-    return c.json({ install: opts.bukit.installer.progress }, 202);
   });
 
   // ripgrep for the AI's grep tool (plan 6.3): pinned version, checked by SHA-256, installed on request.

@@ -18,8 +18,6 @@ export const errorCodes = [
   "server.shutting_down",
   "storage.unreadable",
   "storage.too_large",
-  "bukit.install_running",
-  "bukit.unsupported_platform",
   "fs.not_found",
   "fs.not_directory",
   "fs.permission_denied",

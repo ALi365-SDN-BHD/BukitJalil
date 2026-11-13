@@ -13,7 +13,7 @@ import { RgService } from "./agent/rg.ts";
 import { AgentService } from "./agent/service.ts";
 import { createAdminApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
-import { BukitService } from "./bukit/locate.ts";
+import { BukitService, removeOldAppCopies } from "./bukit/locate.ts";
 import { ChangeService } from "./changes/service.ts";
 import { DataSourceService } from "./data-sources/service.ts";
 import { DeployService } from "./deploys/service.ts";
@@ -121,15 +121,11 @@ const publishAccounts = new PublishAccountService({
   tokenFile: paths.publishAccountTokens,
   fetchImpl: offline ? null : fetch,
 });
-const bukit = new BukitService({
-  home: paths.home,
-  tmpDir: paths.bukitTmp,
-  // Tests set BUKITJALIL_OFFLINE=1; the settings page then uses the built-in fallback release.
-  fetchImpl: offline ? undefined : fetch,
-});
-
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const resources = resolveResources(repoRoot);
+// Bukit ships with the app (plan 8.1); copies earlier versions installed in ~/.bukitjalil/bin are removed.
+removeOldAppCopies(paths.home);
+const bukit = new BukitService({ dir: resources.bukit, tmpDir: paths.bukitTmp });
 // Without git, site operations fail when they run git; /api/health tells the user git is missing.
 const git = new GitRunner({
   gitPath: gitPath ?? "/nonexistent/git",

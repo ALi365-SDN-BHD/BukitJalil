@@ -3,7 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test as base } from "@playwright/test";
-import { appBukitDir } from "../packages/server/src/bukit/locate.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { E2E_ADMIN_PORT, E2E_PREVIEW_BASE } from "./ports.ts";
 
@@ -28,8 +27,10 @@ export const test = base.extend<object, { server: Server }>({
         throw new Error("Build the UI first: pnpm build");
       }
       const home = fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-home-"));
-      // The server only uses the Bukit copy in its own app folder, so install the stand-in (or BUKIT_BIN) there.
-      const bukitLink = path.join(appBukitDir(home), "bukit");
+      // The server only uses the Bukit that ships with it (plan 8.1); BUKITJALIL_BUKIT_DIR points it at a
+      // folder holding the stand-in (or BUKIT_BIN).
+      const bukitDir = path.join(home, "bundled-bukit");
+      const bukitLink = path.join(bukitDir, "bukit");
       const setBukit = (source: string) => {
         fs.mkdirSync(path.dirname(bukitLink), { recursive: true, mode: 0o700 });
         fs.rmSync(bukitLink, { force: true });
@@ -50,7 +51,13 @@ export const test = base.extend<object, { server: Server }>({
         // The scripted model (packages/server/src/agent/fake-model.ts) lets conversations run without a key.
         {
           cwd: root,
-          env: { ...process.env, BUKITJALIL_HOME: home, BUKITJALIL_FAKE_MODEL: "1", BUKITJALIL_OFFLINE: "1" },
+          env: {
+            ...process.env,
+            BUKITJALIL_HOME: home,
+            BUKITJALIL_BUKIT_DIR: bukitDir,
+            BUKITJALIL_FAKE_MODEL: "1",
+            BUKITJALIL_OFFLINE: "1",
+          },
           stdio: ["pipe", "pipe", "pipe"],
         },
       );

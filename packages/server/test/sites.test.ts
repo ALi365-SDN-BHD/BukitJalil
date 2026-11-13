@@ -9,7 +9,7 @@ import { withBlock } from "../src/sites/exclude.ts";
 import { checkSiteLocation, listDirs, realPathOf, SiteError } from "../src/sites/location.ts";
 import { SiteLocks } from "../src/sites/locks.ts";
 import { copyStarter } from "../src/sites/template.ts";
-import { ADMIN, commitAllAs, installAppBukit, makeApp, rawGit, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, installAppBukit, makeApp, rawGit, req, testBukitDir } from "./helpers.ts";
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const REAL_BIN = process.env.BUKIT_BIN;
@@ -219,7 +219,7 @@ describe("create a site (plan 5.2)", () => {
       const home = path.join(base, "bk");
       installAppBukit(home, REAL_BIN as string);
       const bukit = new BukitService({
-        home,
+        dir: testBukitDir(home),
         tmpDir: path.join(base, "bk-tmp"),
       });
       const { call, identity } = setup({ bukit });

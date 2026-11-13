@@ -6,23 +6,19 @@ import type { InstallProgress } from "@bukitjalil/shared";
 import { unzipSync } from "fflate";
 
 /**
- * Bukit install (plan 8.1): official package for this platform, downloaded from the latest GitHub release and
- * verified with the SHA-256 GitHub reports for that asset. `BUKIT_VERSION` is the built-in fallback release
- * used when GitHub cannot be reached; the settings page asks for the latest release when it opens.
+ * Bukit packages (plan 8.1): Bukit ships inside BukitJalil, like Pi. The packaging script and
+ * `pnpm fetch:bukit` download the official package for `BUKIT_VERSION`, check it against the SHA-256 fixed
+ * here and unpack it strictly; the app itself never downloads or upgrades Bukit. Raising Bukit means changing
+ * `BUKIT_VERSION` and the three checksums, then releasing BukitJalil.
  */
 
 export const BUKIT_VERSION = "2.0.15";
 /**
- * The oldest Bukit that works (`deploy --token-env` and the other 2.0.11 behaviour, plan 8.1). Raise it to
- * the first release with a behaviour BukitJalil starts to rely on, and add a test for that behaviour to
- * test/bukit-behavior.test.ts, which CI runs against the latest release every day (plan 16 #7).
+ * The oldest Bukit that works (`deploy --token-env` and the other 2.0.11 behaviour, plan 8.1), for a
+ * development copy picked with BUKITJALIL_BUKIT_DIR. Raise it to the first release with a behaviour
+ * BukitJalil starts to rely on, and add a test for that behaviour to test/bukit-behavior.test.ts.
  */
 export const MIN_BUKIT_VERSION = "2.0.11";
-/** Earlier app-managed installs (~/.bukitjalil/bin/bukit-<version>), still used until an upgrade replaces them. */
-export const PREVIOUS_APP_VERSIONS: readonly string[] = ["2.0.12", "2.0.11"];
-/** How long a fetched release is reused before the automatic settings check asks GitHub again. */
-export const RELEASE_CACHE_MS = 10 * 60_000;
-export const BUKIT_RELEASE_API = "https://api.github.com/repos/ALi365-SDN-BHD/Bukit/releases/latest";
 
 export interface BukitPackage {
   file: string;
@@ -32,18 +28,9 @@ export interface BukitPackage {
   executable: string;
 }
 
-export interface BukitReleaseAsset extends BukitPackage {
-  url: string;
-}
-
-export interface BukitRelease {
-  version: string;
-  assets: Record<string, BukitReleaseAsset>;
-}
-
 const RELEASE_URL = `https://github.com/ALi365-SDN-BHD/Bukit/releases/download/v${BUKIT_VERSION}`;
 
-/** Official packages by `-`: macOS arm64, Linux x64 and Windows x64. */
+/** Official packages by `<platform>-<arch>`: macOS arm64, Linux x64 and Windows x64. */
 export const PACKAGES: Record<string, BukitPackage> = {
   "darwin-arm64": {
     file: `bukit-${BUKIT_VERSION}-osx-arm64.tar.gz`,
@@ -65,13 +52,6 @@ export const PACKAGES: Record<string, BukitPackage> = {
   },
 };
 
-export const FALLBACK_RELEASE: BukitRelease = {
-  version: BUKIT_VERSION,
-  assets: Object.fromEntries(
-    Object.entries(PACKAGES).map(([key, pkg]) => [key, { ...pkg, url: `${RELEASE_URL}/${pkg.file}` }]),
-  ),
-};
-
 export function packageForPlatform(
   platform: string = process.platform,
   arch: string = process.arch,
@@ -81,52 +61,9 @@ export function packageForPlatform(
 
 export const packageUrl = (pkg: BukitPackage) => `${RELEASE_URL}/${pkg.file}`;
 
-/**
- * The latest official release from GitHub. Uses the asset digest GitHub reports for the uploaded file;
- * falls back to the checksums built into this app when the API cannot be reached or has no usable asset.
- */
-export async function fetchLatestRelease(fetchImpl: typeof fetch = fetch, timeoutMs = 8_000): Promise<BukitRelease> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(BUKIT_RELEASE_API, {
-      headers: { Accept: "application/vnd.github+json", "User-Agent": "BukitJalil" },
-      signal: controller.signal,
-    });
-    if (!res.ok) return FALLBACK_RELEASE;
-    const json = (await res.json()) as {
-      tag_name?: string;
-      assets?: { name?: string; browser_download_url?: string; digest?: string | null }[];
-    };
-    const version = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(json.tag_name ?? "")?.[1];
-    if (!version || version === "0.0.0") return FALLBACK_RELEASE;
-
-    const assets: Record<string, BukitReleaseAsset> = {};
-    for (const [key, suffix, ext] of [
-      ["darwin-arm64", "osx-arm64", "tar.gz"],
-      ["linux-x64", "linux-x64", "tar.gz"],
-      ["win32-x64", "win-x64", "zip"],
-    ] as const) {
-      const file = `bukit-${version}-${suffix}.${ext}`;
-      const asset = json.assets?.find((a) => a.name === file);
-      const sha256 = asset?.digest?.startsWith("sha256:") ? asset.digest.slice("sha256:".length) : "";
-      if (!asset?.browser_download_url || !/^[0-9a-f]{64}$/.test(sha256)) continue;
-      const layout = PACKAGES[key];
-      if (!layout) continue;
-      assets[key] = {
-        file,
-        sha256,
-        files: layout.files,
-        executable: layout.executable,
-        url: asset.browser_download_url,
-      };
-    }
-    return Object.keys(assets).length > 0 ? { version, assets } : FALLBACK_RELEASE;
-  } catch {
-    return FALLBACK_RELEASE;
-  } finally {
-    clearTimeout(timer);
-  }
+/** The files of a downloaded package, checked strictly (tar.gz or, on Windows, zip). */
+export function readPackage(pkg: BukitPackage, data: Buffer): Map<string, { mode: number; data: Buffer }> {
+  return pkg.file.endsWith(".zip") ? readStrictZip(data, pkg.files) : readStrictTarGz(data, pkg.files);
 }
 
 /** Why an install failed; the codes are the shared InstallProgress ones. */

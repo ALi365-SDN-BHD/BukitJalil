@@ -10,8 +10,7 @@ import { AgentService, type AgentServiceOptions } from "../src/agent/service.ts"
 import type { EventStreamOptions } from "../src/api/events.ts";
 import { createAdminApp } from "../src/app.ts";
 import { BuildService } from "../src/builds/service.ts";
-import { BUKIT_VERSION } from "../src/bukit/install.ts";
-import { appBukitDir, BukitService } from "../src/bukit/locate.ts";
+import { BukitService } from "../src/bukit/locate.ts";
 import { ChangeService } from "../src/changes/service.ts";
 import { DataSourceService } from "../src/data-sources/service.ts";
 import { DeployService } from "../src/deploys/service.ts";
@@ -38,12 +37,12 @@ export const SESSION = "test-session-0123456789abcdefghijklmn";
 export const COOKIE = `bj_session_${PORT}`;
 export const SKILLS_DIR = path.resolve(import.meta.dirname, "../../../skills");
 
-/**
- * Put `source` where BukitJalil installs Bukit, the only place it looks. Tests use this instead of a
- * custom path setting.
- */
-export function installAppBukit(home: string, source: string | null, version = BUKIT_VERSION): void {
-  const dir = appBukitDir(home, version);
+/** Where tests put "the Bukit that ships with the app" (plan 8.1): the directory BukitService reads. */
+export const testBukitDir = (home: string) => path.join(home, "bundled-bukit");
+
+/** Put `source` in `testBukitDir(home)` as the bundled Bukit; null removes it. */
+export function installAppBukit(home: string, source: string | null): void {
+  const dir = testBukitDir(home);
   if (!source) {
     fs.rmSync(dir, { recursive: true, force: true });
     return;
@@ -95,7 +94,7 @@ export function makeApp(
   const bukit =
     overrides.bukit ??
     new BukitService({
-      home: "/nonexistent-bukitjalil-home",
+      dir: "/nonexistent-bukitjalil-bukit",
       tmpDir: os.tmpdir(),
     });
   const rg = overrides.rg ?? new RgService({ piBin: paths.piBin });

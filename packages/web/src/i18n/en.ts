@@ -503,7 +503,8 @@ const en: Messages = {
     git: "git 2.38 or newer",
     gitHint: "Install git (2.38 or newer), make sure it is on PATH, then restart BukitJalil.",
     bukit: "Bukit",
-    bukitHint: "Install the latest official Bukit (currently 2.0.15) from the settings, or point to your own build.",
+    bukitHint:
+      "Bukit ships with BukitJalil. If it is missing or does not run, reinstall BukitJalil (in development, run pnpm fetch:bukit).",
     identity: "Your name and email for commits",
     identityHint: "Changes you apply are committed with this identity. It starts with your global git settings.",
     model: "An AI model",
@@ -736,17 +737,17 @@ const en: Messages = {
     checkingUpdates: "Checking all updates…",
     updateAvailable: "Update {version} available",
     bukit: "Bukit",
-    bukitUnavailable: "There is no official Bukit package for this platform; install Bukit yourself.",
+    bukitHint:
+      "Bukit ships and updates with BukitJalil; it cannot be installed or replaced on its own. A newer Bukit comes with a newer version of the app.",
     bukitState: {
       ok: "Bukit {version}",
-      old: "Bukit {version} is old; installing {latest} is recommended",
+      old: "Bukit {version} is too old; this version of the app needs {bundled}",
       unsupported: "Bukit {version} is not supported",
-      missing: "Bukit was not found",
-      broken: "Bukit was found but does not run",
+      missing:
+        "The Bukit that ships with the app is missing: reinstall BukitJalil (in development, run pnpm fetch:bukit)",
+      broken:
+        "The Bukit that ships with the app does not run: reinstall BukitJalil (in development, run pnpm fetch:bukit)",
     },
-    install: "Download and install Bukit {version}",
-    installConfirm:
-      "Downloads the official Bukit {version} package from GitHub, verifies it and installs it in the app folder.",
     downloading: "Downloading {progress}",
     verifying: "Verifying…",
     installDone: "Installed",
@@ -901,9 +902,6 @@ const en: Messages = {
     "request.not_found": "Unknown endpoint",
     "request.invalid_query": "The request parameters are invalid",
     "server.internal": "Internal server error",
-    "bukit.install_running": "Bukit is already being installed",
-    "bukit.unsupported_platform":
-      "There is no official Bukit package for this platform; build Bukit yourself and set its path in Settings",
     "fs.not_found": "This folder does not exist",
     "fs.not_directory": "This path is not a folder",
     "fs.permission_denied": "No permission to read or write this location",

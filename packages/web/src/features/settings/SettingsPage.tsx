@@ -34,8 +34,8 @@ export function SettingsPage() {
   const section: SettingsSection = resolveSettingsSection(raw);
   const from = (location.state as { from?: string } | null)?.from;
 
-  // Opening settings checks both tools for updates; the server caches Bukit's location, so ask for a fresh
-  // probe and put the result into the same query the environment section reads.
+  // Opening settings looks at the tools again: a fresh probe of the bundled Bukit (the server caches it),
+  // ripgrep and Pi, put into the same queries the environment section reads.
   useEffect(() => {
     void (async () => {
       await queryClient.cancelQueries({ queryKey: keys.bukit });

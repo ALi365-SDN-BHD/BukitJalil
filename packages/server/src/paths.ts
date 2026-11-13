@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { devBukitDir } from "./bukit/locate.ts";
 
 /** Application data directory (plan 4.1); BUKITJALIL_HOME overrides ~/.bukitjalil. */
 export function resolveAppHome(env: NodeJS.ProcessEnv = process.env): string {
@@ -8,16 +9,20 @@ export function resolveAppHome(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(override && override.length > 0 ? override : path.join(os.homedir(), ".bukitjalil"));
 }
 
-/** Files the server ships with: the AI skills, the starter template and the built web pages. */
+/** Files the server ships with: the AI skills, the starter template, the built web pages and Bukit. */
 export interface ResourcePaths {
   skills: string;
   starter: string;
   web: string;
+  /** The directory holding the bundled Bukit executable (plan 8.1). */
+  bukit: string;
 }
 
 /**
- * Where those files are (plan M7): BUKITJALIL_RESOURCES names the desktop app's resources folder
- * (skills/, templates/starter/, web/); without it they are read from the repository.
+ * Where those files are (plan M7, 8.1): BUKITJALIL_RESOURCES names the desktop app's resources folder
+ * (skills/, templates/starter/, web/, bukit/); without it they are read from the repository, with Bukit in
+ * vendor/bukit-<version>/ from `pnpm fetch:bukit`. BUKITJALIL_BUKIT_DIR picks another Bukit directory, for
+ * tests and CI only: the packaged app (BUKITJALIL_RESOURCES set) always uses the copy it ships with.
  */
 export function resolveResources(repoRoot: string, env: NodeJS.ProcessEnv = process.env): ResourcePaths {
   const root = env.BUKITJALIL_RESOURCES;
@@ -27,12 +32,16 @@ export function resolveResources(repoRoot: string, env: NodeJS.ProcessEnv = proc
       skills: path.join(dir, "skills"),
       starter: path.join(dir, "templates", "starter"),
       web: path.join(dir, "web"),
+      bukit: path.join(dir, "bukit"),
     };
   }
+  const bukitDir = env.BUKITJALIL_BUKIT_DIR;
+  const bukit = bukitDir && bukitDir.length > 0 ? path.resolve(bukitDir) : null;
   return {
     skills: path.join(repoRoot, "skills"),
     starter: path.join(repoRoot, "templates", "starter"),
     web: path.join(repoRoot, "packages", "web", "dist"),
+    bukit: bukit ?? devBukitDir(repoRoot),
   };
 }
 

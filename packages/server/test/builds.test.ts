@@ -12,13 +12,23 @@ import type {
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { KEEP_OUTPUTS } from "../src/builds/service.ts";
 import { BuildStore } from "../src/builds/store.ts";
-import { appBukitDir, BukitService } from "../src/bukit/locate.ts";
+import { BukitService } from "../src/bukit/locate.ts";
 import { resolveGitPath } from "../src/git/run.ts";
 import { silentLogger } from "../src/log.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { openDatabase } from "../src/store/db.ts";
-import { ADMIN, commitAllAs, httpGet, installAppBukit, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
+import {
+  ADMIN,
+  commitAllAs,
+  httpGet,
+  installAppBukit,
+  jsonPut,
+  makeApp,
+  rawGit,
+  req,
+  testBukitDir,
+} from "./helpers.ts";
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const REAL_BIN = process.env.BUKIT_BIN;
@@ -92,7 +102,7 @@ function bukitFor(bin: string | null) {
   const home = path.join(base, "bk");
   installAppBukit(home, bin);
   return new BukitService({
-    home,
+    dir: testBukitDir(home),
     tmpDir: path.join(base, "bk-tmp"),
   });
 }
@@ -175,7 +185,7 @@ it("passes the Notion token of the site's data source to a main build but never 
   const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_main_only" });
   expect(ctx.dataSources.token(source.id)).toBe("ntn_main_only");
 
-  const tokenFile = path.join(appBukitDir(path.join(base, "bk")), "bukit.notion");
+  const tokenFile = path.join(testBukitDir(path.join(base, "bk")), "bukit.notion");
   const bind = async (dataSourceId: string | null) =>
     ctx.app.fetch(req(`/api/sites/${site.id}/notion-source`, jsonPut({ dataSourceId })));
 
@@ -246,7 +256,7 @@ it("checks and builds a new Notion site with its bound token right after creatin
     .prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('commitName', ?), ('commitEmail', ?)")
     .run(JSON.stringify("Site Owner"), JSON.stringify("owner@example.com"));
   const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_new_site_token" });
-  const tokenFile = path.join(appBukitDir(path.join(base, "bk")), "bukit.notion");
+  const tokenFile = path.join(testBukitDir(path.join(base, "bk")), "bukit.notion");
   fs.rmSync(tokenFile, { force: true });
   const site = await ctx.sites.create({
     name: "New Notion",
@@ -270,7 +280,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     const b = await s.build();
     expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
     expect(b.report?.basePath).toBe("/blog/");
-    const args = fs.readFileSync(path.join(appBukitDir(path.join(base, "bk")), "bukit.args"), "utf8");
+    const args = fs.readFileSync(path.join(testBukitDir(path.join(base, "bk")), "bukit.args"), "utf8");
     expect(args).toContain("--base-url /blog/ ");
     const opened = (await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" })).json;
     expect(opened.url).toBe(`http://127.0.0.1:${opened.port}/blog/`);

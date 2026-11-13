@@ -38,12 +38,8 @@ export function SetupGuide() {
       id: "bukit",
       title: m.setup.bukit,
       hint: m.setup.bukitHint,
+      // Bukit ships with the app (plan 8.1): nothing to do in settings, the hint says to reinstall.
       state: state(bukit.data ? bukit.data.status.state === "ok" : undefined, !!bukit.error),
-      action: (
-        <Button size="xs" variant="outline" onClick={() => openSettings("environment")}>
-          {m.setup.openSettings}
-        </Button>
-      ),
     },
     {
       id: "identity",

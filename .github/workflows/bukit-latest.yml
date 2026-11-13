@@ -1,10 +1,9 @@
 name: Latest Bukit
 
-# The app installs the latest Bukit release (plan 8.1, 16 #7). Every day, and on demand, this runs the tests
-# of the Bukit behaviour BukitJalil relies on (packages/server/test/bukit-behavior.test.ts) against that
-# release. A failure means Bukit changed: check the change first, then fix BukitJalil or Bukit, and raise
-# MIN_BUKIT_VERSION when BukitJalil starts to rely on a newer release. A release outside 2.0.x also fails
-# (the version test): the app would refuse it too (bukit/locate.ts versionState).
+# BukitJalil ships a pinned Bukit (plan 8.1, BUKIT_VERSION). Every day, and on demand, this runs the tests
+# of the Bukit behaviour BukitJalil relies on (packages/server/test/bukit-behavior.test.ts) against the latest
+# Bukit release, as an early warning: users are not affected, but a failure means Bukit changed and must be
+# dealt with (in BukitJalil or Bukit) before BUKIT_VERSION is raised to that release.
 # GitHub runs schedule and workflow_dispatch from the default branch only: this starts once merged to main.
 on:
   schedule:

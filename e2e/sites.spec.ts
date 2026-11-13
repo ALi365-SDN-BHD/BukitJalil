@@ -290,9 +290,12 @@ test("settings show Bukit and the identity; the new-site dialog starts empty eac
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  // The stand-in prints 2.0.11, a real Bukit the current version; the latest is the built-in fallback here.
+  // The stand-in prints 2.0.11, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
+  // latest release, no install button.
   await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
-  await expect(page.getByTestId("bukit-latest")).toHaveText("2.0.15");
+  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.0.11"}`);
+  await expect(page.getByTestId("bukit-latest")).toHaveCount(0);
+  await expect(page.getByTestId("bukit-install")).toHaveCount(0);
   // A fresh app home has no rg yet: the page shows it as not installed and asks before downloading.
   await expect(page.getByTestId("rg-version")).toHaveText(/Not installed|未安装/);
   await expect(page.getByTestId("rg-latest")).toHaveText("15.2.0");
@@ -513,13 +516,13 @@ test("the settings search filters the sections", async ({ page, server }) => {
   await expect(page.getByText(/No settings found|没有找到设置项/)).toBeVisible();
 });
 
-test("reopening settings checks Bukit for a newer version", async ({ page, server }) => {
+test("reopening settings looks at the bundled Bukit again", async ({ page, server }) => {
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
   await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
 
-  // The app copy changes between visits; opening settings asks the server for a fresh look.
+  // The bundled copy changes between visits; opening settings asks the server for a fresh look.
   const updated = path.join(work, "bukit-2.0.14");
   fs.writeFileSync(updated, '#!/bin/sh\nif [ "$1" = "version" ]; then echo "bukit 2.0.14"; exit 0; fi\nexit 0\n', {
     mode: 0o755,
@@ -530,5 +533,6 @@ test("reopening settings checks Bukit for a newer version", async ({ page, serve
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
   await expect(page.getByTestId("bukit-version")).toHaveText("2.0.14");
-  await expect(page.getByTestId("bukit-state")).toContainText(/Update|有新版本|更新/);
+  await expect(page.getByTestId("bukit-state")).toContainText("Bukit 2.0.14");
+  await expect(page.getByTestId("bukit-install")).toHaveCount(0);
 });

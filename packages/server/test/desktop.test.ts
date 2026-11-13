@@ -4,6 +4,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { BUKIT_VERSION } from "../src/bukit/install.ts";
 import type { DesktopOutbound } from "../src/desktop.ts";
 import { acquireHomeLock, HomeInUseError } from "../src/lock.ts";
 import { resolveResources } from "../src/paths.ts";
@@ -84,11 +85,13 @@ describe("resource folders (plan M7)", () => {
       skills: "/repo/skills",
       starter: "/repo/templates/starter",
       web: "/repo/packages/web/dist",
+      bukit: `/repo/vendor/bukit-${BUKIT_VERSION}`,
     });
     expect(resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app" })).toEqual({
       skills: "/App/Resources/app/skills",
       starter: "/App/Resources/app/templates/starter",
       web: "/App/Resources/app/web",
+      bukit: "/App/Resources/app/bukit",
     });
   });
 });

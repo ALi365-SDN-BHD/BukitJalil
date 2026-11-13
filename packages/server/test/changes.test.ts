@@ -25,7 +25,17 @@ import { changeRef, commitText, diffSummary } from "../src/changes/service.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
-import { ADMIN, commitAllAs, httpGet, installAppBukit, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
+import {
+  ADMIN,
+  commitAllAs,
+  httpGet,
+  installAppBukit,
+  jsonPut,
+  makeApp,
+  rawGit,
+  req,
+  testBukitDir,
+} from "./helpers.ts";
 
 // M4 layers 1 to 3, 5 and 6 (plan 7.2, 7.4, 8.4, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
 // works in the ai/ checkout, and its result is snapshotted into the change set; the site folder only
@@ -66,7 +76,7 @@ beforeAll(async () => {
   installAppBukit(home, fakeBin);
   ctx = makeApp({
     bukit: new BukitService({
-      home,
+      dir: testBukitDir(home),
       tmpDir: path.join(base, "bk-tmp"),
     }),
     userHome: path.join(base, "home"),

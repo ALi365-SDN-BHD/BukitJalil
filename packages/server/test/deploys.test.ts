@@ -7,7 +7,7 @@ import { BukitService } from "../src/bukit/locate.ts";
 import { deployTarget, pagesUrl } from "../src/deploys/target.ts";
 import { resolveGitPath } from "../src/git/run.ts";
 import { copyStarter } from "../src/sites/template.ts";
-import { ADMIN, commitAllAs, installAppBukit, makeApp, rawGit, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, installAppBukit, makeApp, rawGit, req, testBukitDir } from "./helpers.ts";
 
 // M6 (plan 14): where a site is published, read from site.yaml on the default branch.
 
@@ -164,7 +164,7 @@ async function publishable(opts: { fail?: string; branch?: string; notion?: bool
     appHome: path.join(base, `${name}-app`),
     userHome: base,
     bukit: new BukitService({
-      home,
+      dir: testBukitDir(home),
       tmpDir: path.join(base, `${name}-bk-tmp`),
     }),
   });
@@ -474,7 +474,7 @@ exec "${realGit}" "$@"
       userHome: base,
       gitPath: wrapper,
       bukit: new BukitService({
-        home,
+        dir: testBukitDir(home),
         tmpDir: path.join(base, "real-bk-tmp"),
       }),
     });

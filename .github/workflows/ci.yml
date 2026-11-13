@@ -52,12 +52,13 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then brew install ripgrep; else sudo apt-get update && sudo apt-get install -y ripgrep; fi
           rg --version
-      # Real Bukit 2.0.15 (plan M5 layer 4), fetched with the app's installer code (pinned SHA-256, strict
-      # unpacking). With BUKIT_BIN and BUKIT_TARBALL set, the real-Bukit unit tests and the e2e tests use it.
+      # Real Bukit 2.0.15 (plan 8.1), the release the app ships with, fetched with the packaging code (pinned
+      # SHA-256, strict unpacking). With BUKIT_BIN and BUKIT_TARBALL set, the real-Bukit unit tests and the
+      # e2e tests use it.
       - name: Fetch Bukit
         if: matrix.bukit == 'real'
         run: |
-          pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts "$RUNNER_TEMP/bukit" >> "$GITHUB_ENV"
+          pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts "$RUNNER_TEMP/bukit" --keep-package >> "$GITHUB_ENV"
       - name: Check Bukit
         if: matrix.bukit == 'real'
         run: |
