@@ -11,6 +11,7 @@ import { FileDiffView } from "./FileDiffView";
 import { useCurrentChange } from "./hooks";
 import { RestoreNote } from "./RestoreNote";
 import { type Notice, NoticeView, ReviewActions } from "./ReviewActions";
+import { canPick, reviewKey, useSelection } from "./selection";
 
 /** The "Changes" panel (plan 10.2): the open change set's files and one file's diff at a time. */
 export function ChangesPanel({ siteId }: { siteId: string }) {
@@ -19,6 +20,7 @@ export function ChangesPanel({ siteId }: { siteId: string }) {
   const [params, setParams] = useSearchParams();
   const [notice, setNotice] = useState<Notice | null>(null);
   const change = current.change;
+  const selection = useSelection(change);
 
   if (current.isPending) return <PanelLoading />;
   if (current.error) return <PanelError error={current.error} />;
@@ -54,17 +56,23 @@ export function ChangesPanel({ siteId }: { siteId: string }) {
           {t(m.changes.base, { commit: shortOid(change.baseCommit) })}
         </p>
         {!change.reviewable && <p className="text-xs text-muted-foreground">{m.changes.working}</p>}
+        {canPick(change) && <p className="text-xs text-muted-foreground">{m.changes.selectionHint}</p>}
         {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
         <ReviewActions siteId={siteId} change={change} onNotice={setNotice} />
       </div>
       <div className="flex min-h-0 flex-1">
         <nav className="w-56 shrink-0 overflow-auto border-r p-1">
-          <ChangedFileList files={change.files} selected={selected} onSelect={select} />
+          <ChangedFileList
+            files={change.files}
+            selected={selected}
+            onSelect={select}
+            include={canPick(change) ? { on: selection.fileOn, set: selection.setFile } : undefined}
+          />
           {change.filesTruncated && <p className="p-2 text-xs text-muted-foreground">{m.changes.more}</p>}
         </nav>
         <div className="flex min-w-0 flex-1 flex-col">
           {selected ? (
-            <DiffView key={`${change.treeHash}:${selected}`} change={change} path={selected} />
+            <DiffView key={`${reviewKey(change)}:${selected}`} change={change} path={selected} />
           ) : (
             <p className="p-6 text-sm text-muted-foreground">{m.changes.selectFile}</p>
           )}
@@ -75,10 +83,21 @@ export function ChangesPanel({ siteId }: { siteId: string }) {
 }
 
 function DiffView({ change, path }: { change: ChangeView; path: string }) {
+  const selection = useSelection(change);
+  // Keyed by base and tree: after a partial apply the rest has the same tree and another diff.
   const diff = useQuery({
-    queryKey: keys.changeDiff(change.id, change.treeHash, path),
+    queryKey: keys.changeDiff(change.id, `${change.baseCommit}:${change.treeHash}`, path),
     queryFn: () => api.changeDiff(change.id, path),
     staleTime: Number.POSITIVE_INFINITY,
   });
-  return <FileDiffView path={path} diff={diff} />;
+  // The server says which files can be split by hunk (never a restore's).
+  const listed = change.files.some((f) => f.path === path);
+  const hunks =
+    diff.data?.splittable && canPick(change) && listed
+      ? {
+          on: (i: number) => selection.hunkOn(path, i),
+          set: (i: number, on: boolean, total: number) => selection.setHunk(path, i, on, total),
+        }
+      : undefined;
+  return <FileDiffView path={path} diff={diff} hunks={hunks} />;
 }

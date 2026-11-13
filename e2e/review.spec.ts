@@ -135,6 +135,52 @@ test("a reviewed change is previewed, applied, and the main preview follows", as
   await expect(preview(page).getByText("Reviewed X").first()).toBeVisible({ timeout: 60_000 });
 });
 
+test("part of a change is applied and the rest stays for review", async ({ page, server }) => {
+  const { folder } = await startConversation(page, server, "Review partial");
+  const head = git(folder, "rev-parse", "HEAD");
+  await ask(page, '#faq Change the title to "Partly X" and add an FAQ page');
+  await page.getByTestId("review-view-diff").click();
+  const panel = page.getByTestId("changes-panel");
+  await expect(panel).toBeVisible();
+
+  // site.yaml is a plain edit: its hunks have boxes. Leaving its only hunk out leaves the file out.
+  await panel.getByRole("button", { name: /site\.yaml/ }).click();
+  await expect(page.getByTestId("diff-path")).toHaveText("site.yaml");
+  const hunk = page.getByTestId("include-hunk").first();
+  await hunk.uncheck();
+  const siteBox = panel.getByTestId("include-file").and(page.getByRole("checkbox", { name: /site\.yaml/ }));
+  await expect(siteBox).not.toBeChecked();
+  await hunk.check();
+  await expect(siteBox).toBeChecked();
+  // A new file is taken as a whole: no hunk boxes.
+  await panel.getByRole("button", { name: /faq\.md/ }).click();
+  await expect(page.getByTestId("diff-path")).toHaveText("content/pages/faq.md");
+  await expect(page.getByTestId("include-hunk")).toHaveCount(0);
+
+  // Leave the FAQ page out and apply the rest.
+  await panel
+    .getByTestId("include-file")
+    .and(page.getByRole("checkbox", { name: /faq\.md/ }))
+    .uncheck();
+  const apply = panel.getByTestId("change-apply");
+  await expect(apply).toHaveText(/Apply selected|应用所选/);
+  await apply.click();
+  await expect(panel.getByTestId("change-notice")).toContainText(/selected changes were applied|所选的改动已应用/);
+  expect(git(folder, "rev-parse", "HEAD^")).toBe(head);
+  expect(git(folder, "diff", "--name-only", "HEAD^", "HEAD")).toBe("site.yaml");
+  expect(fs.readFileSync(path.join(folder, "site.yaml"), "utf8")).toContain("Partly X");
+  expect(fs.existsSync(path.join(folder, "content/pages/faq.md"))).toBe(false);
+
+  // What is left is the FAQ page, selected again, ready to apply.
+  await expect(panel.getByTestId("changed-files")).toContainText("content/pages/faq.md");
+  await expect(panel.getByTestId("changed-files")).not.toContainText("site.yaml");
+  await expect(panel.getByTestId("include-file").and(page.getByRole("checkbox", { name: /faq\.md/ }))).toBeChecked();
+  await expect(apply).toHaveText(/^\s*(Apply|应用)\s*$/);
+  await apply.click();
+  await expect(page.getByTestId("changes-empty")).toBeVisible();
+  expect(fs.existsSync(path.join(folder, "content/pages/faq.md"))).toBe(true);
+});
+
 test("rejecting drops the AI's changes and leaves the site folder as it was", async ({ page, server }) => {
   const { folder } = await startConversation(page, server, "Review reject");
   const head = git(folder, "rev-parse", "HEAD");
