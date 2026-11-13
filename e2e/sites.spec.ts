@@ -431,9 +431,12 @@ test("a Notion data source keeps its token and several databases are used when c
   await page.getByTestId("tab-data").click();
   const binding = page.getByTestId("notion-binding-select");
   await expect(binding).toHaveValue(id);
-  await binding.selectOption("");
+  // Creating the site started a main build; the site says it is busy until that build ends.
+  await expect(async () => {
+    await binding.selectOption("", { timeout: 2_000 });
+    expect((await (await page.request.get(`/api/sites/${siteId}`)).json()).notionDataSourceId).toBeNull();
+  }).toPass({ timeout: 60_000 });
   await expect(page.getByTestId("notion-binding")).toContainText(/fail|失败/);
-  expect((await (await page.request.get(`/api/sites/${siteId}`)).json()).notionDataSourceId).toBeNull();
   await binding.selectOption(id);
   await expect(page.getByTestId("notion-binding")).not.toContainText(/fail|失败/);
   await expect(binding).toBeEnabled();
@@ -514,7 +517,7 @@ test("reopening settings checks Bukit for a newer version", async ({ page, serve
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText("2.0.11");
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
 
   // The app copy changes between visits; opening settings asks the server for a fresh look.
   const updated = path.join(work, "bukit-2.0.14");
