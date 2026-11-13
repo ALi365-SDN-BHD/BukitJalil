@@ -5,7 +5,9 @@ import {
   type ApplyCheck,
   type ApplyRequest,
   type ApplyResult,
+  type ChangedFile,
   type ChangeSet,
+  type ChangeStatus,
   type ChangeView,
   type CurrentChange,
   type FileDiff,
@@ -78,6 +80,37 @@ export function commitText(summary: string): string {
   return `${subject}\n\n${summary}`;
 }
 
+const MAX_SUMMARY_PATHS = 3;
+
+/**
+ * A one-line commit message from the changed files, for a change set without a summary (plan 6.3):
+ * "Update 3 files, add 1 file: content/pages/about.md, site.yaml, themes/x/a.css, ...". Names are dropped from the end
+ * until the line fits in MAX_SUBJECT; the counts always stay. The fixed text when the list is empty or
+ * cut short.
+ */
+export function diffSummary({ files, truncated }: { files: ChangedFile[]; truncated: boolean }): string {
+  if (files.length === 0 || truncated) return DEFAULT_MESSAGE;
+  const count = (statuses: ChangedFile["status"][]) => files.filter((f) => statuses.includes(f.status)).length;
+  const plural = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
+  const parts = (
+    [
+      ["update", count(["modified", "type_changed"])],
+      ["add", count(["added"])],
+      ["delete", count(["deleted"])],
+    ] as const
+  )
+    .filter(([, n]) => n > 0)
+    .map(([verb, n]) => `${verb} ${plural(n)}`);
+  const joined = parts.join(", ");
+  const head = `${joined.charAt(0).toUpperCase()}${joined.slice(1)}`;
+  for (let shown = Math.min(files.length, MAX_SUMMARY_PATHS); shown > 0; shown--) {
+    const names = files.slice(0, shown).map((f) => f.path);
+    const line = `${head}: ${names.join(", ")}${files.length > shown ? ", ..." : ""}`;
+    if (line.length <= MAX_SUBJECT) return line;
+  }
+  return head;
+}
+
 export interface ChangeServiceOptions {
   db: DatabaseSync;
   git: GitRunner;
@@ -111,15 +144,21 @@ export class ChangeService {
   }
 
   /**
-   * Before a run (site lock held): the open change set, or a new one. A new one resets the ai/ checkout to
-   * the head of the default branch and cleans it (plan 7.2), records that commit as the base and pins it
-   * with refs/bukitjalil/changes/<id>. Returns the checkout to run in.
+   * Before a run (site lock held): join the open change set, or start one. A new one resets the ai/
+   * checkout to the head of the default branch and cleans it (plan 7.2), records that commit as the base
+   * and pins it with refs/bukitjalil/changes/<id>. Returns the checkout to run in and `previous`: how the
+   * newest other change set this session took part in ended, if it did. The working copy was reset since
+   * then, which the AI is told once per change set (plan 6.2).
    */
-  async begin(siteId: string, sessionId: string): Promise<{ cwd: string; change: ChangeRecord }> {
+  async begin(
+    siteId: string,
+    sessionId: string,
+  ): Promise<{ cwd: string; change: ChangeRecord; previous: Exclude<ChangeStatus, "open"> | null }> {
     const { cwd, change } = await this.openChangeSet(siteId, sessionId);
+    const previous = this.store.lastJoined(sessionId, change.id);
     this.store.addSession(change.id, sessionId);
     this.emit(siteId);
-    return { cwd, change };
+    return { cwd, change, previous };
   }
 
   /** Open the site's change set for a Settings edit, without a conversation. */
@@ -312,8 +351,12 @@ export class ChangeService {
         pureRestore || userAuthored
           ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
           : AI_AUTHOR;
+      // Without a summary from the AI (summarize_changes), the message says what changed (plan 6.3).
+      const fallback = change.summary?.trim()
+        ? DEFAULT_MESSAGE
+        : diffSummary(await changedFiles(git, site.path, change.baseCommit, change.snapshotCommit));
       const result = (
-        await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change, sessions)], {
+        await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change, sessions, fallback)], {
           cwd: site.path,
           config: { ...author, "committer.name": identity["user.name"], "committer.email": identity["user.email"] },
         })
@@ -536,12 +579,12 @@ export class ChangeService {
   }
 
   /** The commit message: the summary, the sessions it came from and the version it restores. */
-  private message(change: ChangeRecord, sessions: string[]): string {
+  private message(change: ChangeRecord, sessions: string[], fallback: string): string {
     const trailers = [
       ...(sessions.length > 0 ? [`BukitJalil-Sessions: ${sessions.join(", ")}`] : []),
       ...(change.restoreCommit ? [`BukitJalil-Restore: ${change.restoreCommit}`] : []),
     ];
-    const summary = commitText(change.summary?.trim() || DEFAULT_MESSAGE);
+    const summary = commitText(change.summary?.trim() || fallback);
     return trailers.length > 0 ? `${summary}\n\n${trailers.join("\n")}\n` : `${summary}\n`;
   }
 

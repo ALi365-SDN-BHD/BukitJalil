@@ -96,6 +96,28 @@ interface Run {
   done: Promise<void>;
 }
 
+/** customType of the note that tells the model its working copy was reset (plan 6.2). */
+export const RESET_NOTE_TYPE = "bukitjalil.worktree_reset";
+
+const RESET_OUTCOME = {
+  applied: "was applied to the main version",
+  rejected: "was closed without being applied",
+  stale: "was closed because it conflicted with newer changes on the main version",
+} as const;
+
+/**
+ * The note for a conversation whose last change set ended as `previous`. `restoring`: the new change set
+ * starts from an older version the user is restoring, not from the latest main version.
+ */
+export function resetNote(previous: keyof typeof RESET_OUTCOME, restoring = false): string {
+  const target = restoring ? "the older version the user is restoring" : "the latest main version";
+  return [
+    `Note from BukitJalil: since your last turn, the working copy was reset to ${target}.`,
+    `The change set your earlier edits were in ${RESET_OUTCOME[previous]}.`,
+    "Read files again before editing them; what you remember of them may be out of date.",
+  ].join(" ");
+}
+
 /**
  * AI sessions (plan 6.2). A session is a row in `sessions` and a Pi session file; its AgentSession is made
  * when a message arrives and disposed after a while unused. One session per site runs at a time: messages
@@ -506,6 +528,18 @@ export class AgentService {
     }
   }
 
+  /** Whether the session's branch already has the reset note for change set `changeSetId`. */
+  private hasResetNote(live: Live, changeSetId: string): boolean {
+    return live.session.sessionManager
+      .getBranch()
+      .some(
+        (e) =>
+          e.type === "custom_message" &&
+          e.customType === RESET_NOTE_TYPE &&
+          (e.details as { changeSetId?: unknown } | undefined)?.changeSetId === changeSetId,
+      );
+  }
+
   /** Run a session's prompts; resolves to an error code, never rejects. */
   private async execute(run: Run, text: string): Promise<string | undefined> {
     const id = run.sessionId;
@@ -516,13 +550,25 @@ export class AgentService {
       // Every run joins the site's open change set, or starts one (plan 7.2), before the AI touches files.
       const record = this.store.get(id);
       if (!record || run.cancelled || this.closing) return undefined;
-      run.cwd = (await this.opts.changes.begin(record.siteId, id)).cwd;
+      const joined = await this.opts.changes.begin(record.siteId, id);
+      run.cwd = joined.cwd;
       live = await this.open(run);
       if (!live) return undefined;
       if (live.idleTimer) clearTimeout(live.idleTimer);
       live.idleTimer = null;
       if (wasOpen) await this.applyModel(live.session);
       this.store.touch(id);
+      // The working copy was reset since this conversation last changed files (plan 6.2): tell the model
+      // before the user's message, once per change set (a run that ended before sending it leaves no note,
+      // and the next run sends it). Only the model sees it; the transcript shows message entries only.
+      if (joined.previous && !this.hasResetNote(live, joined.change.id)) {
+        await live.session.sendCustomMessage({
+          customType: RESET_NOTE_TYPE,
+          content: resetNote(joined.previous, joined.change.restoreCommit !== null),
+          display: false,
+          details: { changeSetId: joined.change.id },
+        });
+      }
       let prompt: string | undefined = text;
       while (prompt !== undefined && !run.cancelled) {
         await live.session.prompt(prompt);

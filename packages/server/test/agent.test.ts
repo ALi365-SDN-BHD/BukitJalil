@@ -8,6 +8,7 @@ import { AiBukit } from "../src/agent/ai-bukit.ts";
 import { assertPiEnvironment, preparePiEnvironment } from "../src/agent/env.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { type AgentEvent, AgentService } from "../src/agent/service.ts";
+import { agentEventTranslator } from "../src/events/bridge.ts";
 import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
 import { copyStarter } from "../src/sites/template.ts";
@@ -536,6 +537,48 @@ describe("AgentService", () => {
     expect(seen).toContain("first");
     expect(seen).toContain("FIRST-ANSWER");
     expect(seen).toContain("second");
+  });
+
+  it("tells the model, and only the model, that the working copy was reset since its last turn", async () => {
+    const s = await site();
+    const { agent, settled, events } = service();
+    const session = agent.create(s.id);
+    const contexts: string[] = [];
+    const answer = (text: string) => (context: unknown) => {
+      contexts.push(JSON.stringify(context));
+      return pi.ai.fauxAssistantMessage(text);
+    };
+    const send = async (text: string) => {
+      const done = settled(session.id);
+      await agent.send(session.id, text);
+      await done;
+    };
+    faux.setResponses([answer("one")]);
+    await send("first");
+    expect(contexts[0]).not.toContain("working copy was reset");
+
+    // The change set this conversation worked in is rejected: the next run starts a new one.
+    const open = ctx.changes.store.open(s.id);
+    if (!open) throw new Error("no change set");
+    await ctx.changes.reject(open.id);
+    // A run that joined the new change set but ended before sending the note does not lose it.
+    await ctx.changes.begin(s.id, session.id);
+    faux.setResponses([answer("two")]);
+    await send("second");
+    expect(contexts[1]).toContain("working copy was reset");
+    expect(contexts[1]).toContain("the latest main version");
+    expect(contexts[1]).toContain("was closed without being applied");
+    expect(contexts[1]?.indexOf("working copy was reset")).toBeLessThan(contexts[1]?.indexOf("second") ?? -1);
+
+    // Once per new change set, and never in the transcript the user sees.
+    faux.setResponses([answer("three")]);
+    await send("third");
+    expect(contexts[2]?.split("working copy was reset").length).toBe(2);
+    expect(JSON.stringify(await agent.messages(session.id))).not.toContain("working copy was reset");
+    // Pi reports the note as a message; the browser is not sent it.
+    expect(JSON.stringify(events)).toContain("working copy was reset");
+    const translate = agentEventTranslator();
+    expect(JSON.stringify(events.flatMap(translate))).not.toContain("working copy was reset");
   });
 
   it("runs one session per site at a time and queues the others", async () => {

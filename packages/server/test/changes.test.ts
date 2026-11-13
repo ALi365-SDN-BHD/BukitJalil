@@ -4,6 +4,7 @@ import path from "node:path";
 import type {
   ApplyResult,
   Build,
+  ChangedFile,
   ChangeSet,
   CurrentChange,
   FileDiff,
@@ -19,7 +20,7 @@ import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { MAX_FILES, MAX_PATCH_BYTES } from "../src/changes/diff.ts";
 import { listHistory } from "../src/changes/history.ts";
-import { changeRef, commitText } from "../src/changes/service.ts";
+import { changeRef, commitText, diffSummary } from "../src/changes/service.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
@@ -612,6 +613,29 @@ describe("applying and rejecting", () => {
     });
   });
 
+  it("writes a one-line message from the diff when the AI gave no summary", async () => {
+    const { s, view } = await reviewed();
+    ctx.changes.setSummary(s.id, "");
+    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(result.outcome).toBe("applied");
+    expect(s.git("log", "-1", "--format=%s")).toBe("Update 1 file, add 1 file: content/pages/faq.md, site.yaml");
+  });
+
+  it("tells a session joining a newer change set how its last one ended", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const first = await ctx.changes.begin(s.id, session.id);
+    expect(first.previous).toBeNull();
+    expect((await ctx.changes.begin(s.id, session.id)).previous).toBeNull();
+    await ctx.changes.reject(first.change.id);
+    const second = await ctx.changes.begin(s.id, session.id);
+    expect(second.previous).toBe("rejected");
+    // Every later run in the same change set still says so; the agent sends the note once (plan 6.2).
+    expect((await ctx.changes.begin(s.id, session.id)).previous).toBe("rejected");
+    // Another conversation that never took part gets nothing.
+    expect((await ctx.changes.begin(s.id, ctx.agent.create(s.id).id)).previous).toBeNull();
+  });
+
   it("says why the check could not run, and applies only when told to", async () => {
     const { s, view, cwd } = await reviewed();
     // A plugins/ folder makes the pre-build guard refuse the snapshot.
@@ -1172,5 +1196,35 @@ describe("commitText", () => {
     const long = commitText("x".repeat(100)).split("\n")[0] ?? "";
     expect([...long]).toHaveLength(72);
     expect(long.endsWith("…")).toBe(true);
+  });
+});
+
+describe("diffSummary (plan 6.3)", () => {
+  const file = (path: string, status: ChangedFile["status"]): ChangedFile => ({
+    path,
+    status,
+    additions: 1,
+    deletions: 0,
+    binary: false,
+  });
+  it("counts by kind and names at most three files", () => {
+    expect(diffSummary({ files: [file("a.md", "added")], truncated: false })).toBe("Add 1 file: a.md");
+    expect(
+      diffSummary({
+        files: [file("a", "modified"), file("b", "deleted"), file("c", "type_changed"), file("d", "added")],
+        truncated: false,
+      }),
+    ).toBe("Update 2 files, add 1 file, delete 1 file: a, b, c, ...");
+  });
+  it("drops names to fit the subject line, keeping the counts", () => {
+    const long = (n: number) => `content/pages/${"x".repeat(n)}.md`;
+    const two = diffSummary({ files: [file(long(20), "added"), file(long(40), "added")], truncated: false });
+    expect(two).toBe(`Add 2 files: ${long(20)}, ...`);
+    expect(two.length).toBeLessThanOrEqual(72);
+    expect(diffSummary({ files: [file(long(80), "modified")], truncated: false })).toBe("Update 1 file");
+  });
+  it("falls back to the fixed text for an empty or cut list", () => {
+    expect(diffSummary({ files: [], truncated: false })).toBe("Changes made with BukitJalil AI");
+    expect(diffSummary({ files: [file("a", "added")], truncated: true })).toBe("Changes made with BukitJalil AI");
   });
 });
