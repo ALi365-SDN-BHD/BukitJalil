@@ -12,7 +12,11 @@ import { unzipSync } from "fflate";
  */
 
 export const BUKIT_VERSION = "2.0.15";
-/** The oldest Bukit that works (`deploy --token-env` and the other 2.0.11 behaviour, plan 8.1). */
+/**
+ * The oldest Bukit that works (`deploy --token-env` and the other 2.0.11 behaviour, plan 8.1). Raise it to
+ * the first release with a behaviour BukitJalil starts to rely on, and add a test for that behaviour to
+ * test/bukit-behavior.test.ts, which CI runs against the latest release every day (plan 16 #7).
+ */
 export const MIN_BUKIT_VERSION = "2.0.11";
 /** Earlier app-managed installs (~/.bukitjalil/bin/bukit-<version>), still used until an upgrade replaces them. */
 export const PREVIOUS_APP_VERSIONS: readonly string[] = ["2.0.12", "2.0.11"];
