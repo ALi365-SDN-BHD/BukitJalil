@@ -670,7 +670,8 @@ describe("applying and rejecting", () => {
     const { s, view } = await reviewed((dir, git) => {
       fs.writeFileSync(path.join(dir, "site.yaml"), NOTION_SITE_YAML);
       git("add", "-A");
-      git("commit", "-q", "-m", "notion");
+      // An explicit identity: CI machines have no global git user.
+      git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "notion");
     });
     const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_apply_token" });
     await ctx.sites.bindNotionSource(s.id, source.id);
