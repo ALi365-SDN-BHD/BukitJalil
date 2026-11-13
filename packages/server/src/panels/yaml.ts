@@ -7,11 +7,16 @@ export type YamlResult = { value: unknown; error: null } | { value: null; error:
 
 /**
  * Parse YAML for display (config, theme and front matter panels). Duplicate keys and alias bombs are
- * errors; nothing here decides safety, which is the guard's job (plan 8.5).
+ * errors; nothing here decides safety, which is the guard's job (plan 8.5). `asText` keeps every scalar
+ * as a string, the way Bukit (YamlDotNet) reads site.yaml: an unquoted all-digit databaseId stays as written.
  */
-export function parseYaml(text: string): YamlResult {
+export function parseYaml(text: string, opts: { asText?: boolean } = {}): YamlResult {
   try {
-    const doc = parseDocument(text, { uniqueKeys: true, prettyErrors: false });
+    const doc = parseDocument(text, {
+      uniqueKeys: true,
+      prettyErrors: false,
+      ...(opts.asText ? { schema: "failsafe" as const } : {}),
+    });
     if (doc.errors.length > 0) return { value: null, error: doc.errors[0]?.message ?? "invalid YAML" };
     return { value: doc.toJS({ maxAliasCount: MAX_ALIASES }), error: null };
   } catch (err) {

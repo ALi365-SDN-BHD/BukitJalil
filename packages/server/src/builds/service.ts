@@ -14,6 +14,7 @@ import type {
 } from "@bukitjalil/shared";
 import { guardCommit, isRecord } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
+import { notionProblemIn } from "../bukit/notion-errors.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, logEntry, usableRunner } from "../bukit/runner.ts";
 import type { ChangeService } from "../changes/service.ts";
 import { readBlobAt } from "../git/objects.ts";
@@ -554,7 +555,16 @@ export function buildReport(result: BukitRunResult): BuildReport {
       messages.push({ level: entry.level, msg: entry.msg.slice(0, MAX_MESSAGE_CHARS) });
     }
   }
-  return { messages: limitMessages(messages, MAX_MESSAGES), output: other.join("\n").slice(-MAX_OUTPUT_CHARS) };
+  const report: BuildReport = {
+    messages: limitMessages(messages, MAX_MESSAGES),
+    output: other.join("\n").slice(-MAX_OUTPUT_CHARS),
+  };
+  // Only a failed run: a build that succeeded may still log Notion warnings it got past (plan 5.4).
+  if (result.exitCode !== 0) {
+    const notionProblem = notionProblemIn(`${result.stderr}\n${result.stdout}`);
+    if (notionProblem) report.notionProblem = notionProblem;
+  }
+  return report;
 }
 
 /**

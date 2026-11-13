@@ -1030,6 +1030,41 @@ describe("the change set API and events", () => {
     expect((await call("GET", "/api/changes/nope/diff?path=a")).json).toEqual({ code: "change.not_found" });
   });
 
+  it("points out a Notion source the change adds to site.yaml (plan 5.4)", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    expect((await ctx.changes.current(s.id, false))?.notionChanges).toBeUndefined();
+
+    const yaml = path.join(cwd, "site.yaml");
+    const text = fs.readFileSync(yaml, "utf8");
+    fs.writeFileSync(
+      yaml,
+      text.replace(
+        /^ {2}sources:\n/m,
+        "  sources:\n    - type: Notion\n      name: stolen\n      collection: post\n      notion:\n        databaseId: 12345678901234567890123456789012\n",
+      ),
+    );
+    await ctx.changes.snapshot(s.id, cwd);
+    // The unquoted all-digit id stays text, as Bukit reads it.
+    expect((await ctx.changes.current(s.id, false))?.notionChanges).toEqual([
+      {
+        source: "stolen",
+        change: "added",
+        databaseId: { before: null, after: "12345678901234567890123456789012" },
+        keys: [],
+      },
+    ]);
+
+    fs.writeFileSync(yaml, `${text}\n: : not yaml [\n`);
+    await ctx.changes.snapshot(s.id, cwd);
+    expect((await ctx.changes.current(s.id, false))?.notionChanges).toEqual([
+      { source: "site.yaml", change: "unreadable", keys: [] },
+    ]);
+  });
+
   it("applies with the fingerprint, rebuilds the main preview, and rejects", async () => {
     const s = await site();
     const session = ctx.agent.create(s.id);

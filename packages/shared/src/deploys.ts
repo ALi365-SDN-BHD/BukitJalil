@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BuildAudit } from "./builds.ts";
+import type { NotionProblem } from "./data-sources.ts";
 import type { PublishAccount } from "./publish.ts";
 import type { SiteReason } from "./sites.ts";
 
@@ -75,6 +76,8 @@ export interface DeployReport {
   reasons?: SiteReason[];
   detail?: string;
   problem?: "fs.disk_full" | "fs.read_only" | "fs.permission_denied";
+  /** A Notion failure recognised in Bukit's output (plan 5.4). */
+  notionProblem?: NotionProblem;
 }
 
 export interface Deploy {

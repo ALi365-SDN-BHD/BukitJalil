@@ -210,6 +210,7 @@ export function createAdminApp(opts: AdminAppOptions) {
     sites: opts.sites,
     builds: opts.builds,
     dataSources: opts.dataSources,
+    panels: opts.panels,
     readIdentity: opts.readIdentity,
     userHome: opts.userHome,
   });

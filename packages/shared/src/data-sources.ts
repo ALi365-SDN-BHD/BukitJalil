@@ -39,6 +39,39 @@ export interface NotionDatabase {
   title: string;
 }
 
+/** One property (field) of a Notion database (plan 5.4). */
+export interface NotionProperty {
+  name: string;
+  /** Notion's property type, such as "title", "rich_text", "checkbox", "select". */
+  type: string;
+}
+
+/** GET /api/sites/:siteId/notion/sources/:index: a Notion source's database, read with the bound token. */
+export interface NotionSourceSchema {
+  index: number;
+  /** As written in the default branch's site.yaml. */
+  databaseId: string;
+  title: string | null;
+  properties: NotionProperty[];
+  /** The database has more properties than NOTION_MAX_PROPERTIES. */
+  propertiesTruncated: boolean;
+  readAt: string;
+}
+
+export const NOTION_MAX_PROPERTIES = 200;
+
+/**
+ * A Notion failure recognised in Bukit's output (plan 5.4), shown with what to do about it. The texts come
+ * from Bukit 2.0.15's NotionClient and content parser.
+ */
+export type NotionProblem =
+  | "unauthorized"
+  | "not_shared"
+  | "forbidden"
+  | "rate_limited"
+  | "property_missing"
+  | "network";
+
 export interface NotionDatabasesResponse {
   databases: NotionDatabase[];
 }

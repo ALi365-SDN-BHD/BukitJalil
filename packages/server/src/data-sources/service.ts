@@ -1,6 +1,13 @@
 import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { DataSourceRequest, NotionDatabase, SavedDataSource } from "@bukitjalil/shared";
+import {
+  type DataSourceRequest,
+  type ErrorCode,
+  NOTION_MAX_PROPERTIES,
+  type NotionDatabase,
+  type NotionProperty,
+  type SavedDataSource,
+} from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
 import { JsonFile, JsonFileError } from "../store/json-file.ts";
@@ -134,7 +141,7 @@ export class DataSourceService {
         page_size: 100,
       };
       if (cursor) body.start_cursor = cursor;
-      const json = await this.search(token, body);
+      const json = await this.notion(token, "POST", "/search", body);
       const results = Array.isArray(json.results) ? json.results : [];
       for (const item of results) {
         if (!item || typeof item !== "object") continue;
@@ -146,6 +153,34 @@ export class DataSourceService {
       if (json.has_more !== true || !cursor) break;
     }
     return databases.sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  /**
+   * A database's title and properties (plan 5.4), read with `token`. `databaseId` comes from site.yaml, so
+   * it must look like a Notion id before it goes into the URL.
+   */
+  async notionSchema(
+    token: string,
+    databaseId: string,
+  ): Promise<{ title: string | null; properties: NotionProperty[]; propertiesTruncated: boolean }> {
+    if (!this.opts.fetchImpl) throw new SiteError("datasource.notion_offline", 503);
+    const id = notionId(databaseId);
+    if (!id) throw new SiteError("datasource.notion_bad_database_id", 400);
+    const json = await this.notion(token, "GET", `/databases/${id}`);
+    const raw = isRecord(json.properties) ? json.properties : {};
+    const properties: NotionProperty[] = [];
+    for (const [key, value] of Object.entries(raw)) {
+      const p = isRecord(value) ? value : {};
+      const name = (typeof p.name === "string" ? p.name : key).slice(0, 200);
+      properties.push({ name, type: typeof p.type === "string" ? p.type.slice(0, 50) : "unknown" });
+    }
+    // Title first, then by name: Notion returns properties in no useful order.
+    properties.sort((a, b) => Number(b.type === "title") - Number(a.type === "title") || a.name.localeCompare(b.name));
+    return {
+      title: titleOf(json.title)?.slice(0, 200) ?? null,
+      properties: properties.slice(0, NOTION_MAX_PROPERTIES),
+      propertiesTruncated: properties.length > NOTION_MAX_PROPERTIES,
+    };
   }
 
   private row(id: string): Row {
@@ -175,22 +210,30 @@ export class DataSourceService {
     };
   }
 
-  private async search(token: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  /** One Notion API call; a failure becomes the error code that says what to do (plan 5.4). */
+  private async notion(
+    token: string,
+    method: "GET" | "POST",
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), NOTION_TIMEOUT_MS);
     try {
-      const res = await this.opts.fetchImpl?.(`${this.opts.notionApi ?? NOTION_API}/search`, {
-        method: "POST",
+      const res = await this.opts.fetchImpl?.(`${this.opts.notionApi ?? NOTION_API}${path}`, {
+        method,
         headers: {
           Authorization: `Bearer ${token}`,
           "Notion-Version": NOTION_VERSION,
-          "Content-Type": "application/json",
           "User-Agent": "BukitJalil",
+          ...(body ? { "Content-Type": "application/json" } : {}),
         },
-        body: JSON.stringify(body),
+        ...(body ? { body: JSON.stringify(body) } : {}),
         signal: controller.signal,
+        // The token goes only to the Notion API: never follow a redirect elsewhere.
+        redirect: "error",
       });
-      if (!res?.ok) throw new SiteError("datasource.notion_failed", 503);
+      if (!res?.ok) throw new SiteError(notionFailure(res?.status ?? 0), 503);
       const json: unknown = await res.json();
       return json && typeof json === "object" ? (json as Record<string, unknown>) : {};
     } catch (err) {
@@ -239,6 +282,21 @@ export class DataSourceService {
       throw err;
     }
   }
+}
+
+/** Notion's HTTP status as the code the UI explains. */
+function notionFailure(status: number): ErrorCode {
+  if (status === 401) return "datasource.notion_unauthorized";
+  if (status === 404) return "datasource.notion_not_shared";
+  if (status === 403) return "datasource.notion_forbidden";
+  if (status === 429) return "datasource.notion_rate_limited";
+  return "datasource.notion_failed";
+}
+
+/** A Notion id as 32 lowercase hex digits (with or without dashes, as Notion URLs show it), or null. */
+export function notionId(value: string): string | null {
+  const hex = value.trim().replace(/-/g, "").toLowerCase();
+  return /^[0-9a-f]{32}$/.test(hex) ? hex : null;
 }
 
 function newId(): string {

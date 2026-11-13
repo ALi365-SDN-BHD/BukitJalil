@@ -409,7 +409,15 @@ const en: Messages = {
     itemsDemo: "Showing only the first entry as an example",
     truncated: "Too many files; only some were read",
     notionNote:
-      "BukitJalil does not read the Notion data; only the configuration is shown. Main builds show the pages.",
+      "BukitJalil does not load the pages; main builds do. Read the fields to check the database the main version uses.",
+    readFields: "Read fields",
+    rereadFields: "Read again",
+    readingFields: "Reading…",
+    fieldsTitle: "Fields of {title}",
+    fieldsRead: "Read {time} with the bound data source's token",
+    fieldsMore: "The database has more fields than listed",
+    fieldsMainOnly: "Fields are read for the main version's configuration only, never for unreviewed changes.",
+    pagesLater: "Page counts will show once Bukit reports them per source.",
     notionBinding: "Notion data source",
     notionUnbound: "Not bound",
     notionNoSources: "No saved Notion data source yet. Add one in Settings → Data sources first.",
@@ -419,6 +427,28 @@ const en: Messages = {
     database: "Database",
     cacheMode: "Cache mode",
     file: "File",
+  },
+  notion: {
+    changesTitle: "This change edits the Notion configuration",
+    changesHint:
+      "Once applied, main builds read these databases with the bound data source's token. Check that they are the databases you mean.",
+    added: "{source}: new source, database {after}",
+    removed: "{source}: removed (database {before})",
+    changed: "{source}: database {before} → {after}",
+    keys: "{source}: changes {keys}",
+    unreadable:
+      "The changed site.yaml can't be read (too large or not valid YAML), so its Notion changes can't be listed. Check them in the diff.",
+    none: "none",
+    problem: {
+      unauthorized: "Notion rejected the token: it is wrong or was revoked. Replace it in Settings → Data sources.",
+      not_shared:
+        "Notion did not find a database: check databaseId in site.yaml, and in Notion share the database with this integration (••• → Connections).",
+      forbidden: "The integration may not read a database: give it access in Notion.",
+      rate_limited: "Notion limited the requests. Wait a minute and build again.",
+      property_missing:
+        "A property named in site.yaml (usually the filter, Published by default) does not exist in the Notion database. Add it in Notion or change filterProperty.",
+      network: "Notion could not be reached. Check the network and build again.",
+    },
   },
   changes: {
     card: "Changes waiting for review",
@@ -977,6 +1007,15 @@ const en: Messages = {
     "datasource.notion_database_required": "Pick a database from this Notion data source",
     "datasource.notion_failed": "Could not read the Notion databases; check the token and database sharing",
     "datasource.notion_offline": "Notion databases cannot be listed while offline",
+    "datasource.notion_unauthorized":
+      "Notion rejected the token: it is wrong or was revoked. Replace it in Settings > Data sources",
+    "datasource.notion_not_shared":
+      "Notion did not find the database: check its ID, and in Notion share the database with this integration (••• > Connections)",
+    "datasource.notion_forbidden": "The integration may not read this database: give it access in Notion",
+    "datasource.notion_rate_limited": "Notion is limiting requests right now; try again in a minute",
+    "datasource.notion_bad_database_id": "The databaseId in site.yaml is not a Notion database ID",
+    "datasource.notion_source_missing": "This source has no Notion databaseId on the main version",
+    "site.notion_unbound": "No Notion data source is bound to this site; bind one above first",
     "rg.install_running": "ripgrep is already being installed",
     "rg.unsupported_platform": "There is no pinned ripgrep package for this platform",
   },

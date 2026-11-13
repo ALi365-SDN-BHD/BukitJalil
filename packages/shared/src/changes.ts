@@ -38,8 +38,24 @@ export interface ChangeSet {
   restoreOf: string | null;
 }
 
+/**
+ * How a change set changes a Notion source in site.yaml (plan 5.4): once applied, main builds read these
+ * databases with the bound token. Sources match by name (else "#<n>", 1-based). "unreadable" means the
+ * change's site.yaml could not be read, so nothing can be said about its Notion sources.
+ */
+export interface NotionConfigChange {
+  source: string;
+  change: "added" | "removed" | "changed" | "unreadable";
+  /** Set when databaseId differs (or the source was added or removed). */
+  databaseId?: { before: string | null; after: string | null };
+  /** Other keys of the `notion` section that differ, by name only (filter, propertyMap, …). */
+  keys: string[];
+}
+
 /** A change set with its file list, as the review shows it. */
 export interface ChangeView extends ChangeSet {
+  /** Notion sources the change adds, removes or changes; absent when site.yaml is untouched or none do. */
+  notionChanges?: NotionConfigChange[];
   files: ChangedFile[];
   /** More files changed than the list holds. */
   filesTruncated: boolean;

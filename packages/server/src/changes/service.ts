@@ -36,6 +36,7 @@ import {
   onBranch,
   parentsOf,
 } from "./history.ts";
+import { notionChangesBetween } from "./notion-config.ts";
 import { hunkPlan, rawChanges, selectedTree } from "./partial.ts";
 import { SNAPSHOT_IDENTITY, type Snapshot, snapshotCheckout } from "./snapshot.ts";
 import { type ChangeRecord, ChangeStore, isChangeId, newChangeId } from "./store.ts";
@@ -609,8 +610,15 @@ export class ChangeService {
       changedFiles(git, site.path, change.baseCommit, change.snapshotCommit),
       this.treeOf(site.path, change.baseCommit),
     ]);
+    // A Notion source the change adds or points elsewhere is read with the bound token once applied (plan 5.4).
+    // A cut list may leave site.yaml out (it is in path order), so then compare the configs anyway.
+    const notion =
+      truncated || files.some((f) => f.path === "site.yaml")
+        ? await notionChangesBetween(git, site.path, change.baseCommit, change.snapshotCommit)
+        : [];
     return {
       ...info,
+      ...(notion.length > 0 ? { notionChanges: notion } : {}),
       files,
       filesTruncated: truncated,
       reviewable: !running && info.treeHash !== baseTree,

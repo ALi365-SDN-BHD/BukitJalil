@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { NotionProblem } from "./data-sources.ts";
 import { PanelRef } from "./panels.ts";
 import type { SiteReason } from "./sites.ts";
 
@@ -149,6 +150,8 @@ export interface BuildReport {
   detail?: string;
   /** A disk write failure behind the failed build (plan M5 layer 2). */
   problem?: "fs.disk_full" | "fs.read_only" | "fs.permission_denied";
+  /** A Notion failure recognised in Bukit's output (plan 5.4). */
+  notionProblem?: NotionProblem;
   /** SEO / GEO summary of a successful build (plan M4 layer 7); absent when Bukit wrote no reports. */
   audit?: BuildAudit;
   /**

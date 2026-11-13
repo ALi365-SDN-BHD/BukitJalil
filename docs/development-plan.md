@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.37（2026-11-13，新增 10.4 SEO / GEO 报告面板：右侧单独的标签页，完整问题清单、按页面筛选、和上一次构建对比，"让 AI 修"开一个新对话；v2.36：2026-11-13，新增 7.5 部分应用的设计：没选中的部分留在改动集里，按文件和代码块选；v2.35：2026-11-13，Bukit 行为测试：`test/bukit-behavior.test.ts` 每次推送用内置版本跑，`bukit-latest.yml` 每天用最新正式版跑；v2.34：2026-11-13，补上"工作副本已重置"说明和按差异生成的提交说明；v2.33：2026-11-13，预览改用网站真实的 baseUrl：构建传校验过的 `--base-url`，预览服务挂在这个前缀下；v2.32：2026-11-13，定下待定问题 7、8、10：Bukit 继续装最新版，加最低版本和 CI 行为测试；部署设置继续直接提交，预览改用网站真实的 baseUrl；两项未实现的功能补上；v2.31：2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.38（2026-11-13，新增 5.4 Notion 数据源管理第一步：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 Notion 报错；v2.37：2026-11-13，新增 10.4 SEO / GEO 报告面板：右侧单独的标签页，完整问题清单、按页面筛选、和上一次构建对比，"让 AI 修"开一个新对话；v2.36：2026-11-13，新增 7.5 部分应用的设计：没选中的部分留在改动集里，按文件和代码块选；v2.35：2026-11-13，Bukit 行为测试：`test/bukit-behavior.test.ts` 每次推送用内置版本跑，`bukit-latest.yml` 每天用最新正式版跑；v2.34：2026-11-13，补上"工作副本已重置"说明和按差异生成的提交说明；v2.33：2026-11-13，预览改用网站真实的 baseUrl：构建传校验过的 `--base-url`，预览服务挂在这个前缀下；v2.32：2026-11-13，定下待定问题 7、8、10：Bukit 继续装最新版，加最低版本和 CI 行为测试；部署设置继续直接提交，预览改用网站真实的 baseUrl；两项未实现的功能补上；v2.31：2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。代码现在用 Pi SDK 1.5.2、Bukit 2.0.15，从 1.5.1 和 2.0.12 升级时的核对结论本文没有记录。
 
@@ -282,12 +282,37 @@ BukitJalil/
 | 文件 | 正式版本的提交，或当前改动集的快照（都从 git 对象读取） | 目录树接口（按目录懒加载）+ 文件内容接口；从 git 对象读取，网站目录里未跟踪或被忽略的文件（如 `.env`）不会出现；文件内容的返回方式见 9.1 |
 | 配置 | `site.yaml` | `yaml` 解析成结构化视图（站点信息、语言、集合、内容源、构建、主题、部署），同时提供原文 |
 | 主题 | `themes/<theme.name>/theme.yaml` 和目录 | 主题清单、布局文件列表、assets、params |
-| 数据 | `site.yaml` 的 `content.sources[]` | 每个源一张卡片：Markdown 集合（文件数、frontmatter 字段汇总）、`mode: data` 源（按 `dataIndex` 的 scope/key/value 显示成表格）、Notion 源（只显示配置；面板不连 Notion，连接 Notion 的是数据源设置和正式版本构建） |
+| 数据 | `site.yaml` 的 `content.sources[]` | 每个源一张卡片：Markdown 集合（文件数、frontmatter 字段汇总）、`mode: data` 源（按 `dataIndex` 的 scope/key/value 显示成表格）、Notion 源（显示配置，点"读取字段"后显示数据库字段，见 5.4；连接 Notion 的是数据源设置和正式版本构建） |
 | 改动 | `change_sets` + git | 见第 7 节 |
 | 预览 | 最新一次成功构建 | 见第 8.4 节 |
 
 > 关于"数据库"：Bukit Core 2.0 没有数据库概念，数据来自 Markdown、Notion 和 `mode: data` 数据源。"数据"面板管理的就是这些内容源；如果以后需要真正的数据库，再作为 Bukit 的新数据源设计。
 
+
+### 5.4 Notion 数据源管理第一步（2026-11-13 设计）
+
+不改 Bukit。AI 改动的预览短期仍不支持（方案 A），长期给 Bukit 加离线快照（方案 C，见 AGENTS.md 第 5 项）；预览时把 token 交给 Bukit（方案 D）不能选。
+
+- **数据面板读取字段**：
+  - 每个 Notion 源的卡片里加"读取字段"按钮。只有用户点了才调用 Notion，打开面板不自动调用，结果也不交给 AI 工具。
+  - 接口：`GET /api/sites/:siteId/notion/sources/:index`。服务端读**默认分支** `site.yaml` 里第 `index` 个内容源，必须是 Notion 源且有 `databaseId`；用网站绑定的数据源的 token 调 Notion `GET /v1/databases/{id}`（`Notion-Version: 2022-06-28`，和 Bukit 一致），返回数据库标题和字段列表（名称、类型），最多 200 个字段，名称截断到 200 字符。不用改动集里的 `databaseId`：没审核的配置可以指向这个 token 能读的任何数据库。
+  - 面板切到"改动中"时，Notion 卡片说明字段只按正式版本的配置读取，不提供按钮。
+  - 没绑定数据源时返回 409 `site.notion_unbound`，离线模式 503 `datasource.notion_offline`。
+- **页数**：Bukit 2.0.15 不输出每个源加载了多少条（只有所有源合计的 `event=content.loaded count=`，和按集合、按来源类型分的 `routes.json`），所以先不显示，不自己重算。等 Bukit 加上每个源的计数后再接。
+- **翻译 Notion 报错**：
+  - BukitJalil 自己调 Notion 时，按 HTTP 状态翻译：401 → `datasource.notion_unauthorized`（token 无效或已撤销），404 → `datasource.notion_not_shared`（数据库不存在或没共享给这个 integration），403 → `datasource.notion_forbidden`，429 → `datasource.notion_rate_limited`，其他 → `datasource.notion_failed`。新建网站时列数据库也用这套翻译。
+  - Bukit 构建、发布失败时，从输出里认出 Bukit 2.0.15 的 Notion 报错文字，在构建报告和发布记录里加 `notionProblem`：
+    - `Notion request failed: 401` → `unauthorized`
+    - `404` → `not_shared`
+    - `403` → `forbidden`
+    - `Notion request rate limited` → `rate_limited`
+    - `Notion database property '…' not found` → `property_missing`（多半是过滤字段，默认 `Published`，在数据库里不存在）
+    - `Notion request failed due to a transport error` → `network`
+  - 界面显示对应的处理办法，原始输出照常保留。这些文字来自 Bukit 源码，`test/bukit-behavior.test.ts` 不覆盖（需要 Notion），升级 Bukit 时要核对。
+- **审核卡突出 Notion 配置的变化**：
+  - 改动集的 `site.yaml` 有变化时，服务端比较基础版本和快照里的 Notion 源（按源名称对应，没有名称的按序号）：新增、删除，以及 `notion` 段里改了哪些键。`databaseId` 写出前后的值，其他键（过滤条件、`propertyMap` 等）只列键名。
+  - 结果放在 `ChangeView.notionChanges`。审核卡和改动面板显示醒目的提示："应用后正式构建会用绑定的 token 读取这些数据库"。
+  - 网站没绑定数据源时也显示，因为绑定以后就会生效。
 ---
 
 ## 6. Pi 集成设计
@@ -743,6 +768,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | GET / POST | `/api/data-sources` | Notion 数据源列表 / 添加 |
 | PUT / DELETE | `/api/data-sources/:dataSourceId` | 修改 / 删除数据源 |
 | GET | `/api/data-sources/:dataSourceId/notion/databases` | 用该数据源的 token 列出 Notion 数据库 |
+| GET | `/api/sites/:siteId/notion/sources/:index` | 用网站绑定的数据源的 token 读取默认分支 `site.yaml` 第 `index` 个 Notion 源的数据库字段（5.4）；只在用户点"读取字段"时调用 |
 | GET | `/api/models` | 可用模型 |
 | PUT | `/api/providers/:provider/key` | 保存 API Key |
 | DELETE | `/api/providers/:provider/key` | 删除设置页保存的 API Key（来自环境变量的返回 409） |
