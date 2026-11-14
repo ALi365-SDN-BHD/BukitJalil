@@ -25,7 +25,7 @@ BukitJalil 现在靠 `packages/server/src/bukit/notion-errors.ts` 里的正则�
 - `notionProblemIn`：Notion 接口报错（401、403、404、429、字段不存在、网络错误），用于正式构建和发布。
 - `notionSnapshotProblemIn`（`93132cc` 新增）：离线快照不能用的原因，用于 AI 检查、AI 构建、改动预览和应用前的检查（`agent/ai-bukit.ts`、`builds/service.ts`）。分两类：
   - `change`：改动需要正式构建没读过的 Notion 数据，再正式构建一次也没用，要先应用改动。包括"没有这个数据库"、"没有这一页渲染好的正文"（改动打开了某个源的正文渲染）、"多份查询都对不上"（改了过滤或排序）。
-  - `stale`：快照要重新录（不存在、格式不对、读不了、缺数据；2.1.0 下 Bukit 版本不对也算，2.1.1 以后不再有这一条）。
+  - `stale`：快照要重新录（不存在、格式不对、读不了、缺数据；2.1.0 下 Bukit 版本不对也算，2.2.0 以后不再有这一条）。
   - 第三类 `missing` 是 BukitJalil 自己判断的（没有快照记录），不来自 Bukit 的输出。
   - 它的 `SNAPSHOT_ERROR` 正则还包含 `was written by`（Bukit 版本不符），3.4 删掉版本比较后这条文字就不会再出现。
 
@@ -69,7 +69,7 @@ BukitJalil 现在靠 `packages/server/src/bukit/notion-errors.ts` 里的正则�
    - `build` 放进 cli-error JSON；
    - `config check`、`doctor` 放进文字行；
    - 多语言网站也能拿到原来的码。
-2. 快照只按格式版本校验，升级 Bukit 后旧快照照样可用。旧正文能否复用另有条件：正文缓存格式（`NotionCacheManager.CacheFormat`）和渲染器版本（`NotionBlocksRenderer.ContractVersion`）都没变时才复用。2.1.0 → 2.1.1 两者都不变。
+2. 快照只按格式版本校验，升级 Bukit 后旧快照照样可用。旧正文能否复用另有条件：正文缓存格式（`NotionCacheManager.CacheFormat`）和渲染器版本（`NotionBlocksRenderer.ContractVersion`）都没变时才复用。2.1.0 → 2.2.0 两者都不变。
 3. 用测试守住第 2 点：快照数据的意思一变，测试就失败。
 4. BukitJalil 改为按错误码认出 Notion 接口报错和快照报错，删掉两组正则。
 
@@ -231,10 +231,10 @@ Notion 接口错误：
 - 界面文字（`packages/web/src/i18n/en.ts`、`zh-CN.ts`）：
   - 加 `request_failed`："Notion 返回错误，稍后再试；一直失败就看 Bukit 的原始报错"。
   - `notionSnapshot.problem.change`（en、zh-CN 两份）和给 AI 的 `NOTION_TEXT.change`（`agent/ai-bukit.ts`）现在只列"换了 `databaseId`、新加 Notion 源、打开正文渲染"，补上"或改了过滤、排序"（0B13）。这个缺口在 `93132cc` 的文字分类里就有，这次按码拆分时一起补。
-  - `notionSnapshot.problem.stale` 两份都要改：en 现在写"Bukit was upgraded or the data is incomplete"，zh-CN 写"（Bukit 升级了或数据不完整）"。2.1.1 以后升级 Bukit 不会再让快照失效，只有格式版本变了才会，两份都改成"格式变了或数据不完整"。
+  - `notionSnapshot.problem.stale` 两份都要改：en 现在写"Bukit was upgraded or the data is incomplete"，zh-CN 写"（Bukit 升级了或数据不完整）"。2.2.0 以后升级 Bukit 不会再让快照失效，只有格式版本变了才会，两份都改成"格式变了或数据不完整"。
   - 同样的说法还在两处注释里，一起改成"another format, unreadable or incomplete"这类不提 Bukit 版本的写法：`packages/shared/src/builds.ts` 里 `NotionSnapshotProblem` 的注释（"another format or Bukit version"），`packages/server/src/bukit/notion-errors.ts` 里 `notionSnapshotProblemIn` 的注释（同样的话）。
   - 这几个文件别的会话也在改，行号经常变，按键名和函数名找。
-- 升级内置 Bukit：`BUKIT_VERSION`、三个安装包的 SHA-256、`MIN_BUKIT_VERSION` 都改成 2.1.1（开发方案 8.1 的规则）。
+- 升级内置 Bukit：`BUKIT_VERSION`、三个安装包的 SHA-256、`MIN_BUKIT_VERSION` 都改成 2.2.0（开发方案 8.1 的规则）。
 
 ### 3.4 快照版本校验
 
@@ -252,7 +252,7 @@ Bukit：
 
 BukitJalil：
 - `93132cc` 已经在构建报告里记下 `event=notion.cache.renderer_mismatch`（`rendererMismatch`），这次不用改。
-- 升级到 2.1.1 后，用 2.1.0 录的快照照样能用，不需要在升级时重新正式构建。
+- 升级到 2.2.0 后，用 2.1.0 录的快照照样能用，不需要在升级时重新正式构建。
 - `bukit-behavior.test.ts` 里"Bukit 2.1.0 also wants its full version"的那段（手写 manifest 时读 `bukit version` 填 `bukitVersion`）改成填任意值，并加一句断言：版本不同也能读。
 
 ### 3.5 兼容测试
@@ -264,12 +264,12 @@ fixture 放在 Bukit 的 `tests/fixtures/notion-snapshot-format-1/`：
 - `api/`：**手写的** Notion 接口原始数据，是 fixture 的源头。内容：
   - 两个数据库：一个文章库、一个被关联的库，用于跨源关联；
   - 每种用到的字段类型；
-  - 一条草稿（验证草稿过滤在查询之后）；
+  - 一条草稿（验证草稿被查询里的 `Published` 过滤排除）；
   - 一个关联目标、一条 404 的关联；
   - 分类可选项；`pages_index` 用到的页面；
   - 每页正文的 block。
 - `site/`：一个最小网站（`site.yaml` 加一个自带的小主题，开启分类和 `pages_index`），只依赖 fixture 自己的模板，不受内置主题改动影响。模板用两个 HTML 注释把正文包起来（`<!--notion-body-->…<!--/notion-body-->`），方便测试在渲染器版本不同时去掉正文再比较。不用 `<div data-notion-body>`：正文里通常有嵌套的 `<div>`，按标签截取会截错。
-- `snapshot/`：用 `api/` 带 token 正式构建 `site/` 录下的 `format=1` 快照，提交进仓库。manifest 里的 `bukitVersion` 改写成一个固定的旧值（如 `2.1.0`），保证它和当前版本不同。正文条目里的 `version` 是当时的 `NotionCacheManager.CacheFormat`（2），`renderer` 是当时的 `NotionBlocksRenderer.ContractVersion`（1）。
+- `snapshot/`：用 `api/` 带 token 正式构建 `site/` 录下的 `format=1` 快照，提交进仓库。manifest 里的 `bukitVersion` 改写成一个固定的旧值（如 `2.0.0`，合成值，保证与任何当前构建都不同）。正文条目里的 `version` 是当时的 `NotionCacheManager.CacheFormat`（2），`renderer` 是当时的 `NotionBlocksRenderer.ContractVersion`（1）。
 - `README.md`：写明这份 fixture 是怎么生成的、什么时候允许换。
 
 生成方式：
@@ -328,7 +328,7 @@ fixture 放在 Bukit 的 `tests/fixtures/notion-snapshot-format-1/`：
 | | 问题 | 定为 | 理由 |
 |---|---|---|---|
 | D1 | `Program.cs` 输出的错误码从枚举名改成 `BKT-xxxx` | 改 | 契约矩阵、`CliErrorRenderer` 的测试、`[BKT-xxxx]` 文字格式都用 `BKT-xxxx`，只有 `Program.cs` 和 `bukit-cli-reference` 约 `:179` 的示例用枚举名；两处一起改，BukitJalil 不读旧写法 |
-| D2 | Bukit 发什么版本 | 2.1.1 | 用户定。原来建议 2.2.0（D1 改了对外可见的输出、新增一段错误码），改为按补丁版本发：这些改动是修正现有行为（错误码写法和文档约定不一致、快照错误丢码、版本校验太严），不加新的配置项或命令。CHANGELOG 的 2.1.1 条目要单独写明 D1 改了 `code` 的写法 |
+| D2 | Bukit 发什么版本 | 2.2.0 | 2026-11-14 审阅后改定。公共枚举 `DiagnosticCode` 新增 16 个成员、CLI 的 `code` 写法与单语言快照退出码变化，用一个 minor 信号；不升 3.0.0，因为这些改动是把行为改回文档约定，且已知消费者 BukitJalil 不读旧 `code` 或退出码。CHANGELOG 的 2.2.0 条目要单独写明 D1 改了 `code` 的写法 |
 | D3 | `build` 的快照错误退出码 | 2 | 和内容错误一致；现在是落进通用分支的 1。范围见 D5、D6 |
 | D4 | Notion 码段 | `0x0Bxx`，0B01–0B08 是接口错误，0B10–0B17 是快照错误 | `0x0A` 已给 I18n；留出空位以后加。码段是用户定的；快照部分的具体分配在 v2 里按审阅和 BukitJalil 现有分类调整过（原来是 0B10–0B14），仍在这个码段内 |
 | D5 | 多语言子进程怎么把码传给父进程；多语言 `build` 的退出码 | 父进程解析子进程 stderr 最后一行 `Error: [BKT-xxxx] …`；退出码保持 1 | 子进程不带 `--log-format`，没有 cli-error JSON；解析文字行在 text 和 JSON 两种模式下都能用，不改启动参数。退出码 1 不变，免得连带改变其他子进程失败的退出码 |
@@ -379,11 +379,11 @@ Bukit 的仓库规则（Bukit 的 `AGENTS.md`）要求：改 `src/Bukit-Core/` �
 ### 第 3 层：审计、修复、复查，Bukit 发版（约 0.5 天，发版要用户确认）
 
 - 按 Bukit 的流程做一次专项审查，有 Critical、Important 问题就修复后复查。
-- 用户确认后发 2.1.1（D2），拿到三个平台安装包的 SHA-256。
+- 用户确认后发 2.2.0（D2），拿到三个平台安装包的 SHA-256。
 
 ### 第 4 层：BukitJalil 升级 Bukit，按错误码认 Notion 报错（约 0.5–1 天）
 
-1. `packages/server/src/bukit/install.ts`：`BUKIT_VERSION`、`MIN_BUKIT_VERSION` 改成 2.1.1，换三个 SHA-256。
+1. `packages/server/src/bukit/install.ts`：`BUKIT_VERSION`、`MIN_BUKIT_VERSION` 改成 2.2.0，换三个 SHA-256。
 2. `report-errors.ts` 加 `bukitErrorCodesIn`；`notion-errors.ts` 按 3.3 的规则改，删掉四组正则。`notionProblemIn`、`notionSnapshotProblemIn` 的签名改成接收 stderr 和全部输出两份文字（或调用方先取好码传进去），`builds/service.ts`、`deploys/service.ts`、`agent/ai-bukit.ts` 的调用跟着改。
 3. `NotionProblem` 加 `request_failed`，补中英文界面文字；`NotionSnapshotProblem` 只改注释；`change` 的提示（界面和 `NOTION_TEXT`）补"改了过滤、排序"，`stale` 的提示去掉"Bukit 升级了"（3.3）。
 4. 测试：
@@ -403,7 +403,7 @@ Bukit 的仓库规则（Bukit 的 `AGENTS.md`）要求：改 `src/Bukit-Core/` �
 5. 开发方案：
    - 5.4 改成"按 Bukit 的错误码认出 Notion 报错"，删掉"升级 Bukit 时要核对 `notion-errors.ts`"的说法；
    - 5.5 第二步里"按文字分清 stale / change"改成按码；
-   - 8.1 记下 Bukit 2.1.1。
+   - 8.1 记下 Bukit 2.2.0。
 6. `pnpm -s check`、全部测试和构建通过后提交推送。
 
 ### 合计
