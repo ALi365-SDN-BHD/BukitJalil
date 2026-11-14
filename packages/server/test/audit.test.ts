@@ -194,6 +194,10 @@ describe("previewEntry", () => {
     expect(siteLanguage("site:\n  language: en-US\n  defaultLanguage: zh-CN\n")).toBe("zh-CN");
     expect(siteLanguage("site:\n  language: zh-CN\n")).toBe("zh-CN");
     expect(siteLanguage("site:\n  language: 3\n")).toBeNull();
+    // Bukit 2.1 (plan 8.7): the first of site.languages is the default unless defaultLanguage says otherwise.
+    expect(siteLanguage("site:\n  languages: [en, de]\n")).toBe("en");
+    expect(siteLanguage("site:\n  languages: [en, de]\n  defaultLanguage: de\n")).toBe("de");
+    expect(siteLanguage("site:\n  languages: [en]\n  language: fr\n")).toBe("en");
     expect(siteLanguage("site: [\n")).toBeNull();
     expect(siteLanguage("")).toBeNull();
   });

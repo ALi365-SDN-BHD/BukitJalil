@@ -1,6 +1,6 @@
 ---
 name: bukit-i18n
-description: Use for Bukit language settings — single-language filtering with site.language, multilingual builds with site.languages, per-page language and i18nKey, output folders per language, merged sitemap/feed/search modes, hreflang, and translated UI strings.
+description: Use for Bukit language settings — site.languages (one entry = single-language site, two or more = multilingual build), per-page language and i18nKey, output folders per language, merged sitemap/feed/search modes, hreflang, and translated UI strings.
 ---
 
 > **In BukitJalil:** you cannot run commands. Use the `bukit_check` tool for `bukit config check`
@@ -14,12 +14,14 @@ description: Use for Bukit language settings — single-language filtering with 
 
 ```yaml
 site:
-  language: en     # default zh-CN
+  languages: [en]  # one language = single-language site; default [zh-CN]
 ```
 
-Documents whose front matter `language` differs from `site.language` are dropped
-silently; untagged documents are kept. Always set `site.language` for non-Chinese
-sites.
+Documents whose front matter `language` differs from the site language are dropped
+with an `i18n.document.language_unknown` warning; untagged documents are kept.
+Always set `site.languages` for non-Chinese sites; the old `language` key was removed. A site that intentionally picks
+one language from a mixed-language source will warn about the other languages on
+every build; warnings are capped at five per kind plus one summary line.
 
 ## Multiple languages
 
@@ -30,6 +32,9 @@ site:
   url: https://example.com      # required for sitemaps, feeds, hreflang
   languages: [en, zh-CN]        # codes like en, zh-CN; zh_CN is rejected
   defaultLanguage: en           # must be in languages; default first entry
+  defaultLanguageInSubdir: false # default; true puts every language under /<lang>/
+  defaultLanguageRedirect: true # legacy home redirect page
+  defaultLanguageLegacyRedirects: false # true: redirect every old /<default>/... page
   sitemapMode: merged           # split | merged | index
   feed: { mode: split }         # split | merged
   search: { mode: index }       # split | merged | index
@@ -50,21 +55,56 @@ collection: page
 - `i18nKey` groups translations for hreflang; pages with the same URL in different
   languages are grouped automatically.
 - There is no fallback: a page missing in one language does not exist there.
+- A page `language` outside `site.languages` is dropped with `i18n.document.language_unknown`.
+  Duplicate `i18nKey` values inside one language warn with `i18n.document.i18n_key_duplicate`.
 - Data items are filtered by a `locale` field (missing = all languages).
 - There are no per-language titles, base URLs, or sources.
 
 ## Output layout
 
-Any non-empty `languages`, even one entry, builds every language into
-`dist/<lang>/` with base `<baseUrl>/<lang>`, including the default language. Nothing is
-rendered at `/`: add a root redirect at the host or CDN. The root holds only aggregate
-files (sitemap, feeds, search index, `llms.txt`, `robots.txt`, `agent-manifest.json`).
+With `defaultLanguageInSubdir: false` (the default), the default language builds into
+`dist/` with the site root base URL and the other languages keep their codes, so adding
+a second language keeps the default-language URLs. With `true`, every language
+including the default builds into `dist/<lang>/` with base `<baseUrl>/<lang>`; sites
+that relied on the old prefixed default must set it to keep their URLs. In both layouts the
+root holds the aggregate files (sitemap, feeds, search index, `llms.txt`,
+`robots.txt`, `agent-manifest.json`).
+
+`defaultLanguageRedirect: true` (the default) writes a noindex redirect page so the
+home URL never 404s on static hosting: `dist/index.html` → `/<defaultLang>/` for the
+prefixed layout, and `dist/<defaultLang>/index.html` → `/` for the root layout. The
+redirect page is not listed in sitemaps, search, feeds, llms, or the agent manifest.
+Set it to `false` when the host or CDN already redirects and would otherwise be
+overridden.
+
+When migrating a live site to the root layout, prefer a host 301 rule
+`/<defaultLang>/*` → `/*`. On static hosts without redirects (GitHub Pages), set
+`defaultLanguageLegacyRedirects: true`: every default-language HTML page (content,
+lists, pagination, taxonomy pages, static HTML routes, aliases) also gets a noindex
+redirect at its old `/<defaultLang>/...` path. The home page stays with
+`defaultLanguageRedirect`; your own outputs at those paths win; non-HTML files (feeds,
+sitemaps) and taxonomy aliases are not redirected. It has no effect in the prefixed
+layout (`i18n.config.legacy_redirects_ignored`).
+
+With the root layout, the default language's first path segment must not equal
+another language code (case-insensitive). The build fails with
+`i18n-route-reserved-language-prefix`; adding a language can therefore reject
+existing content. Default-language `static/robots.txt` overrides generated robots;
+other static files colliding with root-owned outputs fail with
+`i18n-root-output-conflict`. Default-language reports move to
+`.bukit/variants/<lang>/`; the merged reports stay in `.bukit/`. With `search.mode:
+merged` the root `search.json` is the merged index and the default language's own
+index is `/<defaultLang>/search.json`.
 
 | Setting | `split` | `merged` | `index` |
 |---|---|---|---|
 | `sitemapMode` | per-language sitemaps | one root sitemap with `xhtml:link` alternates; per-language ones suppressed | per-language sitemaps plus a root sitemap index |
 | `site.feed.mode` | per-language feeds | root feeds only | — |
-| `site.search.mode` | `/<lang>/search.json` only | adds root `search.json` | adds root `search.index.json` |
+| `site.search.mode` | per-language `search.json` only (the root one belongs to a root default language) | adds root `search.json` | adds root `search.index.json` |
+
+With the root layout, `split` writes the default language sitemap to the root
+`sitemap.xml`; `index` writes it to `/<lang>/sitemap.xml` with unprefixed page URLs
+and lists it from the root sitemap index.
 
 ## hreflang
 
@@ -74,7 +114,7 @@ theme-written ones; templates can read `page.seo.alternates`.
 
 ## UI strings
 
-There is no `t()` helper or `i18n/` folder. Branch on `site.language` or load strings
+There is no `t()` helper or `i18n/` folder. Branch on `{{ site.language }}` or load strings
 from `data/<lang>/*.yaml`, exposed as `site.data_files.<lang>.<file>`:
 
 ```scriban

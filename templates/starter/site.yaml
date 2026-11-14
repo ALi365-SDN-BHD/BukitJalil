@@ -4,7 +4,7 @@ site:
   baseUrl: /
   seo:
     defaultImage: /assets/og-default.png
-  language: en-US
+  languages: [en-US]
   timezone: UTC
   collections:
     post:

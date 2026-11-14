@@ -3,6 +3,7 @@ import {
   type GitIdentityResponse,
   ImportSiteRequest,
   InspectImportRequest,
+  LanguageMigrationRequest,
   type NotionSourceSchema,
   SiteNotionSourceRequest,
   SitePatch,
@@ -70,6 +71,19 @@ export function siteRoutes(
   );
 
   api.get("/sites/:siteId", (c) => handle(c, () => c.json(sites.get(c.req.param("siteId")))));
+
+  // Bukit 2.1 language migration (plan 8.7): the patch to review, then one config commit when applied.
+  api.get("/sites/:siteId/language-migration", (c) =>
+    handle(c, async () => c.json(await sites.languageMigration(c.req.param("siteId")))),
+  );
+
+  api.post("/sites/:siteId/language-migration", (c) =>
+    handle(c, async () => {
+      const req = await body(c, LanguageMigrationRequest);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      return c.json(await sites.applyLanguageMigration(c.req.param("siteId"), req.commit));
+    }),
+  );
 
   api.patch("/sites/:siteId", (c) =>
     handle(c, async () => {

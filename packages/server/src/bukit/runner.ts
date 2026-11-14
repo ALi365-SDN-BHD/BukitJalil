@@ -10,7 +10,8 @@ import type { BukitService } from "./locate.ts";
  *   magick from Homebrew, MacPorts or /usr/local/bin (git's own directory may hold them too)
  * - git hardening reaches the git that Bukit starts itself through GIT_CONFIG_* (plan 7.3)
  * - TMPDIR is the app's own directory (Bukit puts i18n worktrees, leases and locks there)
- * - secrets are only passed when the caller adds them explicitly (plan 8.5)
+ * - secrets are only passed when the caller adds them explicitly (plan 8.5), and then on stdin with
+ *   --secrets-stdin, never in the environment, where other programs of the same user could read them (plan 8.7)
  */
 
 export type BukitCommand = "version" | "check" | "doctor" | "build" | "schema" | "publish" | "deploy";
@@ -25,16 +26,18 @@ export const DEFAULT_TIMEOUTS: Record<BukitCommand, number> = {
   deploy: 10 * 60_000,
 };
 
-/** The only variables a caller may add; everything else in the environment is fixed here. */
+/** The only secrets a caller may pass; Bukit reads them from stdin (--secrets-stdin). */
 export interface BukitSecrets {
   NOTION_TOKEN?: string;
 }
 const SECRET_KEYS = ["NOTION_TOKEN"] as const;
+/** The commands that take --secrets-stdin (Bukit 2.1.0). */
+const STDIN_COMMANDS: ReadonlySet<BukitCommand> = new Set(["check", "doctor", "build", "deploy"]);
 
 /**
- * What `bukit deploy` gets on top of the minimal environment (plan 14 M6): the GitHub token under the name
- * passed with --token-env, and the commit identity from the settings (Bukit keeps GIT_AUTHOR_* and
- * GIT_COMMITTER_* and uses them over its own default).
+ * What `bukit deploy` gets (plan 14 M6): the GitHub token on stdin under the name passed with --token-env, and
+ * in the environment the commit identity from the settings (Bukit keeps GIT_AUTHOR_* and GIT_COMMITTER_* and
+ * uses them over its own default).
  */
 export interface DeployEnv {
   token: string;
@@ -187,21 +190,17 @@ export class BukitRunner {
     fs.symlinkSync(this.opts.git.opts.gitPath, link);
   }
 
-  env(secrets: BukitSecrets = {}, deploy?: DeployEnv): Record<string, string> {
+  /** The environment of a Bukit process. It never holds a token: those go on stdin (see `secretsInput`). */
+  env(deploy?: DeployEnv): Record<string, string> {
     fs.mkdirSync(this.opts.tmpDir, { recursive: true, mode: 0o700 });
     this.ensureBinDir();
     const env: Record<string, string> = {};
-    for (const key of SECRET_KEYS) {
-      const value = secrets[key];
-      if (typeof value === "string") env[key] = value;
-    }
     const git = this.opts.git.envForChildGit();
     if (deploy) {
       // Bukit's deploy drops the GIT_CONFIG_COUNT group before starting git (M1), so it is not passed at all;
       // its git runs in a fresh temporary repository with an empty global config instead (plan 14 M6).
       for (const key of Object.keys(git)) if (/^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(key)) delete git[key];
       Object.assign(env, {
-        [DEPLOY_TOKEN_ENV]: deploy.token,
         GIT_AUTHOR_NAME: deploy.name,
         GIT_AUTHOR_EMAIL: deploy.email,
         GIT_COMMITTER_NAME: deploy.name,
@@ -221,20 +220,27 @@ export class BukitRunner {
 
   run(command: BukitCommand, args: readonly string[], opts: BukitRunOptions): Promise<BukitRunResult> {
     const started = Date.now();
+    const secrets = secretsInput(command, opts);
+    const input = Object.keys(secrets).length > 0 ? JSON.stringify(secrets) : null;
+    if (input !== null && !STDIN_COMMANDS.has(command)) {
+      return Promise.reject(new Error(`bukit ${command} does not take secrets`));
+    }
     return new Promise((resolve, reject) => {
-      const child = spawn(this.opts.bukitPath, args, {
+      const child = spawn(this.opts.bukitPath, input === null ? args : [...args, "--secrets-stdin"], {
         cwd: opts.cwd,
-        env: this.env(opts.env, command === "deploy" ? opts.deploy : undefined),
-        stdio: ["ignore", "pipe", "pipe"],
+        env: this.env(command === "deploy" ? opts.deploy : undefined),
+        stdio: [input === null ? "ignore" : "pipe", "pipe", "pipe"],
         shell: false,
       });
+      if (input !== null && child.stdin) {
+        // Bukit reads stdin to the end before anything else; one that exits early only makes this write fail.
+        child.stdin.on("error", () => {});
+        child.stdin.end(input);
+      }
       const stdout = new StreamCapture();
       const stderr = new StreamCapture();
       // The secrets this process was given never reach the result, whatever Bukit or its git prints.
-      const secretValues = [
-        ...SECRET_KEYS.map((key) => opts.env?.[key]),
-        command === "deploy" ? opts.deploy?.token : undefined,
-      ].filter((v): v is string => typeof v === "string");
+      const secretValues = Object.values(secrets);
       const outScrub = new SecretScrubber(secretValues);
       const errScrub = new SecretScrubber(secretValues);
       let stopped: BukitRunResult["stopped"] = null;
@@ -252,11 +258,13 @@ export class BukitRunner {
       opts.signal?.addEventListener("abort", onAbort, { once: true });
       if (opts.signal?.aborted) onAbort();
 
-      // Decode as streams so multibyte characters split across chunks stay intact.
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (d: string) => stdout.push(outScrub.push(d)));
-      child.stderr.on("data", (d: string) => stderr.push(errScrub.push(d)));
+      // Decode as streams so multibyte characters split across chunks stay intact. Both are pipes (stdio above).
+      const out = child.stdout as NodeJS.ReadableStream;
+      const err = child.stderr as NodeJS.ReadableStream;
+      out.setEncoding("utf8");
+      err.setEncoding("utf8");
+      out.on("data", (d: string) => stdout.push(outScrub.push(d)));
+      err.on("data", (d: string) => stderr.push(errScrub.push(d)));
       child.on("error", (err) => {
         clearTimeout(timer);
         clearTimeout(killTimer);
@@ -281,13 +289,30 @@ export class BukitRunner {
   }
 }
 
+/** What a run writes on stdin: the caller's secrets, and for `deploy` the GitHub token under DEPLOY_TOKEN_ENV. */
+export function secretsInput(
+  command: BukitCommand,
+  opts: Pick<BukitRunOptions, "env" | "deploy">,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of SECRET_KEYS) {
+    const value = opts.env?.[key];
+    if (typeof value === "string" && value !== "") out[key] = value;
+  }
+  if (command === "deploy" && typeof opts.deploy?.token === "string" && opts.deploy.token !== "") {
+    out[DEPLOY_TOKEN_ENV] = opts.deploy.token;
+  }
+  return out;
+}
+
 /** A runner for the located Bukit, or null when there is none or its version is not supported. */
 export async function usableRunner(
   bukit: BukitService,
   opts: { git: GitRunner; home: string; tmpDir: string },
 ): Promise<BukitRunner | null> {
   const status = await bukit.status();
-  if (!status.path || (status.state !== "ok" && status.state !== "old")) return null;
+  // A Bukit before 2.1 cannot take --secrets-stdin or a site.languages-only site (plan 8.7): not used at all.
+  if (!status.path || status.state !== "ok") return null;
   return new BukitRunner({ bukitPath: status.path, ...opts });
 }
 

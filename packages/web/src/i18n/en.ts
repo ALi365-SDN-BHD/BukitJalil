@@ -612,6 +612,21 @@ const en: Messages = {
     help: "Show this list",
     mac: "On a Mac, Alt is the Option (⌥) key.",
   },
+  languageMigration: {
+    title: "Update the language settings",
+    why: "The new Bukit only reads site.languages and refuses site.language, and a multilingual site now builds its default language at the site root. This site's site.yaml needs updating, or it will not build, or its published addresses will change.",
+    what: "Applying commits the change below to the default branch. A multilingual site gets defaultLanguageInSubdir: true, so every language stays under /<language>/ and published addresses do not change.",
+    movesToRoot:
+      "This site's languages list has one language. The new Bukit builds a single-language site at the root, so addresses under /<language>/ move to the root, and no setting keeps them. Publish again after applying, and update links from other sites.",
+    apply: "Apply the change",
+    applyHint: "Only site.yaml changes, committed to the default branch",
+    badLanguage:
+      "site.language is not text, so it cannot be migrated automatically. Change it to languages: [code], for example languages: [en]; the AI can do it for you.",
+    badLanguages:
+      "site.languages has an entry that is not a language code, or the same language twice, which the new Bukit refuses, so it cannot be migrated automatically. Make it a list of distinct codes, for example languages: [en, zh-CN]; the AI can do it for you.",
+    defaultNotListed:
+      "site.defaultLanguage is not in site.languages, which the new Bukit refuses, so it cannot be migrated automatically. Add the default language to languages or pick one of them; the AI can do it for you.",
+  },
   deploy: {
     title: "Publish",
     repo: "Repository",
@@ -1011,6 +1026,13 @@ const en: Messages = {
       "The site folder has uncommitted changes; commit or revert them before saving deploy settings",
     "deploy.config_wrong_branch": "The site folder is not on {branch}; switch to it before saving deploy settings",
     "deploy.config_failed": "Could not save the deploy settings; the default branch may have moved, try again",
+    "language.commit_changed": "The default branch has moved; look at the new change before applying it",
+    "language.not_needed": "The language settings already use the new form; nothing to change",
+    "language.wrong_branch":
+      "The site folder is not on the {branch} branch; switch to it, then update the language settings",
+    "language.dirty":
+      "The site folder has uncommitted changes; commit or revert them, then update the language settings",
+    "language.failed": "Could not update the language settings; the default branch may have moved, try again",
     "publish.not_found": "This publishing account was not found",
     "publish.name_exists": "A publishing account with this name already exists",
     "publish.in_use": "{count} sites still use this publishing account, so it cannot be deleted",

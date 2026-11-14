@@ -9,6 +9,7 @@ import { useCreateSession } from "@/features/chat/sessions";
 import { DeploySection } from "@/features/deploys/DeploySection";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { LanguageMigrationCard } from "./LanguageMigrationCard";
 import { ReasonList } from "./ReasonList";
 
 /** "Start a new conversation" (plan 10.2), or why there can be none. */
@@ -71,6 +72,8 @@ export function SiteHome({ site }: { site: Site }) {
         </dl>
         {site.readOnly && <ReasonList reasons={site.readOnly} />}
       </div>
+
+      <LanguageMigrationCard site={site} />
 
       <div className="flex flex-col gap-2">
         {!site.readOnly && <p className="text-xs text-muted-foreground">{m.conversation.startHint}</p>}

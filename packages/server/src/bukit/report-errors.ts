@@ -35,9 +35,10 @@ export function bukitErrorsIn(text: string): string[] {
 }
 
 const PLACEHOLDER_MISSING = "Referenced localized media output is missing: ";
+const PLACEHOLDER_DETAIL = " (content.media.defaultImageUrl";
 
 /**
- * A placeholder the build needed but the site does not have (plan 8.6): Bukit 2.0.15 replaces a remote
+ * A placeholder the build needed but the site does not have (plan 8.6): Bukit replaces a remote
  * image it could not download with `content.media.defaultImageUrl` (onFailure: placeholder), then fails with
  * "Referenced localized media output is missing: <path>" when that file is not in the site. The path comes
  * from Bukit's parsed error messages, else from the raw output. Bukit's other check ("… is missing or unsafe")
@@ -46,10 +47,12 @@ const PLACEHOLDER_MISSING = "Referenced localized media output is missing: ";
  * Bukit is upgraded.
  */
 export function mediaProblemIn(text: string, errors: string[] = []): MediaProblem | null {
+  // Bukit 2.1 may follow the path with " (content.media.defaultImageUrl, …)" and the fixes: keep the path only.
   const fromErrors = errors
     .find((e) => e.startsWith(PLACEHOLDER_MISSING))
     ?.slice(PLACEHOLDER_MISSING.length)
-    .trim();
+    .split(PLACEHOLDER_DETAIL, 1)[0]
+    ?.trim();
   const missing = fromErrors || /Referenced localized media output is missing: ([^\s"\\]+)/.exec(text)?.[1];
   if (!missing) return null;
   let failedDownloads = 0;

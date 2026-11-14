@@ -7,7 +7,7 @@ import { BUKIT_VERSION } from "../packages/server/src/bukit/install.ts";
 import { copyStarter } from "../packages/server/src/sites/template.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { putSettings } from "./site-helpers.ts";
+import { importSite, putSettings } from "./site-helpers.ts";
 
 // M2 end to end (plan 12): new site, import, read-only import, builds and the preview, the read-only panels,
 // archive and remove, settings. Builds use a stand-in Bukit unless BUKIT_BIN names a real one.
@@ -316,10 +316,10 @@ test("settings show Bukit and the identity; the new-site dialog starts empty eac
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  // The stand-in prints 2.0.11, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
+  // The stand-in prints 2.1.0, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
   // latest release, no install button.
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
-  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.0.11"}`);
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.1.0");
+  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.1.0"}`);
   await expect(page.getByTestId("bukit-latest")).toHaveCount(0);
   await expect(page.getByTestId("bukit-install")).toHaveCount(0);
   // A fresh app home has no rg yet: the page shows it as not installed and asks before downloading.
@@ -340,7 +340,7 @@ test("settings show Bukit and the identity; the new-site dialog starts empty eac
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("git-guide")).toBeHidden();
   await page.getByTestId("check-updates").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.1.0");
   await page.getByTestId("rg-install").click();
   await expect(page.getByTestId("rg-install-confirm")).toContainText("15.2.0");
 
@@ -546,11 +546,11 @@ test("reopening settings looks at the bundled Bukit again", async ({ page, serve
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.1.0");
 
   // The bundled copy changes between visits; opening settings asks the server for a fresh look.
-  const updated = path.join(work, "bukit-2.0.14");
-  fs.writeFileSync(updated, '#!/bin/sh\nif [ "$1" = "version" ]; then echo "bukit 2.0.14"; exit 0; fi\nexit 0\n', {
+  const updated = path.join(work, "bukit-2.1.4");
+  fs.writeFileSync(updated, '#!/bin/sh\nif [ "$1" = "version" ]; then echo "bukit 2.1.4"; exit 0; fi\nexit 0\n', {
     mode: 0o755,
   });
   server.setBukit(updated);
@@ -558,7 +558,27 @@ test("reopening settings looks at the bundled Bukit again", async ({ page, serve
   await page.getByTestId("settings-close").click();
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText("2.0.14");
-  await expect(page.getByTestId("bukit-state")).toContainText("Bukit 2.0.14");
+  await expect(page.getByTestId("bukit-version")).toHaveText("2.1.4");
+  await expect(page.getByTestId("bukit-state")).toContainText("Bukit 2.1.4");
   await expect(page.getByTestId("bukit-install")).toHaveCount(0);
+});
+
+test("a site still using site.language is migrated from its card", async ({ page, server }) => {
+  await login(page, server);
+  // A site made before Bukit 2.1: site.language instead of site.languages (plan 8.7).
+  const siteId = await importSite(page, "Old language", "en-US", (dir) => {
+    const file = path.join(dir, "site.yaml");
+    fs.writeFileSync(
+      file,
+      fs.readFileSync(file, "utf8").replace(/ {2}languages: \[ ?en-US ?\]\n/, "  language: en-US\n"),
+    );
+  });
+  await page.goto(`/sites/${siteId}`);
+  const card = page.getByTestId("language-migration");
+  await expect(card).toBeVisible();
+  await expect(card.getByTestId("diff-patch")).toContainText("-  language: en-US");
+  await expect(card.getByTestId("diff-patch")).toContainText("+  languages: [ en-US ]");
+  await expect(card.getByTestId("language-migration-moves")).toHaveCount(0);
+  await card.getByTestId("language-migration-apply").click();
+  await expect(card).toHaveCount(0);
 });

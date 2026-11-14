@@ -40,8 +40,15 @@ const _gitPath = resolveGitPath() as string;
  * "multi" writes only /en-US/ and /zh-CN/ like a multilingual site, "slow" waits for SIGINT.
  */
 const FAKE_BUKIT = `#!/bin/sh
+# Tokens come on stdin with --secrets-stdin (plan 8.7), never from the environment.
+unset NOTION_TOKEN BUKIT_DEPLOY_TOKEN
+case " $* " in *" --secrets-stdin "*)
+  secrets=$(cat)
+  NOTION_TOKEN=$(printf '%s' "$secrets" | sed -n 's/.*"NOTION_TOKEN":"\\([^"]*\\)".*/\\1/p')
+  BUKIT_DEPLOY_TOKEN=$(printf '%s' "$secrets" | sed -n 's/.*"BUKIT_DEPLOY_TOKEN":"\\([^"]*\\)".*/\\1/p');;
+esac
 case "$1" in
-  version) echo "bukit 2.0.11+fake"; exit 0;;
+  version) echo "bukit 2.1.0+fake"; exit 0;;
   config) exit 0;;
   build)
     out=""; prev=""

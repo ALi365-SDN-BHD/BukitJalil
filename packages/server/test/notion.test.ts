@@ -114,6 +114,11 @@ describe("mediaProblemIn", () => {
       missing: "assets\\my img.jpg",
       failedDownloads: 0,
     });
+    // Bukit 2.1 follows the path with what the placeholder is, the pages and the fixes.
+    const detailed =
+      "Referenced localized media output is missing: assets/my img.jpg (content.media.defaultImageUrl, the placeholder " +
+      "that replaces an image that could not be downloaded or has no URL; …). Referenced by: /a/. To fix: add assets/my img.jpg";
+    expect(mediaProblemIn("", [detailed])).toEqual({ missing: "assets/my img.jpg", failedDownloads: 0 });
     expect(mediaProblemIn(failed(1))).toBeNull();
   });
 

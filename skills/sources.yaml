@@ -2,8 +2,8 @@
 # directly in it, so this note is YAML and no Markdown file may live here.
 bukit:
   source: https://github.com/ALi365-SDN-BHD/Bukit
-  tag: v2.0.15
-  commit: 83ba56a605b079aca87b545c928935f5716cad21
+  tag: v2.1.0
+  commit: e7651fb184ef5d1ae764cd85a879f29894abd7b1
   path: guide/skills
   included:
     [using-bukit, bukit-cli-reference, bukit-config, bukit-content, bukit-content-model, bukit-routing,

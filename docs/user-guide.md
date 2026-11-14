@@ -103,6 +103,13 @@ Markdown 是默认数据源，无需在设置里添加。新建网站不选择�
 
 网站主页显示位置、默认分支、状态、最近构建和版本历史，顶部的“开始新对话”可以直接进入 AI 对话，也可以手动构建、重新检查。左侧网站行的“更多”菜单可以归档、恢复或移除网站。移除只删除 BukitJalil 自己的工作副本和记录，不会删除你的网站文件夹。
 
+**更新语言设置**：BukitJalil 自带的 Bukit 2.1 只认 `site.languages`，不再接受 `site.language`；多语言网站的默认语言也改到了网站根目录。旧网站需要更新时，网站主页会出现“更新语言设置”卡片，列出 `site.yaml` 要改的地方，点“应用改动”后才提交到正式分支（网站文件夹要在默认分支上、没有未提交的改动）：
+
+- `language: en-US` 改成 `languages: [ en-US ]`
+- 多语言网站加上 `defaultLanguageInSubdir: true`，所有语言仍在 `/<语言>/` 下，已经发布的网址不变
+- `languages` 只有一种语言的网站（例如 `languages: [en]`），新版会把它放在根目录，原来 `/<语言>/` 下的网址会变，没有设置能保留。需要迁移时卡片会提示；没有别的要改时不会出现卡片。这类网站升级后要重新发布，其他网站指向旧网址的链接也要改
+- 卡片说没法自动迁移时（例如 `defaultLanguage` 不在 `languages` 里），按卡片的说明改，或者让 AI 改
+
 ## 6. 和 AI 对话
 
 在网站主页点"开始新对话"，描述你想做的修改，例如"首页加一个常见问题页面，列出五个问题"。第一条消息会自动成为会话标题；之后可以在左侧会话行的“…”菜单里手动重命名。
@@ -166,7 +173,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
      - **Windows**：DPAPI 只挡其他 Windows 用户，以及把文件拷到别的电脑；同一个用户运行的程序仍能解密。
      - **Linux**：钥匙串解锁后，同一个用户运行的程序都能读到。没有钥匙串服务时，BukitJalil 不保存 token 和密钥，设置页最上面会说明怎么处理。
      - **钥匙串里的密钥解不开时**（拒绝了访问、删了钥匙串项目、数据目录拷到了别的电脑），已保存的 token 和密钥暂时不能用；可以重新启动后在提示里点"允许"，或者在设置页最上面点"重置密钥"，再重新输入。
-     - 构建和发布时，token 会以环境变量交给 Bukit，运行期间同一用户的程序能读到。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密。
+     - 构建和发布时，token 通过标准输入交给 Bukit，不放进环境变量。只剩一处：发布推送时 Bukit 把 GitHub token 交给 git，git 运行的那段时间（几秒到几分钟，看网站大小）同一用户的程序能读到。所以发布账号最好用只给这个仓库 Contents 权限、设了过期时间的 fine-grained token。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密。
      - 用 `pnpm dev` 从源码运行时没有钥匙串，token 和密钥仍是权限 600 的明文文件，设置页会提示"开发模式"。
 4. 在网站主页的"发布"区点"部署设置"：选择发布账号，填写仓库（`owner/name`，例如 `alice/my-blog`），分支默认 `gh-pages`，有自定义域名再填。保存时会检查这个 token 对仓库是否有 Contents 写权限，并把 `deploy` 段、`site.url` 和 `site.baseUrl` 写进 `site.yaml`。没有自定义域名的项目站点，`site.baseUrl` 是 `/<仓库名>/`：之后的预览也会打开在这个路径下，和发布后的网址一致，模板或正文里漏写这个前缀的链接在预览里就会坏掉。`site.baseUrl` 只能用字母、数字和 `. _ ~ -`，以 `/` 分隔，否则预览构建会失败（结果为"site.baseUrl 不是可以用来预览的路径"）
 5. 在 GitHub 仓库的 Settings → Pages 里，把 Build and deployment 设为 Deploy from a branch，分支选 `gh-pages`（或你设置的分支）。第一次发布后这个分支才会出现
@@ -178,7 +185,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 - `publish.sitemap_missing_route`：每种语言各有一个 sitemap。让 AI 在 `site.yaml` 加 `sitemapMode: merged`，就会在根目录生成一个合并的 sitemap，这类警告消失
 - `publish.rss_missing_route`、`publish.search_missing_route`：RSS 和站内搜索索引按语言分开生成，Bukit 2.0.12 的审计只看根目录，所以会报缺少。网站本身没有问题，可以不处理
 
-**多语言网站的首页地址**：Bukit 只生成 `/zh-CN/`、`/en-US/` 这样的语言目录，根目录没有首页。发布时 BukitJalil 会在根目录补一个跳转页，打开网站地址会转到默认语言（`site.defaultLanguage`）的首页
+**多语言网站的首页地址**：所有语言都在 `/zh-CN/`、`/en-US/` 这样的目录下时（`defaultLanguageInSubdir: true`），Bukit 会在根目录写一个跳转页，打开网站地址会转到默认语言（`site.defaultLanguage`）的首页；根目录没有首页时，BukitJalil 发布时也会补一个。默认语言放在根目录的网站不需要跳转
 - `publish.time_missing`：页面模板没有显示日期的 `<time>` 元素，可以让 AI 在文章模板里加上
 
 ## 11. 右栏面板

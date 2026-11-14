@@ -381,6 +381,9 @@ export function summarizeConfig(config: Record<string, unknown>): ConfigSummary 
   const theme = isRecord(config.theme) ? config.theme : {};
   const collections = isRecord(site.collections) ? site.collections : {};
   const sources = Array.isArray(content.sources) ? content.sources : [];
+  const languages = Array.isArray(site.languages)
+    ? site.languages.map((l) => (isRecord(l) ? (str(l.code) ?? str(l.language)) : str(l))).filter((l) => l !== null)
+    : [];
   return {
     site: {
       name: str(site.name),
@@ -388,10 +391,8 @@ export function summarizeConfig(config: Record<string, unknown>): ConfigSummary 
       description: str(site.description),
       url: str(site.url),
       baseUrl: str(site.baseUrl),
-      language: str(site.language),
-      languages: Array.isArray(site.languages)
-        ? site.languages.map((l) => (isRecord(l) ? (str(l.code) ?? str(l.language)) : str(l))).filter((l) => l !== null)
-        : [],
+      language: str(site.defaultLanguage) ?? languages[0] ?? str(site.language),
+      languages,
       timezone: str(site.timezone),
     },
     collections: Object.entries(collections).map(([name, c]) => ({

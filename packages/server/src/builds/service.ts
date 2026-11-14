@@ -625,12 +625,16 @@ function pickEntry(homes: string[], lang: string | null): string | undefined {
   return `/${lang && homes.includes(lang) ? lang : homes[0]}/`;
 }
 
-/** site.defaultLanguage, else site.language, from site.yaml text; null when neither is a string. */
+/**
+ * The default language from site.yaml text: site.defaultLanguage, else the first of site.languages (Bukit's
+ * default), else site.language of a site not yet migrated (plan 8.7); null when none is a string.
+ */
 export function siteLanguage(yaml: string): string | null {
   const { value } = parseYaml(yaml);
   const site = isRecord(value) && isRecord(value.site) ? value.site : null;
-  const lang = site?.defaultLanguage ?? site?.language;
-  return typeof lang === "string" ? lang : null;
+  const first = Array.isArray(site?.languages) ? site.languages[0] : undefined;
+  for (const lang of [site?.defaultLanguage, first, site?.language]) if (typeof lang === "string") return lang;
+  return null;
 }
 
 /** The default language of the checkout that was just built. */

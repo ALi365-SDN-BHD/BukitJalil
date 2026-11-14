@@ -2,7 +2,7 @@
 
 > 版本：v2.43（2026-11-14，新增 5.5：Notion 离线快照的设计；新增 8.7：升级到 Bukit 2.1.0，迁移卡、已发布地址不变、token 走 stdin；v2.42：2026-11-14，新增 6.7：token 和模型密钥用系统钥匙串加密保存；v2.41：2026-11-13，新增 8.6：显示 Bukit 自己的错误、认出远程图片下载失败、新网站默认 `onFailure: keep`；v2.40：2026-11-13，Bukit 随 BukitJalil 发布：安装包里带固定版本，删除安装和升级功能，见 8.1；v2.39：2026-11-13，5.4 已实现，补上审计后的规则：doctor 报错的翻译、Notion 源不区分大小写、按纯文本读 site.yaml；v2.38：2026-11-13，新增 5.4 Notion 数据源管理第一步：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 Notion 报错；v2.37：2026-11-13，新增 10.4 SEO / GEO 报告面板：右侧单独的标签页，完整问题清单、按页面筛选、和上一次构建对比，"让 AI 修"开一个新对话；v2.36：2026-11-13，新增 7.5 部分应用的设计：没选中的部分留在改动集里，按文件和代码块选；v2.35：2026-11-13，Bukit 行为测试：`test/bukit-behavior.test.ts` 每次推送用内置版本跑，`bukit-latest.yml` 每天用最新正式版跑；v2.34：2026-11-13，补上"工作副本已重置"说明和按差异生成的提交说明；v2.33：2026-11-13，预览改用网站真实的 baseUrl：构建传校验过的 `--base-url`，预览服务挂在这个前缀下；v2.32：2026-11-13，定下待定问题 7、8、10：Bukit 继续装最新版，加最低版本和 CI 行为测试；部署设置继续直接提交，预览改用网站真实的 baseUrl；两项未实现的功能补上；v2.31：2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
-> 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。代码现在用 Pi SDK 1.5.2、Bukit 2.0.15，从 1.5.1 和 2.0.12 升级时的核对结论本文没有记录。
+> 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。代码现在用 Pi SDK 1.5.2、Bukit 2.1.0（升级说明见 8.7），从 Pi SDK 1.5.1 和 Bukit 2.0.12 升到 2.0.15 时的核对结论本文没有记录。
 
 ## 目录
 
@@ -577,7 +577,7 @@ BukitJalil/
 
 - **Windows**：DPAPI 只挡其他 Windows 用户和拷到别的电脑，同一用户运行的程序仍能解密。
 - **Linux**：Secret Service 不区分程序，钥匙串解锁后同一用户的程序都能读。
-- **运行中的进程**：服务端内存里有解密后的密钥；构建和发布时，Notion token 和 GitHub token 通过环境变量交给 Bukit 子进程，运行期间同一用户的程序能读到。要消除这一点，得让 Bukit 改成从标准输入或文件描述符读 token，作为 Bukit 的后续任务。
+- **运行中的进程**：服务端内存里有解密后的密钥；构建和发布时，Notion token 和 GitHub token 通过标准输入交给 Bukit（`--secrets-stdin`，Bukit 2.1.0 起，见 8.7），不再放进环境变量。剩下一处：Bukit 推送时把 GitHub token 放进 git 子进程的环境变量，git 运行期间同一用户的程序能读到，等 Bukit 改用继承的管道交给 credential helper。
 - **macOS**：能挡住其他程序直接读钥匙串，前提是用户没有在提示里点"允许"。
 
 **测试**：
@@ -761,7 +761,7 @@ AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukit
 
 - 解压安全（现在仍然适用）：先解压到临时目录，逐个检查压缩包条目，拒绝绝对路径、含 `..` 的路径和符号链接（防止解压到目标目录外），检查通过后再整体移动到 `~/.bukitjalil/bin/bukit-<版本>/`，并确认可执行文件存在、`bukit version` 输出对应版本；安装成功后删除以前应用装的版本。每个包都只有两个文件，没有子目录：`bukit` + `libSkiaSharp.dylib`（macOS）、`bukit` + `libSkiaSharp.so`（Linux）、`bukit.exe` + `libSkiaSharp.dll`（Windows）。SkiaSharp 是图片处理用的原生库，必须和 `bukit` 放在同一目录，不能只拷可执行文件。tar 包的条目名带 `./` 前缀（`./bukit`），条目检查要先规范化再比较；Linux 版是动态链接 glibc 的，Alpine 等 musl 系统跑不了
 - 平台：官方只提供 osx-arm64、linux-x64、win-x64，**没有 Intel Mac（osx-x64）和 Linux ARM 版本**。原计划让这些平台的用户自己编译 Bukit 并在设置里指定路径；自定义路径删除后，这些平台目前无法使用 BukitJalil 构建网站（打包脚本本来也只支持 macOS arm64、Windows x64、Linux x64，见 M7）
-- 启动时执行 `bukit version`，版本不是 2.0.x 时警告；低于 2.0.11 时提示升级（`deploy --token-env` 等行为依赖 2.0.11，见 M6）；2.0.11 仍算可用，但应用装的或 PATH 里的版本低于 2.0.12 时，设置里提供升级安装（更新的版本不会被"升级"回 2.0.12）（自定义路径的 Bukit 不提示）
+- 启动时执行 `bukit version`，版本不在内置版本的小版本线（现在是 2.1.x）里时警告；更早的 2.x 提示太旧（`--secrets-stdin` 和只认 `site.languages` 依赖 2.1.0，见 8.7），但应用装的或 PATH 里的版本低于 2.0.12 时，设置里提供升级安装（更新的版本不会被"升级"回 2.0.12）（自定义路径的 Bukit 不提示）
 
 > Bukit 官方说明常规公开二进制发布已暂停，例外发布需要管理批准；2.0.12（2026-11-09）是当前最新的公开版本。因此固定 2.0.12，同时支持用户指定自己编译的 Bukit 路径。
 >
@@ -880,15 +880,16 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 
 **要做的（A）**：
 
-1. **版本**：`BUKIT_VERSION` 改为 2.1.0，换三个安装包的 SHA-256；`MIN_BUKIT_VERSION` 也提到 2.1.0（开发时用 `BUKITJALIL_BUKIT_DIR` 指定的 Bukit），`test/bukit-behavior.test.ts` 补 `--secrets-stdin` 和拒绝 `site.language` 的测试。
+1. **版本**：`BUKIT_VERSION` 改为 2.1.0，换三个安装包的 SHA-256；`MIN_BUKIT_VERSION` 也提到 2.1.0（开发时用 `BUKITJALIL_BUKIT_DIR` 指定的 Bukit；低于 2.1 的不再使用，构建和发布直接说明 Bukit 版本不对），`test/bukit-behavior.test.ts` 补 `--secrets-stdin` 和拒绝 `site.language` 的测试。
 2. **新网站**：`templates/starter/site.yaml` 和 `fillSiteYaml` 写 `languages: [<语言>]`，不再写 `site.language`。
 3. **默认语言的读取**：`defaultLanguage`，没有时取 `languages` 第一项，再没有时读旧的 `site.language`（迁移前的网站）。构建预览入口、配置面板都按这个顺序。
 4. **迁移卡**：
    - 需要迁移的条件（正式分支的 `site.yaml`）：有 `site.language`；或 `languages` 有两项及以上、没写 `defaultLanguageInSubdir`。
-   - 改写：有 `site.language`、没有 `languages` 时改成 `languages: [<原值>]`；两个都有时删掉 `site.language`（旧版 Bukit 本来就忽略它）；多语言网站加 `defaultLanguageInSubdir: true`。用 `yaml` 的文档接口改，保留注释和顺序。
-   - 不给一键迁移的情况：`site.yaml` 读不出来、`site.language` 不是字符串、`defaultLanguage` 不在 `languages` 里。卡片说明原因，构建失败时照常显示 Bukit 的报错。
-   - 只有一项的 `languages`（例如 `[en]`）原来输出在 `/en/` 下，2.1.0 起在根目录，Bukit 没有保留旧结构的设置。迁移卡写明已发布网站的地址会变，需要重新发布。
+   - 改写：有 `site.language`、没有 `languages`（或 `languages` 是空的）时改成 `languages: [<原值>]`，替换原来的 `languages` 键，不会写出两个；两个都有时删掉 `site.language`（旧版 Bukit 本来就忽略它）；多语言网站加 `defaultLanguageInSubdir: true`。用 `yaml` 的文档接口改，保留注释和顺序。
+   - 不给一键迁移的情况：`site.language` 不是字符串、`languages` 里有不是字符串的项或重复的语言（2.1 只接受不重复的语言代码）、`defaultLanguage` 不在 `languages` 里。`site.yaml` 读不出来时不显示卡片。卡片说明原因，构建失败时照常显示 Bukit 的报错。
+   - 只有一项的 `languages`（例如 `[en]`）原来输出在 `/en/` 下，2.1.0 起在根目录，Bukit 没有保留旧结构的设置。同时还有 `site.language` 要迁移时，迁移卡写明已发布网站的地址会变，需要重新发布；没有别的要迁移时不显示卡片（没有能做的改动），使用说明写明这种情况。
    - 只读网站不显示迁移卡。提交说明固定为 `Migrate language settings for Bukit 2.1`。
+   - 实现：`sites/language-migration.ts` 判断和改写，`sites/config-commit.ts` 是部署设置和迁移共用的提交流程（检出在默认分支且干净、`commit-tree`、快进合并），接口 `GET/POST /api/sites/:id/language-migration`，错误码 `language.*`；网站主页的 `LanguageMigrationCard` 用审核界面的差异视图显示改动。
 5. **token 走 stdin**：`BukitRunner` 在有 Notion token 或发布 token 时加 `--secrets-stdin`，把 `{"NOTION_TOKEN":…,"BUKIT_DEPLOY_TOKEN":…}` 写进 stdin 后关闭；这两个变量不再放进 Bukit 的环境变量。`deploy --token-env BUKIT_DEPLOY_TOKEN` 不变，Bukit 先查 stdin。只用于 `build`、`config check`、`doctor`、`deploy`。剩下的缺口：Bukit 推送时仍把 GitHub token 放进 git 子进程的环境变量（`BUKIT_GITHUB_TOKEN`），等 Bukit 改用继承的管道传给 credential helper。
 6. **报错解析**：2.1.0 的 `Referenced localized media output is missing: <路径>` 后面多了空格和说明，`mediaProblemIn` 从解析后的报错里只取到第一个空白为止。
 7. **技能和 starter**：`skills/bukit/` 同步到 v2.1.0，更新 `skills/sources.yaml`；核对 starter 主题和 Bukit 2.1.0 内嵌的 StarterTheme 的差异（搜索页按语言过滤）。
@@ -907,6 +908,8 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | POST | `/api/sites/import/inspect` | 导入前检查目录，不做任何修改：是 git 仓库时返回当前分支和只读原因；不是时返回首次提交会包含的文件清单（按排除规则过滤 `.env*`、`node_modules/`、`dist/` 等），含嵌套仓库时拒绝 |
 | POST | `/api/sites/import` | 导入已有目录；不是 git 仓库时需带上 `initGit.files`，必须与用户确认过的清单一致，否则撤销 `git init` 并返回 `site.file_list_changed` |
 | POST | `/api/sites/:siteId/recheck` | 重新执行安全检查（配置白名单、构建前检查、`config check`），用于用户修好只读原因之后 |
+| GET | `/api/sites/:siteId/language-migration` | 正式分支的 `site.yaml` 是否需要 Bukit 2.1 的语言迁移，需要时带上改动的差异（8.7） |
+| POST | `/api/sites/:siteId/language-migration` | 应用语言迁移：`{ commit }` 必须仍是正式分支的最新提交，提交一次只改 `site.yaml` 的配置（8.7） |
 | POST | `/api/sites/:siteId/open` | 记录最近打开时间，返回 204 |
 | GET | `/api/sites/:siteId` | 网站详情（含配置摘要、状态） |
 | PATCH | `/api/sites/:siteId` | 改显示名、归档 |

@@ -12,13 +12,13 @@ import { unzipSync } from "fflate";
  * `BUKIT_VERSION` and the three checksums, then releasing BukitJalil.
  */
 
-export const BUKIT_VERSION = "2.0.15";
+export const BUKIT_VERSION = "2.1.0";
 /**
- * The oldest Bukit that works (`deploy --token-env` and the other 2.0.11 behaviour, plan 8.1), for a
+ * The oldest Bukit that works (`--secrets-stdin` and `site.languages` as the only language setting, plan 8.7), for a
  * development copy picked with BUKITJALIL_BUKIT_DIR. Raise it to the first release with a behaviour
  * BukitJalil starts to rely on, and add a test for that behaviour to test/bukit-behavior.test.ts.
  */
-export const MIN_BUKIT_VERSION = "2.0.11";
+export const MIN_BUKIT_VERSION = "2.1.0";
 
 export interface BukitPackage {
   file: string;
@@ -34,19 +34,19 @@ const RELEASE_URL = `https://github.com/ALi365-SDN-BHD/Bukit/releases/download/v
 export const PACKAGES: Record<string, BukitPackage> = {
   "darwin-arm64": {
     file: `bukit-${BUKIT_VERSION}-osx-arm64.tar.gz`,
-    sha256: "c1bf7fd8573f7fbfcc5cb755e01646f010f4b6beef92509a29b1b3429618df99",
+    sha256: "66c7f0f685b2c78999e52bd2f79c36ddcb89a8fcece36b31bf864086ce1d9a50",
     files: ["bukit", "libSkiaSharp.dylib"],
     executable: "bukit",
   },
   "linux-x64": {
     file: `bukit-${BUKIT_VERSION}-linux-x64.tar.gz`,
-    sha256: "41fce998b56cdddeb42c143580733470128b2dc06898b955d79a91068f22ca7d",
+    sha256: "b8da8a3b2b7478e7cd83b51529def6061807f1b650be87c1c7a3625d7a1768df",
     files: ["bukit", "libSkiaSharp.so"],
     executable: "bukit",
   },
   "win32-x64": {
     file: `bukit-${BUKIT_VERSION}-win-x64.zip`,
-    sha256: "a76489043d56093d4995c3390a2930f071a6dc8cfd158d5ca83a0d19afe1d2e0",
+    sha256: "1f243713ed2ecbc5783fe2fab6a51202c77f022adf7f265e85ce48b4e0d33c9d",
     files: ["bukit.exe", "libSkiaSharp.dll"],
     executable: "bukit.exe",
   },

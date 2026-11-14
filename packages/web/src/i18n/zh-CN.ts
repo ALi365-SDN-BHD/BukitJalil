@@ -591,6 +591,21 @@ const zhCN = {
     help: "显示这个列表",
     mac: "在 Mac 上，Alt 是 Option（⌥）键。",
   },
+  languageMigration: {
+    title: "更新语言设置",
+    why: "新版 Bukit 只认 site.languages，不再接受 site.language；多语言网站的默认语言也改到了网站根目录。这个网站的 site.yaml 需要更新，否则无法构建，或者已发布的网址会变。",
+    what: "应用后会把下面的改动提交到正式分支。多语言网站会加上 defaultLanguageInSubdir: true，所有语言仍在 /<语言>/ 下，已发布的网址不变。",
+    movesToRoot:
+      "这个网站的 languages 只有一种语言。新版 Bukit 把单语言网站放在根目录，原来 /<语言>/ 下的网址会变成根目录下的网址，没有设置能保留旧网址。应用后需要重新发布，外部链接要改。",
+    apply: "应用改动",
+    applyHint: "只改 site.yaml，提交到正式分支",
+    badLanguage:
+      "site.language 的值不是文字，没法自动迁移。请把它改成 languages: [语言代码]，例如 languages: [zh-CN]，可以让 AI 帮你改。",
+    badLanguages:
+      "site.languages 里有不是语言代码的项，或者同一种语言写了两次，新版 Bukit 会报错，没法自动迁移。请把它改成不重复的语言代码列表，例如 languages: [zh-CN, en]，可以让 AI 帮你改。",
+    defaultNotListed:
+      "site.defaultLanguage 不在 site.languages 里，新版 Bukit 会报错，没法自动迁移。请把默认语言加进 languages，或者改成其中一种，可以让 AI 帮你改。",
+  },
   deploy: {
     title: "发布",
     repo: "仓库",
@@ -962,6 +977,11 @@ const zhCN = {
     "deploy.config_dirty": "网站目录有未提交的改动，先提交或还原后再保存部署设置",
     "deploy.config_wrong_branch": "网站目录当前不在 {branch} 分支，切换后再保存部署设置",
     "deploy.config_failed": "保存部署设置失败，正式版本可能已更新，请重试",
+    "language.commit_changed": "正式版本已经更新，请看一下新的改动再应用",
+    "language.not_needed": "语言设置已经是新的写法，不需要再改",
+    "language.wrong_branch": "网站目录当前不在 {branch} 分支，切换后再更新语言设置",
+    "language.dirty": "网站目录有未提交的改动，先提交或还原后再更新语言设置",
+    "language.failed": "更新语言设置失败，正式版本可能已更新，请重试",
     "publish.not_found": "找不到这个发布账号",
     "publish.name_exists": "已经有同名的发布账号",
     "publish.in_use": "还有 {count} 个网站使用这个发布账号，不能删除",

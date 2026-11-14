@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +8,7 @@ import { versionState } from "../src/bukit/locate.ts";
 import { BukitRunner, checkPassed, DEPLOY_TOKEN_ENV, parseBukitVersion } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
+import { planLanguageMigration } from "../src/sites/language-migration.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { rawGit } from "./helpers.ts";
 
@@ -80,6 +82,38 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     expect(output(without)).toContain("NOTION_TOKEN");
     const withToken = await runner.run("check", args, { cwd: dir, env: { NOTION_TOKEN: PLACEHOLDER } });
     expect(checkPassed(withToken), output(withToken)).toBe(true);
+  });
+
+  // Bukit 2.1 refuses site.language; the migration card's rewrite builds again (plan 8.7).
+  it("refuses site.language and accepts the migrated site.yaml", async () => {
+    const dir = site("language");
+    const file = path.join(dir, "site.yaml");
+    const migrated = fs.readFileSync(file, "utf8");
+    fs.writeFileSync(file, migrated.replace(/ {2}languages: \[ ?en-US ?\]\n/, "  language: en-US\n"));
+    const args = ["config", "check", "--config", "site.yaml"];
+    const refused = await runner.run("check", args, { cwd: dir });
+    expect(checkPassed(refused)).toBe(false);
+    expect(output(refused)).toContain("site.language was removed");
+    const plan = planLanguageMigration(fs.readFileSync(file, "utf8"));
+    if (!plan.needed || !plan.ok) throw new Error("expected a migration");
+    fs.writeFileSync(file, plan.text);
+    const fixed = await runner.run("check", args, { cwd: dir });
+    expect(checkPassed(fixed), output(fixed)).toBe(true);
+  });
+
+  // Tokens go on stdin (plan 8.7). The Notion test above already passes its token that way; here Bukit must
+  // refuse bad input before doing anything, without echoing it.
+  it("refuses unusable --secrets-stdin input without echoing it", () => {
+    const dir = site("stdin", true);
+    const bad = spawnSync(REAL_BIN as string, ["config", "check", "--config", "site.yaml", "--secrets-stdin"], {
+      cwd: dir,
+      env: runner.env(),
+      input: `{"NOTION_TOKEN": 1, "x": "${PLACEHOLDER}"}`,
+      encoding: "utf8",
+    });
+    expect(bad.status).toBe(2);
+    expect(`${bad.stdout}${bad.stderr}`).toContain("--secrets-stdin values must be JSON strings");
+    expect(`${bad.stdout}${bad.stderr}`).not.toContain(PLACEHOLDER);
   });
 
   // The preview's basePath is passed as --base-url (plan 16 #8), over the "/" in site.yaml.

@@ -56,7 +56,7 @@ let settings: SettingsStore;
  */
 const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
-  version) echo "bukit 2.0.11+fake"; exit 0;;
+  version) echo "bukit 2.1.0+fake"; exit 0;;
   config) echo "config ok"; exit 0;;
   doctor) if [ -f fake-doctor ]; then echo "doctor: template missing"; exit 1; fi; echo "doctor ok"; exit 0;;
   build)

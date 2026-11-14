@@ -124,3 +124,20 @@ export interface GitIdentityResponse {
   name: string | null;
   email: string | null;
 }
+
+/**
+ * GET /api/sites/:id/language-migration (plan 8.7): whether the default branch's site.yaml needs the Bukit 2.1
+ * language migration. "ready" carries the patch of site.yaml; "blocked" says why it cannot be done for the user.
+ */
+export const LanguageMigrationResponse = z.object({
+  commit: z.string(),
+  state: z.enum(["none", "ready", "blocked"]),
+  reason: z.enum(["bad_language", "bad_languages", "default_not_listed"]).nullable(),
+  patch: z.string().nullable(),
+  movesToRoot: z.boolean(),
+});
+export type LanguageMigrationResponse = z.infer<typeof LanguageMigrationResponse>;
+
+/** POST /api/sites/:id/language-migration: the default-branch commit the user saw the patch for. */
+export const LanguageMigrationRequest = z.object({ commit: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/) });
+export type LanguageMigrationRequest = z.infer<typeof LanguageMigrationRequest>;
