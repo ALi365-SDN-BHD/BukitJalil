@@ -8,7 +8,7 @@
 > - v3（2026-11-15）按第二次审阅（静态加本机 git/.NET 实测）修订：
 >   - **加固扩到临时仓库的所有 git 调用**：`init`、`checkout`、`add`、`commit` 也读全局配置，`init.templateDir` 和全局 `core.hooksPath` 能在这些调用里运行钩子，往临时仓库 `.git/config` 写 URL 级的 `http.<url>.proxy` / `sslCAInfo`，这些压得过 `-c http.sslVerify=true`。现在所有调用都隔离全局配置，认证前对 `.git/config` 做允许列表校验，身份总是写进本地配置（3.5）；
 >   - macOS 的 `git-remote-https` 是 `git-remote-http` 的符号链接，父进程比较改成和 `realpath` 后的完整路径比较，两个名字都接受；Bukit 自己的路径也先 realpath（3.4）；
->   - Windows：`PipeSecurity` 和 `CurrentUserOnly` 不能同时用，.NET 也不设 `PIPE_REJECT_REMOTE_CLIENTS`，改为只用 `CurrentUserOnly` 加 `(PipeOptions)0x8`（3.3）；
+>   - Windows：`PipeSecurity` 和 `CurrentUserOnly` 不能同时用，.NET 也不设 `PIPE_REJECT_REMOTE_CLIENTS`。审阅建议的 `(PipeOptions)0x8` 实测不可行（.NET 10 构造函数抛 `ArgumentOutOfRangeException: options contains an invalid flag`），改为只用 `CurrentUserOnly`，连接后用 `GetNamedPipeClientComputerNameW` 认出远程客户端并拒绝（3.3）；
 >   - Unix 上 `sh -c` 通常直接 `exec`，不留 sh 进程；父进程检查两种情况都接受；`MaxDepth` 用较大的上限加记录整条链；
 >   - 登记竞态：helper 被以"未登记"拒绝时短重试；测试用的协议、host、CA 放宽只走 `internal` 注入；测试 7 改成包装真 git；
 >   - AOT：JSON 用 source-generated 上下文；`__git-credential` 在任何配置、日志、遥测之前分派；dll 运行时核对 argv 里的 dll；
@@ -125,7 +125,7 @@ Bukit deploy（token 只在内存里）
 **监听位置**
 
 - **macOS / Linux**：Unix 域套接字。路径是 `<临时目录>/c.sock`，临时目录 0700。`sockaddr_un.sun_path` 有长度限制（macOS 104 字节、Linux 108 字节），而 macOS 的 `$TMPDIR` 很长，所以 socket 单独放在一个短目录里：`<Path.GetTempPath()>/bukit-cred-<随机>/c.sock`，总长超限就改用 `/tmp/bukit-cred-<12 位随机>/c.sock`；目录创建时 0700，并检查它不是符号链接、属于当前用户。socket 目录可能不在部署临时目录下，`SanitizeError` 要把它单独传进去。
-- **Windows**：命名管道 `\\.\pipe\bukit-cred-<32 位随机>`。只用 `PipeOptions.CurrentUserOnly`（它自己创建只给当前用户 SID 的 ACL；和自定义 `PipeSecurity` 不能同时用，.NET 源码里会抛 `ArgumentException`）。.NET 不会设置 `PIPE_REJECT_REMOTE_CLIENTS`，`PipeOptions` 也没有这个值，所以另加 `(PipeOptions)0x8`（.NET 把未定义位原样传给 `CreateNamedPipe`），测试 12 断言远程客户端被拒（或核对实际 openMode）。
+- **Windows**：命名管道 `\\.\pipe\bukit-cred-<32 位随机>`。只用 `PipeOptions.CurrentUserOnly`（它自己创建只给当前用户 SID 的 ACL；和自定义 `PipeSecurity` 不能同时用，.NET 源码里会抛 `ArgumentException`）。.NET 不会设置 `PIPE_REJECT_REMOTE_CLIENTS`，`PipeOptions` 也没有这个值；传 `(PipeOptions)0x8` 会被构造函数以 `ArgumentOutOfRangeException` 拒绝（2026-11-15 在 .NET 10 实测）。所以连接后调用 `GetNamedPipeClientComputerNameW`：本机客户端会失败（`ERROR_PIPE_LOCAL`），成功就说明是远程客户端，直接拒绝。远程客户端的 pid 在本机本来也对不上进程链，这是第二道。
 
 **协议**：每个连接只交换一次，都是一行 UTF-8 JSON，最长 4 KiB：
 
@@ -311,7 +311,7 @@ Unix 上中间可能有一层 sh，也可能没有（3.2）。Windows 上更深�
 9. **用户的 helper 不会被调用**：在临时 `HOME` 的全局 git 配置里放一个会记录调用的 helper，推送后它没有被调用，也没有存下任何东西。
 10. **真实推送**：用 `git http-backend`（或测试已有的本地传输夹具）在本机起一个需要认证的仓库，只连本机，不连 GitHub。验证认证成功、错误 token 时报认证失败、helper 超时时报凭据获取失败。`git http-backend` 是 HTTP，而 3.5 只允许 https、强制校验证书，所以测试要一个只在测试里注入的策略：允许的 host、protocol 和 CA。它是 `internal` 的，通过 `InternalsVisibleTo` 给测试用，不做成公开参数或环境变量；正式代码路径固定为 `https` + `github.com` + 系统证书。也覆盖登记竞态：本机很快返回 401 时 helper 的短重试能拿到 token。
 11. **清理**：部署成功、失败、被取消后，临时目录和 socket 都不在了。
-12. **Windows**：命名管道的 ACL、父进程查询、helper 路径引号，在 Windows CI 上跑第 5–11 项。另外断言 `(PipeOptions)0x8` 确实让管道拒绝远程客户端。测试 2、6 的 Windows 路径用空格、`&`、括号（Windows 路径不能有 `"`）；Unix 再加 `$`、反引号、单引号。
+12. **Windows**：命名管道的 ACL、父进程查询、helper 路径引号，在 Windows CI 上跑第 5–11 项。另外核对远程客户端判断（`GetNamedPipeClientComputerNameW`）对本机客户端返回"本地"。测试 2、6 的 Windows 路径用空格、`&`、括号（Windows 路径不能有 `"`）；Unix 再加 `$`、反引号、单引号。
 13. **其他**：helper 忽略新版 git 发来的 `capability[]=`、`wwwauth[]=`、`password_expiry_utc=`；没有登记的 git 调用时有人连上来被拒绝；多个连接同时请求时，次数上限仍然成立；测试从 dll 运行时 helper 命令值正确（`dotnet` + dll）。
 
 **质量门**：`dotnet-format`、analyzer ratchet、public-api-drift 都通过，复杂度不超过基线（AGENTS.md 的 C# 规则）。
