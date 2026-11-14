@@ -14,6 +14,7 @@
 >   - `change` 的提示补"改了过滤、排序"，`stale` 的提示去掉"Bukit 升级了"；
 >   - 假接口对未知路径直接失败、正文用 HTML 注释标记、fixture 数据笔误和快照语义变化分开处理，以及几处措辞。
 >   - 审阅提的"开发方案 5.5 还写着 fixture 含媒体缓存"在 v2.48 已经改掉，不用再改。
+>   - 同日补：风险表和 3.5 对 fixture 重新生成的规则统一；`stale` 提示的 zh-CN 文案和两处注释也要改；`stale` 定义和工期说明的措辞。
 
 ## 1. 要解决的问题
 
@@ -24,7 +25,7 @@ BukitJalil 现在靠 `packages/server/src/bukit/notion-errors.ts` 里的正则�
 - `notionProblemIn`：Notion 接口报错（401、403、404、429、字段不存在、网络错误），用于正式构建和发布。
 - `notionSnapshotProblemIn`（`93132cc` 新增）：离线快照不能用的原因，用于 AI 检查、AI 构建、改动预览和应用前的检查（`agent/ai-bukit.ts`、`builds/service.ts`）。分两类：
   - `change`：改动需要正式构建没读过的 Notion 数据，再正式构建一次也没用，要先应用改动。包括"没有这个数据库"、"没有这一页渲染好的正文"（改动打开了某个源的正文渲染）、"多份查询都对不上"（改了过滤或排序）。
-  - `stale`：快照要重新录（不存在、格式或 Bukit 版本不对、读不了、缺数据）。
+  - `stale`：快照要重新录（不存在、格式不对、读不了、缺数据；2.1.0 下 Bukit 版本不对也算，2.1.1 以后不再有这一条）。
   - 第三类 `missing` 是 BukitJalil 自己判断的（没有快照记录），不来自 Bukit 的输出。
   - 它的 `SNAPSHOT_ERROR` 正则还包含 `was written by`（Bukit 版本不符），3.4 删掉版本比较后这条文字就不会再出现。
 
@@ -229,8 +230,10 @@ Notion 接口错误：
 - `packages/shared/src/data-sources.ts`：`NotionProblem` 只加 `request_failed`，更新注释（不再说"texts come from Bukit 2.0.15"）。`NotionSnapshotProblem`（`packages/shared/src/builds.ts`）的三个值不变，注释改成"按 Bukit 的错误码分类"。
 - 界面文字（`packages/web/src/i18n/en.ts`、`zh-CN.ts`）：
   - 加 `request_failed`："Notion 返回错误，稍后再试；一直失败就看 Bukit 的原始报错"。
-  - `notionSnapshot.problem.change`（约 en `:474`、zh-CN `:456`）和给 AI 的 `NOTION_TEXT.change`（`agent/ai-bukit.ts` 约 `:314`）现在只列"换了 `databaseId`、新加 Notion 源、打开正文渲染"，补上"或改了过滤、排序"（0B13）。这个缺口在 `93132cc` 的文字分类里就有，这次按码拆分时一起补。
-  - `notionSnapshot.problem.stale`（约 en `:472`）现在写"Bukit was upgraded or the data is incomplete"。2.1.1 以后升级 Bukit 不会再让快照失效，只有格式版本变了才会，改成"格式变了或数据不完整"。
+  - `notionSnapshot.problem.change`（en、zh-CN 两份）和给 AI 的 `NOTION_TEXT.change`（`agent/ai-bukit.ts`）现在只列"换了 `databaseId`、新加 Notion 源、打开正文渲染"，补上"或改了过滤、排序"（0B13）。这个缺口在 `93132cc` 的文字分类里就有，这次按码拆分时一起补。
+  - `notionSnapshot.problem.stale` 两份都要改：en 现在写"Bukit was upgraded or the data is incomplete"，zh-CN 写"（Bukit 升级了或数据不完整）"。2.1.1 以后升级 Bukit 不会再让快照失效，只有格式版本变了才会，两份都改成"格式变了或数据不完整"。
+  - 同样的说法还在两处注释里，一起改成"another format, unreadable or incomplete"这类不提 Bukit 版本的写法：`packages/shared/src/builds.ts` 里 `NotionSnapshotProblem` 的注释（"another format or Bukit version"），`packages/server/src/bukit/notion-errors.ts` 里 `notionSnapshotProblemIn` 的注释（同样的话）。
+  - 这几个文件别的会话也在改，行号经常变，按键名和函数名找。
 - 升级内置 Bukit：`BUKIT_VERSION`、三个安装包的 SHA-256、`MIN_BUKIT_VERSION` 都改成 2.1.1（开发方案 8.1 的规则）。
 
 ### 3.4 快照版本校验
@@ -410,7 +413,7 @@ Bukit 约 3–3.5 天（含审计和发版），BukitJalil 约 0.5–1 天，合
 比第一版多约 1 天，因为：
 - fixture 要写按目录取数据的假接口和完整站点；
 - 多了跨版本复用正文的测试；
-- doctor 所有行都要加码；
+- doctor 所有 Notion 请求失败行和警告行都要加码；
 - 契约矩阵要整表更正。
 
 ## 6. 风险和对策
@@ -419,9 +422,10 @@ Bukit 约 3–3.5 天（含审计和发版），BukitJalil 约 0.5–1 天，合
 |---|---|
 | D1 改了现有错误的 `code`，有别的使用方按枚举名判断 | CHANGELOG 写明；技能文档的示例一起改；BukitJalil 不受影响；Bukit 仓库里搜一遍按 `code` 判断的地方一起改 |
 | 新 catch 改了不相关错误的退出码 | 按 D6 只接快照错误；`ProgramEntryPointTests` 断言资源输出冲突仍是退出码 1、`cli-error` |
+| public-api-drift 报的 16 条新增成员没细看就更新了基线 | 逐条核对都是 `DiagnosticCode` 的 Notion 码、值和 3.1 的表一致，没有别的公开成员变化，再更新基线；不能只看检查变绿 |
 | 包装方式变了，按 `ContentException { InnerException: NotionApiException }` 判断的代码失效（如 `notion.relation.permission_denied`） | 只加码、不换异常类型和包装层次；运行 `NotionContentSourceTests`、`CrossSourceRelationProjectionTests` |
 | 映射先看状态码，把带 2xx 的 `InvalidJson` 误报成 0B06 | 映射先看 `Kind`；单元测试覆盖 |
-| 改了快照数据的意思却忘了升 `FormatVersion` | 3.5 第 2 项"离线等于联网"会失败；fixture 的 `snapshot/` 和 `api/` 不允许单独重新生成 |
+| 改了快照数据的意思却忘了升 `FormatVersion` | 3.5 第 2 项"离线等于联网"会失败。fixture 数据写错（`api/` 笔误、漏页）可以改并重新生成 `snapshot/`，README 记一笔；快照的意思变了必须升 `FormatVersion`，不允许用改 fixture 来掩盖（判断方法见 3.5 末尾） |
 | 兼容测试太脆，和快照无关的改动也让它失败 | 联网和离线用同一个 Bukit、同一个网站、同一份原始数据比较，解析和模板的变化两边一起变；fixture 网站用自己的主题；渲染器版本不同时去掉正文再比较 |
 | 旧版渲染的正文进了预览 | 离线时照样用，输出 `renderer_mismatch` 警告，BukitJalil 在预览上说明；正式构建会重新渲染 |
 | 多语言父进程认不出子进程的码 | 认不出就退回原来的 `i18n-worktree-worker-failed`，不影响构建结果本身；text 和 JSON 两种模式都有测试 |
