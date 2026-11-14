@@ -55,23 +55,21 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **工作量**：Bukit 支持后约 2–3 天，包括试运行和确认界面。
 
-### 5. Notion 数据源管理（第一步、第二步已完成，错误码等 Bukit 2.1.1）
+### 5. Notion 数据源管理（已完成：字段读取、离线快照、错误码）
 
 **已定的问题**（2026-11-13）：
 
 - 预览：短期不能预览（方案 A），长期给 Bukit 加离线快照（方案 C）。预览时把 token 给 Bukit（方案 D）**不能选**：没审核的 `site.yaml` 可以把 `databaseId` 换成别的库，AI 就能从构建输出里读到别的数据库的内容。
 - 字段显示放在现有数据面板的 Notion 卡片里展开。
-- 每个源的页数先不显示，等 Bukit 输出每个源的数量（2.0.15 只有所有源合计的 `event=content.loaded count=`），不自己重算。
+- 每个源的条数用 Bukit 输出的 `event=content.source.loaded`（2.1.0 起），不自己重算；数据面板已显示。
 
 **第一步已完成**（2026-11-13，开发方案 5.4）：
 
 - 数据面板"读取字段"：只在点击时、只按正式分支的 `databaseId`、用绑定的 token 调 `GET /v1/databases/{id}`，结果不交给 AI。
 - 审核卡和改动面板突出 Notion 配置的变化（新增、删除、换 `databaseId`、改了哪些键）。
-- BukitJalil 自己调 Notion 时按 401/403/404/429 翻译报错；构建、发布失败时从 Bukit 输出（含 `doctor`）认出 Notion 报错，在结果里给出处理办法。这些文字来自 Bukit 2.0.15 源码，升级 Bukit 时要核对 `bukit/notion-errors.ts`。
+- BukitJalil 自己调 Notion 时按 401/403/404/429 翻译报错；构建、发布失败时从 Bukit 输出（含 `doctor`）认出 Notion 报错，在结果里给出处理办法。现在按 Bukit 2.2.0 起的 `BKT-0Bxx` 码认（见下面的错误码）。
 
-**还缺**：
-
-- Notion 报错改用 Bukit 的错误码（`BKT-0Bxx`），去掉 `notion-errors.ts` 的正则；快照只校验格式版本、加兼容测试。两项一起随 Bukit 2.1.1 做，BukitJalil 这边同时把快照报错的文字匹配（`notionSnapshotProblemIn`）换成按码认，实施方案见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)，方案第 4 节的 D1–D4 已定（2.1.1 发版），D5–D8 也已定（都按建议），动 Bukit 代码前要用户确认开工。
+**错误码**（已完成，Bukit 2.2.0 起）：Notion 报错和快照报错按 Bukit 的 `BKT-0Bxx` 码识别（`bukit/notion-errors.ts` 的码表），去掉了文字匹配；快照只校验格式版本。方案和码表见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)。内置 Bukit 现在是 2.2.2，升级时要核对码表有没有变化。
 
 **Bukit 的限制**（源码 v2.0.15 核对）：
 
