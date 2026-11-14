@@ -9,7 +9,13 @@ const CLI_ERROR_SCHEMA = "https://bukit.dev/schemas/cli-error";
  * object (`schema: …/cli-error.v1.json`, `errors: [{ code, message }]`) on stderr. The last such document
  * wins; anything that does not parse is ignored.
  */
-export function bukitErrorsIn(text: string): string[] {
+interface CliErrorEntry {
+  code?: string;
+  message?: string;
+}
+
+/** The entries of the last cli-error document in `text`, or null. */
+function lastCliError(text: string): CliErrorEntry[] | null {
   const lines = text.split("\n").map((line) => line.replace(/\r$/, ""));
   for (let start = lines.length - 1; start >= 0; start--) {
     if (lines[start] !== "{") continue;
@@ -23,15 +29,36 @@ export function bukitErrorsIn(text: string): string[] {
     }
     const { schema, errors } = (doc ?? {}) as { schema?: unknown; errors?: unknown };
     if (typeof schema !== "string" || !schema.startsWith(CLI_ERROR_SCHEMA) || !Array.isArray(errors)) continue;
-    return errors
-      .map((e) =>
-        e && typeof (e as { message?: unknown }).message === "string" ? (e as { message: string }).message : "",
-      )
-      .filter((m) => m.trim() !== "")
-      .slice(0, MAX_ERRORS)
-      .map((m) => m.slice(0, MAX_ERROR_CHARS));
+    const entries: CliErrorEntry[] = [];
+    for (const error of errors) {
+      if (!error || typeof error !== "object") continue;
+      const entry: CliErrorEntry = {};
+      const code = (error as { code?: unknown }).code;
+      const message = (error as { message?: unknown }).message;
+      if (typeof code === "string") entry.code = code;
+      if (typeof message === "string") entry.message = message;
+      entries.push(entry);
+    }
+    return entries;
   }
-  return [];
+  return null;
+}
+
+/** The messages of Bukit's cli-error document (plan 8.6), capped. */
+export function bukitErrorsIn(text: string): string[] {
+  return (lastCliError(text) ?? [])
+    .map((entry) => entry.message ?? "")
+    .filter((message) => message.trim() !== "")
+    .slice(0, MAX_ERRORS)
+    .map((message) => message.slice(0, MAX_ERROR_CHARS));
+}
+
+/** The stable `code` values of the last cli-error document, for the BKT-0Bxx recognition (plan 5.4). */
+export function bukitErrorCodesIn(text: string): string[] {
+  return (lastCliError(text) ?? [])
+    .map((entry) => entry.code ?? "")
+    .filter((code) => code.trim() !== "")
+    .slice(0, MAX_ERRORS);
 }
 
 const PLACEHOLDER_MISSING = "Referenced localized media output is missing: ";

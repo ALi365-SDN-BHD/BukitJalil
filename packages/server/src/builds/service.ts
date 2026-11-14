@@ -443,7 +443,7 @@ export class BuildService {
       if (offline) {
         if (outcome === "ok") report.notionOffline = notionOfflineData(offline, result);
         else {
-          const problem = notionSnapshotProblemIn(`${result.stderr}\n${result.stdout}`);
+          const problem = notionSnapshotProblemIn(result.stderr, `${result.stdout}\n${result.stderr}`);
           if (problem) report.notionSnapshotProblem = problem;
         }
       }
@@ -626,7 +626,7 @@ export function buildReport(result: BukitRunResult): BuildReport {
   // Only a failed run: a build that succeeded may still log Notion or media warnings it got past (plan 5.4, 8.6).
   if (result.exitCode !== 0) {
     const all = `${result.stderr}\n${result.stdout}`;
-    const notionProblem = notionProblemIn(all);
+    const notionProblem = notionProblemIn(result.stderr, all);
     if (notionProblem) report.notionProblem = notionProblem;
     const bukitErrors = bukitErrorsIn(result.stderr);
     if (bukitErrors.length > 0) report.bukitErrors = bukitErrors;

@@ -310,9 +310,9 @@ const NOTION_TEXT: Record<NotionSnapshotProblem, string> = {
   missing:
     "The site uses a Notion content source. Checks and builds read the Notion data of the last formal build, and there is none yet: ask the user to build the site once from the site page, then try again. If the default branch has no Notion source yet (this change adds the first one), the change can only be checked after the user applies it and builds the site.",
   stale:
-    "The Notion data of the last formal build cannot be read by this Bukit: ask the user to build the site once from the site page to record it again.",
+    "The Notion data of the last formal build is in another format or incomplete: ask the user to build the site once from the site page to record it again.",
   change:
-    "The change needs Notion data the last formal build did not read (a changed databaseId, a new Notion source, or content rendering turned on for a source), so it cannot be checked or previewed here; it works once the user applies it and builds the site.",
+    "The change needs Notion data the last formal build did not read (a changed databaseId, a new Notion source, content rendering turned on for a source, or a changed filter or sort), so it cannot be checked or previewed here; it works once the user applies it and builds the site.",
 };
 
 function notionNote(offline: OfflineNotion, results: BukitRunResult[], passed: boolean): NotionNote {
@@ -333,7 +333,7 @@ function notionNote(offline: OfflineNotion, results: BukitRunResult[], passed: b
 function snapshotProblem(results: BukitRunResult[]): NotionSnapshotProblem | null {
   const problems = results
     .filter((r) => !checkPassed(r))
-    .map((r) => notionSnapshotProblemIn(`${r.stderr}\n${r.stdout}`));
+    .map((r) => notionSnapshotProblemIn(r.stderr, `${r.stdout}\n${r.stderr}`));
   if (problems.length === 0 || problems.some((p) => p === null)) return null;
   return problems.includes("change") ? "change" : (problems[0] as NotionSnapshotProblem);
 }

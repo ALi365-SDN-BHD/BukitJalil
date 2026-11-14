@@ -444,6 +444,7 @@ const zhCN = {
       rate_limited: "Notion 限制了请求次数。请等一分钟再构建。",
       property_missing:
         "site.yaml 里用到的属性（通常是过滤字段，默认 Published）在 Notion 数据库里不存在。请在 Notion 里添加，或修改 filterProperty。",
+      request_failed: "Notion 返回错误，稍后再试；一直失败就看 Bukit 的原始报错。",
       network: "连不上 Notion。请检查网络后重新构建。",
     },
   },
@@ -454,9 +455,9 @@ const zhCN = {
     problem: {
       missing:
         "还没有可用的 Notion 数据：先在网站页面正式构建一次（要先绑定数据源），之后 AI 改动才能检查和预览。如果这个改动给网站加了第一个 Notion 源，要先应用、再正式构建。",
-      stale: "上次正式构建保存的 Notion 数据读不出来（Bukit 升级了或数据不完整），请重新正式构建一次。",
+      stale: "上次正式构建保存的 Notion 数据读不出来（格式变了或数据不完整），请重新正式构建一次。",
       change:
-        "这次改动需要上次正式构建没有读过的 Notion 数据（换了 databaseId、新加了 Notion 源，或给某个源打开了正文渲染），应用后正式构建才有这些数据。",
+        "这次改动需要上次正式构建没有读过的 Notion 数据（换了 databaseId、新加了 Notion 源、给某个源打开了正文渲染，或改了过滤、排序），应用后正式构建才有这些数据。",
     },
     panelRecorded: "AI 改动的检查和预览使用 {time} 正式构建（提交 {commit}）保存的 Notion 数据。",
     panelNone: "还没有保存的 Notion 数据。绑定数据源并正式构建一次后，AI 改动才能检查和预览。",

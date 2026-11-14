@@ -206,9 +206,10 @@ export interface BuildListResponse {
 
 /**
  * Why the Notion offline snapshot could not be used (plan 5.5): `missing` (no formal build recorded one yet),
- * `stale` (Bukit cannot read it: another format or Bukit version, or it lacks something; a formal build
- * records it again) or `change` (the change needs Notion data the formal build did not read: a changed
- * databaseId, a new Notion source, content rendering turned on; it arrives with a formal build after applying).
+ * `stale` (Bukit cannot read it: another format or incomplete data; a formal build records it again) or
+ * `change` (the change needs Notion data the formal build did not read: a changed databaseId, a new Notion
+ * source, content rendering turned on, or a changed filter/sort; it arrives with a formal build after applying).
+ * Bukit 2.2.0's `BKT-0Bxx` codes: 0B10/0B14 are `stale`; 0B11–0B13 are `change`.
  */
 export type NotionSnapshotProblem = "missing" | "stale" | "change";
 

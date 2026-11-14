@@ -32,7 +32,7 @@ case "$1" in
     if [ "$2" = "schema" ]; then
       echo '{"type":"object","properties":{"site":{"type":"object","description":"site section"},"theme":{"type":"object"}}}' > "$4"
     fi
-    if [ -f fake-newdb ]; then echo "Notion offline snapshot has no data for database 'x'. (args: $*)"; exit 2; fi
+    if [ -f fake-newdb ]; then echo "[BKT-0B11] Notion offline snapshot has no data for database 'x'. (args: $*)"; exit 2; fi
     echo "config ok"; exit 0;;
   doctor) if [ -f fake-doctor ]; then echo "doctor: template missing"; exit 1; fi; echo "doctor ok"; exit 0;;
   build)
@@ -382,7 +382,7 @@ describe("bukit_schema", () => {
   it("asks again when Bukit at the same path reports another version", async () => {
     const { tools, ctx } = await setup();
     await call(tools.bukit_schema);
-    fs.writeFileSync(versionFile, "bukit 2.1.1+fake\n");
+    fs.writeFileSync(versionFile, "bukit 2.2.1+fake\n");
     try {
       ctx.bukit.invalidate();
       await call(tools.bukit_schema);

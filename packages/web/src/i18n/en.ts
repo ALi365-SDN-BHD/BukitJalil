@@ -460,6 +460,8 @@ const en: Messages = {
       rate_limited: "Notion limited the requests. Wait a minute and build again.",
       property_missing:
         "A property named in site.yaml (usually the filter, Published by default) does not exist in the Notion database. Add it in Notion or change filterProperty.",
+      request_failed:
+        "Notion returned an error; try again later, and check Bukit's original error if it keeps failing.",
       network: "Notion could not be reached. Check the network and build again.",
     },
   },
@@ -472,9 +474,9 @@ const en: Messages = {
       missing:
         "No Notion data yet: build the site once from the site page (with a data source bound), then AI changes can be checked and previewed. A change that adds the site's first Notion source is checked after you apply it and build.",
       stale:
-        "The Notion data saved by the last main build cannot be read (Bukit was upgraded or the data is incomplete); build the site again.",
+        "The Notion data saved by the last main build cannot be read (another format or incomplete data); build the site again.",
       change:
-        "This change needs Notion data the last main build did not read (a changed databaseId, a new Notion source, or content rendering turned on for a source); it arrives with a main build after applying.",
+        "This change needs Notion data the last main build did not read (a changed databaseId, a new Notion source, content rendering turned on for a source, or a changed filter or sort); it arrives with a main build after applying.",
     },
     panelRecorded:
       "Checks and previews of AI changes use the Notion data saved by the main build of {time} (commit {commit}).",

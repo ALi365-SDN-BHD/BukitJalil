@@ -87,7 +87,7 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
 
   // Bukit 2.1 refuses site.language; the migration card's rewrite builds again (plan 8.7).
   // AI checks, AI builds and change previews of a Notion site read the Notion offline snapshot (plan 5.5):
-  // no token, and BukitJalil tells "record it again" from "the change needs new Notion data" by the text.
+  // no token, and BukitJalil tells "record it again" from "the change needs new Notion data" by the BKT codes.
   it("checks and builds a Notion site offline, and says what the snapshot lacks", async () => {
     const dir = site("offline", true);
     const snap = path.join(base, "offline-snapshot");
@@ -112,22 +112,34 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
         { cwd: dir },
       ),
     ];
-    for (const result of await Promise.all(runs())) {
+    const [check, doctor, build] = await Promise.all(runs());
+    if (!check || !doctor || !build) throw new Error("missing run result");
+    for (const result of [check, doctor, build]) {
       expect(result.exitCode, output(result)).not.toBe(0);
       expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("stale");
       expect(output(result)).not.toContain(snap);
     }
-    // A snapshot of this Bukit that holds no data for the site's database.
-    // Bukit 2.1.0 also wants its full version, build metadata included (later releases check the format only).
-    const version = /^bukit (\S+)/m.exec((await runner.run("version", ["version"], { cwd: base })).stdout)?.[1];
+    expect(build.exitCode).toBe(2);
+    expect(output(build)).toContain('"code": "BKT-0B10"');
+    expect(output(check)).toContain("[BKT-0B10]");
+    expect(output(doctor)).toContain("[BKT-0B10]");
+
+    // A snapshot of this Bukit holding no data for the site's database; the format is read, not the version.
     fs.mkdirSync(snap);
     fs.writeFileSync(
       path.join(snap, "manifest.json"),
-      JSON.stringify({ format: 1, bukitVersion: version, createdAt: "2026-11-14T00:00:00Z", databases: [] }),
+      JSON.stringify({ format: 1, bukitVersion: "2.0.0", createdAt: "2026-11-14T00:00:00Z", databases: [] }),
     );
-    for (const result of await Promise.all(runs())) {
+    const [check2, doctor2, build2] = await Promise.all(runs());
+    if (!check2 || !doctor2 || !build2) throw new Error("missing run result");
+    for (const result of [check2, doctor2, build2]) {
       expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("change");
+      expect(output(result)).not.toContain(snap);
     }
+    expect(build2.exitCode).toBe(2);
+    expect(output(build2)).toContain('"code": "BKT-0B11"');
+    expect(output(check2)).toContain("[BKT-0B11]");
+    expect(output(doctor2)).toContain("[BKT-0B11]");
   });
 
   it("refuses site.language and accepts the migrated site.yaml", async () => {

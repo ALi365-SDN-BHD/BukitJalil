@@ -66,10 +66,28 @@ case "$1" in
     # and downloads images into .cache/media; an offline build reads only the snapshot and --cache-dir.
     if [ -n "$offline" ]; then
       if [ ! -f "$snap/manifest.json" ]; then
-        echo "Notion offline snapshot not found or incomplete. Run a build with NOTION_TOKEN and --notion-snapshot (without --notion-offline) to refresh the snapshot." >&2; exit 2
+        cat >&2 <<'JSON'
+{
+  "schema": "https://bukit.dev/schemas/cli-error.v1.json",
+  "version": "1.0",
+  "command": "build",
+  "exitCode": 2,
+  "errors": [{"code": "BKT-0B10", "message": "Notion offline snapshot not found or incomplete.", "showUsage": false}]
+}
+JSON
+        exit 2
       fi
       if [ "$mode" = "newdb" ]; then
-        echo "Notion offline snapshot has no data for database 'other' (a changed databaseId or a new Notion source). Apply the change and run a build with NOTION_TOKEN and --notion-snapshot to record it. ($snap)" >&2; exit 2
+        cat >&2 <<JSON
+{
+  "schema": "https://bukit.dev/schemas/cli-error.v1.json",
+  "version": "1.0",
+  "command": "build",
+  "exitCode": 2,
+  "errors": [{"code": "BKT-0B11", "message": "Notion offline snapshot has no data for database 'other' at $snap.", "showUsage": false}]
+}
+JSON
+        exit 2
       fi
       [ "$mode" = "query" ] && echo '{"ts":"t","level":"Warn","msg":"event=notion.snapshot.query_changed databaseId=abc message=x"}'
       mkdir -p "$out"; echo "<h1>$(cat "$cache/media/img.txt" 2>/dev/null)</h1>" > "$out/index.html"
