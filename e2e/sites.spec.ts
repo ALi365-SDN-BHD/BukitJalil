@@ -320,10 +320,10 @@ test("settings show Bukit and the identity; the new-site dialog starts empty eac
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  // The stand-in prints 2.2.0, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
+  // The stand-in prints 2.2.1, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
   // latest release, no install button.
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.0");
-  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.2.0"}`);
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.1");
+  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.2.1"}`);
   await expect(page.getByTestId("bukit-latest")).toHaveCount(0);
   await expect(page.getByTestId("bukit-install")).toHaveCount(0);
   // A fresh app home has no rg yet: the page shows it as not installed and asks before downloading.
@@ -344,7 +344,7 @@ test("settings show Bukit and the identity; the new-site dialog starts empty eac
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("git-guide")).toBeHidden();
   await page.getByTestId("check-updates").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.0");
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.1");
   await page.getByTestId("rg-install").click();
   await expect(page.getByTestId("rg-install-confirm")).toContainText("15.2.0");
 
@@ -552,7 +552,7 @@ test("reopening settings looks at the bundled Bukit again", async ({ page, serve
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.0");
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.1");
 
   // The bundled copy changes between visits; opening settings asks the server for a fresh look.
   const updated = path.join(work, "bukit-2.1.4");

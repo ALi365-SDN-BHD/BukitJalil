@@ -717,8 +717,9 @@ describe("locateBukit", () => {
 
   it("grades the bundled copy's version", async () => {
     for (const [ver, state] of [
-      ["2.2.0", "ok"],
+      ["2.2.1", "ok"],
       ["2.2.3", "ok"],
+      ["2.2.0", "old"],
       ["2.1.3", "old"],
       ["2.1.0", "old"],
       ["2.0.15", "old"],
@@ -740,13 +741,13 @@ describe("locateBukit", () => {
 
   it("does not cache a failed lookup", async () => {
     const dir = path.join(base, "cachedir");
-    installFakeBukit(dir, 'echo "bukit 2.2.0"');
+    installFakeBukit(dir, 'echo "bukit 2.2.1"');
     const badTmp = path.join(base, "tmp-is-a-file");
     fs.writeFileSync(badTmp, "");
     const service = new BukitService({ dir, tmpDir: badTmp });
     await expect(service.status()).rejects.toThrow();
     fs.rmSync(badTmp);
-    expect(await service.status()).toMatchObject({ state: "ok", version: "2.2.0" });
+    expect(await service.status()).toMatchObject({ state: "ok", version: "2.2.1" });
   });
 
   it("reports a found but broken bukit", async () => {
@@ -817,14 +818,14 @@ describe("/api/bukit", () => {
     expect(await bukit.status()).toMatchObject({ state: "missing" });
 
     // A working copy appears after the first (cached) lookup.
-    installFakeBukit(dir, 'echo "bukit 2.2.0"');
+    installFakeBukit(dir, 'echo "bukit 2.2.1"');
 
     const stale = (await (await app.fetch(req("/api/bukit"))).json()) as { status: { state: string } };
     expect(stale.status.state).toBe("missing");
     const fresh = (await (await app.fetch(req("/api/bukit?refresh=1"))).json()) as {
       status: { state: string; version: string };
     };
-    expect(fresh.status).toMatchObject({ state: "ok", version: "2.2.0" });
+    expect(fresh.status).toMatchObject({ state: "ok", version: "2.2.1" });
     db.close();
   });
 

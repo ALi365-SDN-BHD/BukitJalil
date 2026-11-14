@@ -383,7 +383,7 @@ Bukit 的仓库规则（Bukit 的 `AGENTS.md`）要求：改 `src/Bukit-Core/` �
 
 ### 第 4 层：BukitJalil 升级 Bukit，按错误码认 Notion 报错（约 0.5–1 天）
 
-1. `packages/server/src/bukit/install.ts`：`BUKIT_VERSION`、`MIN_BUKIT_VERSION` 改成 2.2.0，换三个 SHA-256。
+1. `packages/server/src/bukit/install.ts`：`BUKIT_VERSION`、`MIN_BUKIT_VERSION` 改成 2.2.1，换三个 SHA-256。
 2. `report-errors.ts` 加 `bukitErrorCodesIn`；`notion-errors.ts` 按 3.3 的规则改，删掉四组正则。`notionProblemIn`、`notionSnapshotProblemIn` 的签名改成接收 stderr 和全部输出两份文字（或调用方先取好码传进去），`builds/service.ts`、`deploys/service.ts`、`agent/ai-bukit.ts` 的调用跟着改。
 3. `NotionProblem` 加 `request_failed`，补中英文界面文字；`NotionSnapshotProblem` 只改注释；`change` 的提示（界面和 `NOTION_TEXT`）补"改了过滤、排序"，`stale` 的提示去掉"Bukit 升级了"（3.3）。
 4. 测试：
@@ -403,7 +403,7 @@ Bukit 的仓库规则（Bukit 的 `AGENTS.md`）要求：改 `src/Bukit-Core/` �
 5. 开发方案：
    - 5.4 改成"按 Bukit 的错误码认出 Notion 报错"，删掉"升级 Bukit 时要核对 `notion-errors.ts`"的说法；
    - 5.5 第二步里"按文字分清 stale / change"改成按码；
-   - 8.1 记下 Bukit 2.2.0。
+   - 8.1 记下 Bukit 2.2.1（2.2.0 的补丁，含 #9）。
 6. `pnpm -s check`、全部测试和构建通过后提交推送。
 
 ### 合计
