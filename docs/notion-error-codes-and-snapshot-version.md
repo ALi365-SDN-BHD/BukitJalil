@@ -1,6 +1,6 @@
 # Notion 报错错误码与快照版本校验：实施方案
 
-> 日期：2026-11-14 · 状态：方案，Bukit 部分开工前要用户确认（见第 4 节） · 对应：[开发方案](development-plan.md) 5.4、5.5，[AGENTS.md](../AGENTS.md) 待开发任务第 5 项
+> 日期：2026-11-14 · 状态：方案，第 4 节的问题已定（2026-11-14），Bukit 部分动代码前要用户确认开工 · 对应：[开发方案](development-plan.md) 5.4、5.5，[AGENTS.md](../AGENTS.md) 待开发任务第 5 项
 >
 > 源码按 Bukit main `e7651fb1`（v2.1.0 之后）和 BukitJalil `48b1e11` 核对。
 
@@ -92,7 +92,7 @@ BukitJalil 现在靠 `packages/server/src/bukit/notion-errors.ts` 里的正则�
 
 ### 3.2 怎么带出错误码
 
-**错误码的写法统一为 `BKT-xxxx`**（待确认 D1）：
+**错误码的写法统一为 `BKT-xxxx`**（D1）：
 
 - `Program.cs` 的 `ConfigException`、`ContentException`、`RenderException` 分支，把 `ex.Code.Value.ToString()` 换成 `DiagnosticCodeFormatter.Format(ex.Code.Value)`，和 `CliErrorRenderer.RenderJson(command, ex, …)`、契约矩阵、技能文档一致。
 - 这会把现有配置、内容、渲染错误的 `code` 从枚举名改成 `BKT-xxxx`，是对外可见的变化，要写进 CHANGELOG。BukitJalil 现在不读 `code`，不受影响。
@@ -107,7 +107,7 @@ BukitJalil 现在靠 `packages/server/src/bukit/notion-errors.ts` 里的正则�
 **快照失败带码**：
 
 - `NotionSnapshotException` 的构造函数加 `DiagnosticCode` 参数（不再固定用 `ConfigInvalidValue`），按 3.1 的表给每个 `throw` 指定码。`Missing(what)` 用 0B12。可以加几个静态工厂（`Unavailable(...)`、`WriteFailed(...)`），避免到处写码。
-- `Program.cs` 在通用 `catch (Exception)` 前加一个 `catch (BukitException ex)` 分支：退出码 2（和内容错误一致，待确认 D3），`code` 用 `BKT-xxxx`，没有码时用 `cli-error`。这个分支也接住以后其他直接继承 `BukitException` 的异常。
+- `Program.cs` 在通用 `catch (Exception)` 前加一个 `catch (BukitException ex)` 分支：退出码 2（和内容错误一致，D3），`code` 用 `BKT-xxxx`，没有码时用 `cli-error`。这个分支也接住以后其他直接继承 `BukitException` 的异常。
 
 **`config check` 和 `doctor` 的文字行**：
 
@@ -200,16 +200,16 @@ BukitJalil：只在第二步用到，见开发方案 5.5。离线构建输出里
 - `NotionSnapshotTests.OtherBukitVersionOrFormat_IsAnError` 改名为 `OtherFormat_IsAnError`：Bukit 版本不同时能读；格式不同或没有快照时报错，并断言码是 0B10。
 - `NotionOfflineSnapshotCommandTests` 里所有快照错误的断言加上码（`[BKT-0B10]`、`[BKT-0B11]`），`build` 的快照错误断言 cli-error JSON 里的 `code` 和退出码 2。
 
-## 4. 开工前要定的问题
+## 4. 已定的问题（2026-11-14）
 
-| | 问题 | 建议 | 理由 |
+| | 问题 | 定为 | 理由 |
 |---|---|---|---|
 | D1 | `Program.cs` 输出的错误码从枚举名改成 `BKT-xxxx` | 改 | 契约矩阵、`CliErrorRenderer` 的测试、技能文档都用 `BKT-xxxx`，只有 `Program.cs` 不一样；BukitJalil 不读旧写法 |
-| D2 | Bukit 发什么版本 | 2.2.0 | D1 改了对外可见的输出，新增一段错误码；按 semver 算新功能，不是补丁 |
+| D2 | Bukit 发什么版本 | 2.1.1 | 用户定。原来建议 2.2.0（D1 改了对外可见的输出、新增一段错误码），改为按补丁版本发：这些改动是修正现有行为（错误码写法和文档约定不一致、快照错误丢码、版本校验太严），不加新的配置项或命令。CHANGELOG 的 2.1.1 条目要单独写明 D1 改了 `code` 的写法 |
 | D3 | `build` 的快照错误退出码 | 2 | 和内容错误一致；现在是落进通用分支的 1 |
 | D4 | Notion 码段 | `0x0Bxx`，0B01–0B08 是接口错误，0B10–0B14 是快照错误 | `0x0A` 已给 I18n；留出空位以后加 |
 
-Bukit 的仓库规则（Bukit 的 `AGENTS.md`）要求：改 `src/Bukit-Core/` 和对外契约必须是用户确认过的单独 Core 任务，同一时间只有一个改代码的 agent，只跑本任务指定的专项测试，不跑全量。所以这四项定下来、用户确认开工后才动 Bukit 的代码。
+Bukit 的仓库规则（Bukit 的 `AGENTS.md`）要求：改 `src/Bukit-Core/` 和对外契约必须是用户确认过的单独 Core 任务，同一时间只有一个改代码的 agent，只跑本任务指定的专项测试，不跑全量。四项已经定下，动 Bukit 的代码前仍要用户确认开工。
 
 ## 5. 实施步骤
 
@@ -249,11 +249,11 @@ Bukit 的仓库规则（Bukit 的 `AGENTS.md`）要求：改 `src/Bukit-Core/` �
 ### 第 3 层：审计、修复、复查，Bukit 发版（约 0.5 天，发版要用户确认）
 
 - 按 Bukit 的流程做一次专项审查，有 Critical、Important 问题就修复后复查。
-- 用户确认后发 2.2.0（D2），拿到三个平台安装包的 SHA-256。
+- 用户确认后发 2.1.1（D2），拿到三个平台安装包的 SHA-256。
 
 ### 第 4 层：BukitJalil 升级 Bukit，按错误码认 Notion 报错（约 0.5–1 天）
 
-1. `packages/server/src/bukit/install.ts`：`BUKIT_VERSION`、`MIN_BUKIT_VERSION` 改成 2.2.0，换三个 SHA-256。
+1. `packages/server/src/bukit/install.ts`：`BUKIT_VERSION`、`MIN_BUKIT_VERSION` 改成 2.1.1，换三个 SHA-256。
 2. `report-errors.ts` 返回 `code`；`notion-errors.ts` 改按码判断，删正则（3.3）。
 3. `NotionProblem` 加新值，补中英文界面文字。
 4. 测试：
@@ -266,7 +266,7 @@ Bukit 的仓库规则（Bukit 的 `AGENTS.md`）要求：改 `src/Bukit-Core/` �
      - 这两项都不联网。需要真实 token 的 401、404 不放进 CI。
 5. 开发方案：
    - 5.4 改成"按 Bukit 的错误码认出 Notion 报错"，删掉"升级 Bukit 时要核对 `notion-errors.ts`"的说法；
-   - 8.1 记下 Bukit 2.2.0；
+   - 8.1 记下 Bukit 2.1.1；
    - 5.5 第二步的"BukitJalil 要做的"里写明用哪些码。
 6. `pnpm -s check`、全部测试和构建通过后提交推送。
 
