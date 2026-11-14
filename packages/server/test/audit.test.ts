@@ -170,6 +170,20 @@ describe("buildReport", () => {
     ]);
     expect(report.output).toBe("plain stderr\nplain stdout");
   });
+
+  it("counts entries per source of a successful build, once per source (plan 5.5)", () => {
+    const line = (source: string, count: number) =>
+      `{"ts":"t","level":"Info","msg":"event=content.source.loaded source=${source} count=${count}"}`;
+    // A multilingual build loads each source once per language.
+    const stdout = [line("posts", 3), line("pages", 0), line("posts", 3)].join("\n");
+    const run = (exitCode: number) => buildReport({ exitCode, stdout, stderr: "", durationMs: 1, stopped: null });
+    expect(run(0).sources).toEqual([
+      { name: "posts", count: 3 },
+      { name: "pages", count: 0 },
+    ]);
+    expect(run(0).messages).toEqual([]);
+    expect(run(2).sources).toBeUndefined();
+  });
 });
 
 describe("previewEntry", () => {

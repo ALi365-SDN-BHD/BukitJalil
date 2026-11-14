@@ -82,13 +82,23 @@ export class DataSourceService {
     return this.get(id);
   }
 
+  private readonly tokenListeners = new Set<(id: string) => void>();
+
+  /** Called with the source's id after its token was replaced by another one. */
+  onTokenReplaced(listener: (id: string) => void): void {
+    this.tokenListeners.add(listener);
+  }
+
   update(id: string, req: DataSourceRequest): SavedDataSource {
     this.row(id);
     this.assertName(req.name, id);
     // An omitted token keeps the stored one; a null token makes the source unusable, so refuse it.
-    const token = req.token === undefined ? this.token(id) : req.token.trim() || null;
+    const before = this.token(id);
+    const token = req.token === undefined ? before : req.token.trim() || null;
     if (token === null) throw new SiteError("datasource.no_token", 400);
     if (req.token !== undefined) this.writeToken(id, token);
+    // Another token may read another workspace: what the old one recorded must go (plan 5.5).
+    if (token !== before) for (const listener of this.tokenListeners) listener(id);
     this.opts.db.prepare("UPDATE data_sources SET name = ? WHERE id = ?").run(req.name, id);
     return this.get(id);
   }

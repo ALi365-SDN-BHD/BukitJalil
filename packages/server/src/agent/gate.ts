@@ -16,6 +16,11 @@ export const MAX_WRITE_BYTES = 1024 * 1024;
 
 /** Top-level directories the AI may not write: build output and caches (plan 6.3). */
 const NO_WRITE_TOP = new Set<string>([...BUILD_DIRS, "plugins"]);
+/**
+ * Top-level directories the AI may not read or list: Bukit's in-progress build output, which for a Notion
+ * site holds pages rendered from the offline snapshot (plan 5.5); the build tools report what it needs.
+ */
+const NO_READ_TOP = new Set<string>([".bukitjalil-build"]);
 /** File names the AI may not write anywhere: plugin manifests (plan 8.5). */
 const NO_WRITE_NAMES = new Set(["plugin.yaml", "plugin.json"]);
 
@@ -102,6 +107,9 @@ export class PathGate {
     // values to the model provider, and grep would return its lines. The write rule below already protects it.
     if ((mode === "read" || mode === "list") && keys.some((key) => key.startsWith(".env"))) {
       throw new GateError(`Path not allowed: ${parts.join("/")} is protected and cannot be read or listed`);
+    }
+    if ((mode === "read" || mode === "list") && keys[0] !== undefined && NO_READ_TOP.has(keys[0])) {
+      throw new GateError(`Path not allowed: ${parts.join("/")} is build output and cannot be read or listed`);
     }
     if (mode === "write") {
       const top = keys[0];

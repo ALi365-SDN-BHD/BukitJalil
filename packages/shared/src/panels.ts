@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SourceCount } from "./builds.ts";
 import type { BukitPluginState } from "./plugins.ts";
 
 /** Read-only panels (plan 5.3, 9.1): files, config, theme and data, all read from git objects. */
@@ -128,6 +129,17 @@ export interface DataResponse {
   sources: DataSource[];
   /** Markdown files were not all read (the per-request limit). */
   truncated: boolean;
+  /** Entries per source of the newest successful build of this version, by source name (plan 5.5). */
+  counts: SourceCounts | null;
+  /** The formal build whose Notion data offline checks and builds read; null when there is none (plan 5.5). */
+  notionSnapshot: { commit: string; builtAt: string } | null;
+}
+
+export interface SourceCounts {
+  buildId: string;
+  commit: string;
+  finishedAt: string | null;
+  sources: SourceCount[];
 }
 
 interface DataSourceBase {

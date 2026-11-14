@@ -34,6 +34,8 @@ case "$1" in
     echo '{"siteUrl":null,"routes":[{},{}],"issues":[{"severity":"warning","code":"seo.canonical_not_absolute","route":"/","message":"Canonical URL should be absolute: /."},{"severity":"warning","code":"seo.description_missing","route":"/","message":"SEO description is missing."},{"severity":"error","code":"seo.title_missing","route":"/about/","message":"Title is missing."}]}' > "$out/.bukit/seo-report.json"
     echo '{"geoScore":25,"llmsTxtGenerated":true,"llmsFullTxtGenerated":false,"geoEnhancedCount":0}' > "$out/.bukit/geo-report.json"
     echo '{"siteUrl":null,"documents":[{}],"issues":[{"severity":"warning","code":"publish.time_missing","route":"/","message":"Dated content is missing a visible time element."}]}' > "$out/.bukit/publish-audit-report.json"
+    # Bukit 2.1 logs the entries of each content source (the starter's posts source).
+    echo '{"ts":"t","level":"Info","msg":"event=content.source.loaded source=posts count=1"}'
     exit 0;;
   publish) exit 0;;
   deploy) sleep 1; echo "[info] Git push completed. GitHub Pages publication has not been verified."; exit 0;;

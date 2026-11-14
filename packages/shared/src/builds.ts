@@ -161,6 +161,12 @@ export interface BuildReport {
   problem?: "fs.disk_full" | "fs.read_only" | "fs.permission_denied";
   /** A Notion failure recognised in Bukit's output (plan 5.4). */
   notionProblem?: NotionProblem;
+  /** Why a change build could not use the Notion offline snapshot (plan 5.5). */
+  notionSnapshotProblem?: NotionSnapshotProblem;
+  /** A change build of a Notion site: where its Notion data came from (plan 5.5). */
+  notionOffline?: NotionOfflineData;
+  /** Entries per content source of a successful build, from Bukit's `content.source.loaded` lines (plan 5.5). */
+  sources?: SourceCount[];
   /** The messages of Bukit's own error document of a failed run, at most 5 (plan 8.6). */
   bukitErrors?: string[];
   /** A missing placeholder for a remote image that could not be downloaded (plan 8.6). */
@@ -180,6 +186,8 @@ export interface Build {
   id: string;
   siteId: string;
   ref: PanelRef;
+  /** The change set a change build previews; null for main builds. */
+  changeSetId: string | null;
   commit: string;
   status: BuildStatus;
   outcome: BuildOutcome | null;
@@ -196,6 +204,29 @@ export interface BuildListResponse {
   builds: Build[];
 }
 
+/**
+ * Why the Notion offline snapshot could not be used (plan 5.5): `missing` (no formal build recorded one yet),
+ * `stale` (Bukit cannot read it: another format or Bukit version, or it lacks something; a formal build
+ * records it again) or `change` (the change needs Notion data the formal build did not read: a changed
+ * databaseId, a new Notion source, content rendering turned on; it arrives with a formal build after applying).
+ */
+export type NotionSnapshotProblem = "missing" | "stale" | "change";
+
+/** The Notion data of an offline build: the formal build that recorded it (plan 5.5). */
+export interface NotionOfflineData {
+  commit: string;
+  builtAt: string;
+  /** The change's Notion filter or sort differs from the formal build; its pages were used. */
+  queryChanged: boolean;
+  /** Some bodies were rendered by an older Bukit; a formal build renders them again. */
+  rendererMismatch: boolean;
+}
+
+export interface SourceCount {
+  name: string;
+  count: number;
+}
+
 export interface PreviewResponse {
   ref: PanelRef;
   /** http://127.0.0.1:<port>/, the address to put in the iframe. */
@@ -203,4 +234,6 @@ export interface PreviewResponse {
   port: number;
   buildId: string;
   commit: string;
+  /** The served build is a change build of a Notion site, built from the offline snapshot. */
+  notionOffline: NotionOfflineData | null;
 }

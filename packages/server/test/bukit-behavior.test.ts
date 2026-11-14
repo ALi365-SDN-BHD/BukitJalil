@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MIN_BUKIT_VERSION } from "../src/bukit/install.ts";
 import { versionState } from "../src/bukit/locate.ts";
+import { notionSnapshotProblemIn } from "../src/bukit/notion-errors.ts";
 import { BukitRunner, checkPassed, DEPLOY_TOKEN_ENV, parseBukitVersion } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
@@ -85,6 +86,50 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
   });
 
   // Bukit 2.1 refuses site.language; the migration card's rewrite builds again (plan 8.7).
+  // AI checks, AI builds and change previews of a Notion site read the Notion offline snapshot (plan 5.5):
+  // no token, and BukitJalil tells "record it again" from "the change needs new Notion data" by the text.
+  it("checks and builds a Notion site offline, and says what the snapshot lacks", async () => {
+    const dir = site("offline", true);
+    const snap = path.join(base, "offline-snapshot");
+    const offline = ["--notion-snapshot", snap, "--notion-offline"];
+    const runs = () => [
+      runner.run("check", ["config", "check", "--config", "site.yaml", ...offline], { cwd: dir }),
+      runner.run("doctor", ["doctor", "--config", "site.yaml", ...offline], { cwd: dir }),
+      runner.run(
+        "build",
+        [
+          "build",
+          "--config",
+          "site.yaml",
+          "--output",
+          "out",
+          ...offline,
+          "--cache-dir",
+          path.join(base, "offline-cache"),
+          "--log-format",
+          "json",
+        ],
+        { cwd: dir },
+      ),
+    ];
+    for (const result of await Promise.all(runs())) {
+      expect(result.exitCode, output(result)).not.toBe(0);
+      expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("stale");
+      expect(output(result)).not.toContain(snap);
+    }
+    // A snapshot of this Bukit that holds no data for the site's database.
+    // Bukit 2.1.0 also wants its full version, build metadata included (later releases check the format only).
+    const version = /^bukit (\S+)/m.exec((await runner.run("version", ["version"], { cwd: base })).stdout)?.[1];
+    fs.mkdirSync(snap);
+    fs.writeFileSync(
+      path.join(snap, "manifest.json"),
+      JSON.stringify({ format: 1, bukitVersion: version, createdAt: "2026-11-14T00:00:00Z", databases: [] }),
+    );
+    for (const result of await Promise.all(runs())) {
+      expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("change");
+    }
+  });
+
   it("refuses site.language and accepts the migrated site.yaml", async () => {
     const dir = site("language");
     const file = path.join(dir, "site.yaml");

@@ -198,7 +198,7 @@ const zhCN = {
       stopped: "已停止",
       failed: "Bukit 运行失败",
       refused: "未通过构建前安全检查",
-      notion: "使用 Notion 数据源；需要在数据面板里绑定数据源，AI 改动的预览暂不支持 Notion",
+      notion: "需要 Notion 数据：正式构建要在数据面板里绑定数据源，AI 改动的预览要先正式构建一次",
       base_url: "site.baseUrl 不是可以用来预览的路径（只能用字母、数字和 . _ ~ -，以 / 分隔）",
       symlink: "输出里有符号链接，没有保留",
       interrupted: "服务重启时中断",
@@ -413,7 +413,8 @@ const zhCN = {
     fieldsRead: "{time}用绑定数据源的 token 读取",
     fieldsMore: "数据库的字段比列出的多",
     fieldsMainOnly: "只按正式版本的配置读取字段，不读取未审核改动里的配置。",
-    pagesLater: "页数要等 Bukit 按源输出后才能显示。",
+    count: "{count} 条",
+    countFrom: "{time} 的构建读到的条数",
     notionBinding: "Notion 数据源",
     notionUnbound: "未绑定",
     notionNoSources: "还没有保存的 Notion 数据源。请先在“设置 → 数据源”里添加。",
@@ -443,6 +444,20 @@ const zhCN = {
         "site.yaml 里用到的属性（通常是过滤字段，默认 Published）在 Notion 数据库里不存在。请在 Notion 里添加，或修改 filterProperty。",
       network: "连不上 Notion。请检查网络后重新构建。",
     },
+  },
+  notionSnapshot: {
+    offline: "Notion 数据来自 {time} 的正式构建（提交 {commit}），之后在 Notion 里的修改不会显示。",
+    queryChanged: "这次改动修改了 Notion 的过滤或排序，Notion 数据仍按正式版本的过滤条件。",
+    rendererMismatch: "部分正文是旧版渲染，正式构建后会更新。",
+    problem: {
+      missing:
+        "还没有可用的 Notion 数据：先在网站页面正式构建一次（要先绑定数据源），之后 AI 改动才能检查和预览。如果这个改动给网站加了第一个 Notion 源，要先应用、再正式构建。",
+      stale: "上次正式构建保存的 Notion 数据读不出来（Bukit 升级了或数据不完整），请重新正式构建一次。",
+      change:
+        "这次改动需要上次正式构建没有读过的 Notion 数据（换了 databaseId、新加了 Notion 源，或给某个源打开了正文渲染），应用后正式构建才有这些数据。",
+    },
+    panelRecorded: "AI 改动的检查和预览使用 {time} 正式构建（提交 {commit}）保存的 Notion 数据。",
+    panelNone: "还没有保存的 Notion 数据。绑定数据源并正式构建一次后，AI 改动才能检查和预览。",
   },
   changes: {
     card: "待审核的改动",
@@ -482,11 +497,11 @@ const zhCN = {
       rejected: "已拒绝这些改动。",
     },
     checkFailed: "应用前的检查没有通过，没有应用任何改动。",
-    appliedUnchecked: "网站使用 Notion 内容源，应用前无法用 Bukit 检查，请查看正式构建的结果。",
+    appliedUnchecked: "网站使用 Notion 内容源，应用前没能用 Bukit 检查，请查看正式构建的结果。",
     problem: {
       bukit_missing: "没有安装 Bukit，无法检查这些改动。",
       guard: "构建前安全检查拒绝了这些改动。",
-      notion: "网站使用 Notion 内容源，未审核的改动无法检查。",
+      notion: "网站使用 Notion 内容源，上次正式构建保存的 Notion 数据不能用来检查这些改动。",
       read_only: "网站是只读的。",
     },
   },

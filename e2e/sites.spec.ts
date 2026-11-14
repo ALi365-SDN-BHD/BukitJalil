@@ -119,6 +119,10 @@ test("a new site builds once, shows its preview and the read-only panels", async
   await expect(page.getByTestId("theme-name")).toHaveText("starter");
   await page.getByTestId("tab-data").click();
   await expect(page.getByTestId("data-source").first()).toBeVisible();
+  // Entries per source come from the build (plan 5.5).
+  await expect(
+    page.getByTestId("data-source").filter({ hasText: "posts" }).first().getByTestId("data-source-count"),
+  ).toHaveText(/^1 (entries|条)$/);
 
   // The open tab survives a reload.
   await page.reload();
@@ -469,6 +473,8 @@ test("a Notion data source keeps its token and several databases are used when c
   await binding.selectOption(id);
   await expect(page.getByTestId("notion-binding")).not.toContainText(/fail|失败/);
   await expect(binding).toBeEnabled();
+  // No formal build recorded Notion data offline, so AI changes cannot be checked yet (plan 5.5).
+  await expect(page.getByTestId("notion-snapshot")).toContainText(/No saved Notion data|还没有保存的 Notion 数据/);
 
   // Fields are read only on request (plan 5.4). The server calls Notion; here the API answer is stubbed.
   let fieldsAnswer: { status: number; body: unknown } = {

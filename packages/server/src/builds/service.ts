@@ -8,13 +8,15 @@ import type {
   BuildOutcome,
   BuildReport,
   BuildStatus,
+  NotionOfflineData,
   PanelRef,
   PreviewResponse,
   Site,
+  SourceCounts,
 } from "@bukitjalil/shared";
 import { guardCommit, isRecord } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
-import { notionProblemIn } from "../bukit/notion-errors.ts";
+import { notionProblemIn, notionSnapshotProblemIn } from "../bukit/notion-errors.ts";
 import { bukitErrorsIn, mediaProblemIn } from "../bukit/report-errors.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, logEntry, usableRunner } from "../bukit/runner.ts";
 import type { ChangeService } from "../changes/service.ts";
@@ -27,6 +29,7 @@ import { checkoutBasePath } from "../preview/base-path.ts";
 import { NoPreviewPortError, PreviewPool, previewUrl } from "../preview/pool.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
+import type { OfflineNotion } from "../sites/notion-snapshots.ts";
 import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
 import { compareAudits, readAudit, readIssues } from "./audit.ts";
@@ -179,6 +182,15 @@ export class BuildService {
     };
   }
 
+  /** Entries per content source of the newest successful build of `ref` (plan 5.5), for the data panel. */
+  sourceCounts(siteId: string, ref: PanelRef): SourceCounts | null {
+    const changeSetId = ref === "change" ? (this.opts.changes.store.open(siteId)?.id ?? null) : null;
+    if (ref === "change" && changeSetId === null) return null;
+    const build = this.store.finishedOf(siteId, changeSetId, KEEP_RECORDS).find((b) => b.status === "succeeded");
+    if (!build?.report?.sources) return null;
+    return { buildId: build.id, commit: build.commit, finishedAt: build.finishedAt, sources: build.report.sources };
+  }
+
   /** Full issue lists by output directory: an output never changes, and the report can be 16 MiB of JSON. */
   private readonly issueCache = new Map<string, NonNullable<ReturnType<typeof readIssues>>>();
 
@@ -305,7 +317,14 @@ export class BuildService {
     }
     // The served build may have changed above; its base path makes the address.
     url = previewUrl(port, build.report?.basePath);
-    return { ref, url, port, buildId: build.id, commit: build.commit };
+    return {
+      ref,
+      url,
+      port,
+      buildId: build.id,
+      commit: build.commit,
+      notionOffline: build.report?.notionOffline ?? null,
+    };
   }
 
   /**
@@ -372,6 +391,9 @@ export class BuildService {
     // The token is read only for a main build whose commit uses Notion, after the guard says so.
     let notionToken: string | null = null;
     let passNotionToken = false;
+    // A change build of a Notion site reads the snapshot of the last formal build instead (plan 5.5).
+    let offline: OfflineNotion | null = null;
+    const snapshots = this.opts.sites.notionSnapshots;
     try {
       // The guard reads the commit's git objects, so it judges exactly what the checkout will hold.
       if (!guarded) {
@@ -381,9 +403,11 @@ export class BuildService {
         if (target.ref === "main" && (!guard.ok || guard.usesNotion))
           this.opts.sites.applyGuard(site.id, commit, guard);
         if (!guard.ok) return finish("failed", "refused", null, { reasons: guard.reasons });
-        if (guard.usesNotion) {
-          // Unreviewed change builds never get the Notion token; they cannot be built here.
-          if (target.ref !== "main") return finish("failed", "notion", null, {});
+        if (guard.usesNotion && target.ref !== "main") {
+          // Unreviewed change builds never get the Notion token: they build offline, from the snapshot.
+          offline = snapshots.offline(site.id);
+          if (!offline) return finish("failed", "notion", null, { notionSnapshotProblem: "missing" });
+        } else if (guard.usesNotion) {
           try {
             notionToken = this.opts.notionToken(site.id);
           } catch {
@@ -391,6 +415,9 @@ export class BuildService {
           }
           if (notionToken === null) return finish("failed", "notion", null, {});
           passNotionToken = true;
+        } else if (target.ref === "main") {
+          // The default branch no longer uses Notion: its snapshot only keeps data nothing shows.
+          snapshots.remove(site.id);
         }
       }
 
@@ -400,13 +427,45 @@ export class BuildService {
       const { basePath } = base;
       temp = path.join(checkout, BUILD_OUTPUT_PARENT, id);
       fs.rmSync(temp, { recursive: true, force: true });
-      const result = await runner.run("build", buildArgs(id, basePath), {
+      const record = passNotionToken && notionToken !== null;
+      const args = [
+        ...buildArgs(id, basePath),
+        ...(record ? snapshots.recordArgs(site.id) : offline ? offline.buildArgs : []),
+      ];
+      const result = await runner.run("build", args, {
         cwd: checkout,
         signal,
-        ...(passNotionToken && notionToken !== null ? { env: { NOTION_TOKEN: notionToken } } : {}),
+        redact: snapshots.redact,
+        ...(record ? { env: { NOTION_TOKEN: notionToken as string } } : {}),
       });
       const report = buildReport(result);
       const outcome = buildOutcome(result);
+      if (offline) {
+        if (outcome === "ok") report.notionOffline = notionOfflineData(offline, result);
+        else {
+          const problem = notionSnapshotProblemIn(`${result.stderr}\n${result.stdout}`);
+          if (problem) report.notionSnapshotProblem = problem;
+        }
+      }
+      if (record && outcome === "ok" && result.stdout.includes("event=notion.snapshot.saved")) {
+        // Bukit replaced the snapshot once the build succeeded (and said so); what is left here only decides
+        // the preview.
+        try {
+          snapshots.recorded(site.id, commit, checkout);
+        } catch (err) {
+          // A record that names another build than the data, or a media cache that does not go with it, is
+          // worse than none: the next formal build records again.
+          this.opts.logger.log("warn", "build.notion_snapshot_failed", { siteId: site.id, error: String(err) });
+          try {
+            snapshots.remove(site.id);
+          } catch (removeErr) {
+            this.opts.logger.log("warn", "build.notion_snapshot_remove_failed", {
+              siteId: site.id,
+              error: String(removeErr),
+            });
+          }
+        }
+      }
       if (outcome !== "ok") {
         const problem = storageErrorInText([report.output, ...report.messages.map((m) => m.msg)].join("\n"));
         return finish("failed", outcome, result.exitCode, problem ? { ...report, problem } : report);
@@ -524,7 +583,7 @@ type Target =
   | { ref: "change"; commit: string; cwd: string; changeSetId: string };
 
 function publicBuild(record: BuildRecord): Build {
-  const { outputDir: _, changeSetId: __, ...build } = record;
+  const { outputDir: _, ...build } = record;
   return build;
 }
 
@@ -542,11 +601,19 @@ const AUDIT_LOG_LINE =
 export function buildReport(result: BukitRunResult): BuildReport {
   const messages: BuildReport["messages"] = [];
   const other: string[] = [];
+  const sources = new Map<string, number>();
   // Bukit 2.0.x writes its JSON log to stderr (stdout stays empty); read both, log lines first from stderr.
   for (const line of `${result.stderr}\n${result.stdout}`.split("\n")) {
     const entry = logEntry(line);
     if (!entry) {
       if (line.trim() !== "") other.push(line);
+      continue;
+    }
+    const loaded = SOURCE_LOADED.exec(entry.msg);
+    if (loaded) {
+      // A multilingual build loads each source once per language: the same entries.
+      const [, name = "", n = "0"] = loaded;
+      sources.set(name, Math.max(sources.get(name) ?? 0, Number(n)));
       continue;
     }
     // Every SEO issue is also logged as a warning; the audit summary lists them grouped (M4 layer 7).
@@ -560,6 +627,9 @@ export function buildReport(result: BukitRunResult): BuildReport {
     messages: limitMessages(messages, MAX_MESSAGES),
     output: other.join("\n").slice(-MAX_OUTPUT_CHARS),
   };
+  if (result.exitCode === 0 && sources.size > 0) {
+    report.sources = [...sources].map(([name, count]) => ({ name, count }));
+  }
   // Only a failed run: a build that succeeded may still log Notion or media warnings it got past (plan 5.4, 8.6).
   if (result.exitCode !== 0) {
     const all = `${result.stderr}\n${result.stdout}`;
@@ -571,6 +641,19 @@ export function buildReport(result: BukitRunResult): BuildReport {
     if (mediaProblem) report.mediaProblem = mediaProblem;
   }
   return report;
+}
+
+/** Bukit's line for each content source of a build (Bukit 2.1.0). */
+const SOURCE_LOADED = /^event=content\.source\.loaded source=(.+?) count=(\d+)$/;
+
+/** Where the Notion data of a successful offline build came from, and what Bukit warned about it (plan 5.5). */
+export function notionOfflineData(offline: OfflineNotion, result: BukitRunResult): NotionOfflineData {
+  const all = `${result.stderr}\n${result.stdout}`;
+  return {
+    ...offline.record,
+    queryChanged: all.includes("event=notion.snapshot.query_changed"),
+    rendererMismatch: all.includes("event=notion.cache.renderer_mismatch"),
+  };
 }
 
 /**

@@ -8,6 +8,7 @@ import type {
   FileResponse,
   ImageMime,
   PanelRef,
+  SourceCounts,
   ThemeResponse,
   TreeEntryView,
   TreeResponse,
@@ -73,6 +74,8 @@ export class PanelService {
       sites: SiteService;
       /** The snapshot of the site's open change set (ref=change), or null when none is open. */
       changeCommit: (siteId: string) => string | null;
+      /** Entries per source of the newest successful build of `ref` (plan 5.5). */
+      sourceCounts?: (siteId: string, ref: PanelRef) => SourceCounts | null;
     },
   ) {}
 
@@ -276,7 +279,15 @@ export class PanelService {
             : null,
         });
       }
-      return { ref, commit: v.commit, sources: out, truncated };
+      const notion = out.some((s) => s.type === "notion");
+      return {
+        ref,
+        commit: v.commit,
+        sources: out,
+        truncated,
+        counts: this.opts.sourceCounts?.(siteId, ref) ?? null,
+        notionSnapshot: notion ? this.opts.sites.notionSnapshots.get(siteId) : null,
+      };
     });
   }
 

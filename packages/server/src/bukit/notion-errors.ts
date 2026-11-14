@@ -1,4 +1,4 @@
-import type { NotionProblem } from "@bukitjalil/shared";
+import type { NotionProblem, NotionSnapshotProblem } from "@bukitjalil/shared";
 
 /**
  * Notion failures in Bukit's output (plan 5.4). Bukit 2.0.15 drops Notion's own error code and keeps the
@@ -41,5 +41,33 @@ export function notionProblemIn(text: string): NotionProblem | null {
     }
     if (last) return last.problem;
   }
+  return null;
+}
+
+/**
+ * Snapshot errors the change itself causes, which another formal build of the default branch does not fix:
+ * a database the formal build did not read (a changed databaseId or a new Notion source), a body it did not
+ * render (the change turns on content rendering for a source), or a filter that matches none of several
+ * queries recorded for one database.
+ */
+const CHANGE_CAUSED =
+  /Notion offline snapshot (?:has no data for database|has no rendered body for page|holds \d+ different queries for database)\b/;
+
+/** Bukit's other snapshot errors (NotionSnapshotException texts and doctor's error line). */
+const SNAPSHOT_ERROR =
+  /Notion offline snapshot (?:not found|was written by|format \d+ does not match|manifest is unreadable|has an unreadable|has no\b|error\b)/;
+
+/**
+ * An offline build that could not use the Notion offline snapshot (plan 5.5). Bukit 2.1.0 gives these no
+ * error code yet (NotionSnapshotException, "Notion offline snapshot …"), so the text is matched; check it
+ * when Bukit is upgraded. `change`: the change needs Notion data the formal build did not read; `stale`:
+ * the snapshot must be recorded again (another format or Bukit version, unreadable, incomplete).
+ */
+export function notionSnapshotProblemIn(text: string): NotionSnapshotProblem | null {
+  // Doctor's success line ("✔ Notion offline snapshot (…)") names the snapshot without a problem.
+  const lines = text.split("\n").filter((line) => !line.trimStart().startsWith("✔"));
+  const errors = lines.join("\n");
+  if (CHANGE_CAUSED.test(errors)) return "change";
+  if (SNAPSHOT_ERROR.test(errors)) return "stale";
   return null;
 }

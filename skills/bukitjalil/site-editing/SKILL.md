@@ -52,7 +52,12 @@ files with their front matter; `read`, `ls`, `find`, `grep`, `edit` and
    why, and anything they should look at.
 
 If a tool says the site is busy, wait for the user's next message instead of
-retrying in a loop. If it says the site uses Notion, explain that Bukit cannot
-check or build unreviewed changes for Notion sites, and continue with the
-files. The Notion token belongs to the data source chosen when the site was
-created; never put a token in `site.yaml`.
+retrying in a loop.
+
+For a Notion site, `bukit_check` and `bukit_build` read the Notion data saved
+by the user's last main build (`notionData` in the result says when): no token,
+no network, so Notion edits made since then do not show. If a tool says there
+is no such data yet, or that the change uses a Notion database the main build
+did not read, tell the user what it says and continue with the files. The
+Notion token belongs to the data source chosen when the site was created;
+never put a token in `site.yaml`.

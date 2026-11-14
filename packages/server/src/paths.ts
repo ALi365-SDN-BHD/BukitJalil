@@ -59,6 +59,8 @@ export interface AppPaths {
   /** Pi session files, sessions/<siteId>/<sessionId>.jsonl (plan 4.1). */
   sessions: string;
   previews: string;
+  /** Notion offline snapshots and their media caches, notion-snapshots/<siteId>/ (plan 5.5). */
+  notionSnapshots: string;
   /** Pi's agentDir and PI_CODING_AGENT_DIR: auth.json, models.json (plan 6.1). */
   pi: string;
   /** rg installed and checked by BukitJalil (plan 6.3). */
@@ -87,6 +89,7 @@ export function ensureAppHome(home: string): AppPaths {
     worktrees: path.join(home, "worktrees"),
     sessions: path.join(home, "sessions"),
     previews: path.join(home, "previews"),
+    notionSnapshots: path.join(home, "notion-snapshots"),
     pi: path.join(home, "pi"),
     piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
@@ -101,7 +104,14 @@ export function ensureAppHome(home: string): AppPaths {
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   fs.mkdirSync(paths.logs, { recursive: true, mode: 0o700 });
   fs.mkdirSync(paths.emptyHooks, { recursive: true, mode: 0o700 });
-  for (const dir of [paths.bukitTmp, paths.worktrees, paths.sessions, paths.previews, paths.piBin]) {
+  for (const dir of [
+    paths.bukitTmp,
+    paths.worktrees,
+    paths.sessions,
+    paths.previews,
+    paths.notionSnapshots,
+    paths.piBin,
+  ]) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   fs.chmodSync(home, 0o700);

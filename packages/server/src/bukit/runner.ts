@@ -54,6 +54,8 @@ export interface BukitRunOptions {
   deploy?: DeployEnv;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Text to replace in the output, value -> mask: paths an AI or a report must not see (plan 5.5). */
+  redact?: Readonly<Record<string, string>>;
 }
 
 export interface BukitRunResult {
@@ -129,17 +131,22 @@ export class StreamCapture {
  * (longest secret - 1) characters until more text or the end arrives.
  */
 export class SecretScrubber {
-  private readonly secrets: string[];
+  /** [value, mask], longest value first. */
+  private readonly secrets: [string, string][];
   private readonly keep: number;
   private pending = "";
 
-  constructor(
-    secrets: readonly string[],
-    private readonly mask = "[token]",
-  ) {
+  /** `redact` adds other values (paths) with their own masks. */
+  constructor(secrets: readonly string[], mask = "[token]", redact: Readonly<Record<string, string>> = {}) {
     // Short values would mask ordinary words; the tokens BukitJalil passes are far longer.
-    this.secrets = [...new Set(secrets.filter((s) => s.length >= 8))].sort((a, b) => b.length - a.length);
-    this.keep = this.secrets.reduce((n, s) => Math.max(n, s.length - 1), 0);
+    const pairs = new Map<string, string>();
+    for (const [value, valueMask] of Object.entries(redact)) {
+      // Bukit's JSON log escapes backslashes (Windows paths) and non-ASCII characters; mask those forms too.
+      for (const form of jsonForms(value)) if (form.length >= 8) pairs.set(form, valueMask);
+    }
+    for (const secret of secrets) if (secret.length >= 8) pairs.set(secret, mask);
+    this.secrets = [...pairs].sort((a, b) => b[0].length - a[0].length);
+    this.keep = this.secrets.reduce((n, [s]) => Math.max(n, s.length - 1), 0);
   }
 
   push(chunk: string): string {
@@ -158,9 +165,21 @@ export class SecretScrubber {
 
   private clean(text: string): string {
     let out = text;
-    for (const secret of this.secrets) out = out.split(secret).join(this.mask);
+    for (const [secret, mask] of this.secrets) out = out.split(secret).join(mask);
     return out;
   }
+}
+
+/** `value` as written raw, and inside a JSON string as JSON.stringify and System.Text.Json write it. */
+function jsonForms(value: string): string[] {
+  const json = JSON.stringify(value).slice(1, -1);
+  // JavaScriptEncoder.Default also escapes HTML-sensitive characters, the quote among them, as \u00XX.
+  const ascii = json
+    .replace(/\\"/g, '"')
+    .replace(/[^\x20-\x7e]|[<>&'"+`]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  return [
+    ...new Set([value, json, ascii, ascii.replace(/\\u([0-9a-f]{4})/g, (_, h: string) => `\\u${h.toUpperCase()}`)]),
+  ];
 }
 
 const KILL_GRACE_MS = 10_000;
@@ -241,8 +260,8 @@ export class BukitRunner {
       const stderr = new StreamCapture();
       // The secrets this process was given never reach the result, whatever Bukit or its git prints.
       const secretValues = Object.values(secrets);
-      const outScrub = new SecretScrubber(secretValues);
-      const errScrub = new SecretScrubber(secretValues);
+      const outScrub = new SecretScrubber(secretValues, undefined, opts.redact);
+      const errScrub = new SecretScrubber(secretValues, undefined, opts.redact);
       let stopped: BukitRunResult["stopped"] = null;
       let killTimer: NodeJS.Timeout | undefined;
 

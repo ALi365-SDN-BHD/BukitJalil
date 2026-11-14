@@ -35,6 +35,7 @@ import { PublishAccountService } from "./publish/accounts.ts";
 import { SecretStore } from "./secrets/store.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
 import { SiteLocks } from "./sites/locks.ts";
+import { NotionSnapshots } from "./sites/notion-snapshots.ts";
 import { SiteService } from "./sites/service.ts";
 import { openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
@@ -179,6 +180,7 @@ const sites = new SiteService({
   locks,
   dataSources,
   templateDir: resources.starter,
+  notionSnapshots: new NotionSnapshots({ db, root: paths.notionSnapshots, logger }),
 });
 
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
@@ -273,7 +275,12 @@ const agent = new AgentService({
   skillsDir,
   disabledSkills: () => settingsStore.get().disabledSkills,
 });
-const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
+const panels = new PanelService({
+  git,
+  sites,
+  changeCommit: (id) => changes.openSnapshot(id),
+  sourceCounts: (id, ref) => builds.sourceCounts(id, ref),
+});
 const deploys = new DeployService({ sites, panels, accounts: publishAccounts, git, bukit, locks, paths, logger, db });
 const events = new EventHub();
 connectEvents(events, { agent, builds, changes, deploys, logger });

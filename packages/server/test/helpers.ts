@@ -177,7 +177,12 @@ export function makeApp(
     ...overrides.agent,
   });
   const events = new EventHub(overrides.replayBytes);
-  const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
+  const panels = new PanelService({
+    git,
+    sites,
+    changeCommit: (id) => changes.openSnapshot(id),
+    sourceCounts: (id, ref) => builds.sourceCounts(id, ref),
+  });
   const deploys = new DeployService({ sites, panels, accounts: publishAccounts, git, bukit, locks, paths, logger, db });
   connectEvents(events, { agent, builds, changes, deploys, logger });
   const loginToken = new LoginToken(TOKEN);

@@ -204,7 +204,7 @@ const en: Messages = {
       failed: "Bukit failed to run",
       refused: "Refused by the pre-build safety check",
       notion:
-        "Uses a Notion source; bind a data source in the Data panel. Previews of AI changes do not support Notion yet",
+        "Needs Notion data: main builds need a data source bound in the Data panel; previews of AI changes need one main build first",
       base_url: "site.baseUrl is not a path a preview can use (letters, digits and . _ ~ - between slashes)",
       symlink: "The output had a symbolic link and was not kept",
       interrupted: "Interrupted by a server restart",
@@ -427,7 +427,8 @@ const en: Messages = {
     fieldsRead: "Read {time} with the bound data source's token",
     fieldsMore: "The database has more fields than listed",
     fieldsMainOnly: "Fields are read for the main version's configuration only, never for unreviewed changes.",
-    pagesLater: "Page counts will show once Bukit reports them per source.",
+    count: "{count} entries",
+    countFrom: "Entries read by the build of {time}",
     notionBinding: "Notion data source",
     notionUnbound: "Not bound",
     notionNoSources: "No saved Notion data source yet. Add one in Settings → Data sources first.",
@@ -459,6 +460,24 @@ const en: Messages = {
         "A property named in site.yaml (usually the filter, Published by default) does not exist in the Notion database. Add it in Notion or change filterProperty.",
       network: "Notion could not be reached. Check the network and build again.",
     },
+  },
+  notionSnapshot: {
+    offline: "Notion data comes from the main build of {time} (commit {commit}); later edits in Notion do not show.",
+    queryChanged:
+      "This change edits the Notion filter or sort; the Notion data still follows the main version's filter.",
+    rendererMismatch: "Some page bodies were rendered by an older Bukit; a main build updates them.",
+    problem: {
+      missing:
+        "No Notion data yet: build the site once from the site page (with a data source bound), then AI changes can be checked and previewed. A change that adds the site's first Notion source is checked after you apply it and build.",
+      stale:
+        "The Notion data saved by the last main build cannot be read (Bukit was upgraded or the data is incomplete); build the site again.",
+      change:
+        "This change needs Notion data the last main build did not read (a changed databaseId, a new Notion source, or content rendering turned on for a source); it arrives with a main build after applying.",
+    },
+    panelRecorded:
+      "Checks and previews of AI changes use the Notion data saved by the main build of {time} (commit {commit}).",
+    panelNone:
+      "No saved Notion data yet. After binding a data source and one main build, AI changes can be checked and previewed.",
   },
   changes: {
     card: "Changes waiting for review",
@@ -499,11 +518,12 @@ const en: Messages = {
       rejected: "The changes were rejected.",
     },
     checkFailed: "The check before applying failed, so nothing was applied.",
-    appliedUnchecked: "The site uses a Notion source, which Bukit cannot check before applying; see the main build.",
+    appliedUnchecked: "The site uses a Notion source, which Bukit could not check before applying; see the main build.",
     problem: {
       bukit_missing: "Bukit is not installed, so the changes could not be checked.",
       guard: "The safety check before building refused the changes.",
-      notion: "The site uses a Notion source, which cannot be checked for unreviewed changes.",
+      notion:
+        "The site uses a Notion source, and the Notion data saved by the last main build cannot check these changes.",
       read_only: "The site is read-only.",
     },
   },

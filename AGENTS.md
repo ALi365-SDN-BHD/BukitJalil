@@ -55,7 +55,7 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **工作量**：Bukit 支持后约 2–3 天，包括试运行和确认界面。
 
-### 5. Notion 数据源管理（第一步已完成，第二步等 Bukit 改动）
+### 5. Notion 数据源管理（第一步、第二步已完成，错误码等 Bukit 2.1.1）
 
 **已定的问题**（2026-11-13）：
 
@@ -71,19 +71,19 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **还缺**：
 
-- Notion 报错改用 Bukit 的错误码（`BKT-0Bxx`），去掉 `notion-errors.ts` 的正则；快照只校验格式版本、加兼容测试。两项一起随 Bukit 2.1.1 做，实施方案见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)，方案第 4 节的 D1–D4 已定（2.1.1 发版），动 Bukit 代码前要用户确认开工。
+- Notion 报错改用 Bukit 的错误码（`BKT-0Bxx`），去掉 `notion-errors.ts` 的正则；快照只校验格式版本、加兼容测试。两项一起随 Bukit 2.1.1 做，BukitJalil 这边同时把快照报错的文字匹配（`notionSnapshotProblemIn`）换成按码认，实施方案见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)，方案第 4 节的 D1–D4 已定（2.1.1 发版），动 Bukit 代码前要用户确认开工。
 
-- AI 检查、AI 构建和改动集预览：`ai-bukit.ts` 遇到 Notion 源直接拒绝（不给未审核内容 token）。
-- 每个源的页数。
 
 **Bukit 的限制**（源码 v2.0.15 核对）：
+
+（下面是 2.1.0 之前的情况，2.1.0 的 `--notion-snapshot` / `--notion-offline` 已经解决。）
 
 - `ContentProviderFactory.cs` 在读取缓存模式之前就要求 `NOTION_TOKEN`。
 - `cacheMode: readonly` 时，`NotionContentSource.LoadCoreAsync` 每次仍然联网读数据库结构、查询数据库，缓存里只有页面正文和关联页面，缓存没命中就报错。
 
 所以"先缓存，预览只读缓存"用现在的 Bukit 做不到，塞一个假 token 也不行。
 
-**第二步：AI 改动的预览**（约 6–8 天，含 Bukit 的改动；2026-11-14 逐项定完，详见开发方案 5.5）：给 Bukit 加完整的 Notion 离线快照。
+**第二步：AI 改动的预览**（已完成：Bukit 2.1.0 带离线快照，BukitJalil 这边 2026-11-14 实现，实现说明见开发方案 5.5 末尾；下面是当时定的设计）：给 Bukit 加完整的 Notion 离线快照。
 
 - 现在的 `cacheMode: readonly` 只冻结页面正文。数据库结构、查询结果、关联目标、跨源关联、分类可选项都要存进快照；分类可选项和 `pages_index` 没 token 时会静默跳过，离线时必须改成读快照。
 - Bukit 加命令行参数 `--notion-snapshot <dir>`、`--notion-offline`，覆盖 `site.yaml` 里的 `cacheDir` 和 `cacheMode`；离线模式不要 token、不联网，快照缺项明确报错。

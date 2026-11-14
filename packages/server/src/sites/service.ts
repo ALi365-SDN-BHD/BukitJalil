@@ -26,6 +26,7 @@ import { EXCLUDE_PATTERNS, IMPORT_INIT_PATTERNS, removeExcludeBlock, writeExclud
 import { planLanguageMigration, siteYamlPatch } from "./language-migration.ts";
 import { assertDirectory, assertEmptyOrMissing, checkSiteLocation, inside, SiteError } from "./location.ts";
 import type { SiteLocks } from "./locks.ts";
+import { NotionSnapshots } from "./notion-snapshots.ts";
 import { isSiteId, newSiteId, type SiteState, SiteStore } from "./store.ts";
 import { copyStarter, type StarterSource } from "./template.ts";
 
@@ -42,6 +43,8 @@ export interface SiteServiceOptions {
   templateDir: string;
   /** Overrides os.homedir() (tests). */
   userHome?: string;
+  /** The sites' Notion offline snapshots (plan 5.5); made from `paths` when not given. */
+  notionSnapshots?: NotionSnapshots;
 }
 
 const INITIAL_MESSAGE = "Initial site from BukitJalil starter";
@@ -74,8 +77,31 @@ export class SiteService {
   private readonly addedHooks: ((site: Site) => Promise<void>)[] = [];
   private readonly removingHooks: ((siteId: string) => Promise<void>)[] = [];
 
+  /** Notion offline snapshots (plan 5.5): builds record them, offline checks and builds read them. */
+  readonly notionSnapshots: NotionSnapshots;
+
   constructor(private readonly opts: SiteServiceOptions) {
     this.store = new SiteStore(opts.db);
+    this.notionSnapshots =
+      opts.notionSnapshots ?? new NotionSnapshots({ db: opts.db, root: opts.paths.notionSnapshots });
+    opts.dataSources.onTokenReplaced?.((sourceId) => {
+      for (const site of this.store.list()) {
+        if (this.store.notionDataSourceId(site.id) === sourceId) void this.dropNotionSnapshot(site.id);
+      }
+    });
+  }
+
+  /** Delete a site's Notion offline snapshot once nothing is building with it (the site lock is free). */
+  private async dropNotionSnapshot(id: string): Promise<void> {
+    for (;;) {
+      await this.opts.locks.waitFree(id);
+      try {
+        await this.opts.locks.run(id, "notion-snapshot", async () => this.notionSnapshots.remove(id));
+        return;
+      } catch (err) {
+        if (!(err instanceof SiteError && err.code === "site.busy")) return;
+      }
+    }
   }
 
   list(): Site[] {
@@ -361,7 +387,11 @@ export class SiteService {
    * site keeps its old binding.
    */
   bindNotionSource(id: string, sourceId: string | null): Promise<Site> {
-    return this.check(id, undefined, () => this.store.setNotionDataSourceId(id, sourceId));
+    return this.check(id, undefined, () => {
+      // The snapshot holds what the old source's token could read; another source (or none) drops it.
+      if (this.store.notionDataSourceId(id) !== sourceId) this.notionSnapshots.remove(id);
+      this.store.setNotionDataSourceId(id, sourceId);
+    });
   }
 
   private async check(id: string, checked?: Prechecked, before?: () => void): Promise<Site> {
@@ -617,6 +647,7 @@ export class SiteService {
       else if (!common) leftovers.push("exclude_block");
       fs.rmSync(path.join(this.opts.paths.sessions, id), { recursive: true, force: true });
       fs.rmSync(path.join(this.opts.paths.previews, id), { recursive: true, force: true });
+      this.notionSnapshots.remove(id);
       this.store.delete(id);
       return { leftovers };
     });

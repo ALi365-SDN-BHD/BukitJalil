@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildReport } from "../src/builds/service.ts";
-import { notionProblemIn } from "../src/bukit/notion-errors.ts";
+import { notionProblemIn, notionSnapshotProblemIn } from "../src/bukit/notion-errors.ts";
 import { bukitErrorsIn, mediaProblemIn } from "../src/bukit/report-errors.ts";
 import { notionConfigChanges } from "../src/changes/notion-config.ts";
 import { notionId } from "../src/data-sources/service.ts";
@@ -20,6 +20,41 @@ const cliError = (message: string) =>
     null,
     2,
   );
+
+describe("notionSnapshotProblemIn (plan 5.5)", () => {
+  it("tells a database the snapshot lacks from a snapshot that must be recorded again", () => {
+    // Bukit 2.1.0's NotionSnapshotException texts.
+    const hint =
+      "Run a build with NOTION_TOKEN and --notion-snapshot (without --notion-offline) to refresh the snapshot.";
+    expect(
+      notionSnapshotProblemIn(
+        cliError(
+          "Notion offline snapshot has no data for database 'abc' (a changed databaseId or a new Notion source). Apply the change and run a build with NOTION_TOKEN and --notion-snapshot to record it.",
+        ),
+      ),
+    ).toBe("change");
+    // Also caused by the change: content rendering turned on, a filter matching none of several queries.
+    for (const message of [
+      `Notion offline snapshot has no rendered body for page 'p' (edited after the formal build, or never rendered by it). ${hint}`,
+      `Notion offline snapshot holds 2 different queries for database 'abc' and none matches the current filter and sort. ${hint}`,
+    ]) {
+      expect(notionSnapshotProblemIn(cliError(message))).toBe("change");
+    }
+    for (const message of [
+      `Notion offline snapshot not found or incomplete. ${hint}`,
+      `Notion offline snapshot was written by Bukit 2.0.0, not 2.1.0. ${hint}`,
+      `Notion offline snapshot format 2 does not match the format 1 this Bukit reads. ${hint}`,
+      `Notion offline snapshot has an unreadable entry. ${hint}`,
+    ]) {
+      expect(notionSnapshotProblemIn(cliError(message))).toBe("stale");
+    }
+    expect(notionSnapshotProblemIn(cliError("Notion request failed: 401 Unauthorized"))).toBeNull();
+    // Doctor's success line names the snapshot; a later failure of another check is not a snapshot problem.
+    const ok = "✔ Notion offline snapshot (format 1, Bukit 2.1.0, built 2026-11-14); Notion network checks skipped";
+    expect(notionSnapshotProblemIn(`${ok}\n✖ Output directory is not writable`)).toBeNull();
+    expect(notionSnapshotProblemIn("✖ Notion offline snapshot error\nNotion offline snapshot not found")).toBe("stale");
+  });
+});
 
 describe("notionProblemIn", () => {
   it("recognises Bukit's Notion failures", () => {

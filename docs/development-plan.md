@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.46（2026-11-14，5.5：错误码方案的 D1–D4 定下，Bukit 按 2.1.1 发；v2.45：2026-11-14，5.5：Notion 报错和快照报错的错误码方案、兼容测试改为"离线等于联网"，详见 `docs/notion-error-codes-and-snapshot-version.md`；v2.44：2026-11-14，5.5：Notion 离线快照只校验格式版本，不再要求 Bukit 版本一致，Bukit 加固定快照的兼容测试；v2.43：2026-11-14，新增 5.5：Notion 离线快照的设计；新增 8.7：升级到 Bukit 2.1.0，迁移卡、已发布地址不变、token 走 stdin；v2.42：2026-11-14，新增 6.7：token 和模型密钥用系统钥匙串加密保存；v2.41：2026-11-13，新增 8.6：显示 Bukit 自己的错误、认出远程图片下载失败、新网站默认 `onFailure: keep`；v2.40：2026-11-13，Bukit 随 BukitJalil 发布：安装包里带固定版本，删除安装和升级功能，见 8.1；v2.39：2026-11-13，5.4 已实现，补上审计后的规则：doctor 报错的翻译、Notion 源不区分大小写、按纯文本读 site.yaml；v2.38：2026-11-13，新增 5.4 Notion 数据源管理第一步：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 Notion 报错；v2.37：2026-11-13，新增 10.4 SEO / GEO 报告面板：右侧单独的标签页，完整问题清单、按页面筛选、和上一次构建对比，"让 AI 修"开一个新对话；v2.36：2026-11-13，新增 7.5 部分应用的设计：没选中的部分留在改动集里，按文件和代码块选；v2.35：2026-11-13，Bukit 行为测试：`test/bukit-behavior.test.ts` 每次推送用内置版本跑，`bukit-latest.yml` 每天用最新正式版跑；v2.34：2026-11-13，补上"工作副本已重置"说明和按差异生成的提交说明；v2.33：2026-11-13，预览改用网站真实的 baseUrl：构建传校验过的 `--base-url`，预览服务挂在这个前缀下；v2.32：2026-11-13，定下待定问题 7、8、10：Bukit 继续装最新版，加最低版本和 CI 行为测试；部署设置继续直接提交，预览改用网站真实的 baseUrl；两项未实现的功能补上；v2.31：2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.47（2026-11-14，5.5：BukitJalil 这边已实现：正式构建记录 Notion 离线快照，AI 检查、AI 构建和改动集预览离线读取，数据面板显示每个源的条数；v2.46：2026-11-14，5.5：错误码方案的 D1–D4 定下，Bukit 按 2.1.1 发；v2.45：2026-11-14，5.5：Notion 报错和快照报错的错误码方案、兼容测试改为"离线等于联网"，详见 `docs/notion-error-codes-and-snapshot-version.md`；v2.44：2026-11-14，5.5：Notion 离线快照只校验格式版本，不再要求 Bukit 版本一致，Bukit 加固定快照的兼容测试；v2.43：2026-11-14，新增 5.5：Notion 离线快照的设计；新增 8.7：升级到 Bukit 2.1.0，迁移卡、已发布地址不变、token 走 stdin；v2.42：2026-11-14，新增 6.7：token 和模型密钥用系统钥匙串加密保存；v2.41：2026-11-13，新增 8.6：显示 Bukit 自己的错误、认出远程图片下载失败、新网站默认 `onFailure: keep`；v2.40：2026-11-13，Bukit 随 BukitJalil 发布：安装包里带固定版本，删除安装和升级功能，见 8.1；v2.39：2026-11-13，5.4 已实现，补上审计后的规则：doctor 报错的翻译、Notion 源不区分大小写、按纯文本读 site.yaml；v2.38：2026-11-13，新增 5.4 Notion 数据源管理第一步：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 Notion 报错；v2.37：2026-11-13，新增 10.4 SEO / GEO 报告面板：右侧单独的标签页，完整问题清单、按页面筛选、和上一次构建对比，"让 AI 修"开一个新对话；v2.36：2026-11-13，新增 7.5 部分应用的设计：没选中的部分留在改动集里，按文件和代码块选；v2.35：2026-11-13，Bukit 行为测试：`test/bukit-behavior.test.ts` 每次推送用内置版本跑，`bukit-latest.yml` 每天用最新正式版跑；v2.34：2026-11-13，补上"工作副本已重置"说明和按差异生成的提交说明；v2.33：2026-11-13，预览改用网站真实的 baseUrl：构建传校验过的 `--base-url`，预览服务挂在这个前缀下；v2.32：2026-11-13，定下待定问题 7、8、10：Bukit 继续装最新版，加最低版本和 CI 行为测试；部署设置继续直接提交，预览改用网站真实的 baseUrl；两项未实现的功能补上；v2.31：2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。代码现在用 Pi SDK 1.5.2、Bukit 2.1.0（升级说明见 8.7），从 Pi SDK 1.5.1 和 Bukit 2.0.12 升到 2.0.15 时的核对结论本文没有记录。
 
@@ -207,6 +207,9 @@ BukitJalil/
 ├── worktrees/<siteId>/
 │   ├── ai/                         # AI 工作副本（git worktree），路径固定、反复复用
 │   └── main/                       # 正式版本的只读检出，只用于构建正式预览
+├── notion-snapshots/<siteId>/      # Notion 离线快照（0700 / 0600，不进 Time Machine，见 5.5）
+│   ├── snapshot/                   # Bukit 在正式构建时写（--notion-snapshot）
+│   └── cache/media/                # 正式构建媒体缓存的副本，离线构建的 --cache-dir
 └── previews/<siteId>/<buildId>/    # 构建输出（从工作副本内的临时输出目录搬过来，见 8.4）
 
 <用户选择的位置>/<网站目录>/          # 网站项目本身，位置每次由用户选择（见 5.2），没有默认目录
@@ -235,6 +238,7 @@ BukitJalil/
 | `deploys` | `id`, `site_id`, `commit`, `repo`, `branch`, `url`, `status`, `step`, `outcome`, `report_json`, `started_at`, `finished_at` | 发布记录（004，M6） |
 | `data_sources` | `id`, `name`, `platform`, `config_json`, `created_at` | 保存的 Notion 数据源（006；008 删掉了非 Notion 的行）；token 不在表里，在 `data-source-tokens.json` |
 | `publish_accounts` | `id`, `name`, `platform`, `created_at` | 发布账号（007，目前只有 `github`）；token 在 `publish-account-tokens.json` |
+| `notion_snapshots` | `site_id`, `commit`, `built_at` | 每个网站的 Notion 离线快照来自哪次正式构建（010，见 5.5）；快照内容是 `notion-snapshots/<siteId>/` 下的文件 |
 | `settings` | `key`, `value_json` | 全局设置：默认模型、思考级别、提交身份 `commitName` / `commitEmail`、上次选择的父目录、关闭的技能 `disabledSkills` 等（不含密钥） |
 | `schema_migrations` | `version`, `applied_at` | 数据库迁移；009 曾建过旧 token 迁移表，迁移删除后只剩 `DROP TABLE IF EXISTS`，占住编号避免新迁移被跳过 |
 
@@ -319,7 +323,7 @@ BukitJalil/
   - `site.yaml` 按纯文本读（YAML failsafe），和 Bukit、构建前检查一样：不加引号的全数字 `databaseId` 不会变成数字。数据面板读取字段时也这样读。
   - 改动后的 `site.yaml` 读不出来（超过 1 MiB、不是有效 YAML）时，返回一条 `change: "unreadable"`，界面提示自己看差异，而不是把所有源都当成删除。
 
-### 5.5 Notion 离线快照（2026-11-14 定，未实现，需要先改 Bukit）
+### 5.5 Notion 离线快照（2026-11-14 定；Bukit 2.1.0 已带，BukitJalil 这边已实现）
 
 目标：使用 Notion 数据源的网站，AI 改动的检查、构建和预览不要 token、不联网。正式构建（带 token）时顺便存一份"Notion 离线快照"，之后的离线构建只读它，预览显示的是"上次正式构建时的 Notion 数据"。（"快照"在第 7 节指改动集的 git 快照，这里一律叫"Notion 离线快照"。）
 
@@ -399,6 +403,21 @@ BukitJalil/
 - 升级内置的 Bukit（`BUKIT_VERSION` 和三个安装包的 SHA-256），同时把 `report-errors.ts` 里读占位图路径的那一行改成只取到第一个空格（Bukit 修占位图后报错在路径后面加了说明）。
 
 **工作量**：Bukit 约 4–5 天，BukitJalil 约 2–3 天，合计 6–8 天（原来估 4–6 天）。Bukit 发新版本、BukitJalil 升级内置版本都要用户确认。
+
+**BukitJalil 的实现**（2026-11-14，按 Bukit 2.1.0）：
+
+- **目录和记录**（`sites/notion-snapshots.ts`）：`notion-snapshots/<siteId>/snapshot/` 由 Bukit 写，`cache/media/` 是正式构建媒体缓存（`worktrees/<siteId>/main/.cache/media`）的副本；记录在 `notion_snapshots` 表（010）。目录 0700、文件 0600，复制时跳过符号链接，能克隆（APFS）就克隆。macOS 上 `tmutil addexclusion` 排除整个 `notion-snapshots/` 和正式检出的 `.cache/`，失败只记日志。
+- **正式构建**：绑定了数据源、带 token 的正式构建加 `--notion-snapshot <snapshot 目录>`。传的是正式目录而不是 BukitJalil 自己的临时目录：Bukit 自己先写旁边的临时目录、整个构建成功后才替换，而且只在同一个目录里复用旧快照的正文（`SeedBodies`），传新目录就每次都要从 Notion 重新读全部正文。Bukit 成功退出、并且输出了 `event=notion.snapshot.saved`（快照已经替换）之后，才复制媒体缓存（先写临时目录再改名替换）、写记录；这一步失败不让构建失败，但删掉快照和记录（先删记录再删文件，删文件失败只记日志）（否则记录写的是旧构建、媒体缓存也对不上），下一次正式构建重新记录。
+- **离线**：AI 的 `bukit_check`、`bukit_build`，改动集预览构建，以及应用前的检查，遇到 Notion 源都读快照：check、doctor 加 `--notion-snapshot <目录> --notion-offline`，build 再加 `--cache-dir <cache 目录>`（媒体只读使用；离线构建的增量缓存也写在这里，不碰正式检出的 `.cache`）。不传任何密钥（runner 只在调用方显式给出时才用 stdin 传）。没有记录或快照目录被删时，AI 工具报"先正式构建一次"（默认分支还没有 Notion 源、改动加了第一个时，说明要先应用再正式构建），改动集预览以 `notion` 结束、报告带 `notionSnapshotProblem: "missing"`。
+- **报错**：Bukit 2.1.0 的快照报错还没有错误码，先按文字认（`bukit/notion-errors.ts` 的 `notionSnapshotProblemIn`）。改动自己造成的是 `change`（应用后正式构建才有数据，重新正式构建默认分支没用）："has no data for database"（换了 `databaseId` 或新加了 Notion 源）、"has no rendered body for page"（改动给某个源打开了正文渲染）、"holds N different queries … none matches"（同一个数据库有几个源、改动改了过滤）。Bukit 其他的快照报错（not found、was written by、format N does not match、manifest is unreadable、has an unreadable、has no，以及 doctor 的 `✖ Notion offline snapshot error`）是 `stale`（重新正式构建）。doctor 成功时那行 `✔ Notion offline snapshot (…)` 不算，以 `✔` 开头的行都跳过，否则 doctor 别的检查失败会被当成快照问题。2.1.0 还要求 Bukit 版本一致，所以升级内置 Bukit 后旧快照都是 `stale`，下一次正式构建就恢复；2.1.1 改成只校验格式版本、加错误码后，改按码认。
+- **应用前的检查**：快照答不了这次改动（`change`、`stale`，而且每个失败的步骤都是因为快照；有一步是别的原因失败就是真的检查失败）或没有快照时，检查结果是 `problemCode: "notion"`，和以前一样按"没法检查"处理：网站正式版本已经用 Notion 且绑定了数据源时不用强制；改动自己新加 Notion 源时仍要强制。快照能用时就是正常的检查，失败就要强制。
+- **说明**：离线构建成功时报告带 `notionOffline`（对应的提交、时间，`queryChanged` 来自 `event=notion.snapshot.query_changed`，`rendererMismatch` 来自 `event=notion.cache.renderer_mismatch`），预览接口原样返回，预览上方显示"Notion 数据来自 <时间> 的正式构建"和两条可能的提醒；AI 工具结果里有一段 `notionData` 文字。构建报告里显示 `notionSnapshotProblem` 的处理办法；改动预览还没构建成功时，如果最近一次改动构建是 `notion`，提示先正式构建。
+- **不让 AI 碰到快照文件**：快照路径在 Bukit 输出里统一替换成 `[notion-snapshot]`（`BukitRunOptions.redact`，和 token 一样在截断之前替换；JSON 日志里转义过的写法，即 Windows 的双反斜杠、非 ASCII 字符和 Bukit 的 `JavaScriptEncoder.Default` 按 HTML 敏感字符转义的 `<>&'"+` 和反引号（`\u00XX`，大小写两种），也一起替换），所以不会进入 AI 的工具结果和构建报告；`notionData` 只写提交和时间。AI 的读文件工具不能读、列 `.bukitjalil-build/`（离线构建进行中的输出）。
+- **AI 仍能通过模板看到快照里的字段**（审计后确认，接受）：离线构建用的是 AI 改过的模板、`propertyMap` 和过滤条件，所以 AI 可以让页面显示网站原本不显示的字段，或者改过滤让草稿页进入输出，再从 `bukit_build` 的结果（消息、SEO 摘要）或改动预览里看到。这是"AI 改 `propertyMap` 或模板时预览照样正确"（已定第 2 条）的代价，范围限于正式构建查询到的页面和它们的关联页面，也就是绑定的 token 本来就交给这个网站读的数据；token 本身和其他数据库仍然拿不到。要收紧的话，可以在离线构建里把 `fieldPolicy`、过滤条件固定成正式版本的值，以后再定。
+- **删除**：解绑或换绑数据源（`bindNotionSource` 的值变了）、给数据源换了 token（等网站空闲后删，可能是另一个工作区）、移除网站、正式构建发现默认分支已经没有 Notion 源时，删掉目录和记录；快照目录被外部删掉时，下一次读取忘掉记录。每次记录或离线读取之前（都在网站操作锁里）清掉中断的运行留下的东西（Bukit 事务复制的缓存目录、没复制完或被替换下来的媒体副本），Bukit 自己的快照临时目录留给 Bukit 清理。
+- **每个源的条数**：`buildReport` 读成功构建里的 `event=content.source.loaded source=<名称> count=<条数>`，存为 `report.sources`（多语言网站每种语言各输出一次，取最大值）；数据面板按源名显示该版本最新一次成功构建的条数（`DataResponse.counts`），Notion 网站另外显示快照来自哪次正式构建（`DataResponse.notionSnapshot`）。
+- **测试**：`builds.test.ts`（假 Bukit 模拟 `--notion-snapshot`：记录、媒体复制和权限、快照里搜不到 token、离线构建不带 token 和 stdin、`query_changed`、`database` 报错和路径替换、解绑删除、没有 Notion 源和移除网站时删除）、`site-tools.test.ts`（离线 check / build 的参数、`notionData`、路径替换、应用前的检查）、`bukit-behavior.test.ts`（真实 Bukit 2.1.0：没有快照和缺数据库的报错文字）、`notion.test.ts`、`audit.test.ts`、`output-limits.test.ts`，以及 e2e（数据面板的条数和快照状态、改动预览的 Notion 说明）。
+- **限制**：离线构建时 Bukit 把 `--cache-dir` 当作要写的目录（事务复制、增量缓存），新建的文件用默认权限（0644 / 0755），靠外层 0700 的 `notion-snapshots/` 挡住其他用户。没有 `name` 的内容源，Bukit 给它生成名字（如 `notion1`），数据面板不猜，不显示条数。`content.media.downloadDir` 改到别处的网站，媒体缓存不在 `.cache/media`，离线构建的图片保留原链接（Notion 文件的签名链接约一小时后失效）。
 ---
 
 ## 6. Pi 集成设计
@@ -609,7 +628,7 @@ BukitJalil/
 
 ### 7.2 改动集流程
 
-AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukitjalil/worktrees/<siteId>/ai <main 的提交 OID>`），之后一直复用，HEAD 始终是分离状态，不建分支。正式版本另有一个检出 `worktrees/<siteId>/main/`，只在正式构建时按需创建和重置；AI 不能访问 `main/` 检出。
+AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukitjalil/worktrees/<siteId>/ai <main 的提交 OID>`），之后一直复用，HEAD 始终是分离状态，不建分支。正式版本另有一个检出 `worktrees/<siteId>/main/`，只在正式构建时按需创建和重置；AI 不能访问 `main/` 检出，也不能访问 `notion-snapshots/`（Notion 离线快照，见 5.5）。
 
 **网站操作锁**：每个网站一把锁（进程内互斥，按 siteId）。会话的一轮运行、开新改动集、快照、应用、拒绝、恢复、`ai/` 或 `main/` 里的任何 Bukit 调用，都必须先拿到锁；锁被占用时，会话消息排队，其他接口返回 409 并说明正在进行的操作。这把锁取代零散的"先检查有没有会话在运行"：检查和执行在同一把锁里完成，中间不会插入别的操作（例如应用期间跑 `bukit_check` 的 60 秒里不会有新消息开始修改工作副本）。
 
@@ -856,9 +875,9 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 - **网络**：`content.media.blockPrivateNetworks` 不能设为 `false`（防止构建时访问本机和内网服务）。M1 实测：默认（不写）时，`downloadToLocal: true` 下内容里指向 `127.0.0.1` 的图片不会被请求；显式设为 `false` 时会被请求。所以检查只拒绝显式的 `false`，不需要关闭 `downloadToLocal`；2.0.11 新增的 `downloadHosts` / `skipHosts` 不需要限制
 - **检查的对象是提交，不是工作区**：检查读取要构建的那个提交（改动集的快照、`main` 的提交、要恢复的版本）的 git 对象：`git ls-tree -r -z --full-tree <提交>` 列出全部条目，`git cat-file blob` 读取 `site.yaml` 等需要解析的文件。这样新建、导入时可以在创建任何检出之前就完成检查，检查结果和随后构建的内容完全一致
 - **符号链接**：被跟踪的文件里不能有符号链接（`ls-tree` 里 mode 为 `120000` 的条目）。导入的仓库或恢复的旧版本里可能有 `content/x.md -> ~/.bukitjalil/secrets.json` 这样的链接，git 检出时会原样建出来，Bukit 构建时如果跟着读，外部文件就会进入预览甚至被发布。AI 的写工具建不了符号链接，所以直接全部拒绝，不去判断指向哪里。M1 实测：内容文件、内容目录、静态文件是指向站外的符号链接时，Bukit 2.0.11 都不读取、不复制，外部内容没有进入输出；检查仍保留，因为预览和发布还经过 BukitJalil 自己的文件处理
-- **Notion 源**：没有 token 时 Bukit 2.0.11 的 check / doctor / build 都会因 Notion 源失败（已核对源码）。改动集预览不传密钥，所以有 Notion 源的网站在 `ai/` 里不调用 Bukit，检查和构建直接返回明确的原因（见 5.1）；Bukit 没有不需要 token 的纯缓存模式（M1 已确认，见 5.1）
+- **Notion 源**：改动集预览、AI 的检查和构建不传密钥，有 Notion 源时改为读 Notion 离线快照（`--notion-snapshot <目录> --notion-offline`，Bukit 2.1.0 起，见 5.5）：不要 token、不联网。快照放在应用数据目录的 `notion-snapshots/<siteId>/`，不进任何检出，AI 读不到这些文件（快照里有草稿、网站不显示的字段和其他数据库的关联页面；但 AI 改的模板能把其中的字段渲染进构建结果，见 5.5 的实现说明）；快照路径在 Bukit 输出里替换成 `[notion-snapshot]`，不进 AI 的工具结果和构建报告。没有快照时直接返回"先正式构建一次"，不调用 Bukit
 - **SCSS、图片处理调用的外部程序**：M1 已确认 Bukit 会按名字从 `PATH` 调用 `sass` / `dart-sass` / `magick` / `convert`，配置不能指定程序路径。处理方式是固定 Bukit 的 `PATH`（8.2），不需要拒绝 `theme.scss` 配置；固定后这些功能跳过并给出警告
-- **环境变量**：默认只传最小环境（`PATH`、`HOME`、`LANG`）。Notion token（以 Bukit 读取的 `NOTION_TOKEN` 传入）等密钥**只在构建正式版本或发布时**传入（包括应用改动集后自动触发的正式版本重建），token 来自网站选用的 Notion 数据源（6.5）；改动集预览（还没审核的 AI 内容）不论谁触发都不传密钥
+- **环境变量**：默认只传最小环境（`PATH`、`HOME`、`LANG`）。Notion token（以 Bukit 读取的 `NOTION_TOKEN` 传入）等密钥**只在构建正式版本或发布时**传入（包括应用改动集后自动触发的正式版本重建），token 来自网站选用的 Notion 数据源（6.5）；改动集预览（还没审核的 AI 内容）不论谁触发都不传密钥；只有带 token 的正式构建写 Notion 离线快照（5.5），快照里不含 token
 - **实现里另外检查的项**（`bukit/guard.ts`，比上面列的更多）：`site.yaml` 缺失或解析失败（用 failsafe 模式解析，带引号的 `"false"` 也能识别）；输出路由字段（`unsafe_route`）；更多路径字段（`includePaths[]`、`includeGlobs[]`、`theme.shortcodes.*`、集合和分类的模板）；`.gitattributes` 里的 `filter=` / LFS（`lfs`）；只差大小写的同名文件（`case_collision`）
 
 检查逻辑放在 `packages/server/src/bukit/guard.ts`，配一套单元测试（每个路径字段的越界用例、插件、网络开关、符号链接条目、直接读 git 对象而不读工作区）。`bukit-safety.py` 保留为真实 Bukit 的集成测试，升级 Bukit 时重跑。
@@ -1472,7 +1491,7 @@ M4 分层实施（每层做完先审计、修复，再提交）：
 > - 测试：`chat.test.ts` 新增 `change` 事件对查询缓存的影响；e2e 的"改动"面板改为检查空状态；20 个 e2e 用例在本机 Chrome 通过。在 Claude Code 内置浏览器里用假模型走通：对话后出现审核卡片，查看差异，文件面板切到"改动中"并上色，应用后卡片消失、正式版本有新文件、触发一次正式版本构建；另一个网站上拒绝，`?ref=change` 被清除，没有多余请求
 
 > M4 第 5 层实现说明（改动集预览）：
-> - `POST /builds` 和 `POST /preview` 支持 `ref=change`。改动集构建在网站操作锁里：必须有 open 改动集（否则 404 `change.not_found`），在 `ai/` 工作副本（不存在时在快照上检出）里先快照，构建的就是这个快照提交；构建记录写上 `change_set_id`。每次都过构建前检查；不通过时结果为 `refused`，但**不把网站标为只读**（那是 AI 未审核的内容，原因在构建报告里）；有 Notion 源时为 `notion`。不传任何密钥。输出目录和正式构建一样搬到 `previews/<siteId>/<buildId>/`
+> - `POST /builds` 和 `POST /preview` 支持 `ref=change`。改动集构建在网站操作锁里：必须有 open 改动集（否则 404 `change.not_found`），在 `ai/` 工作副本（不存在时在快照上检出）里先快照，构建的就是这个快照提交；构建记录写上 `change_set_id`。每次都过构建前检查；不通过时结果为 `refused`，但**不把网站标为只读**（那是 AI 未审核的内容，原因在构建报告里）；有 Notion 源时读 Notion 离线快照构建，没有快照时为 `notion`（见 5.5）。不传任何密钥。输出目录和正式构建一样搬到 `previews/<siteId>/<buildId>/`
 > - 改动集预览只显示**当前 open 改动集**的构建：没有 open 改动集时 404 `change.not_found`，改动集还没构建过时 404 `preview.not_built`。新构建成功且改动集仍是 open 时，已打开的改动集预览立即切换；改动集关闭（应用、拒绝、stale）时释放改动集预览的端口
 > - AI 的 `bukit_build` 仍然用完即删，不作为预览：用户在预览面板里手动构建改动集，避免 AI 每次构建都占用预览输出的配额
 > - 界面：预览面板顶部加上和其他面板共用的"正式版本 / 改动中"切换（`?ref=change`）。改动集还没构建时显示说明和"构建改动"按钮；构建之后 AI 又改了（快照提交和构建的提交不同）时显示提示和"重新构建"。有会话在运行时按钮禁用。网站顶栏的构建状态只看正式版本的构建；构建列表里改动集构建带"改动预览"标记。改动集关闭时删除改动集预览的查询
