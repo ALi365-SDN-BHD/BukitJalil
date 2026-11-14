@@ -71,7 +71,7 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **还缺**：
 
-- Notion 报错改用 Bukit 的错误码（`BKT-0Bxx`），去掉 `notion-errors.ts` 的正则；快照只校验格式版本、加兼容测试。两项一起随 Bukit 2.1.1 做，BukitJalil 这边同时把快照报错的文字匹配（`notionSnapshotProblemIn`）换成按码认，实施方案见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)，方案第 4 节的 D1–D4 已定（2.1.1 发版），动 Bukit 代码前要用户确认开工。
+- Notion 报错改用 Bukit 的错误码（`BKT-0Bxx`），去掉 `notion-errors.ts` 的正则；快照只校验格式版本、加兼容测试。两项一起随 Bukit 2.1.1 做，BukitJalil 这边同时把快照报错的文字匹配（`notionSnapshotProblemIn`）换成按码认，实施方案见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)，方案第 4 节的 D1–D4 已定（2.1.1 发版），D5–D8 也已定（都按建议），动 Bukit 代码前要用户确认开工。
 
 
 **Bukit 的限制**（源码 v2.0.15 核对）：
