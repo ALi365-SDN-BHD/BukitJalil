@@ -72,8 +72,17 @@ const server = new ServerProcess({
     ...(packaged ? { BUKITJALIL_RESOURCES: resources, BUKITJALIL_VERSION: app.getVersion() } : {}),
   },
   firstPort: Number(process.env.BUKITJALIL_DESKTOP_PORT) || DEFAULT_PORT,
-  secretKey: () => loadSecretKey(dataDir, safeStorage),
+  // The keychain prompt comes over the app, not over "starting": asked once the window shows the app.
+  // A server that exited meanwhile (a port retry, a restart) asks nothing: no prompt for nobody.
+  secretKey: (alive) =>
+    appShown.then(() => (alive() ? loadSecretKey(dataDir, safeStorage) : { key: null, reason: "locked" })),
   resetSecrets: () => removeSecretKey(dataDir),
+});
+
+/** Settles the first time the window shows the app (the server answered with a login link). */
+let showApp: () => void = () => {};
+const appShown = new Promise<void>((resolve) => {
+  showApp = resolve;
 });
 
 let win: BrowserWindow | null = null;
@@ -110,8 +119,14 @@ async function open() {
     if (!result.ok) return explain(result);
   }
   const url = await server.login();
-  if (url) await win?.loadURL(url);
-  else showError(text.failed(), "", server.output());
+  if (!url) return showError(text.failed(), "", server.output());
+  try {
+    await win?.loadURL(url);
+  } finally {
+    // Also when the page failed to load: tokens must not wait for a window that will never show the app.
+    // A window closed meanwhile (macOS keeps the app) shows it when it opens again.
+    if (win) showApp();
+  }
 }
 
 server.onExit = (_code, tail) => {

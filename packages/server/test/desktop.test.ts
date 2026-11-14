@@ -107,7 +107,11 @@ function startDesktop(
   home: string,
   port: number,
   // What the desktop app answers when the server asks for the secret key (plan 6.7).
-  secrets: { key: string | null; reason: string | null } = { key: randomBytes(32).toString("base64"), reason: null },
+  // null: answer nothing (the test answers itself, like the app once its window shows the app).
+  secrets: { key: string | null; reason: string | null } | null = {
+    key: randomBytes(32).toString("base64"),
+    reason: null,
+  },
 ) {
   const child = fork(MAIN, ["--desktop", "--port", String(port), "--preview-port-base", String(port + 1)], {
     cwd: SERVER_DIR,
@@ -117,7 +121,7 @@ function startDesktop(
   });
   children.push(child);
   child.on("message", (m: DesktopOutbound) => {
-    if (m.type === "secrets" && !m.reset) child.send({ type: "secrets", ...secrets });
+    if (m.type === "secrets" && !m.reset && secrets) child.send({ type: "secrets", ...secrets });
   });
   let stdout = "";
   child.stdout?.on("data", (d) => {
@@ -171,6 +175,23 @@ describe("desktop mode (plan M7)", () => {
     const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
     const status = await fetch("http://127.0.0.1:49750/api/secrets", { headers: { cookie } });
     expect(await status.json()).toEqual({ mode: "unavailable", reason: "no_keyring", plainFiles: false });
+    s.child.send({ type: "shutdown" });
+    expect(await s.exited).toBe(0);
+  }, 30_000);
+
+  it("starts before the key arrives and encrypts once it does", async () => {
+    const home = tmp();
+    const s = startDesktop(home, 49760, null);
+    await s.next("ready");
+    s.child.send({ type: "login" });
+    const login = (await s.next("login")) as { url: string };
+    const res = await fetch(login.url, { redirect: "manual" });
+    const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const status = async () =>
+      (await fetch("http://127.0.0.1:49760/api/secrets", { headers: { cookie } })).json() as Promise<unknown>;
+    expect(await status()).toEqual({ mode: "unavailable", reason: "pending", plainFiles: false });
+    s.child.send({ type: "secrets", key: randomBytes(32).toString("base64"), reason: null });
+    await expect.poll(status).toEqual({ mode: "encrypted", reason: null, plainFiles: false });
     s.child.send({ type: "shutdown" });
     expect(await s.exited).toBe(0);
   }, 30_000);

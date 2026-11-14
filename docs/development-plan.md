@@ -580,8 +580,8 @@ BukitJalil/
 **做法**：
 
 - **主密钥**：32 字节随机数，用 Electron `safeStorage` 加密后存成 `~/.bukitjalil/secret-key.enc`（0600）。`safeStorage` 背后是 macOS 钥匙串、Windows DPAPI、Linux Secret Service（gnome-keyring / KWallet）。
-  - `safeStorage` 只能在 Electron 主进程用。主进程在 `app.whenReady()` 之后解开主密钥，服务端子进程（`utilityProcess`）启动后通过已有的消息通道 `postMessage` 交给它。**不放进环境变量或命令行参数**：同一用户的其他程序能读到别的进程的环境变量和参数。
-  - 服务端收到密钥之前不处理任何要读写密钥的请求。
+  - `safeStorage` 只能在 Electron 主进程用。服务端子进程（`utilityProcess`）启动后通过已有的消息通道要主密钥，主进程等窗口打开应用页面之后才解开它（macOS 的钥匙串提示因此出现在应用界面上，而不是"正在启动"上；页面没打开成功也照样去解，免得一直等；窗口在启动途中被关掉时等它重新打开；已经退出的服务端（换端口重试、重启）不去读钥匙串），再 `postMessage` 交给服务端。**不放进环境变量或命令行参数**：同一用户的其他程序能读到别的进程的环境变量和参数。
+  - 服务端不等密钥就启动（2026-11-14 改）：收到之前密钥存储是 `pending`，读加密文件、保存都返回 503 `secrets.pending`（"请在系统提示里点允许"），状态接口返回 `reason: "pending"`，界面每 2 秒查一次（整个应用都查，不只设置页），答复到了就重新取所有数据；模型运行时在答复后重建，等待期间读不到的自定义模型这时才注册上；`pending` 时不能重置。答复到了（`unlock` 或 `fail`，只认第一次）之后，在同一个同步步骤里做迁移、清理临时文件和无主 token，不会有请求插在中间。服务端向桌面壳要密钥不设时限，提示开多久都等。
 - **加密文件**：每个文件用 AES-256-GCM 加密（Node `crypto`），格式 `{"v":1,"iv":…,"tag":…,"data":…}`，附加数据（AAD）写文件用途（例如 `publish-account-tokens`），把一个加密文件换成另一个时解密失败。新文件名加 `.enc`：`publish-account-tokens.enc.json`、`data-source-tokens.enc.json`、`pi/auth.enc.json`、`pi/custom-models.enc.json`。写入仍是"临时文件 → fsync → 改名"。
 - **模型密钥**：Pi 1.5.2 的 `ModelRuntime.create` 接受 `credentials`（`CredentialStore`：`read` / `list` / `modify` / `delete`）。Pi 没有导出 `AuthStorage`，所以 BukitJalil 自己实现一个读写加密文件的 `CredentialStore` 交给 Pi，不再给 Pi `authPath`；读单个提供商密钥也走这个存储，不再调 `readStoredCredential(…, authPath)`。
   - 和 Pi 自己的 auth.json 不同，保存的值原样返回，不当作命令（`!cmd`）或环境变量引用解析；在 BukitJalil 里填的密钥都是原文，旧 auth.json 里用了这类写法的要重新填。
@@ -597,7 +597,7 @@ BukitJalil/
     - 自定义模型（不是扁平表）或加密文件解不开：两份都留着，记日志，设置页提示有明文文件没能加密。
   - 加密模式下也清理旧明文文件留下的临时文件（里面是明文 token）。
   - 删除只是 `unlink`，固态硬盘上不能保证抹掉旧数据，用户手册里说明。
-- **主密钥解不开**（钥匙串里的项目被删、用户拒绝访问、数据目录拷到了别的电脑）：不生成新主密钥覆盖，不删除任何文件，按"系统存储不可用"处理。设置页只在"解不开"时提供"重置密钥"（钥匙串没回答时只提示重新启动）：确认后删除所有加密文件和残留的明文文件，桌面壳删除主密钥；这次运行剩下的时间里不能保存，重新启动后生成新主密钥，用户重新输入。钥匙串 5 分钟内没有回答（例如没人点访问提示）时也按不可用处理，提示重新启动。
+- **主密钥解不开**（钥匙串里的项目被删、用户拒绝访问、数据目录拷到了别的电脑）：不生成新主密钥覆盖，不删除任何文件，按"系统存储不可用"处理。设置页只在"解不开"时提供"重置密钥"（钥匙串没回答时只提示重新启动）：确认后删除所有加密文件和残留的明文文件，桌面壳删除主密钥；这次运行剩下的时间里不能保存，重新启动后生成新主密钥，用户重新输入。服务端不再因为钥匙串没回答而按不可用处理，一直保持 `pending`；没看到提示时，设置页提示重新启动。
 - **测试**：桌面版的 e2e 在 macOS 上用 Chromium 的 `--use-mock-keychain`，不碰用户真实的钥匙串。
 - **实现说明**（2026-11-14）：
   - 服务端：`secrets/box.ts`（AES-256-GCM）、`secrets/store.ts`（三种运行方式、迁移、重置）、`agent/secret-credentials.ts`（交给 Pi 的 `CredentialStore`，Pi 只能在 `agent/` 里引用）；`desktop.ts` 的 `requestSecretKey` 向桌面壳要主密钥。三个保存 token 的服务改为接受 `StoredJson`（`JsonFile` 或加密文件）。

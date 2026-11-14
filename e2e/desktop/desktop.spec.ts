@@ -96,16 +96,17 @@ test("the menus and the About panel follow the language chosen in settings", asy
 test("keeps tokens encrypted with a key the keychain protects", async () => {
   const { app, page, home } = await launch();
   await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
-  // The key file is made at the first start; the settings show nothing while secrets are encrypted.
+  // The app asks the keychain once its window shows the app; the key file is made at the first start and
+  // the settings show nothing while secrets are encrypted.
+  const status = () => page.evaluate(async () => (await fetch("/api/secrets")).json());
+  await expect.poll(status).toEqual({ mode: "encrypted", reason: null, plainFiles: false });
   expect(fs.existsSync(path.join(home, "secret-key.enc"))).toBe(true);
-  const status = await page.evaluate(async () => (await fetch("/api/secrets")).json());
-  expect(status).toEqual({ mode: "encrypted", reason: null, plainFiles: false });
   await app.close();
   // A plain token file from an earlier version is encrypted at the next start and removed.
   fs.writeFileSync(path.join(home, "publish-account-tokens.json"), JSON.stringify({}), { mode: 0o600 });
   const again = await launch(home);
   await expect(again.page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
-  expect(fs.existsSync(path.join(home, "publish-account-tokens.json"))).toBe(false);
+  await expect.poll(() => fs.existsSync(path.join(home, "publish-account-tokens.json"))).toBe(false);
   expect(fs.existsSync(path.join(home, "publish-account-tokens.enc.json"))).toBe(true);
   await again.app.close();
 });

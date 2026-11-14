@@ -1,8 +1,32 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+
+/** How tokens and model keys are kept; looked at again every 2 s while the keychain has not answered. */
+function useSecretsStatus() {
+  return useQuery({
+    queryKey: keys.secrets,
+    queryFn: api.secrets,
+    // The desktop app asks the keychain after the window shows the app: look again until it answered.
+    refetchInterval: (query) => (query.state.data?.reason === "pending" ? 2000 : false),
+  });
+}
+
+/**
+ * Mounted once for the whole app (plan 6.7): when the keychain answers, everything that failed with
+ * secrets.pending meanwhile (tokens, model keys) is fetched again, whichever page is open.
+ */
+export function useSecretsSettled(): void {
+  const queryClient = useQueryClient();
+  const pending = useSecretsStatus().data?.reason === "pending";
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pending) void queryClient.invalidateQueries();
+    wasPending.current = pending;
+  }, [pending, queryClient]);
+}
 
 /**
  * How tokens and model keys are kept (plan 6.7), above every settings section. Nothing is shown when they
@@ -12,7 +36,7 @@ export function SecretsNotice() {
   const { m, errorOf } = useI18n();
   const s = m.secrets;
   const queryClient = useQueryClient();
-  const status = useQuery({ queryKey: keys.secrets, queryFn: api.secrets });
+  const status = useSecretsStatus();
   const [confirming, setConfirming] = useState(false);
   const reset = useMutation({
     mutationFn: api.resetSecrets,

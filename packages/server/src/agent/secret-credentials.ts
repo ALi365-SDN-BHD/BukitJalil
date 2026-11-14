@@ -69,11 +69,12 @@ export class SecretCredentialStore implements CredentialStore {
     options?.signal?.throwIfAborted();
     // Refused before `fn` runs: an OAuth refresh inside it spends a one-time refresh token that could
     // then not be saved (plan 6.7).
-    if (this.file.writable?.() === false) return Promise.reject(new SiteError("secrets.unavailable", 503));
+    if (this.file.writable?.() === false)
+      return Promise.reject(new SiteError(this.file.refusal?.() ?? "secrets.unavailable", 503));
     const step = () => {
       options?.signal?.throwIfAborted();
       // Again when its turn comes: a reset may have happened while it waited.
-      if (this.file.writable?.() === false) throw new SiteError("secrets.unavailable", 503);
+      if (this.file.writable?.() === false) throw new SiteError(this.file.refusal?.() ?? "secrets.unavailable", 503);
       return fn();
     };
     const run = this.queue.then(step, step);

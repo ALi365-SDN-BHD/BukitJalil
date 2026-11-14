@@ -12,6 +12,8 @@ export interface StoredJson {
   write(value: unknown): void;
   /** false when write() would refuse (secrets unavailable, plan 6.7); a JsonFile always writes. */
   writable?(): boolean;
+  /** The error code a refused write gives (secrets.unavailable, secrets.pending). */
+  refusal?(): "secrets.unavailable" | "secrets.pending";
   /** Remove temporary files left by a write that was killed before its rename. */
   cleanupTempFiles(): number;
 }

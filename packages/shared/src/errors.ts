@@ -19,6 +19,7 @@ export const errorCodes = [
   "storage.unreadable",
   "storage.too_large",
   "secrets.unavailable",
+  "secrets.pending",
   "secrets.reset_unsupported",
   "fs.not_found",
   "fs.not_directory",

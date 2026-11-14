@@ -26,17 +26,18 @@ const DEFAULT_MAX_BYTES = 256 * 1024;
 const sealedLimit = (maxBytes: number) => Math.ceil((maxBytes * 4) / 3) + 1024;
 
 /**
- * Where tokens and model keys are kept (plan 6.7). The mode is fixed when the server starts: encrypted
- * with the desktop app's keychain key, plain 0600 files for `pnpm dev` and tests, or unavailable when the
- * desktop app has no safe keychain (nothing can be saved; old plain files are still read).
+ * Where tokens and model keys are kept (plan 6.7): encrypted with the desktop app's keychain key, plain
+ * 0600 files for `pnpm dev` and tests, or unavailable when the desktop app has no safe keychain (nothing
+ * can be saved; old plain files are still read). The desktop server starts `pending` and does not wait for
+ * the key: the app asks the keychain once its window shows the app, then `unlock` or `fail` settles it.
  */
 export class SecretStore {
   private readonly specs: SecretFileSpec[] = [];
   private resetDone = false;
 
   private constructor(
-    private readonly startMode: SecretsMode,
-    private readonly box: SecretBox | null,
+    private startMode: SecretsMode,
+    private box: SecretBox | null,
     private reason: SecretsUnavailableReason | null,
   ) {}
 
@@ -52,6 +53,28 @@ export class SecretStore {
     return new SecretStore("unavailable", null, reason);
   }
 
+  /** Waiting for the desktop app's key: like unavailable, until `unlock` or `fail`. */
+  static pending(): SecretStore {
+    return new SecretStore("unavailable", null, "pending");
+  }
+
+  get pending(): boolean {
+    return this.reason === "pending";
+  }
+
+  /** The key arrived: from now on every file is encrypted with it. Only once, only while pending. */
+  unlock(key: Buffer): void {
+    if (!this.pending) return;
+    this.box = new SecretBox(key);
+    this.startMode = "encrypted";
+    this.reason = null;
+  }
+
+  /** No key: stays unavailable for this reason. */
+  fail(reason: SecretsUnavailableReason): void {
+    if (this.pending) this.reason = reason;
+  }
+
   /** After a reset nothing is saved until the app starts again with a new key. */
   get mode(): SecretsMode {
     return this.resetDone ? "unavailable" : this.startMode;
@@ -61,9 +84,16 @@ export class SecretStore {
   file(spec: SecretFileSpec): StoredJson {
     this.specs.push(spec);
     const maxBytes = spec.maxBytes ?? DEFAULT_MAX_BYTES;
-    if (this.box) return new EncryptedJsonFile(spec, maxBytes, this.box, () => this.resetDone);
     const plain = new JsonFile(spec.plain, { maxBytes });
-    return this.startMode === "plain" ? plain : new LockedJsonFile(spec, plain);
+    if (this.startMode === "plain") return plain;
+    const locked = new LockedJsonFile(spec, plain, () => this.reason);
+    let encrypted: EncryptedJsonFile | null = null;
+    // Picked on every call: a pending store unlocks later.
+    return new SwitchingJsonFile(() => {
+      if (!this.box) return locked;
+      encrypted ??= new EncryptedJsonFile(spec, maxBytes, this.box, () => this.resetDone);
+      return encrypted;
+    });
   }
 
   status(): SecretsStatus {
@@ -80,6 +110,8 @@ export class SecretStore {
    */
   reset(): void {
     if (this.startMode === "plain") throw new SiteError("secrets.reset_unsupported", 409);
+    // The desktop app may be reading the key right now; resetting is for a key that cannot be unlocked.
+    if (this.pending) throw new SiteError("secrets.pending", 503);
     this.resetDone = true;
     for (const spec of this.specs) {
       fs.rmSync(spec.encrypted, { force: true });
@@ -188,15 +220,53 @@ class EncryptedJsonFile implements StoredJson {
   }
 }
 
+/** Delegates to the file the store's current state picks (locked until a pending store unlocks). */
+class SwitchingJsonFile implements StoredJson {
+  constructor(private readonly pick: () => StoredJson) {}
+
+  get file(): string {
+    return this.pick().file;
+  }
+
+  writable(): boolean {
+    return this.pick().writable?.() ?? true;
+  }
+
+  refusal(): "secrets.unavailable" | "secrets.pending" {
+    return this.pick().refusal?.() ?? "secrets.unavailable";
+  }
+
+  read(): unknown | undefined {
+    return this.pick().read();
+  }
+
+  write(value: unknown): void {
+    this.pick().write(value);
+  }
+
+  cleanupTempFiles(): number {
+    return this.pick().cleanupTempFiles();
+  }
+}
+
 /**
  * No key: what an earlier version saved unencrypted can still be read, an encrypted file cannot, and
- * nothing is saved (plan 6.7).
+ * nothing is saved (plan 6.7). While the key is still on its way the error says so.
  */
 class LockedJsonFile implements StoredJson {
   constructor(
     private readonly spec: SecretFileSpec,
     private readonly plain: JsonFile,
+    private readonly reason: () => SecretsUnavailableReason | null,
   ) {}
+
+  refusal(): "secrets.unavailable" | "secrets.pending" {
+    return this.reason() === "pending" ? "secrets.pending" : "secrets.unavailable";
+  }
+
+  private error(): SiteError {
+    return new SiteError(this.refusal(), 503);
+  }
 
   get file(): string {
     return this.spec.plain;
@@ -209,12 +279,12 @@ class LockedJsonFile implements StoredJson {
   read(): unknown | undefined {
     const value = this.plain.read();
     if (value !== undefined) return value;
-    if (fs.existsSync(this.spec.encrypted)) throw new SiteError("secrets.unavailable", 503);
+    if (fs.existsSync(this.spec.encrypted)) throw this.error();
     return undefined;
   }
 
   write(): void {
-    throw new SiteError("secrets.unavailable", 503);
+    throw this.error();
   }
 
   cleanupTempFiles(): number {

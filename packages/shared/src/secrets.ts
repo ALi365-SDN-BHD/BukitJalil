@@ -7,7 +7,8 @@
 export type SecretsMode = "encrypted" | "plain" | "unavailable";
 
 /** Why secrets are unavailable. */
-export type SecretsUnavailableReason = "no_keyring" | "locked" | "no_answer" | "reset";
+/** `pending`: the desktop app asks the keychain once its window shows the app (plan 6.7). */
+export type SecretsUnavailableReason = "no_keyring" | "locked" | "no_answer" | "reset" | "pending";
 
 export interface SecretsStatus {
   mode: SecretsMode;

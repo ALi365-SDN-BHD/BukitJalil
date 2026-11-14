@@ -900,6 +900,8 @@ const zhCN = {
         '无法解开钥匙串里的密钥（可能拒绝了访问、删除了钥匙串项目，或者数据目录来自另一台电脑），已保存的 token 和模型密钥暂时不能用。可以重新启动后在提示里点"允许"，或者重置后重新输入。',
       no_answer: "钥匙串一直没有回应（可能没有回答访问提示）。请重新启动 BukitJalil。",
       reset: "已清除所有保存的 token 和模型密钥。请重新启动 BukitJalil，之后重新输入。",
+      pending:
+        '正在等待钥匙串授权：请在系统弹出的提示里点"允许"，之后才能使用保存的 token 和模型密钥。没看到提示的话，请重新启动 BukitJalil。',
     },
     reset: "重置密钥",
     resetConfirm: "会删除所有保存的 token 和模型密钥，需要重新输入。确定吗？",
@@ -945,6 +947,7 @@ const zhCN = {
     "storage.unreadable": "保存的设置文件读不出来；请修复或删除它后再保存",
     "storage.too_large": "要保存的数据太多；请先删除一些已保存的条目再试",
     "secrets.unavailable": "没有安全的地方保存 token 和密钥，所以现在不能保存；请看设置页最上面的说明",
+    "secrets.pending": '还在等待钥匙串授权：请先在系统提示里点"允许"，再试一次',
     "secrets.reset_unsupported": "开发模式下没有加密密钥，不需要重置",
     "build.not_found": "找不到这次构建",
     "site.read_only": "网站不满足安全规则，处于只读状态",

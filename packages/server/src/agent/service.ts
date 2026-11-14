@@ -420,6 +420,14 @@ export class AgentService {
     return loadPi(this.opts.paths.pi);
   }
 
+  /**
+   * Build the model runtime again at its next use: custom models registered while the desktop app's key
+   * was still on its way could not be read (plan 6.7). Running sessions keep theirs.
+   */
+  refreshModelRuntime(): void {
+    this.runtime = null;
+  }
+
   private modelRuntime(): Promise<ModelRuntime> {
     if (!this.runtime) {
       const runtime = this.pi().then(async (pi) => {

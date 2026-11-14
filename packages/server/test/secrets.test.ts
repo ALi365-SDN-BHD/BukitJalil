@@ -79,6 +79,42 @@ describe("SecretStore", () => {
     expect(store.status()).toEqual({ mode: "unavailable", reason: "no_keyring", plainFiles: true });
   });
 
+  it("waits for the desktop app's key: pending until unlocked, then encrypts with it", () => {
+    const k = key();
+    const sealed = SecretStore.encrypted(k).file(spec("tokens"));
+    sealed.write({ a: "x" });
+    const store = SecretStore.pending();
+    // Taken before the key arrives, like the services made at startup.
+    const file = store.file(spec("tokens"));
+    expect(store.status()).toEqual({ mode: "unavailable", reason: "pending", plainFiles: false });
+    expect(() => file.read()).toThrow(/secrets.pending/);
+    expect(() => file.write({ a: "y" })).toThrow(/secrets.pending/);
+    expect(file.writable?.()).toBe(false);
+    expect(() => store.reset()).toThrow(/secrets.pending/);
+    store.unlock(k);
+    expect(store.status()).toEqual({ mode: "encrypted", reason: null, plainFiles: false });
+    expect(file.read()).toEqual({ a: "x" });
+    file.write({ a: "y" });
+    expect(sealed.read()).toEqual({ a: "y" });
+    expect(file.file).toBe(path.join(dir, "tokens.enc.json"));
+    // Settled once: a later answer changes nothing.
+    store.fail("locked");
+    store.unlock(key());
+    expect(file.read()).toEqual({ a: "y" });
+  });
+
+  it("stays unavailable when the desktop app has no key", () => {
+    fs.writeFileSync(path.join(dir, "old.json"), JSON.stringify({ a: "x" }));
+    const store = SecretStore.pending();
+    const file = store.file(spec("old"));
+    store.fail("locked");
+    expect(store.status()).toEqual({ mode: "unavailable", reason: "locked", plainFiles: true });
+    expect(file.read()).toEqual({ a: "x" });
+    expect(() => file.write({ a: "y" })).toThrow(/secrets.unavailable/);
+    store.unlock(key());
+    expect(store.status().mode).toBe("unavailable");
+  });
+
   describe("migrate", () => {
     const logs: string[] = [];
     const log = (event: string) => logs.push(event);
@@ -208,6 +244,16 @@ describe("SecretCredentialStore", () => {
     expect(ran).toBe(false);
   });
 
+  it("while the key is on its way says so, and works once it arrives", async () => {
+    const k = key();
+    const secrets = SecretStore.pending();
+    const store = new SecretCredentialStore(secrets.file(spec("pi-auth")));
+    await expect(store.modify("x", async () => ({ type: "api_key", key: "new" }))).rejects.toThrow(/secrets.pending/);
+    secrets.unlock(k);
+    await store.modify("x", async () => ({ type: "api_key", key: "new" }));
+    expect(await store.read("x")).toEqual({ type: "api_key", key: "new" });
+  });
+
   it("serializes writes, and a failed one does not block the next", async () => {
     const store = new SecretCredentialStore(SecretStore.encrypted(key()).file(spec("pi-auth")));
     const writes = Array.from({ length: 5 }, (_, i) =>
@@ -255,5 +301,18 @@ describe("requestSecretKey", () => {
     expect(await requestSecretKey(short)).toEqual({ reason: "locked" });
     const silent = channel(() => {});
     expect(await requestSecretKey(silent, 20)).toEqual({ reason: "no_answer" });
+  });
+
+  it("without a deadline waits however long the keychain prompt stays open", async () => {
+    const k = key();
+    let later: (() => void) | null = null;
+    const slow = channel((reply) => {
+      later = () => reply({ type: "secrets", key: k.toString("base64"), reason: null });
+    });
+    const asked = requestSecretKey(slow, null);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    (later as (() => void) | null)?.();
+    const answer = await asked;
+    expect("key" in answer && answer.key.equals(k)).toBe(true);
   });
 });

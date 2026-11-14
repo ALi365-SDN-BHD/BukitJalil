@@ -116,20 +116,10 @@ const settingsStore = new SettingsStore(db);
 const offline = process.env.BUKITJALIL_OFFLINE === "1";
 
 // Tokens and model keys (plan 6.7): the desktop app hands over the key its keychain protects; `pnpm dev`
-// and tests keep plain 0600 files.
-let secrets: SecretStore;
-if (desktop) {
-  const answer = await requestSecretKey(desktop);
-  if ("key" in answer) {
-    secrets = SecretStore.encrypted(answer.key);
-    answer.key.fill(0);
-  } else {
-    secrets = SecretStore.unavailable(answer.reason);
-    logger.log("warn", "secrets.unavailable", { reason: answer.reason });
-  }
-} else {
-  secrets = SecretStore.plain();
-}
+// and tests keep plain 0600 files. The desktop server does not wait for the key: the app asks the keychain
+// once its window shows the app, so its prompt comes over the app rather than over "starting". Until then
+// the store is pending; see `whenSecretsSettled` below.
+const secrets = desktop ? SecretStore.pending() : SecretStore.plain();
 const dataSources = new DataSourceService({
   db,
   tokenFile: secrets.file({
@@ -232,8 +222,7 @@ const credentials =
           mergeByKey: true,
         }),
       );
-// Plain files from an earlier version are encrypted before anything reads the stores.
-secrets.migrate((event, data) => logger.log(event === "secrets.migrated" ? "info" : "warn", event, data));
+
 const secretsApi = {
   status: () => secrets.status(),
   reset: () => {
@@ -242,18 +231,25 @@ const secretsApi = {
     logger.log("warn", "secrets.reset", {});
   },
 };
-// A killed write can leave a temp file and then a token entry with no account. Remove both before
-// anything reads the stores.
-const staleTemps =
-  publishAccounts.cleanupTempFiles() + dataSources.cleanupTempFiles() + customModels.cleanupTempFiles();
-if (staleTemps > 0) logger.log("warn", "storage.temps_removed", { count: staleTemps });
-try {
-  const accounts = publishAccounts.pruneUnknownTokens();
-  const sources = dataSources.pruneUnknownTokens();
-  if (accounts + sources > 0) logger.log("warn", "tokens.orphans_removed", { accounts, sources });
-} catch (err) {
-  logger.log("warn", "tokens.orphans_cleanup_failed", { error: String(err) });
+/**
+ * Once the store's mode is settled (at once for plain files, when the desktop app answers otherwise), in
+ * one synchronous step so no request reads a store in between: plain files from an earlier version are
+ * encrypted, temp files of killed writes and token entries with no account are removed.
+ */
+function whenSecretsSettled(): void {
+  secrets.migrate((event, data) => logger.log(event === "secrets.migrated" ? "info" : "warn", event, data));
+  const staleTemps =
+    publishAccounts.cleanupTempFiles() + dataSources.cleanupTempFiles() + customModels.cleanupTempFiles();
+  if (staleTemps > 0) logger.log("warn", "storage.temps_removed", { count: staleTemps });
+  try {
+    const accounts = publishAccounts.pruneUnknownTokens();
+    const sources = dataSources.pruneUnknownTokens();
+    if (accounts + sources > 0) logger.log("warn", "tokens.orphans_removed", { accounts, sources });
+  } catch (err) {
+    logger.log("warn", "tokens.orphans_cleanup_failed", { error: String(err) });
+  }
 }
+
 const agent = new AgentService({
   db,
   paths,
@@ -275,6 +271,22 @@ const agent = new AgentService({
   skillsDir,
   disabledSkills: () => settingsStore.get().disabledSkills,
 });
+// After the agent exists: the answer refreshes its model runtime.
+if (desktop) {
+  void requestSecretKey(desktop, null).then((answer) => {
+    if ("key" in answer) {
+      secrets.unlock(answer.key);
+      answer.key.fill(0);
+    } else {
+      secrets.fail(answer.reason);
+      logger.log("warn", "secrets.unavailable", { reason: answer.reason });
+    }
+    whenSecretsSettled();
+    agent.refreshModelRuntime();
+  });
+} else {
+  whenSecretsSettled();
+}
 const panels = new PanelService({
   git,
   sites,

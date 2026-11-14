@@ -48,7 +48,7 @@ function inbound(data: unknown): DesktopInbound | null {
   return null;
 }
 
-/** Long enough for the user to answer a keychain prompt. */
+/** Long enough for the user to answer a keychain prompt; the server itself asks without a deadline. */
 const SECRETS_TIMEOUT_MS = 5 * 60_000;
 
 /**
@@ -57,16 +57,16 @@ const SECRETS_TIMEOUT_MS = 5 * 60_000;
  */
 export function requestSecretKey(
   channel: DesktopChannel,
-  timeoutMs = SECRETS_TIMEOUT_MS,
+  timeoutMs: number | null = SECRETS_TIMEOUT_MS,
 ): Promise<{ key: Buffer } | { reason: SecretsUnavailableReason }> {
   return new Promise((resolve) => {
     let done = false;
-    const timer = setTimeout(() => finish({ reason: "no_answer" }), timeoutMs);
-    timer.unref?.();
+    const timer = timeoutMs === null ? null : setTimeout(() => finish({ reason: "no_answer" }), timeoutMs);
+    timer?.unref?.();
     function finish(result: { key: Buffer } | { reason: SecretsUnavailableReason }) {
       if (done) return;
       done = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       resolve(result);
     }
     channel.onMessage((message) => {

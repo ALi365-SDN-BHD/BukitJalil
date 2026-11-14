@@ -17,8 +17,11 @@ export interface ServerOptions {
   env: NodeJS.ProcessEnv;
   /** First admin port to try; the next attempts move up by PORT_STEP. */
   firstPort: number;
-  /** The secret key for tokens and model keys (plan 6.7), handed over the message channel only. */
-  secretKey: () => { key: string | null; reason: string | null };
+  /**
+   * The secret key for tokens and model keys (plan 6.7), handed over the message channel only. It may
+   * answer later: the app reads the keychain once its window shows the app.
+   */
+  secretKey: (alive: () => boolean) => Promise<{ key: string | null; reason: string | null }>;
   /** The user reset the keys: forget the key, a new one is made at the next start. */
   resetSecrets: () => void;
 }
@@ -98,7 +101,17 @@ export class ServerProcess {
       child.on("message", (message: Outbound) => {
         if (message.type === "secrets") {
           if (message.reset) this.opts.resetSecrets();
-          else child.postMessage({ type: "secrets", ...this.opts.secretKey() });
+          else
+            void this.opts
+              .secretKey(() => child.pid !== undefined)
+              .then((answer) => {
+                // This server may have exited (or another attempt replaced it) while the keychain was asked.
+                try {
+                  child.postMessage({ type: "secrets", ...answer });
+                } catch {
+                  // gone
+                }
+              });
           return;
         }
         if (message.type === "login") {

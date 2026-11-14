@@ -951,6 +951,8 @@ const en: Messages = {
         "The key in the keychain cannot be unlocked (access was denied, the keychain item was removed, or the data folder comes from another computer), so saved tokens and model keys cannot be used. Start again and choose Allow when asked, or reset and enter them again.",
       no_answer: "The keychain did not answer (maybe its access prompt was not answered). Start BukitJalil again.",
       reset: "All saved tokens and model keys were removed. Start BukitJalil again, then enter them again.",
+      pending:
+        'Waiting for the keychain: click "Allow" in the system prompt to use saved tokens and model keys. If no prompt appeared, restart BukitJalil.',
     },
     reset: "Reset keys",
     resetConfirm: "This removes every saved token and model key; you will enter them again. Continue?",
@@ -997,6 +999,7 @@ const en: Messages = {
     "storage.too_large": "Too much data to save; remove some saved entries and try again",
     "secrets.unavailable":
       "There is no safe place to keep tokens and keys, so they cannot be saved now; see the note at the top of the settings",
+    "secrets.pending": 'Still waiting for the keychain: click "Allow" in the system prompt, then try again',
     "secrets.reset_unsupported": "Development mode has no encryption key to reset",
     "build.not_found": "Build not found",
     "site.read_only": "The site is read-only because it does not meet the safety rules",
