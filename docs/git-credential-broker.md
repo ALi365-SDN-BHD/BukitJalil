@@ -100,13 +100,13 @@ Bukit deploy（token 只在内存里）
 ### 3.2 helper 子命令 `__git-credential`
 
 - **形式**：Bukit 新增隐藏子命令 `bukit __git-credential <socket 路径或管道名> <get|store|erase>`，不出现在 `--help` 里。用 Bukit 自己的可执行文件，三个平台写法一致，不依赖 `sh` 或 PowerShell，也兼容 native AOT。
-- **git 怎么调用**：`credential.helper` 的值按 git 的规则解析，开头不是 `!` 的绝对路径会当作命令执行，后面追加 `get` / `store` / `erase`。Bukit 生成的值是：
+- **git 怎么调用**：`credential.helper` 的值按 git 的规则解析：开头是 `!` 的值整段交给 shell；不以 `!` 开头、也不是绝对路径的值会被当成 `git credential-<值>`。带引号的路径不算绝对路径，所以必须用 `!` 形式（实现时实测）。Bukit 生成的值是：
 
   ```
-  "<Environment.ProcessPath>" __git-credential "<socket>"
+  !'<Environment.ProcessPath>' ['<bukit.dll>'] __git-credential '<socket>'
   ```
 
-  路径要按 git 的 shell 引号规则转义（空格、引号、Windows 反斜杠），见 3.6 和风险表。git 的 `credential.c` 用 `use_shell = 1`，命令是 `<值> get`，所以 Unix 上**一定经过 `sh -c`**；但 `/bin/sh` 对最后一条简单命令通常直接 `exec`，不留下独立的 sh 进程（本机实测 `sh -c 'sleep 1'` 后台只有 `sleep`）。所以进程链可能有 sh，也可能没有，3.4 两种都接受。
+  每个路径用 POSIX 单引号包起来，路径里的 `'` 写成 `'\''`；单引号里反斜杠、空格、`$` 都按字面处理，Windows 的 MSYS sh 也一样。见 3.6 和风险表。git 的 `credential.c` 用 `use_shell = 1`，命令是 `<值> get`，所以 Unix 上**一定经过 `sh -c`**；但 `/bin/sh` 对最后一条简单命令通常直接 `exec`，不留下独立的 sh 进程（本机实测 `sh -c 'sleep 1'` 后台只有 `sleep`）。所以进程链可能有 sh，也可能没有，3.4 两种都接受。
 - **dll 运行时**：`Environment.ProcessPath` 可能是 `dotnet`（从 dll 运行）或为 null。helper 命令值相应写成 `"<dotnet>" "<bukit.dll>" __git-credential …`；ProcessPath 为 null 时部署直接报错，不回退到 askpass。3.4 的可执行文件核对此时要同时核对对方是 `dotnet` 且 argv 里的 dll 是同一个 `bukit.dll`（realpath 后比较），不能只认 `dotnet`。
 - **分派位置**：`__git-credential` 在 `Program.Main` 最开头、任何配置加载、日志、遥测、横幅输出之前分派；stdout 只写协议行。
 - **AOT**：`Bukit.Cli` 是 `PublishAot=true`，helper 和 broker 的 JSON 用 source-generated `JsonSerializerContext`，不用反射。
