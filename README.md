@@ -1,5 +1,7 @@
 # 🏔️ BukitJalil
 
+**每一次笔记，都值得被看见；让 AI 帮你实现它。**
+
 把**网站当作项目**来管理的系统。每个网站的配置、主题、文件、数据都在这里统一管理；建站和修改都通过和 AI 对话完成，用户不直接改代码。
 
 > 状态：M0 工程骨架、M1 技术验证、M2 网站与只读面板、M3 AI 会话已完成；M4 审核与版本、M5 MVP 打磨已完成（真实模型验收见 [docs/acceptance](docs/acceptance/m5-real-model.md)）；M6 发布到 GitHub Pages 已完成（真实发布验收见 [docs/acceptance](docs/acceptance/m6-github-pages.md)）；M7 macOS 桌面版已完成（验收见 [docs/acceptance](docs/acceptance/m7-desktop.md)）。旧的 Electron + Codex 实现仍保留在 `main` 分支上。

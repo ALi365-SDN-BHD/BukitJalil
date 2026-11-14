@@ -55,6 +55,9 @@ const text = {
   restart: () => (zh() ? "重新启动" : "Start again"),
   openLogs: () => (zh() ? "打开日志目录" : "Open Logs Folder"),
   openData: () => (zh() ? "打开数据目录" : "Open Data Folder"),
+  // The slogan, as on the web app's welcome page (app.slogan / app.sloganSub).
+  slogan: () =>
+    zh() ? "每一次笔记，都值得被看见\n让 AI 帮你实现它" : "Every note deserves to be seen\nLet AI make it happen",
 };
 
 const server = new ServerProcess({
@@ -195,6 +198,12 @@ function lockDown() {
 }
 
 function buildMenu() {
+  // The About panel (app menu on macOS) shows the slogan under the name and version.
+  app.setAboutPanelOptions({
+    applicationName: "BukitJalil",
+    applicationVersion: app.getVersion(),
+    credits: text.slogan(),
+  });
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       ...(process.platform === "darwin" ? [{ role: "appMenu" as const }] : [{ role: "fileMenu" as const }]),

@@ -2,6 +2,8 @@
 const zhCN = {
   app: {
     name: "BukitJalil",
+    slogan: "每一次笔记，都值得被看见",
+    sloganSub: "让 AI 帮你实现它",
   },
   common: {
     cancel: "取消",

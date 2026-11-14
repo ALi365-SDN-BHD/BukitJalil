@@ -3,6 +3,8 @@ import type { Messages } from "./zh-CN.ts";
 const en: Messages = {
   app: {
     name: "BukitJalil",
+    slogan: "Every note deserves to be seen",
+    sloganSub: "Let AI make it happen",
   },
   common: {
     cancel: "Cancel",

@@ -127,6 +127,10 @@ function Welcome() {
   const notice = (location.state as { notice?: string } | null)?.notice;
   return (
     <div className="flex flex-col gap-4 p-6 text-sm">
+      <header className="flex flex-col gap-1" data-testid="slogan">
+        <h1 className="text-xl font-semibold tracking-tight">{m.app.slogan}</h1>
+        <p className="text-muted-foreground">{m.app.sloganSub}</p>
+      </header>
       {notice && (
         <p role="status" className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3" data-testid="notice">
           {notice}
