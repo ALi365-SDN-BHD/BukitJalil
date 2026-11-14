@@ -5,7 +5,7 @@ import { auditText } from "../builds/audit.ts";
 import { isRecord, pathProblem } from "../bukit/guard.ts";
 import { summarizeConfig } from "../panels/service.ts";
 import { parseFrontMatter, parseYaml } from "../panels/yaml.ts";
-import type { AiBukit, BuildResult, CheckResult } from "./ai-bukit.ts";
+import { type AiBukit, type BuildResult, type CheckResult, type NotionNote, notionNoteText } from "./ai-bukit.ts";
 import { GateError, type PathGate, segmentKey } from "./gate.ts";
 
 /**
@@ -150,8 +150,11 @@ const removedNote = (removed: string[]) =>
       }
     : {};
 
-function formatCheck({ commit: _, removed, ...rest }: CheckResult) {
-  return { ...rest, ...removedNote(removed) };
+/** Where Notion content came from in an offline check or build (plan 5.5). */
+const notionNote = (notion: NotionNote | undefined) => (notion ? { notionData: notionNoteText(notion) } : {});
+
+function formatCheck({ commit: _, removed, notion, ...rest }: CheckResult) {
+  return { ...rest, ...notionNote(notion), ...removedNote(removed) };
 }
 
 const OUTCOME_TEXT: Record<BuildResult["outcome"], string> = {
@@ -171,6 +174,7 @@ function formatBuild(r: BuildResult) {
     messages: r.messages,
     output: r.output,
     ...(r.audit ? { seoGeo: auditText(r.audit) } : {}),
+    ...notionNote(r.notion),
     ...removedNote(r.removed),
   };
 }

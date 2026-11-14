@@ -40,16 +40,71 @@ const _gitPath = resolveGitPath() as string;
  * "multi" writes only /en-US/ and /zh-CN/ like a multilingual site, "slow" waits for SIGINT.
  */
 const FAKE_BUKIT = `#!/bin/sh
+# Tokens come on stdin with --secrets-stdin (plan 8.7), never from the environment.
+unset NOTION_TOKEN BUKIT_DEPLOY_TOKEN
+case " $* " in *" --secrets-stdin "*)
+  secrets=$(cat)
+  NOTION_TOKEN=$(printf '%s' "$secrets" | sed -n 's/.*"NOTION_TOKEN":"\\([^"]*\\)".*/\\1/p')
+  BUKIT_DEPLOY_TOKEN=$(printf '%s' "$secrets" | sed -n 's/.*"BUKIT_DEPLOY_TOKEN":"\\([^"]*\\)".*/\\1/p');;
+esac
 case "$1" in
-  version) echo "bukit 2.0.11+fake"; exit 0;;
+  version) echo "bukit 2.2.2+fake"; exit 0;;
   config) exit 0;;
   build)
-    out=""; prev=""
-    for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
+    out=""; snap=""; cache=""; offline=""; prev=""
+    for a in "$@"; do
+      case "$prev" in --output) out="$a";; --notion-snapshot) snap="$a";; --cache-dir) cache="$a";; esac
+      [ "$a" = "--notion-offline" ] && offline=1
+      prev="$a"
+    done
     [ -n "$NOTION_TOKEN" ] && printf '%s' "$NOTION_TOKEN" > "\${0}.notion"
     printf '%s' "$*" > "\${0}.args"
+    env > "\${0}.env"
     mode=$(cat fake-mode 2>/dev/null)
     echo '{"ts":"t","level":"info","msg":"event=build.start"}'
+    # The Notion offline snapshot (plan 5.5), like Bukit 2.1.0: a formal build with the token records it
+    # and downloads images into .cache/media; an offline build reads only the snapshot and --cache-dir.
+    if [ -n "$offline" ]; then
+      if [ ! -f "$snap/manifest.json" ]; then
+        cat >&2 <<'JSON'
+{
+  "schema": "https://bukit.dev/schemas/cli-error.v1.json",
+  "version": "1.0",
+  "command": "build",
+  "exitCode": 2,
+  "errors": [{"code": "BKT-0B10", "message": "Notion offline snapshot not found or incomplete.", "showUsage": false}]
+}
+JSON
+        exit 2
+      fi
+      if [ "$mode" = "newdb" ]; then
+        cat >&2 <<JSON
+{
+  "schema": "https://bukit.dev/schemas/cli-error.v1.json",
+  "version": "1.0",
+  "command": "build",
+  "exitCode": 2,
+  "errors": [{"code": "BKT-0B11", "message": "Notion offline snapshot has no data for database 'other' at $snap.", "showUsage": false}]
+}
+JSON
+        exit 2
+      fi
+      [ "$mode" = "query" ] && echo '{"ts":"t","level":"Warn","msg":"event=notion.snapshot.query_changed databaseId=abc message=x"}'
+      mkdir -p "$out"; echo "<h1>$(cat "$cache/media/img.txt" 2>/dev/null)</h1>" > "$out/index.html"
+      echo '{"ts":"t","level":"Info","msg":"event=content.source.loaded source=posts count=2"}'
+      exit 0
+    elif [ -n "$snap" ] && [ -n "$NOTION_TOKEN" ] && [ "$mode" != "fail" ]; then
+      mkdir -p "$snap" .cache/media/sub; echo '{"format":1}' > "$snap/manifest.json"
+      echo "image $(cat marker 2>/dev/null)" > .cache/media/img.txt; echo deep > .cache/media/sub/b.txt
+      ln -sf /etc/hosts .cache/media/link
+      # An unreadable media folder makes copying the cache fail.
+      if [ "$mode" = "lockmedia" ]; then mkdir -p .cache/media/locked; chmod 000 .cache/media/locked; fi
+      mkdir -p "$out"; echo "<h1>formal</h1>" > "$out/index.html"
+      echo '{"ts":"t","level":"Info","msg":"event=content.source.loaded source=posts count=3"}'
+      echo '{"ts":"t","level":"Info","msg":"event=notion.snapshot.saved"}'
+      [ "$mode" = "savedfail" ] && { echo "stopped after saving" >&2; exit 3; }
+      exit 0
+    fi
     case "$mode" in
       fail) echo '{"ts":"t","level":"error","msg":"event=content.error file=x.md"}'; echo "boom" >&2; exit 2;;
       full) echo "write index.html: no space left on device" >&2; exit 1;;
@@ -211,7 +266,33 @@ it("passes the Notion token of the site's data source to a main build but never 
   expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "succeeded", outcome: "ok" });
   expect(fs.readFileSync(tokenFile, "utf8")).toBe("ntn_main_only");
 
-  // A change build is unreviewed: it must not run Bukit with the token.
+  // The main build recorded the Notion offline snapshot outside the checkout, with the media cache (plan 5.5).
+  const bk = testBukitDir(path.join(base, "bk"));
+  const snapshotRoot = path.join(ctx.paths.home, "notion-snapshots", site.id);
+  expect(fs.readFileSync(path.join(bk, "bukit.args"), "utf8")).toContain(
+    `--notion-snapshot ${path.join(snapshotRoot, "snapshot")}`,
+  );
+  const record = ctx.sites.notionSnapshots.get(site.id);
+  expect(record).toMatchObject({ commit: rawGit(base, dir, "rev-parse", "HEAD").trim() });
+  expect(fs.readFileSync(path.join(snapshotRoot, "cache", "media", "img.txt"), "utf8")).toBe("image \n");
+  expect(fs.readFileSync(path.join(snapshotRoot, "cache", "media", "sub", "b.txt"), "utf8")).toBe("deep\n");
+  // Links are not copied; everything is private.
+  expect(fs.existsSync(path.join(snapshotRoot, "cache", "media", "link"))).toBe(false);
+  expect(fs.statSync(path.join(snapshotRoot, "cache", "media", "img.txt")).mode & 0o777).toBe(0o600);
+  expect(fs.statSync(path.join(snapshotRoot, "cache", "media", "sub")).mode & 0o777).toBe(0o700);
+  expect(fs.statSync(snapshotRoot).mode & 0o777).toBe(0o700);
+  // No token anywhere in what was kept.
+  const kept = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = path.join(dir, e.name);
+      return e.isDirectory() ? kept(p) : e.isFile() ? [fs.readFileSync(p, "utf8")] : [];
+    });
+  expect(kept(snapshotRoot).join("\n")).not.toContain("ntn_main_only");
+  const mainBuild = ctx.builds.get(site.id, ctx.builds.list(site.id)[0]?.id as string);
+  expect(mainBuild.report?.sources).toEqual([{ name: "posts", count: 3 }]);
+  expect(mainBuild.report?.notionOffline).toBeUndefined();
+
+  // A change build is unreviewed: it never gets the token and builds offline from the snapshot.
   const session = ctx.agent.create(site.id);
   const { cwd } = await ctx.changes.begin(site.id, session.id);
   fs.writeFileSync(path.join(cwd, "content", "pages", "new.md"), "---\ntitle: New\n---\n");
@@ -219,14 +300,92 @@ it("passes the Notion token of the site's data source to a main build but never 
   fs.rmSync(tokenFile, { force: true });
   await ctx.builds.start(site.id, "change");
   await ctx.builds.settled();
-  expect(ctx.builds.list(site.id).find((b) => b.ref === "change")).toMatchObject({
-    status: "failed",
-    outcome: "notion",
-  });
+  const changeBuild = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
+  expect(changeBuild).toMatchObject({ status: "succeeded", outcome: "ok" });
   expect(fs.existsSync(tokenFile)).toBe(false);
+  expect(fs.readFileSync(path.join(bk, "bukit.env"), "utf8")).not.toMatch(/NOTION_TOKEN|ntn_main_only/);
+  const offlineArgs = fs.readFileSync(path.join(bk, "bukit.args"), "utf8");
+  expect(offlineArgs).toContain(
+    `--notion-snapshot ${path.join(snapshotRoot, "snapshot")} --notion-offline --cache-dir ${path.join(snapshotRoot, "cache")}`,
+  );
+  expect(offlineArgs).not.toContain("--secrets-stdin");
+  const offlineReport = ctx.builds.get(site.id, changeBuild.id).report;
+  expect(offlineReport?.notionOffline).toEqual({ ...record, queryChanged: false, rendererMismatch: false });
+  const preview = await ctx.builds.openPreview(site.id, "change");
+  expect(preview.notionOffline).toEqual(offlineReport?.notionOffline);
+  // The image came from the copied media cache.
+  expect((await fetchPreview(preview.port)).body).toContain("image");
+  // The data panel shows the entries per source, and which formal build the snapshot is from.
+  const data = await ctx.panels.data(site.id, "main");
+  expect(data.counts?.sources).toEqual([{ name: "posts", count: 3 }]);
+  expect(data.notionSnapshot).toEqual(record);
 
-  // Unbinding takes the token away again, and the site state says a source must be bound.
+  // A changed filter is said; a database the snapshot lacks fails with what to do; nothing leaks the path.
+  fs.writeFileSync(path.join(cwd, "fake-mode"), "query");
+  await ctx.builds.start(site.id, "change");
+  await ctx.builds.settled();
+  const queried = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
+  expect(ctx.builds.get(site.id, queried.id).report?.notionOffline?.queryChanged).toBe(true);
+  fs.writeFileSync(path.join(cwd, "fake-mode"), "newdb");
+  await ctx.builds.start(site.id, "change");
+  await ctx.builds.settled();
+  const newdb = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
+  const newdbReport = ctx.builds.get(site.id, newdb.id).report;
+  expect(newdb).toMatchObject({ status: "failed", outcome: "config_or_content_error" });
+  expect(newdbReport?.notionSnapshotProblem).toBe("change");
+  expect(JSON.stringify(newdbReport)).not.toContain(ctx.paths.notionSnapshots);
+  expect(JSON.stringify(newdbReport)).toContain("[notion-snapshot]");
+
+  // Bukit saved the snapshot, then the run failed: the record follows the new data anyway.
+  fs.writeFileSync(path.join(dir, "fake-mode"), "savedfail");
+  commitAll(dir, "saved then failed");
+  const savedCommit = raw(dir, "rev-parse", "HEAD").trim();
+  await ctx.builds.start(site.id, "main");
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id)[0]).toMatchObject({ ref: "main", status: "failed" });
+  expect(ctx.sites.notionSnapshots.get(site.id)?.commit).toBe(savedCommit);
+
+  // Copying the media cache fails: the record goes, so nothing names a build the data does not come from.
+  const mainDir = path.join(ctx.paths.worktrees, site.id, "main");
+  fs.writeFileSync(path.join(dir, "fake-mode"), "lockmedia");
+  commitAll(dir, "lock media");
+  await ctx.builds.start(site.id, "main");
+  await ctx.builds.settled();
+  fs.chmodSync(path.join(mainDir, ".cache", "media", "locked"), 0o700);
+  expect(ctx.builds.list(site.id)[0]).toMatchObject({ ref: "main", status: "succeeded" });
+  expect(ctx.sites.notionSnapshots.get(site.id)).toBeNull();
+  expect(fs.existsSync(snapshotRoot)).toBe(false);
+  fs.rmSync(path.join(dir, "fake-mode"));
+  commitAll(dir, "unlock media");
+  const recordAgain = async () => {
+    await ctx.builds.start(site.id, "main");
+    await ctx.builds.settled();
+    expect(ctx.sites.notionSnapshots.get(site.id)).not.toBeNull();
+  };
+  await recordAgain();
+  // Another token for the same source may read another workspace: the snapshot goes once the site is free.
+  ctx.dataSources.update(source.id, { platform: "notion", name: "Notion", token: "ntn_other_workspace" });
+  await expect.poll(() => fs.existsSync(snapshotRoot)).toBe(false);
+  expect(ctx.sites.notionSnapshots.get(site.id)).toBeNull();
+  await recordAgain();
+  // So does binding another source.
+  const other = ctx.dataSources.create({ platform: "notion", name: "Other", token: "ntn_second_source" });
+  await bind(other.id);
+  expect(fs.existsSync(snapshotRoot)).toBe(false);
+  await bind(source.id);
+  await recordAgain();
+  fs.rmSync(tokenFile, { force: true });
+
+  // Unbinding takes the token away again and deletes the snapshot; the site state says a source must be bound.
   const unbound = await bind(null);
+  expect(fs.existsSync(snapshotRoot)).toBe(false);
+  expect(ctx.sites.notionSnapshots.get(site.id)).toBeNull();
+  fs.writeFileSync(path.join(cwd, "fake-mode"), "");
+  await ctx.builds.start(site.id, "change");
+  await ctx.builds.settled();
+  const missing = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
+  expect(missing).toMatchObject({ status: "failed", outcome: "notion" });
+  expect(ctx.builds.get(site.id, missing.id).report?.notionSnapshotProblem).toBe("missing");
   expect((await unbound.json()) as Site).toMatchObject({ notionDataSourceId: null, configCheck: "notion" });
   await ctx.builds.start(site.id, "main");
   await ctx.builds.settled();
@@ -269,6 +428,31 @@ it("checks and builds a new Notion site with its bound token right after creatin
   await ctx.builds.settled();
   expect(ctx.builds.list(site.id)).toMatchObject([{ ref: "main", status: "succeeded", outcome: "ok" }]);
   expect(fs.readFileSync(tokenFile, "utf8")).toBe("ntn_new_site_token");
+});
+
+it("deletes the Notion offline snapshot once the default branch has no Notion source, or the site goes", async () => {
+  const s = await setup("snapshot-gone");
+  const snapshots = s.sites.notionSnapshots;
+  const root = path.join(s.paths.notionSnapshots, s.site.id);
+  const record = () => {
+    const [, dir] = snapshots.recordArgs(s.site.id) as [string, string];
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "manifest.json"), "{}");
+    snapshots.recorded(s.site.id, "c".repeat(40), s.dir);
+    expect(snapshots.get(s.site.id)).toMatchObject({ commit: "c".repeat(40) });
+  };
+  record();
+  expect(await s.build()).toMatchObject({ status: "succeeded" });
+  expect(fs.existsSync(root)).toBe(false);
+  expect(snapshots.get(s.site.id)).toBeNull();
+  record();
+  // Deleted from outside: forgotten, so the UI asks for a formal build again.
+  fs.rmSync(path.join(root, "snapshot"), { recursive: true });
+  expect(snapshots.offline(s.site.id)).toBeNull();
+  expect(snapshots.get(s.site.id)).toBeNull();
+  record();
+  await s.sites.remove(s.site.id);
+  expect(fs.existsSync(root)).toBe(false);
 });
 
 describe("main builds (plan 8.3, 8.4)", () => {

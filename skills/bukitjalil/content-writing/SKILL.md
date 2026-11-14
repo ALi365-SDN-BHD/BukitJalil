@@ -12,8 +12,8 @@ description: Writing website content in BukitJalil - home page copy, about and s
 - Check which collection a file belongs to (`site_info` shows collections and
   their permalinks). In the starter site, posts are in `content/posts`
   (collection `post`) and pages in `content/pages` (collection `page`).
-- Write in the site's language (`site.language`, or each language of a
-  multilingual site; see the `multilingual` skill). Ask if the user has not
+- Write in the site's language (`site.languages`: its one entry, or each
+  language of a multilingual site; see the `multilingual` skill). Ask if the user has not
   said who the site is for.
 
 ## Front matter

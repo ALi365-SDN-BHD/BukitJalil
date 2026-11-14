@@ -8,6 +8,7 @@ import type {
   FileResponse,
   ImageMime,
   PanelRef,
+  SourceCounts,
   ThemeResponse,
   TreeEntryView,
   TreeResponse,
@@ -73,6 +74,8 @@ export class PanelService {
       sites: SiteService;
       /** The snapshot of the site's open change set (ref=change), or null when none is open. */
       changeCommit: (siteId: string) => string | null;
+      /** Entries per source of the newest successful build of `ref` (plan 5.5). */
+      sourceCounts?: (siteId: string, ref: PanelRef) => SourceCounts | null;
     },
   ) {}
 
@@ -276,7 +279,15 @@ export class PanelService {
             : null,
         });
       }
-      return { ref, commit: v.commit, sources: out, truncated };
+      const notion = out.some((s) => s.type === "notion");
+      return {
+        ref,
+        commit: v.commit,
+        sources: out,
+        truncated,
+        counts: this.opts.sourceCounts?.(siteId, ref) ?? null,
+        notionSnapshot: notion ? this.opts.sites.notionSnapshots.get(siteId) : null,
+      };
     });
   }
 
@@ -381,6 +392,9 @@ export function summarizeConfig(config: Record<string, unknown>): ConfigSummary 
   const theme = isRecord(config.theme) ? config.theme : {};
   const collections = isRecord(site.collections) ? site.collections : {};
   const sources = Array.isArray(content.sources) ? content.sources : [];
+  const languages = Array.isArray(site.languages)
+    ? site.languages.map((l) => (isRecord(l) ? (str(l.code) ?? str(l.language)) : str(l))).filter((l) => l !== null)
+    : [];
   return {
     site: {
       name: str(site.name),
@@ -388,10 +402,8 @@ export function summarizeConfig(config: Record<string, unknown>): ConfigSummary 
       description: str(site.description),
       url: str(site.url),
       baseUrl: str(site.baseUrl),
-      language: str(site.language),
-      languages: Array.isArray(site.languages)
-        ? site.languages.map((l) => (isRecord(l) ? (str(l.code) ?? str(l.language)) : str(l))).filter((l) => l !== null)
-        : [],
+      language: str(site.defaultLanguage) ?? languages[0] ?? str(site.language),
+      languages,
       timezone: str(site.timezone),
     },
     collections: Object.entries(collections).map(([name, c]) => ({

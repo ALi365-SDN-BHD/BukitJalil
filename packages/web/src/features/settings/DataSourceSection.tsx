@@ -32,6 +32,8 @@ export function DataSourceSection() {
         onSaved={() => {
           setEditing(null);
           void queryClient.invalidateQueries({ queryKey: keys.dataSources });
+          // A new token drops the Notion offline snapshot of the sites using the source (plan 5.5).
+          void queryClient.invalidateQueries({ queryKey: ["panel"] });
         }}
       />
     );

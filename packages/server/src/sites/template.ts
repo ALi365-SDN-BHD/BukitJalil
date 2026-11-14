@@ -85,10 +85,17 @@ export function fillSiteYaml(text: string, values: StarterValues): string {
   const title = values.title.trim();
   doc.setIn(["site", "name"], siteSlug(title));
   doc.setIn(["site", "title"], title);
-  doc.setIn(["site", "language"], values.language);
+  // Bukit 2.1 only reads site.languages; one entry builds a single-language site at the output root (plan 8.7).
+  doc.deleteIn(["site", "language"]);
+  const languages = doc.createNode([values.language]);
+  languages.flow = true;
+  doc.setIn(["site", "languages"], languages);
   doc.setIn(["theme", "params", "brand"], title);
   doc.setIn(["theme", "params", "footer_text"], title);
   if (values.sources) doc.setIn(["content", "sources"], values.sources);
+  // A remote image that can't be downloaded keeps its link instead of Bukit's placeholder, which the
+  // starter theme does not have (plan 8.6).
+  doc.setIn(["content", "media", "onFailure"], "keep");
   return doc.toString();
 }
 

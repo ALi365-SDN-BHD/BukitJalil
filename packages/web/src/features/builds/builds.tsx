@@ -1,4 +1,4 @@
-import type { AuditIssueGroup, Build, BuildAudit, BuildMessage, PanelRef } from "@bukitjalil/shared";
+import type { AuditIssueGroup, Build, BuildAudit, BuildMessage, NotionOfflineData, PanelRef } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -6,6 +6,7 @@ import { useSearchParams } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { BukitFailure } from "@/features/builds/BukitFailure";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { formatDuration, formatTime, shortOid } from "@/lib/format";
@@ -28,6 +29,9 @@ export function useBuilds(siteId: string) {
       void queryClient.invalidateQueries({ queryKey: keys.site(siteId) });
       void queryClient.invalidateQueries({ queryKey: keys.sites });
       void queryClient.invalidateQueries({ queryKey: ["preview", siteId] });
+      // Entries per source and the Notion snapshot come from builds (plan 5.5).
+      void queryClient.invalidateQueries({ queryKey: keys.panel(siteId, "data", "main") });
+      void queryClient.invalidateQueries({ queryKey: keys.panel(siteId, "data", "change") });
     }
     wasRunning.current = running;
   }, [running, siteId, queryClient]);
@@ -163,7 +167,14 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
               {m.notion.problem[report.notionProblem]}
             </p>
           )}
-          {build.data?.outcome === "failed" && !report?.problem && (
+          {report?.notionSnapshotProblem && (
+            <p role="alert" className="text-destructive" data-testid="build-notion-snapshot-problem">
+              {m.notionSnapshot.problem[report.notionSnapshotProblem]}
+            </p>
+          )}
+          {report?.notionOffline && <NotionOfflineNote data={report.notionOffline} testId="build-notion-offline" />}
+          <BukitFailure errors={report?.bukitErrors} media={report?.mediaProblem} testId="build" />
+          {build.data?.outcome === "failed" && !report?.problem && !report?.bukitErrors?.length && (
             <p className="text-muted-foreground" data-testid="build-crashed">
               {m.build.crashed}
             </p>
@@ -186,6 +197,19 @@ function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; build
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Where an offline build's Notion data came from (plan 5.5): the formal build, and what differs from it. */
+export function NotionOfflineNote({ data, testId }: { data: NotionOfflineData; testId: string }) {
+  const { m, t, locale } = useI18n();
+  const n = m.notionSnapshot;
+  return (
+    <div className="flex flex-col gap-0.5 text-xs" data-testid={testId}>
+      <p>{t(n.offline, { time: formatTime(data.builtAt, locale), commit: shortOid(data.commit) })}</p>
+      {data.queryChanged && <p data-testid={`${testId}-query`}>{n.queryChanged}</p>}
+      {data.rendererMismatch && <p data-testid={`${testId}-renderer`}>{n.rendererMismatch}</p>}
+    </div>
   );
 }
 

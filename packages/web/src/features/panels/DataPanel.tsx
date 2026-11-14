@@ -1,4 +1,4 @@
-import type { DataSource, PanelRef } from "@bukitjalil/shared";
+import type { DataResponse, DataSource, PanelRef } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { usePanelRef } from "@/features/changes/hooks";
 import { settingsSelectClass } from "@/features/settings/SettingsLayout";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
-import { formatTime } from "@/lib/format";
+import { formatTime, shortOid } from "@/lib/format";
 import { Facts, PanelError, PanelLoading, RefSwitch, Section, Table } from "./common";
 
 /** Data panel (plan 5.3): content sources as cards; `mode: data` sources also as a table. */
@@ -24,9 +24,14 @@ export function DataPanel({ siteId }: { siteId: string }) {
     body = (
       <div className="flex flex-col gap-4 p-4">
         {data.data.truncated && <p className="text-sm text-muted-foreground">{m.data.truncated}</p>}
-        {data.data.sources.some((s) => s.type === "notion") && <NotionBinding siteId={siteId} />}
+        {data.data.sources.some((s) => s.type === "notion") && (
+          <>
+            <NotionBinding siteId={siteId} />
+            <NotionSnapshotNote snapshot={data.data.notionSnapshot} />
+          </>
+        )}
         {data.data.sources.map((s) => (
-          <SourceCard key={s.index} siteId={siteId} refName={ref} source={s} />
+          <SourceCard key={s.index} siteId={siteId} refName={ref} source={s} counts={data.data.counts} />
         ))}
       </div>
     );
@@ -58,6 +63,8 @@ function NotionBinding({ siteId }: { siteId: string }) {
       void queryClient.invalidateQueries({ queryKey: keys.dataSources });
       // Fields read with the previous token no longer say what this one can read.
       queryClient.removeQueries({ queryKey: ["notion-fields", siteId] });
+      // Another source (or none) deletes the Notion offline snapshot (plan 5.5).
+      void queryClient.invalidateQueries({ queryKey: keys.panel(siteId, "data") });
     },
   });
   if (site.isPending || sources.isPending) return null;
@@ -100,8 +107,39 @@ function NotionBinding({ siteId }: { siteId: string }) {
   );
 }
 
-function SourceCard({ siteId, refName, source: s }: { siteId: string; refName: PanelRef; source: DataSource }) {
-  const { m, t } = useI18n();
+/**
+ * Which formal build's Notion data AI checks and previews read (plan 5.5); without one, they cannot run
+ * until the user builds the site.
+ */
+function NotionSnapshotNote({ snapshot }: { snapshot: DataResponse["notionSnapshot"] }) {
+  const { m, t, locale } = useI18n();
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="notion-snapshot">
+      {snapshot
+        ? t(m.notionSnapshot.panelRecorded, {
+            time: formatTime(snapshot.builtAt, locale),
+            commit: shortOid(snapshot.commit),
+          })
+        : m.notionSnapshot.panelNone}
+    </p>
+  );
+}
+
+function SourceCard({
+  siteId,
+  refName,
+  source: s,
+  counts,
+}: {
+  siteId: string;
+  refName: PanelRef;
+  source: DataSource;
+  counts: DataResponse["counts"];
+}) {
+  const { m, t, locale } = useI18n();
+  // Entries Bukit loaded from this source in the newest successful build of this version (plan 5.5).
+  // Bukit trims names; a source without one gets a generated name the panel does not guess.
+  const count = s.name === null ? undefined : counts?.sources.find((c) => c.name === s.name?.trim())?.count;
   const typeLabel =
     s.type === "markdown"
       ? m.data.markdown
@@ -115,6 +153,15 @@ function SourceCard({ siteId, refName, source: s }: { siteId: string; refName: P
         <Badge>{typeLabel}</Badge>
         {s.mode && <Badge>{s.mode}</Badge>}
         {s.collection && <span className="text-xs text-muted-foreground">→ {s.collection}</span>}
+        {count !== undefined && counts && (
+          <span
+            className="ml-auto text-xs text-muted-foreground"
+            title={t(m.data.countFrom, { time: formatTime(counts.finishedAt ?? "", locale) })}
+            data-testid="data-source-count"
+          >
+            {t(m.data.count, { count })}
+          </span>
+        )}
       </header>
       {s.type === "markdown" && <MarkdownSource source={s} />}
       {s.type === "notion" && (
@@ -162,7 +209,6 @@ function NotionFields({ siteId, index }: { siteId: string; index: number }) {
         >
           {fields.isFetching ? m.data.readingFields : fields.data ? m.data.rereadFields : m.data.readFields}
         </Button>
-        <span className="text-xs text-muted-foreground">{m.data.pagesLater}</span>
       </div>
       {fields.error && !fields.isFetching && (
         <p role="alert" className="text-xs text-destructive" data-testid="notion-fields-error">

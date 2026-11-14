@@ -21,6 +21,43 @@ describe("SecretScrubber", () => {
     expect(out).toBe("remote https://x:[token]@github.com/a/b\nend [token]");
   });
 
+  it("masks other values with their own masks, split across chunks too (plan 5.5)", () => {
+    const s = new SecretScrubber(["ntn_secret_value"], undefined, {
+      "/home/u/.bukitjalil/notion-snapshots": "[notion-snapshot]",
+    });
+    const text = "read /home/u/.bukitjalil/notion-snapshots/abc/snapshot with ntn_secret_value";
+    let out = "";
+    for (let i = 0; i < text.length; i += 4) out += s.push(text.slice(i, i + 4));
+    out += s.flush();
+    expect(out).toBe("read [notion-snapshot]/abc/snapshot with [token]");
+  });
+
+  it("masks a path as Bukit's JSON log escapes it: Windows backslashes, non-ASCII characters", () => {
+    const windows = "C:\\Users\\a\\.bukitjalil\\notion-snapshots";
+    const named = "/Users/张三/.bukitjalil/notion-snapshots";
+    const s = new SecretScrubber([], undefined, { [windows]: "[notion-snapshot]", [named]: "[notion-snapshot]" });
+    const line = (value: string) => JSON.stringify({ msg: `downloadDir=${value}\\x\\media` });
+    const escaped = JSON.stringify({ msg: named }).replace(
+      /[^\x20-\x7e]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
+    const out = s.push(`${line(windows)}\n${escaped}\n`) + s.flush();
+    expect(out).not.toContain("Users");
+    expect(out.match(/\[notion-snapshot\]/g)).toHaveLength(2);
+  });
+
+  it("masks a path with characters Bukit's JSON encoder escapes as HTML-sensitive", () => {
+    const odd = "/Users/a&b/O'Neil+<x>/notion-snapshots";
+    const s = new SecretScrubber([], undefined, { [odd]: "[notion-snapshot]" });
+    // JavaScriptEncoder.Default writes & ' + < > as \\u0026 \\u0027 \\u002B \\u003C \\u003E.
+    const escaped = JSON.stringify({ msg: odd }).replace(
+      /[&'+<>]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}`,
+    );
+    const out = s.push(`${escaped}\n`) + s.flush();
+    expect(out).toBe('{"msg":"[notion-snapshot]"}\n');
+  });
+
   it("passes text through unchanged without secrets", () => {
     const s = new SecretScrubber(["short"]);
     expect(s.push("short text")).toBe("short text");

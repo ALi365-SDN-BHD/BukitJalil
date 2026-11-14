@@ -3,10 +3,10 @@
 # Bukit has no "new site" command; its starter theme only exists as CLI resources (MIT).
 # Run again when Bukit is upgraded, then build the result with the real Bukit (see templates/README.md).
 #
-# Usage: BUKIT_SRC=/path/to/Bukit/clone [BUKIT_TAG=v2.0.12] scripts/make-starter.sh
+# Usage: BUKIT_SRC=/path/to/Bukit/clone [BUKIT_TAG=v2.1.0] scripts/make-starter.sh
 set -euo pipefail
 BUKIT_SRC=${BUKIT_SRC:?set BUKIT_SRC to a clone of github.com/ALi365-SDN-BHD/Bukit}
-TAG=${BUKIT_TAG:-v2.0.12}
+TAG=${BUKIT_TAG:-v2.1.0}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$ROOT/templates/starter
 RES=src/Bukit-Core/Bukit.Cli/Resources/StarterTheme
@@ -96,7 +96,7 @@ desc: Draft posts in Markdown and publish them with clean archive, feed, and tax
 
 EOF
 
-# site.name, site.title, site.language and theme.params.brand / footer_text are replaced on creation.
+# site.name, site.title, site.languages and theme.params.brand / footer_text are replaced on creation.
 # site.url is left out on purpose: Bukit then warns that absolute SEO URLs need it, instead of every
 # site silently pointing canonical links and feeds at a placeholder domain.
 cat >"$OUT/site.yaml" <<'EOF'
@@ -106,7 +106,7 @@ site:
   baseUrl: /
   seo:
     defaultImage: /assets/og-default.png
-  language: en-US
+  languages: [en-US]
   timezone: UTC
   collections:
     post:

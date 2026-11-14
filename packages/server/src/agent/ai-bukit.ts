@@ -1,23 +1,26 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { ApplyCheck, BuildAudit } from "@bukitjalil/shared";
+import type { ApplyCheck, BuildAudit, NotionOfflineData, NotionSnapshotProblem } from "@bukitjalil/shared";
 import { readAudit } from "../builds/audit.ts";
-import { BUILD_OUTPUT_PARENT, buildArgs, buildReport, limitMessages } from "../builds/service.ts";
+import { BUILD_OUTPUT_PARENT, buildArgs, buildReport, limitMessages, notionOfflineData } from "../builds/service.ts";
 import { type GuardReason, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
+import { notionSnapshotProblemIn } from "../bukit/notion-errors.ts";
 import { type BukitRunner, type BukitRunResult, buildOutcome, checkPassed, usableRunner } from "../bukit/runner.ts";
 import type { ChangeService } from "../changes/service.ts";
 import type { Snapshot } from "../changes/snapshot.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
 import { checkoutBasePath } from "../preview/base-path.ts";
+import type { OfflineNotion } from "../sites/notion-snapshots.ts";
 import type { SiteService } from "../sites/service.ts";
 
 /**
  * Bukit for the AI (plan 6.3, 8.5): `bukit_check` and `bukit_build` run in the site's ai/ checkout. Each
  * call snapshots the checkout into a commit (through the change set, plan 7.2), passes the pre-build guard
- * on that commit and only then starts Bukit, with no secrets. A multilingual build needs the clean
+ * on that commit and only then starts Bukit, with no secrets. A Notion site is checked and built offline
+ * from the Notion offline snapshot of its last formal build (plan 5.5). A multilingual build needs the clean
  * checkout the snapshot leaves (plan 7.2). The tools only run inside an AI run, which holds the site lock
  * until `settled` says they have all ended.
  */
@@ -47,11 +50,18 @@ export interface CheckStep {
 
 export type { Snapshot };
 
+/** Where the Notion data of an offline check or build came from, and why it could not be used (plan 5.5). */
+export interface NotionNote extends NotionOfflineData {
+  problem: NotionSnapshotProblem | null;
+}
+
 export interface CheckResult {
   passed: boolean;
   commit: string;
   removed: string[];
   steps: CheckStep[];
+  /** A Notion site, checked from its snapshot. */
+  notion?: NotionNote;
 }
 
 export interface BuildResult {
@@ -65,6 +75,8 @@ export interface BuildResult {
   output: string;
   /** SEO / GEO summary of a successful build (M4 layer 7), read before the output is deleted. */
   audit: BuildAudit | null;
+  /** A Notion site, built from its snapshot. */
+  notion?: NotionNote;
 }
 
 export interface AiBukitOptions {
@@ -102,13 +114,20 @@ export class AiBukit {
    * snapshotted (a partial apply, plan 7.5).
    */
   check(siteId: string, cwd: string, signal?: AbortSignal, commit?: string): Promise<CheckResult> {
-    return this.guarded(siteId, cwd, commit, async (runner, { commit, removed }) => {
+    return this.guarded(siteId, cwd, commit, async (runner, { commit, removed }, offline) => {
       const steps: CheckStep[] = [];
+      const extra = offline?.checkArgs ?? [];
+      const results: BukitRunResult[] = [];
       for (const [command, args] of [
-        ["config check", ["config", "check", "--config", "site.yaml"]],
-        ["doctor", ["doctor", "--config", "site.yaml"]],
+        ["config check", ["config", "check", "--config", "site.yaml", ...extra]],
+        ["doctor", ["doctor", "--config", "site.yaml", ...extra]],
       ] as const) {
-        const result = await runner.run(command === "doctor" ? "doctor" : "check", args, { cwd, signal });
+        const result = await runner.run(command === "doctor" ? "doctor" : "check", args, {
+          cwd,
+          signal,
+          redact: this.redact,
+        });
+        results.push(result);
         steps.push({
           command,
           passed: checkPassed(result),
@@ -118,7 +137,8 @@ export class AiBukit {
         });
         if (result.stopped) break;
       }
-      return { passed: steps.length === 2 && steps.every((s) => s.passed), commit, removed, steps };
+      const passed = steps.length === 2 && steps.every((s) => s.passed);
+      return { passed, commit, removed, steps, ...(offline ? { notion: notionNote(offline, results, passed) } : {}) };
     });
   }
 
@@ -128,11 +148,13 @@ export class AiBukit {
    */
   async checkForApply(siteId: string, cwd: string, commit?: string): Promise<ApplyCheck> {
     try {
-      const { passed, steps } = await this.check(siteId, cwd, undefined, commit);
+      const { passed, steps, notion } = await this.check(siteId, cwd, undefined, commit);
+      // A snapshot that cannot answer for this commit leaves it unchecked, like a Notion site without one.
+      const unchecked = notion?.problem ? NOTION_TEXT[notion.problem] : null;
       return {
         passed,
-        problemCode: null,
-        problem: null,
+        problemCode: unchecked ? "notion" : null,
+        problem: unchecked,
         steps: steps.map(({ command, passed, exitCode, output }) => ({ command, passed, exitCode, output })),
       };
     } catch (err) {
@@ -143,7 +165,7 @@ export class AiBukit {
 
   /** Build into a fresh .bukitjalil-build/ai-<id>/ and report, with its SEO / GEO summary; the output is deleted. */
   build(siteId: string, cwd: string, signal?: AbortSignal): Promise<BuildResult> {
-    return this.guarded(siteId, cwd, undefined, async (runner, { commit, removed }) => {
+    return this.guarded(siteId, cwd, undefined, async (runner, { commit, removed }, offline) => {
       // Built under the site's own baseUrl, as the preview of the change will be (plan 16 #8).
       const base = checkoutBasePath(cwd);
       if (!base.ok) {
@@ -162,10 +184,12 @@ export class AiBukit {
       const name = `ai-${crypto.randomBytes(6).toString("hex")}`;
       const out = path.join(cwd, BUILD_OUTPUT_PARENT, name);
       try {
-        const result = await runner.run("build", buildArgs(name, base.basePath), { cwd, signal });
+        const args = [...buildArgs(name, base.basePath), ...(offline?.buildArgs ?? [])];
+        const result = await runner.run("build", args, { cwd, signal, redact: this.redact });
         const report = buildReport(result);
         const outcome = buildOutcome(result);
         return {
+          ...(offline ? { notion: notionNote(offline, [result], outcome === "ok") } : {}),
           outcome,
           commit,
           removed,
@@ -198,6 +222,10 @@ export class AiBukit {
 
   // --- internals ---
 
+  private get redact() {
+    return this.opts.sites.notionSnapshots.redact;
+  }
+
   /**
    * Snapshot (or, with `commit`, take that commit as it is) and guard, then run `fn` with a runner; any
    * refusal is an AiBukitError.
@@ -206,7 +234,7 @@ export class AiBukit {
     siteId: string,
     cwd: string,
     commit: string | undefined,
-    fn: (runner: BukitRunner, snapshot: Snapshot) => Promise<T>,
+    fn: (runner: BukitRunner, snapshot: Snapshot, offline: OfflineNotion | null) => Promise<T>,
   ): Promise<T> {
     const call = this.guardedCall(siteId, cwd, commit, fn);
     const calls = this.inflight.get(siteId) ?? new Set();
@@ -224,7 +252,7 @@ export class AiBukit {
     siteId: string,
     cwd: string,
     commit: string | undefined,
-    fn: (runner: BukitRunner, snapshot: Snapshot) => Promise<T>,
+    fn: (runner: BukitRunner, snapshot: Snapshot, offline: OfflineNotion | null) => Promise<T>,
   ): Promise<T> {
     const site = this.opts.sites.get(siteId);
     if (site.readOnly) throw new AiBukitError("read_only", "The site is read-only, so Bukit cannot run on it.");
@@ -238,14 +266,14 @@ export class AiBukit {
         guard.reasons,
       );
     }
-    // Unreviewed content never gets secrets, and Bukit cannot check a Notion source without one (plan 8.5).
+    // Unreviewed content never gets secrets (plan 8.5): a Notion source is read from the snapshot of the last
+    // formal build instead, with no token and no network (plan 5.5).
+    let offline: OfflineNotion | null = null;
     if (guard.usesNotion) {
-      throw new AiBukitError(
-        "notion",
-        "The site uses a Notion content source, which needs a token that is never given to unreviewed changes. Ask the user to build it from the site page.",
-      );
+      offline = this.opts.sites.notionSnapshots.offline(siteId);
+      if (!offline) throw new AiBukitError("notion", NOTION_TEXT.missing);
     }
-    return fn(runner, snapshot);
+    return fn(runner, snapshot, offline);
   }
 
   private async runner(): Promise<BukitRunner> {
@@ -275,6 +303,51 @@ export class AiBukit {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
+}
+
+/** What the AI (and an unchecked apply) is told about a snapshot that cannot be used. */
+const NOTION_TEXT: Record<NotionSnapshotProblem, string> = {
+  missing:
+    "The site uses a Notion content source. Checks and builds read the Notion data of the last formal build, and there is none yet: ask the user to build the site once from the site page, then try again. If the default branch has no Notion source yet (this change adds the first one), the change can only be checked after the user applies it and builds the site.",
+  stale:
+    "The Notion data of the last formal build is in another format or incomplete: ask the user to build the site once from the site page to record it again.",
+  change:
+    "The change needs Notion data the last formal build did not read (a changed databaseId, a new Notion source, content rendering turned on for a source, or a changed filter or sort), so it cannot be checked or previewed here; it works once the user applies it and builds the site.",
+};
+
+function notionNote(offline: OfflineNotion, results: BukitRunResult[], passed: boolean): NotionNote {
+  const merged: BukitRunResult = {
+    exitCode: 0,
+    stdout: results.map((r) => r.stdout).join("\n"),
+    stderr: results.map((r) => r.stderr).join("\n"),
+    durationMs: 0,
+    stopped: null,
+  };
+  return { ...notionOfflineData(offline, merged), problem: passed ? null : snapshotProblem(results) };
+}
+
+/**
+ * The snapshot problem behind a failed check or build, only when every failing step failed for it: a step
+ * that failed for another reason is a real failure, which an unchecked apply must not let through.
+ */
+function snapshotProblem(results: BukitRunResult[]): NotionSnapshotProblem | null {
+  const problems = results
+    .filter((r) => !checkPassed(r))
+    .map((r) => notionSnapshotProblemIn(r.stderr, `${r.stdout}\n${r.stderr}`));
+  if (problems.length === 0 || problems.some((p) => p === null)) return null;
+  return problems.includes("change") ? "change" : (problems[0] as NotionSnapshotProblem);
+}
+
+/** The AI's note about where Notion data came from, or what to do about it. */
+export function notionNoteText(n: NotionNote): string {
+  const parts = [
+    `Notion content comes from the formal build at ${n.builtAt} (commit ${n.commit.slice(0, 7)}): no token is used and nothing is fetched, so Notion edits made since then do not show.`,
+  ];
+  if (n.queryChanged) parts.push("The Notion filter or sort changed: the pages are the ones the formal build queried.");
+  if (n.rendererMismatch)
+    parts.push("Some page bodies were rendered by an older Bukit; a formal build renders them again.");
+  if (n.problem) parts.push(NOTION_TEXT[n.problem]);
+  return parts.join(" ");
 }
 
 export function describeReason(r: GuardReason): string {

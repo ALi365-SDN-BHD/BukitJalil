@@ -112,9 +112,23 @@ test("a reviewed change is previewed, applied, and the main preview follows", as
   // The change set's own preview, next to the main one.
   await page.getByTestId("tab-preview").click();
   await expect(preview(page).getByText(title).first()).toBeVisible();
+  // A Notion site's change preview says which formal build its Notion data came from (plan 5.5); the
+  // answer is stubbed, since an end-to-end site has no Notion source.
+  const builtAt = new Date().toISOString();
+  await page.route("**/api/sites/*/preview", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (body.ref !== "change") return route.fulfill({ response });
+    const notionOffline = { commit: head, builtAt, queryChanged: true, rendererMismatch: false };
+    return route.fulfill({ response, json: { ...body, notionOffline } });
+  });
   await page.getByTestId("ref-change").click();
   await page.getByRole("button", { name: /Build the changes|构建改动/ }).click();
   await expect(preview(page).getByText("Reviewed X").first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("preview-notion")).toContainText(head.slice(0, 7));
+  await expect(page.getByTestId("preview-notion-query")).toBeVisible();
+  await expect(page.getByTestId("preview-notion-renderer")).toHaveCount(0);
+  await page.unroute("**/api/sites/*/preview");
   await page.getByTestId("ref-main").click();
   await expect(preview(page).getByText(title).first()).toBeVisible();
   // Nothing reached the site folder yet.

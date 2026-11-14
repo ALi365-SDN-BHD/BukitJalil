@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'">
+  <title>BukitJalil 架构与功能思维导图</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      background: Canvas;
+      color: CanvasText;
+      font-family: system-ui, sans-serif;
+      line-height: 1.6;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 56rem;
+      padding: clamp(1rem, 4vw, 2rem);
+    }
+    .text-small { font-size: 0.875rem; }
+    .cursor-interaction { cursor: pointer; }
+    #bukitjalil-mindmap {
+      --step: calc(var(--font-size-base, 14px) * 1.1);
+      --line: var(--border, GrayText);
+      --ink: var(--foreground, CanvasText);
+      --quiet: var(--muted-foreground, GrayText);
+      color: var(--ink);
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    #bukitjalil-mindmap h1, #bukitjalil-mindmap p { margin: 0; }
+    #bukitjalil-mindmap header { padding-block: 0 calc(var(--step) * .9); }
+    #bukitjalil-mindmap header p { color: var(--quiet); margin-top: calc(var(--step) * .3); }
+    #bukitjalil-mindmap .branches {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: calc(var(--step) * .25);
+      margin-left: calc(var(--step) * .35);
+      padding: calc(var(--step) * .4) 0 0 var(--step);
+      border-left: 1px solid var(--line);
+    }
+    #bukitjalil-mindmap .branch { min-width: 0; position: relative; }
+    #bukitjalil-mindmap .branch::before {
+      content: "";
+      position: absolute;
+      border-top: 1px solid var(--line);
+      top: calc(var(--step) * .92);
+      width: calc(var(--step) * .75);
+      left: calc(var(--step) * -1);
+    }
+    #bukitjalil-mindmap summary {
+      padding: calc(var(--step) * .32) calc(var(--step) * .42);
+      min-width: 0;
+      font-weight: 500;
+    }
+    #bukitjalil-mindmap summary::marker { color: var(--quiet); }
+    #bukitjalil-mindmap summary:hover, #bukitjalil-mindmap details[open] > summary {
+      background: var(--accent, color-mix(in srgb, CanvasText 8%, Canvas));
+    }
+    #bukitjalil-mindmap .node-list {
+      list-style: none;
+      margin: calc(var(--step) * .45) 0 calc(var(--step) * .4) calc(var(--step) * .68);
+      padding: 0 0 0 var(--step);
+      border-left: 1px solid var(--line);
+    }
+    #bukitjalil-mindmap .node-list li { position: relative; padding-bottom: calc(var(--step) * .65); }
+    #bukitjalil-mindmap .node-list li:last-child { padding-bottom: 0; }
+    #bukitjalil-mindmap .node-list li::before {
+      content: "";
+      position: absolute;
+      width: calc(var(--step) * .68);
+      left: calc(var(--step) * -1);
+      top: .67em;
+      border-top: 1px solid var(--line);
+    }
+    #bukitjalil-mindmap .node-list strong { font-weight: 500; }
+    #bukitjalil-mindmap .node-list p { margin-top: calc(var(--step) * .16); }
+    #bukitjalil-mindmap .source { color: var(--quiet); }
+    #bukitjalil-mindmap .source code { font-size: inherit; }
+    #bukitjalil-mindmap .flow {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: calc(var(--step) * .2) calc(var(--step) * .42);
+      padding: 0 0 0 calc(var(--step) * .42);
+      margin: 0;
+      list-style: none;
+    }
+    #bukitjalil-mindmap .flow li { display: flex; align-items: baseline; gap: calc(var(--step) * .42); }
+    #bukitjalil-mindmap .flow li + li::before { content: "→" / ""; color: var(--quiet); }
+    @media (pointer: coarse) {
+      #bukitjalil-mindmap summary { min-block-size: 44px; box-sizing: border-box; align-content: center; }
+    }
+  </style>
+</head>
+<body>
+<section id="bukitjalil-mindmap" aria-labelledby="bj-map-title">
+  <header>
+    <h1 id="bj-map-title">BukitJalil 架构与功能思维导图</h1>
+    <p class="text-small">本地 AI 建站工作台 · <code>pi-harness-ui @ 7c60c6d</code></p>
+  </header>
+  <div class="branches">
+    <details class="branch" id="bj-flow" open>
+      <summary class="cursor-interaction">建站主流程</summary>
+      <ol class="flow" aria-label="建站流程">
+        <li>新建或导入网站</li>
+        <li>AI 修改工作副本</li>
+        <li>快照与可选预览</li>
+        <li>人工审核应用</li>
+        <li>正式构建</li>
+        <li>手动发布</li>
+      </ol>
+    </details>
+    <details class="branch" id="bj-architecture">
+      <summary class="cursor-interaction">总体架构与依赖</summary>
+      <ul class="node-list">
+        <li><strong>Web 界面 · <code>packages/web</code></strong>
+          <p>React、Vite、Tailwind、shadcn/ui。三栏工作区、设置页和窄屏单栏切换。TanStack Query 管理请求与缓存，通过 REST 和 SSE 访问本地服务。</p></li>
+        <li><strong>本地服务 · <code>packages/server</code></strong>
+          <p>Node.js + Hono。<code>main.ts</code> 组装服务、管理端口与退出流程，<code>app.ts</code> 挂载 API 和生产静态界面。Pi SDK 在服务进程内，Git 和 Bukit 由子进程调用。</p></li>
+        <li><strong>共享契约 · <code>packages/shared</code></strong>
+          <p>Web 和 Server 共同依赖 TypeScript 类型、Zod schema、事件、错误和常量。Web 通过接口与 Server 通信。</p></li>
+        <li><strong>桌面壳 · <code>packages/desktop</code></strong>
+          <p>Electron 主进程以 <code>utilityProcess</code> 启动同一服务，窗口加载同一 Web 界面。预加载桥接原生选目录，负责自动登录、外链、错误恢复和优雅退出。</p></li>
+        <li><strong>API、事件与静态内容</strong>
+          <p><code>/api</code> 提供 JSON 接口，<code>/api/events</code> 推送消息、工具、改动、构建及发布事件。生产由 Hono 托管界面，开发由 Vite 代理；管理端口默认 47880，预览端口池默认从 47881 开始。</p>
+          <p class="source text-small">源码 · <code>packages/server/src/api</code>、<code>packages/server/src/events/bridge.ts</code>、<code>packages/web/src/lib/events.tsx</code>、<code>packages/desktop/src/server.ts</code></p></li>
+      </ul>
+    </details>
+    <details class="branch" id="bj-sites">
+      <summary class="cursor-interaction">网站项目与七个面板</summary>
+      <ul class="node-list">
+        <li><strong>首次启动与网站管理</strong>
+          <p>引导检查 Git、Bukit、提交身份、模型和首个网站。支持选目录、创建、导入前检查、重新检查、归档、恢复归档和移除登记。未初始化 Git 的项目经确认后初始化，安全检查未通过的项目可只读导入。</p></li>
+        <li><strong>Starter 模板与内容</strong>
+          <p>按站名和默认语言初始化 <code>site.yaml</code>、主题、页面、文章及数据。默认使用 Markdown，可选 Notion 数据库并指定文章、页面或数据用途。多语言选项将需求交给后续 AI 对话。</p></li>
+        <li><strong>文件、配置、主题、数据</strong>
+          <p>可切换正式版本与待审核快照。文件树支持代码、Markdown、图片及隔离预览或下载；配置查看 YAML 和站点信息；主题查看布局、资源和静态文件；数据查看 Markdown 集合、数据文件和 Notion 源。</p></li>
+        <li><strong>预览、改动、SEO</strong>
+          <p>预览打开静态构建产物；改动查看差异并发起审核；SEO 查看最新报告、比较问题并生成修复提示。</p>
+          <p class="source text-small">源码 · <code>packages/web/src/features/sites</code>、<code>packages/web/src/features/panels/RightPanel.tsx</code>、<code>packages/server/src/sites</code>、<code>packages/server/src/panels</code>、<code>templates/starter</code></p></li>
+      </ul>
+    </details>
+    <details class="branch" id="bj-agent">
+      <summary class="cursor-interaction">AI 对话、模型与技能</summary>
+      <ul class="node-list">
+        <li><strong>会话与消息</strong>
+          <p>站点内创建、续聊、首条消息自动命名、重命名、删除和从消息分叉。支持流式回复、工具卡、草稿、立即补充、稍后发送、停止与错误详情。同站点同时运行一个会话。</p></li>
+        <li><strong>Pi 运行时与工具</strong>
+          <p>按会话创建 <code>AgentSession</code>。工具允许读写、查找和搜索网站工作副本；建站工具提供站点信息、内容清单、配置检查、构建、配置 schema 和改动摘要。<code>grep</code> 使用校验过的固定版本 ripgrep。</p></li>
+        <li><strong>模型与凭据</strong>
+          <p>服务商模型目录、API Key、环境变量、支持的 OAuth 登录、连接测试、默认模型和思考程度。支持自定义 OpenAI / Anthropic 兼容及本地端点；开发和测试可用脚本化假模型。</p></li>
+        <li><strong>建站技能</strong>
+          <p>随应用提供 Bukit 配置、内容、模板、路由、构建、SEO/GEO、发布等参考技能，以及网站编辑、内容写作、多语言和发布工作流。<code>site-editing</code> 始终启用。</p>
+          <p class="source text-small">源码 · <code>packages/server/src/agent</code>、<code>packages/server/src/api/sessions.ts</code>、<code>packages/web/src/features/chat</code>、<code>skills</code></p></li>
+      </ul>
+    </details>
+    <details class="branch" id="bj-changes">
+      <summary class="cursor-interaction">改动审核与 Git 版本</summary>
+      <ul class="node-list">
+        <li><strong>工作树、快照与差异</strong>
+          <p>每站一个开放改动集，可由多个会话接续。快照保存在站点 Git 的私有引用，差异基于基础版本和快照，审核以树指纹绑定具体内容。</p></li>
+        <li><strong>应用、部分应用与拒绝</strong>
+          <p>可整批应用，也可按文件及文本差异块选择。剩余改动继续待审；新增、删除和二进制文件按整文件选。应用前重验指纹与配置检查，正式分支有新提交时重新合并并要求复审，有冲突则标记失效。拒绝关闭改动集。</p></li>
+        <li><strong>历史与恢复</strong>
+          <p>浏览正式分支的提交、作者与版本差异。恢复历史版本生成待审改动，审核通过后形成新的提交。应用成功后触发正式构建。</p></li>
+        <li><strong>站点级并发控制</strong>
+          <p>会话、构建、审核、恢复和发布等操作使用同一站点锁协调。Git 正式分支更新采用快进并保护被忽略的本地文件。</p>
+          <p class="source text-small">源码 · <code>packages/server/src/changes</code>、<code>packages/server/src/git</code>、<code>packages/server/src/sites/locks.ts</code>、<code>packages/web/src/features/changes</code></p></li>
+      </ul>
+    </details>
+    <details class="branch" id="bj-builds">
+      <summary class="cursor-interaction">Bukit 构建、预览与 SEO/GEO</summary>
+      <ul class="node-list">
+        <li><strong>构建引擎与报告</strong>
+          <p>随应用打包 Bukit 2.0.15，开发和打包时下载并校验 SHA-256。服务调用配置检查、诊断、构建和审计等固定命令，记录版本、阶段、结果和报告，整理 Bukit 原始错误及远程图片占位缺失等提示。</p></li>
+        <li><strong>正式构建与改动预览</strong>
+          <p>正式构建用默认分支的独立检出，改动预览用审核快照。按站点真实 <code>baseUrl</code> 提供静态页面，每份打开的预览使用独立端口，可在界面内或新标签页查看。旧产物按保留策略清理。</p></li>
+        <li><strong>SEO 与 GEO</strong>
+          <p>构建报告按类型汇总 SEO 错误和警告，合并缺少站点 URL 的同类问题，展示 GEO 分数、覆盖和 <code>llms.txt</code>。SEO 面板按页面筛选并比较上次结果，可把当前问题填入新对话草稿。</p>
+          <p class="source text-small">源码 · <code>packages/server/src/bukit</code>、<code>packages/server/src/builds</code>、<code>packages/server/src/preview</code>、<code>packages/web/src/features/builds</code>、<code>packages/web/src/features/panels/SeoPanel.tsx</code></p></li>
+      </ul>
+    </details>
+    <details class="branch" id="bj-integrations">
+      <summary class="cursor-interaction">Notion、插件与 GitHub Pages</summary>
+      <ul class="node-list">
+        <li><strong>Notion 数据源</strong>
+          <p>设置中管理命名凭据，每个网站可绑定一个数据源并配置多个数据库。数据面板由用户点击后按正式分支的 <code>databaseId</code> 读取字段；审核突出数据源增删和配置差异；构建、发布翻译常见权限和限流错误。</p></li>
+        <li><strong>Bukit 内置插件</strong>
+          <p>设置的扩展页展示内置插件；网站配置页按站启停。变更写入工作副本，纳入快照与审核。</p></li>
+        <li><strong>GitHub Pages 发布设置</strong>
+          <p>管理多个发布账号，绑定站点、配置仓库、目标分支和自定义域，保存时验证写权限并更新 <code>site.yaml</code> 的部署与站点地址配置。</p></li>
+        <li><strong>发布执行与记录</strong>
+          <p>用户确认正式版本后依次执行安全检查、配置检查、诊断、构建、产物发布审计和 <code>bukit deploy</code>。支持停止、查看进度、报告和历史。</p>
+          <p class="source text-small">源码 · <code>packages/server/src/data-sources</code>、<code>packages/server/src/api/plugins.ts</code>、<code>packages/server/src/publish</code>、<code>packages/server/src/deploys</code>、<code>packages/web/src/features/deploys</code></p></li>
+      </ul>
+    </details>
+    <details class="branch" id="bj-settings">
+      <summary class="cursor-interaction">应用设置与运行环境</summary>
+      <ul class="node-list">
+        <li><strong>通用</strong>
+          <p>简体中文 / English，跟随系统 / 浅色 / 深色，Git 提交身份和键盘快捷键。支持站点切换与可调整三栏布局。</p></li>
+        <li><strong>AI 模型、技能、发布、数据源、扩展</strong>
+          <p>集中配置模型与认证、启用可选技能、管理发布账号与 Notion 凭据、查看内置插件。站点绑定和插件启停在对应的网站面板操作。</p></li>
+        <li><strong>环境</strong>
+          <p>查看 Git、Bukit、ripgrep、Pi 的状态。Git 提供按平台的安装或更新路径；ripgrep 可安装固定校验版本；Pi 和 Bukit 版本随应用依赖或发行包更新。</p>
+          <p class="source text-small">源码 · <code>packages/web/src/features/settings</code>、<code>packages/web/src/i18n</code>、<code>packages/server/src/store/settings.ts</code>、<code>packages/server/src/git/service.ts</code></p></li>
+      </ul>
+    </details>
+    <details class="branch" id="bj-security">
+      <summary class="cursor-interaction">数据持久化与安全边界</summary>
+      <ul class="node-list">
+        <li><strong>网站项目和应用数据</strong>
+          <p>用户目录中的站点保留标准 Bukit 项目与 Git 历史。应用数据目录 <code>~/.bukitjalil</code> 管理 SQLite 索引和设置、Pi JSONL、AI/正式检出、预览产物、日志和单实例锁；模型、GitHub 和 Notion 凭据独立存为本地文件。</p></li>
+        <li><strong>本地 API 与预览隔离</strong>
+          <p>回环监听，一次性登录地址换取 HttpOnly Cookie。管理 API 校验 Host、Origin 和写请求头，使用 CSP；预览用独立端口、沙箱 CSP 和 iframe。Electron 窗口启用上下文隔离和沙箱。</p></li>
+        <li><strong>AI 和 Git 操作边界</strong>
+          <p>白名单工具与路径闸门限制工作副本，保护敏感文件和应用目录。Git 使用受控环境与仓库配置白名单，关闭钩子、签名和外部驱动，导入与审核阶段均进行检查。</p></li>
+        <li><strong>Bukit 与凭据边界</strong>
+          <p>构建前检查插件、路径、符号链接及私网访问限制；GitHub token 按发布操作使用，Notion token 用于授权的数据源请求和正式版本操作。未审核的 Notion 构建和改动预览被拦截。</p>
+          <p class="source text-small">源码 · <code>packages/server/src/paths.ts</code>、<code>packages/server/src/store/migrations</code>、<code>packages/server/src/security</code>、<code>packages/server/src/agent/gate.ts</code>、<code>packages/server/src/bukit/guard.ts</code></p></li>
+      </ul>
+    </details>
+    <details class="branch" id="bj-engineering">
+      <summary class="cursor-interaction">工程、测试与桌面发行</summary>
+      <ul class="node-list">
+        <li><strong>开发与验证</strong>
+          <p>TypeScript、pnpm workspace、Biome、Vitest 和 Playwright。覆盖服务模块、浏览器工作流、预览隔离、真实或替身 Bukit，以及源码运行和打包后的桌面冒烟。</p></li>
+        <li><strong>CI 与发行脚本</strong>
+          <p>CI 校验类型、单测、构建与端到端流程，另有最新版 Bukit 兼容工作流。发行工作流按平台打包并生成校验和，标签触发 GitHub Release 草稿。</p></li>
+        <li><strong>安装包目标</strong>
+          <p>脚本包含 macOS arm64 的 DMG/ZIP、Linux x64 的 AppImage/DEB 和 Windows x64 的 NSIS。工作流把 Windows 标为预览。使用说明的平台描述较旧，安装包可用性以实际发行与运行记录为准。</p>
+          <p class="source text-small">源码 · <code>package.json</code>、<code>packages/server/test</code>、<code>e2e</code>、<code>packages/desktop/scripts/package.mjs</code>、<code>.github/workflows</code></p></li>
+      </ul>
+    </details>
+    <details class="branch" id="bj-roadmap">
+      <summary class="cursor-interaction">待开发与上游依赖</summary>
+      <ul class="node-list">
+        <li><strong>Notion 离线预览与每源页数</strong>
+          <p>待 Bukit 提供离线快照和每个内容源的计数，再接入未审核改动的安全预览和面板页数。</p></li>
+        <li><strong>Cloudflare Pages、自有服务器</strong>
+          <p>两种发布目标暂缓，待 Bukit 增加对应部署后端，再接入多目标选择。自有服务器设计采用 SSH 密钥、rsync 试运行与用户确认。</p></li>
+        <li><strong>本地素材上传</strong>
+          <p>已有图片与文件上传设计，计划让素材进入主题静态目录和同一审核流程。当前源码已有远程图片构建报错提示，本地上传入口仍待实现。</p></li>
+        <li><strong>外部官方插件</strong>
+          <p>外部官方插件接入列为后续，当前站点界面提供内置插件启停。</p>
+          <p class="source text-small">设计 · <code>AGENTS.md</code>、<code>docs/development-plan.md</code>、<code>docs/plans/2026-11-12-media-upload-design.md</code>、<code>README.md</code></p></li>
+      </ul>
+    </details>
+  </div>
+</section>
+</body>
+</html>

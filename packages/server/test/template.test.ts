@@ -42,8 +42,8 @@ function listFiles(dir: string, prefix = ""): string[] {
 describe("templates/starter", () => {
   it("records its Bukit source", () => {
     const source = JSON.parse(fs.readFileSync(path.join(TEMPLATES, "starter.source.json"), "utf8"));
-    // The starter theme was generated from 2.0.12 and is intentionally not tied to the app's fallback version.
-    expect(source).toMatchObject({ tag: "v2.0.12", license: "MIT" });
+    // Regenerated from 2.1.0 for site.languages (plan 8.7); not tied to BUKIT_VERSION, which may move on.
+    expect(source).toMatchObject({ tag: "v2.1.0", license: "MIT" });
     expect(source.commit).toMatch(/^[0-9a-f]{40}$/);
   });
 
@@ -109,9 +109,12 @@ describe("starter values", () => {
     const text = fs.readFileSync(path.join(STARTER, "site.yaml"), "utf8");
     const filled = parse(fillSiteYaml(text, { title: '我的 "网站": 1', language: "zh-CN" }));
     const original = parse(text);
-    expect(filled.site).toMatchObject({ name: "1", title: '我的 "网站": 1', language: "zh-CN" });
+    expect(filled.site).toMatchObject({ name: "1", title: '我的 "网站": 1', languages: ["zh-CN"] });
+    // Bukit 2.1 refuses site.language (plan 8.7); the list is written inline like the template's.
+    expect(filled.site.language).toBeUndefined();
+    expect(fillSiteYaml(text, { title: "x", language: "zh-CN" })).toContain("  languages: [ zh-CN ]\n");
     expect(filled.theme.params).toMatchObject({ brand: '我的 "网站": 1', footer_text: '我的 "网站": 1' });
-    expect(filled.content).toEqual(original.content);
+    expect(filled.content).toEqual({ ...original.content, media: { onFailure: "keep" } });
     expect(filled.build).toEqual(original.build);
   });
 });

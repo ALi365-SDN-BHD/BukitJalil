@@ -116,11 +116,18 @@ describe("GET /api/sites/:id/deploy", () => {
  * files it was given.
  */
 const FAKE = (log: string) => `#!/bin/sh
+# Tokens come on stdin with --secrets-stdin (plan 8.7), never from the environment.
+unset NOTION_TOKEN BUKIT_DEPLOY_TOKEN
+case " $* " in *" --secrets-stdin "*)
+  secrets=$(cat)
+  NOTION_TOKEN=$(printf '%s' "$secrets" | sed -n 's/.*"NOTION_TOKEN":"\\([^"]*\\)".*/\\1/p')
+  BUKIT_DEPLOY_TOKEN=$(printf '%s' "$secrets" | sed -n 's/.*"BUKIT_DEPLOY_TOKEN":"\\([^"]*\\)".*/\\1/p');;
+esac
 echo "$* | token=\${BUKIT_DEPLOY_TOKEN:-} author=\${GIT_AUTHOR_NAME:-} committer=\${GIT_COMMITTER_EMAIL:-} gitcount=\${GIT_CONFIG_COUNT:-}" >> "${log}"
 [ -n "\${NOTION_TOKEN:-}" ] && echo "$1 $NOTION_TOKEN" >> "${log}.notion"
 fail=$(cat fake-fail 2>/dev/null)
 case "$1" in
-  version) echo "bukit 2.0.12+fake"; exit 0;;
+  version) echo "bukit 2.2.2+fake"; exit 0;;
   config) [ "$fail" = check ] && { echo '{"ts":"t","level":"error","msg":"event=config.invalid"}' >&2; exit 2; }; exit 0;;
   doctor) [ "$fail" = doctor ] && exit 1; exit 0;;
   build)

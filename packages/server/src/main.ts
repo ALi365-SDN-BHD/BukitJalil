@@ -10,14 +10,15 @@ import { preparePiEnvironment } from "./agent/env.ts";
 import { registerFakeModel } from "./agent/fake-model.ts";
 import { settingsModel } from "./agent/models.ts";
 import { RgService } from "./agent/rg.ts";
+import { SecretCredentialStore } from "./agent/secret-credentials.ts";
 import { AgentService } from "./agent/service.ts";
 import { createAdminApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
 import { BukitService, removeOldAppCopies } from "./bukit/locate.ts";
 import { ChangeService } from "./changes/service.ts";
-import { DataSourceService } from "./data-sources/service.ts";
+import { DataSourceService, MAX_TOKEN_FILE } from "./data-sources/service.ts";
 import { DeployService } from "./deploys/service.ts";
-import { type DesktopChannel, desktopChannel } from "./desktop.ts";
+import { type DesktopChannel, desktopChannel, requestSecretKey } from "./desktop.ts";
 import { connectEvents } from "./events/bridge.ts";
 import { EventHub } from "./events/hub.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
@@ -31,8 +32,10 @@ import { PanelService } from "./panels/service.ts";
 import { ensureAppHome, resolveAppHome, resolveResources } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
 import { PublishAccountService } from "./publish/accounts.ts";
+import { SecretStore } from "./secrets/store.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
 import { SiteLocks } from "./sites/locks.ts";
+import { NotionSnapshots } from "./sites/notion-snapshots.ts";
 import { SiteService } from "./sites/service.ts";
 import { openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
@@ -111,14 +114,32 @@ const gitPath = resolveGitPath() ?? appGitPath(paths.home);
 
 const settingsStore = new SettingsStore(db);
 const offline = process.env.BUKITJALIL_OFFLINE === "1";
+
+// Tokens and model keys (plan 6.7): the desktop app hands over the key its keychain protects; `pnpm dev`
+// and tests keep plain 0600 files. The desktop server does not wait for the key: the app asks the keychain
+// once its window shows the app, so its prompt comes over the app rather than over "starting". Until then
+// the store is pending; see `whenSecretsSettled` below.
+const secrets = desktop ? SecretStore.pending() : SecretStore.plain();
 const dataSources = new DataSourceService({
   db,
-  tokenFile: paths.dataSourceTokens,
+  tokenFile: secrets.file({
+    plain: paths.dataSourceTokens,
+    encrypted: paths.dataSourceTokensEnc,
+    purpose: "data-source-tokens",
+    maxBytes: MAX_TOKEN_FILE,
+    mergeByKey: true,
+  }),
   fetchImpl: offline ? null : fetch,
 });
 const publishAccounts = new PublishAccountService({
   db,
-  tokenFile: paths.publishAccountTokens,
+  tokenFile: secrets.file({
+    plain: paths.publishAccountTokens,
+    encrypted: paths.publishAccountTokensEnc,
+    purpose: "publish-account-tokens",
+    maxBytes: MAX_TOKEN_FILE,
+    mergeByKey: true,
+  }),
   fetchImpl: offline ? null : fetch,
 });
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
@@ -149,6 +170,7 @@ const sites = new SiteService({
   locks,
   dataSources,
   templateDir: resources.starter,
+  notionSnapshots: new NotionSnapshots({ db, root: paths.notionSnapshots, logger }),
 });
 
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
@@ -180,19 +202,54 @@ const builds = new BuildService({
   notionToken: (siteId) => sites.notionToken(siteId),
   logger,
 });
-const customModels = new CustomModelStore(path.join(paths.pi, "custom-models.json"));
-// A killed write can leave a temp file and then a token entry with no account. Remove both before
-// anything reads the stores.
-const staleTemps =
-  publishAccounts.cleanupTempFiles() + dataSources.cleanupTempFiles() + customModels.cleanupTempFiles();
-if (staleTemps > 0) logger.log("warn", "storage.temps_removed", { count: staleTemps });
-try {
-  const accounts = publishAccounts.pruneUnknownTokens();
-  const sources = dataSources.pruneUnknownTokens();
-  if (accounts + sources > 0) logger.log("warn", "tokens.orphans_removed", { accounts, sources });
-} catch (err) {
-  logger.log("warn", "tokens.orphans_cleanup_failed", { error: String(err) });
+const customModels = new CustomModelStore(
+  secrets.file({
+    plain: path.join(paths.pi, "custom-models.json"),
+    encrypted: path.join(paths.pi, "custom-models.enc.json"),
+    purpose: "custom-models",
+  }),
+);
+// Pi keeps its own auth.json only when keys are not encrypted.
+const credentials =
+  secrets.mode === "plain"
+    ? undefined
+    : new SecretCredentialStore(
+        secrets.file({
+          plain: path.join(paths.pi, "auth.json"),
+          encrypted: path.join(paths.pi, "auth.enc.json"),
+          purpose: "pi-auth",
+          maxBytes: 1024 * 1024,
+          mergeByKey: true,
+        }),
+      );
+
+const secretsApi = {
+  status: () => secrets.status(),
+  reset: () => {
+    secrets.reset();
+    desktop?.send({ type: "secrets", reset: true });
+    logger.log("warn", "secrets.reset", {});
+  },
+};
+/**
+ * Once the store's mode is settled (at once for plain files, when the desktop app answers otherwise), in
+ * one synchronous step so no request reads a store in between: plain files from an earlier version are
+ * encrypted, temp files of killed writes and token entries with no account are removed.
+ */
+function whenSecretsSettled(): void {
+  secrets.migrate((event, data) => logger.log(event === "secrets.migrated" ? "info" : "warn", event, data));
+  const staleTemps =
+    publishAccounts.cleanupTempFiles() + dataSources.cleanupTempFiles() + customModels.cleanupTempFiles();
+  if (staleTemps > 0) logger.log("warn", "storage.temps_removed", { count: staleTemps });
+  try {
+    const accounts = publishAccounts.pruneUnknownTokens();
+    const sources = dataSources.pruneUnknownTokens();
+    if (accounts + sources > 0) logger.log("warn", "tokens.orphans_removed", { accounts, sources });
+  } catch (err) {
+    logger.log("warn", "tokens.orphans_cleanup_failed", { error: String(err) });
+  }
 }
+
 const agent = new AgentService({
   db,
   paths,
@@ -201,6 +258,7 @@ const agent = new AgentService({
   changes,
   logger,
   // The model chosen in the settings (plan 6.5), looked up again before every run.
+  ...(credentials ? { credentials } : {}),
   resolveModel: settingsModel(settingsStore),
   thinkingLevel: () => settingsStore.get().thinkingLevel,
   // A scripted model for end-to-end tests (agent/fake-model.ts); never set in normal use.
@@ -213,7 +271,28 @@ const agent = new AgentService({
   skillsDir,
   disabledSkills: () => settingsStore.get().disabledSkills,
 });
-const panels = new PanelService({ git, sites, changeCommit: (id) => changes.openSnapshot(id) });
+// After the agent exists: the answer refreshes its model runtime.
+if (desktop) {
+  void requestSecretKey(desktop, null).then((answer) => {
+    if ("key" in answer) {
+      secrets.unlock(answer.key);
+      answer.key.fill(0);
+    } else {
+      secrets.fail(answer.reason);
+      logger.log("warn", "secrets.unavailable", { reason: answer.reason });
+    }
+    whenSecretsSettled();
+    agent.refreshModelRuntime();
+  });
+} else {
+  whenSecretsSettled();
+}
+const panels = new PanelService({
+  git,
+  sites,
+  changeCommit: (id) => changes.openSnapshot(id),
+  sourceCounts: (id, ref) => builds.sourceCounts(id, ref),
+});
 const deploys = new DeployService({ sites, panels, accounts: publishAccounts, git, bukit, locks, paths, logger, db });
 const events = new EventHub();
 connectEvents(events, { agent, builds, changes, deploys, logger });
@@ -246,6 +325,7 @@ const app = createAdminApp({
   events,
   readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,
+  secrets: secretsApi,
   logger,
 });
 
@@ -274,7 +354,7 @@ server.on("listening", () => {
     const channel = desktop;
     channel.onMessage((message) => {
       if (message.type === "login") channel.send({ type: "login", url: `${openOrigin}/?token=${loginToken.issue()}` });
-      else void shutdown();
+      else if (message.type === "shutdown") void shutdown();
     });
     channel.onClose(() => void shutdown());
     channel.send({ type: "ready", port });

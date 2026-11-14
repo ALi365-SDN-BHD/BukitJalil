@@ -57,7 +57,7 @@ export function FileDiffView({
 }
 
 /** A unified diff, coloured by line; git's file header lines are left out (the path is shown above). */
-function PatchView({ path, patch, hunks }: { path: string; patch: string; hunks?: HunkChoice }) {
+export function PatchView({ path, patch, hunks }: { path: string; patch: string; hunks?: HunkChoice }) {
   const { m } = useI18n();
   const lines = patch.split("\n");
   const start = lines.findIndex((l) => l.startsWith("@@"));

@@ -1,12 +1,15 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MIN_BUKIT_VERSION } from "../src/bukit/install.ts";
 import { versionState } from "../src/bukit/locate.ts";
+import { notionSnapshotProblemIn } from "../src/bukit/notion-errors.ts";
 import { BukitRunner, checkPassed, DEPLOY_TOKEN_ENV, parseBukitVersion } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
+import { planLanguageMigration } from "../src/sites/language-migration.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { rawGit } from "./helpers.ts";
 
@@ -80,6 +83,94 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     expect(output(without)).toContain("NOTION_TOKEN");
     const withToken = await runner.run("check", args, { cwd: dir, env: { NOTION_TOKEN: PLACEHOLDER } });
     expect(checkPassed(withToken), output(withToken)).toBe(true);
+  });
+
+  // Bukit 2.1 refuses site.language; the migration card's rewrite builds again (plan 8.7).
+  // AI checks, AI builds and change previews of a Notion site read the Notion offline snapshot (plan 5.5):
+  // no token, and BukitJalil tells "record it again" from "the change needs new Notion data" by the BKT codes.
+  it("checks and builds a Notion site offline, and says what the snapshot lacks", async () => {
+    const dir = site("offline", true);
+    const snap = path.join(base, "offline-snapshot");
+    const offline = ["--notion-snapshot", snap, "--notion-offline"];
+    const runs = () => [
+      runner.run("check", ["config", "check", "--config", "site.yaml", ...offline], { cwd: dir }),
+      runner.run("doctor", ["doctor", "--config", "site.yaml", ...offline], { cwd: dir }),
+      runner.run(
+        "build",
+        [
+          "build",
+          "--config",
+          "site.yaml",
+          "--output",
+          "out",
+          ...offline,
+          "--cache-dir",
+          path.join(base, "offline-cache"),
+          "--log-format",
+          "json",
+        ],
+        { cwd: dir },
+      ),
+    ];
+    const [check, doctor, build] = await Promise.all(runs());
+    if (!check || !doctor || !build) throw new Error("missing run result");
+    for (const result of [check, doctor, build]) {
+      expect(result.exitCode, output(result)).not.toBe(0);
+      expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("stale");
+      expect(output(result)).not.toContain(snap);
+    }
+    expect(build.exitCode).toBe(2);
+    expect(output(build)).toContain('"code": "BKT-0B10"');
+    expect(output(check)).toContain("[BKT-0B10]");
+    expect(output(doctor)).toContain("[BKT-0B10]");
+
+    // A snapshot of this Bukit holding no data for the site's database; the format is read, not the version.
+    fs.mkdirSync(snap);
+    fs.writeFileSync(
+      path.join(snap, "manifest.json"),
+      JSON.stringify({ format: 1, bukitVersion: "2.0.0", createdAt: "2026-11-14T00:00:00Z", databases: [] }),
+    );
+    const [check2, doctor2, build2] = await Promise.all(runs());
+    if (!check2 || !doctor2 || !build2) throw new Error("missing run result");
+    for (const result of [check2, doctor2, build2]) {
+      expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("change");
+      expect(output(result)).not.toContain(snap);
+    }
+    expect(build2.exitCode).toBe(2);
+    expect(output(build2)).toContain('"code": "BKT-0B11"');
+    expect(output(check2)).toContain("[BKT-0B11]");
+    expect(output(doctor2)).toContain("[BKT-0B11]");
+  });
+
+  it("refuses site.language and accepts the migrated site.yaml", async () => {
+    const dir = site("language");
+    const file = path.join(dir, "site.yaml");
+    const migrated = fs.readFileSync(file, "utf8");
+    fs.writeFileSync(file, migrated.replace(/ {2}languages: \[ ?en-US ?\]\n/, "  language: en-US\n"));
+    const args = ["config", "check", "--config", "site.yaml"];
+    const refused = await runner.run("check", args, { cwd: dir });
+    expect(checkPassed(refused)).toBe(false);
+    expect(output(refused)).toContain("site.language was removed");
+    const plan = planLanguageMigration(fs.readFileSync(file, "utf8"));
+    if (!plan.needed || !plan.ok) throw new Error("expected a migration");
+    fs.writeFileSync(file, plan.text);
+    const fixed = await runner.run("check", args, { cwd: dir });
+    expect(checkPassed(fixed), output(fixed)).toBe(true);
+  });
+
+  // Tokens go on stdin (plan 8.7). The Notion test above already passes its token that way; here Bukit must
+  // refuse bad input before doing anything, without echoing it.
+  it("refuses unusable --secrets-stdin input without echoing it", () => {
+    const dir = site("stdin", true);
+    const bad = spawnSync(REAL_BIN as string, ["config", "check", "--config", "site.yaml", "--secrets-stdin"], {
+      cwd: dir,
+      env: runner.env(),
+      input: `{"NOTION_TOKEN": 1, "x": "${PLACEHOLDER}"}`,
+      encoding: "utf8",
+    });
+    expect(bad.status).toBe(2);
+    expect(`${bad.stdout}${bad.stderr}`).toContain("--secrets-stdin values must be JSON strings");
+    expect(`${bad.stdout}${bad.stderr}`).not.toContain(PLACEHOLDER);
   });
 
   // The preview's basePath is passed as --base-url (plan 16 #8), over the "/" in site.yaml.

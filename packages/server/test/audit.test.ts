@@ -170,6 +170,20 @@ describe("buildReport", () => {
     ]);
     expect(report.output).toBe("plain stderr\nplain stdout");
   });
+
+  it("counts entries per source of a successful build, once per source (plan 5.5)", () => {
+    const line = (source: string, count: number) =>
+      `{"ts":"t","level":"Info","msg":"event=content.source.loaded source=${source} count=${count}"}`;
+    // A multilingual build loads each source once per language.
+    const stdout = [line("posts", 3), line("pages", 0), line("posts", 3)].join("\n");
+    const run = (exitCode: number) => buildReport({ exitCode, stdout, stderr: "", durationMs: 1, stopped: null });
+    expect(run(0).sources).toEqual([
+      { name: "posts", count: 3 },
+      { name: "pages", count: 0 },
+    ]);
+    expect(run(0).messages).toEqual([]);
+    expect(run(2).sources).toBeUndefined();
+  });
 });
 
 describe("previewEntry", () => {
@@ -194,6 +208,10 @@ describe("previewEntry", () => {
     expect(siteLanguage("site:\n  language: en-US\n  defaultLanguage: zh-CN\n")).toBe("zh-CN");
     expect(siteLanguage("site:\n  language: zh-CN\n")).toBe("zh-CN");
     expect(siteLanguage("site:\n  language: 3\n")).toBeNull();
+    // Bukit 2.1 (plan 8.7): the first of site.languages is the default unless defaultLanguage says otherwise.
+    expect(siteLanguage("site:\n  languages: [en, de]\n")).toBe("en");
+    expect(siteLanguage("site:\n  languages: [en, de]\n  defaultLanguage: de\n")).toBe("de");
+    expect(siteLanguage("site:\n  languages: [en]\n  language: fr\n")).toBe("en");
     expect(siteLanguage("site: [\n")).toBeNull();
     expect(siteLanguage("")).toBeNull();
   });

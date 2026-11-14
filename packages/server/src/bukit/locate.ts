@@ -40,8 +40,15 @@ export async function probeBukitVersion(bukitPath: string, tmpDir: string): Prom
   return result.ok ? parseBukitVersion(result.stdout) : null;
 }
 
+/** Releases in the bundled version's minor line (2.1.x) are supported; another minor may change behaviour. */
+const SUPPORTED_LINE = `${BUKIT_VERSION.split(".").slice(0, 2).join(".")}.`;
+
 export function versionState(version: string): "ok" | "old" | "unsupported" {
-  if (!version.startsWith("2.0.")) return "unsupported";
+  if (!version.startsWith(SUPPORTED_LINE)) {
+    // An earlier minor of the same major (2.0.x) is only too old; a later one, or another major, is unknown.
+    const sameMajor = version.split(".")[0] === SUPPORTED_LINE.split(".")[0];
+    return sameMajor && !versionAtLeast(version, SUPPORTED_LINE.slice(0, -1)) ? "old" : "unsupported";
+  }
   return versionAtLeast(version, MIN_BUKIT_VERSION) ? "ok" : "old";
 }
 

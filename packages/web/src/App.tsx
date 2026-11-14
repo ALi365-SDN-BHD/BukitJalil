@@ -6,6 +6,7 @@ import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panel
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { ChatView } from "@/features/chat/ChatView";
 import { RightPanel } from "@/features/panels/RightPanel";
+import { useSecretsSettled } from "@/features/settings/SecretsNotice";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { ShortcutsDialog, useShortcutsKey } from "@/features/settings/ShortcutsDialog";
 import { SetupGuide } from "@/features/sites/SetupGuide";
@@ -13,6 +14,7 @@ import { SiteHome } from "@/features/sites/SiteHome";
 import { SiteList } from "@/features/sites/SiteList";
 import { detectLocale, I18nProvider, useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { desktopBridge } from "@/lib/desktop";
 import { useConnection } from "@/lib/events";
 import { setAppearance } from "@/lib/theme";
 
@@ -20,9 +22,11 @@ export function App() {
   const settings = useQuery({ queryKey: keys.settings, queryFn: api.settings, retry: false });
   const locale: Locale = settings.data?.locale ?? detectLocale(navigator.languages);
   const appearance: Appearance | undefined = settings.data?.appearance;
+  useSecretsSettled();
 
   useEffect(() => {
     document.documentElement.lang = locale;
+    desktopBridge()?.setLocale?.(locale);
   }, [locale]);
   useEffect(() => {
     if (appearance) setAppearance(appearance);
@@ -127,6 +131,10 @@ function Welcome() {
   const notice = (location.state as { notice?: string } | null)?.notice;
   return (
     <div className="flex flex-col gap-4 p-6 text-sm">
+      <header className="flex flex-col gap-1" data-testid="slogan">
+        <h1 className="text-xl font-semibold tracking-tight">{m.app.slogan}</h1>
+        <p className="text-muted-foreground">{m.app.sloganSub}</p>
+      </header>
       {notice && (
         <p role="status" className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3" data-testid="notice">
           {notice}

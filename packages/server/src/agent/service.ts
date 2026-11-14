@@ -16,6 +16,7 @@ import { PathGate } from "./gate.ts";
 import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
 import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
+import type { SecretCredentialStore } from "./secret-credentials.ts";
 import { createSiteTools, SITE_TOOLS } from "./site-tools.ts";
 import { listSkills, skillReadRoots } from "./skills.ts";
 import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./store.ts";
@@ -55,6 +56,8 @@ export interface AgentServiceOptions {
   resolveModel: (runtime: ModelRuntime, pi: PiModules) => Model<Api> | undefined;
   /** Thinking level for every run; Pi clamps it to the model. */
   thinkingLevel?: () => ThinkingLevel;
+  /** Encrypted model keys (plan 6.7); Pi's auth.json is used without it. */
+  credentials?: SecretCredentialStore;
   /** Called once on the new model runtime (tests register a fake provider). */
   setupRuntime?: (runtime: ModelRuntime, pi: PiModules) => void;
   /** BukitJalil's rg is installed and verified; grep is refused otherwise (plan 6.3). */
@@ -141,6 +144,11 @@ export class AgentService {
   }
 
   /** Pi's own directory (auth.json, models.json). */
+  /** The encrypted model keys, when the app keeps them (plan 6.7). */
+  get credentials(): SecretCredentialStore | undefined {
+    return this.opts.credentials;
+  }
+
   get piDir(): string {
     return this.opts.paths.pi;
   }
@@ -412,10 +420,18 @@ export class AgentService {
     return loadPi(this.opts.paths.pi);
   }
 
+  /**
+   * Build the model runtime again at its next use: custom models registered while the desktop app's key
+   * was still on its way could not be read (plan 6.7). Running sessions keep theirs.
+   */
+  refreshModelRuntime(): void {
+    this.runtime = null;
+  }
+
   private modelRuntime(): Promise<ModelRuntime> {
     if (!this.runtime) {
       const runtime = this.pi().then(async (pi) => {
-        const created = await createModelRuntime(pi, this.opts.paths.pi);
+        const created = await createModelRuntime(pi, this.opts.paths.pi, this.opts.credentials);
         this.opts.setupRuntime?.(created, pi);
         return created;
       });

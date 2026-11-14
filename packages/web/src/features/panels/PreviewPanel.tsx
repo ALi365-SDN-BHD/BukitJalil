@@ -2,10 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, RotateCw } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { BuildButton } from "@/features/builds/builds";
+import { BuildButton, NotionOfflineNote, useBuilds } from "@/features/builds/builds";
 import { useCurrentChange, usePanelRef } from "@/features/changes/hooks";
 import { useI18n } from "@/i18n";
-import { ApiRequestError, api } from "@/lib/api";
+import { ApiRequestError, api, keys } from "@/lib/api";
 import { shortOid } from "@/lib/format";
 import { PanelError, PanelLoading, RefSwitch } from "./common";
 
@@ -28,6 +28,18 @@ export function PreviewPanel({ siteId, readOnly }: { siteId: string; readOnly: b
 function PreviewBody({ siteId, refName, readOnly }: { siteId: string; refName: "main" | "change"; readOnly: boolean }) {
   const { m, t } = useI18n();
   const { change } = useCurrentChange(siteId);
+  const builds = useBuilds(siteId);
+  // The open change set's newest build ended without Notion data (plan 5.5)...
+  const notionBlocked =
+    refName === "change" &&
+    !!change &&
+    builds.data?.builds.find((b) => b.ref === "change" && b.changeSetId === change.id)?.outcome === "notion";
+  // ...and still no formal build has recorded any.
+  const data = useQuery({
+    queryKey: keys.panel(siteId, "data", "main"),
+    queryFn: () => api.data(siteId, "main"),
+    enabled: notionBlocked,
+  });
   const preview = useQuery({
     queryKey: ["preview", siteId, refName],
     queryFn: () => api.openPreview(siteId, refName),
@@ -44,6 +56,12 @@ function PreviewBody({ siteId, refName, readOnly }: { siteId: string; refName: "
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
           <p>{isChange ? m.preview.changeNotBuilt : m.preview.notBuilt}</p>
+          {/* A change of a Notion site builds from the last formal build's Notion data (plan 5.5). */}
+          {notionBlocked && data.data && data.data.notionSnapshot === null && (
+            <p className="text-amber-700 dark:text-amber-400" data-testid="preview-notion-missing">
+              {m.notionSnapshot.problem.missing}
+            </p>
+          )}
           <BuildButton
             siteId={siteId}
             refName={refName}
@@ -79,6 +97,11 @@ function PreviewBody({ siteId, refName, readOnly }: { siteId: string; refName: "
           </a>
         </Button>
       </div>
+      {p.notionOffline && (
+        <div className="shrink-0 border-b bg-sky-500/10 px-2 py-1">
+          <NotionOfflineNote data={p.notionOffline} testId="preview-notion" />
+        </div>
+      )}
       {outdated && (
         <div
           className="flex shrink-0 items-center gap-2 border-b bg-amber-500/10 px-2 py-1 text-xs"

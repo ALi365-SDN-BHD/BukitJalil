@@ -42,7 +42,7 @@ Layouts can chain up to 10 levels.
 
 ```html
 {{ base = site.base_url }}{{ if base == "/" }}{{ base = "" }}{{ end }}<!DOCTYPE html>
-<html lang="{{ site.language }}">
+<html lang="{{ site.language | html.escape }}">
 <head>
   <meta charset="utf-8">
   <title>{{ page.title | html.escape }}</title>
@@ -79,7 +79,8 @@ before changing it, because writing to the shared model can fail the render.
 | `content` | inside a layout |
 
 `site`: `name`, `title`, `description`, `url`, `base_url` (`"/"` or `"/sub"`, no
-trailing slash; includes `/<lang>` in multilingual builds), `language`, `build_year`,
+trailing slash; includes `/<lang>` for prefixed languages), `language` (the current
+language, from `site.languages`: the variant language, or the only entry), `build_year`,
 `params` (from `theme.params`), `data.<source>`, `data_index.<source>.<scope>.<key>`,
 `data_files.<file>`, `modules.<type>`, `related_pages[<id>]`. `site.data` also holds
 the built-in keys `taxonomy` (all terms, usable on any page) and `pages_by_id`. There

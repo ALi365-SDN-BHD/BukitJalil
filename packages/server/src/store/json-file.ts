@@ -4,6 +4,20 @@ import path from "node:path";
 
 const DEFAULT_MAX_BYTES = 256 * 1024;
 
+/** What a service reads and writes its JSON through: a JsonFile, or an encrypted one (plan 6.7). */
+export interface StoredJson {
+  readonly file: string;
+  /** undefined when there is nothing saved; throws when it exists but cannot be read. */
+  read(): unknown | undefined;
+  write(value: unknown): void;
+  /** false when write() would refuse (secrets unavailable, plan 6.7); a JsonFile always writes. */
+  writable?(): boolean;
+  /** The error code a refused write gives (secrets.unavailable, secrets.pending). */
+  refusal?(): "secrets.unavailable" | "secrets.pending";
+  /** Remove temporary files left by a write that was killed before its rename. */
+  cleanupTempFiles(): number;
+}
+
 /**
  * A small JSON file with an explicit missing/unreadable split. A missing file is empty; a file that exists
  * but cannot be read, is not a regular file, is too large or is not valid JSON throws, so callers never
@@ -11,7 +25,7 @@ const DEFAULT_MAX_BYTES = 256 * 1024;
  *
  * Writes go to a temporary file, are fsynced, then renamed. A failed write leaves the old file untouched.
  */
-export class JsonFile {
+export class JsonFile implements StoredJson {
   constructor(
     readonly file: string,
     private readonly opts: { maxBytes?: number } = {},

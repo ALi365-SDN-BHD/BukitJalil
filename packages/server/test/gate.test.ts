@@ -107,6 +107,13 @@ describe("PathGate", () => {
     }
   });
 
+  it("refuses to read Bukit's in-progress build output (plan 5.5)", () => {
+    for (const mode of ["read", "list"] as const) {
+      refused(path.join(worktree, ".bukitjalil-build"), mode);
+      refused(path.join(worktree, ".Bukitjalil-Build", "ai-1", "index.html"), mode);
+    }
+  });
+
   it("refuses .git at any level and in any case", () => {
     for (const mode of ["read", "list", "write"] as const) {
       refused(path.join(worktree, ".git"), mode);

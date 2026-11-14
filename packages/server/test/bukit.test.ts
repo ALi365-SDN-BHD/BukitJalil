@@ -28,7 +28,7 @@ import {
   verifySha256,
 } from "../src/bukit/install.ts";
 import { BukitService, devBukitDir, locateBukit, removeOldAppCopies, versionState } from "../src/bukit/locate.ts";
-import { BukitRunner, buildOutcome, checkPassed, parseBukitVersion } from "../src/bukit/runner.ts";
+import { BukitRunner, buildOutcome, checkPassed, parseBukitVersion, secretsInput } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome, resolveResources } from "../src/paths.ts";
 import { commitAllAs, installAppBukit, makeApp, rawGit, req, testBukitDir } from "./helpers.ts";
@@ -339,12 +339,14 @@ describe("BukitRunner", () => {
   it("runs with a minimal environment and git hardening", async () => {
     process.env.BJ_TEST_SECRET = "leak";
     try {
-      const bin = fakeBukit("env-bukit", 'env; echo "args:$*"; exit 3');
+      const bin = fakeBukit("env-bukit", 'env; echo "args:$*"; echo "stdin:$(cat)"; exit 3');
       const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
       const result = await runner.run("build", ["build", "--out", "a b"], { cwd: base, env: { NOTION_TOKEN: "n" } });
       expect(result.exitCode).toBe(3);
       expect(buildOutcome(result)).toBe("render_error");
-      expect(result.stdout).toContain("args:build --out a b");
+      // The token goes on stdin with --secrets-stdin, never into the environment (plan 8.7).
+      expect(result.stdout).toContain("args:build --out a b --secrets-stdin");
+      expect(result.stdout).toContain('stdin:{"NOTION_TOKEN":"n"}');
       expect(result.stdout).not.toContain("BJ_TEST_SECRET");
       const env = Object.fromEntries(
         result.stdout
@@ -355,7 +357,7 @@ describe("BukitRunner", () => {
       expect(env.PATH?.split(":").slice(1)).toEqual(["/usr/bin", "/bin"]);
       expect(env.TMPDIR).toBe(tmpDir);
       expect(env.HOME).toBe(appHome);
-      expect(env.NOTION_TOKEN).toBe("n");
+      expect(env.NOTION_TOKEN).toBeUndefined();
       expect(env.GIT_CONFIG_NOSYSTEM).toBe("1");
       expect(Number(env.GIT_CONFIG_COUNT)).toBeGreaterThan(0);
     } finally {
@@ -388,7 +390,29 @@ describe("BukitRunner", () => {
     expect(lines[2]).toBe(path.join(runner.binDir, "git"));
     expect(lines.slice(3)).toEqual(["git"]);
     expect(fs.readlinkSync(path.join(runner.binDir, "git"))).toBe(gitPath);
-    expect(runner.env({ NOTION_TOKEN: "n" }).NOTION_TOKEN).toBe("n");
+    expect(runner.env().NOTION_TOKEN).toBeUndefined();
+  });
+
+  it("passes the deploy token on stdin only, and no stdin or flag without secrets", async () => {
+    const bin = fakeBukit("stdin-bukit", 'echo "args:$*"; echo "tok=${BUKIT_DEPLOY_TOKEN:-}"; echo "stdin:$(cat)"');
+    const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
+    const deploy = { token: "gh-token-123456", name: "A", email: "a@example.test" };
+    const pushed = await runner.run("deploy", ["deploy"], {
+      cwd: base,
+      deploy,
+      env: { NOTION_TOKEN: "notion-123456" },
+    });
+    expect(pushed.stdout).toContain("args:deploy --secrets-stdin");
+    expect(pushed.stdout).toContain("tok=\n");
+    // Both values are masked in the captured output.
+    expect(pushed.stdout).toContain('stdin:{"NOTION_TOKEN":"[token]","BUKIT_DEPLOY_TOKEN":"[token]"}');
+    const plain = await runner.run("build", ["build"], { cwd: base, env: { NOTION_TOKEN: "" } });
+    expect(plain.stdout).toBe("args:build\ntok=\nstdin:\n");
+    // The deploy token is only for deploy, and secrets only for the commands that take --secrets-stdin.
+    expect(secretsInput("build", { deploy })).toEqual({});
+    await expect(
+      runner.run("publish", ["publish"], { cwd: base, env: { NOTION_TOKEN: "notion-123456" } }),
+    ).rejects.toThrow("does not take secrets");
   });
 
   it("keeps multibyte characters split across output chunks", async () => {
@@ -693,10 +717,15 @@ describe("locateBukit", () => {
 
   it("grades the bundled copy's version", async () => {
     for (const [ver, state] of [
-      ["2.0.11", "ok"],
-      ["2.0.12", "ok"],
-      ["2.0.9", "old"],
-      ["2.1.0", "unsupported"],
+      ["2.2.2", "ok"],
+      ["2.2.3", "ok"],
+      ["2.2.1", "old"],
+      ["2.2.0", "old"],
+      ["2.1.3", "old"],
+      ["2.1.0", "old"],
+      ["2.0.15", "old"],
+      ["2.3.0", "unsupported"],
+      ["3.1.0", "unsupported"],
       ["1.9.0", "unsupported"],
     ] as const) {
       const dir = path.join(base, `grade-${ver}`);
@@ -713,13 +742,13 @@ describe("locateBukit", () => {
 
   it("does not cache a failed lookup", async () => {
     const dir = path.join(base, "cachedir");
-    installFakeBukit(dir, 'echo "bukit 2.0.11"');
+    installFakeBukit(dir, 'echo "bukit 2.2.2"');
     const badTmp = path.join(base, "tmp-is-a-file");
     fs.writeFileSync(badTmp, "");
     const service = new BukitService({ dir, tmpDir: badTmp });
     await expect(service.status()).rejects.toThrow();
     fs.rmSync(badTmp);
-    expect(await service.status()).toMatchObject({ state: "ok", version: "2.0.11" });
+    expect(await service.status()).toMatchObject({ state: "ok", version: "2.2.2" });
   });
 
   it("reports a found but broken bukit", async () => {
@@ -790,14 +819,14 @@ describe("/api/bukit", () => {
     expect(await bukit.status()).toMatchObject({ state: "missing" });
 
     // A working copy appears after the first (cached) lookup.
-    installFakeBukit(dir, 'echo "bukit 2.0.12"');
+    installFakeBukit(dir, 'echo "bukit 2.2.2"');
 
     const stale = (await (await app.fetch(req("/api/bukit"))).json()) as { status: { state: string } };
     expect(stale.status.state).toBe("missing");
     const fresh = (await (await app.fetch(req("/api/bukit?refresh=1"))).json()) as {
       status: { state: string; version: string };
     };
-    expect(fresh.status).toMatchObject({ state: "ok", version: "2.0.12" });
+    expect(fresh.status).toMatchObject({ state: "ok", version: "2.2.2" });
     db.close();
   });
 

@@ -18,6 +18,8 @@ interface Run {
   env: NodeJS.ProcessEnv;
 }
 
+const MOCK_KEYCHAIN = process.platform === "darwin" ? ["--use-mock-keychain"] : [];
+
 function environment(home: string, profile: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
@@ -31,7 +33,8 @@ async function launch(home = fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-home
   const env = environment(home, fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-profile-")));
   const app = await _electron.launch({
     executablePath: electronBin,
-    args: [desktopDir],
+    // Chromium's stand-in keychain: tests never touch the user's real one (plan 6.7).
+    args: [...MOCK_KEYCHAIN, desktopDir],
     env: env as Record<string, string>,
   });
   const page = await app.firstWindow();
@@ -54,13 +57,58 @@ test("opens the app signed in, with only the desktop bridge exposed", async () =
   ]);
   expect(
     await page.evaluate(() => Object.keys((window as unknown as { bukitjalil: object }).bukitjalil).sort()),
-  ).toEqual(["desktop", "pickFolder", "restart"]);
+  ).toEqual(["desktop", "pickFolder", "restart", "setLocale"]);
   // The server holds the data directory while the app runs and gives it back on quit.
   const pid = Number(fs.readFileSync(lockFile(home), "utf8"));
   expect(pid).toBeGreaterThan(0);
   await app.close();
   expect(fs.existsSync(lockFile(home))).toBe(false);
   expect(() => process.kill(pid, 0)).toThrow();
+});
+
+test("the menus and the About panel follow the language chosen in settings", async () => {
+  const { app, page } = await launch();
+  await expect(page.getByTestId("slogan")).toBeVisible({ timeout: 30_000 });
+  const helpLabels = () =>
+    app.evaluate(({ Menu }) =>
+      (Menu.getApplicationMenu()?.items.at(-1)?.submenu?.items ?? []).map((item) => item.label),
+    );
+  for (const [locale, label, slogan] of [
+    ["en", "Open Logs Folder", "Every note deserves to be seen"],
+    ["zh-CN", "打开日志目录", "每一次笔记，都值得被看见"],
+  ] as const) {
+    await page.evaluate(
+      (value) =>
+        fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "x-bukitjalil": "1" },
+          body: JSON.stringify({ locale: value }),
+        }),
+      locale,
+    );
+    await page.reload();
+    await expect(page.getByTestId("slogan")).toContainText(slogan);
+    await expect.poll(helpLabels).toContain(label);
+  }
+  await app.close();
+});
+
+test("keeps tokens encrypted with a key the keychain protects", async () => {
+  const { app, page, home } = await launch();
+  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  // The app asks the keychain once its window shows the app; the key file is made at the first start and
+  // the settings show nothing while secrets are encrypted.
+  const status = () => page.evaluate(async () => (await fetch("/api/secrets")).json());
+  await expect.poll(status).toEqual({ mode: "encrypted", reason: null, plainFiles: false });
+  expect(fs.existsSync(path.join(home, "secret-key.enc"))).toBe(true);
+  await app.close();
+  // A plain token file from an earlier version is encrypted at the next start and removed.
+  fs.writeFileSync(path.join(home, "publish-account-tokens.json"), JSON.stringify({}), { mode: 0o600 });
+  const again = await launch(home);
+  await expect(again.page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => fs.existsSync(path.join(home, "publish-account-tokens.json"))).toBe(false);
+  expect(fs.existsSync(path.join(home, "publish-account-tokens.enc.json"))).toBe(true);
+  await again.app.close();
 });
 
 test("sends web links to the system browser and keeps the window on the app", async () => {
@@ -96,7 +144,7 @@ test("sends web links to the system browser and keeps the window on the app", as
 test("a second launch hands over to the running app and exits", async () => {
   const run = await launch();
   await expect(run.page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
-  const second = spawn(electronBin, [desktopDir], { env: run.env, stdio: "ignore" });
+  const second = spawn(electronBin, [...MOCK_KEYCHAIN, desktopDir], { env: run.env, stdio: "ignore" });
   const code = await new Promise<number | null>((resolve) => second.once("exit", resolve));
   expect(code).toBe(0);
   expect(run.app.windows()).toHaveLength(1);

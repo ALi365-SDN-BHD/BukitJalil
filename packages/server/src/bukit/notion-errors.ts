@@ -1,45 +1,68 @@
-import type { NotionProblem } from "@bukitjalil/shared";
+import type { NotionProblem, NotionSnapshotProblem } from "@bukitjalil/shared";
+import { bukitErrorCodesIn } from "./report-errors.ts";
 
 /**
- * Notion failures in Bukit's output (plan 5.4). Bukit 2.0.15 drops Notion's own error code and keeps the
- * HTTP status: NotionClient throws "Notion request failed: <status> <reason>", "Notion request rate limited:
- * 429 …" and "Notion request failed due to a transport error."; the content parser throws "Notion database
- * property '<name>' not found …". Check these texts when Bukit is upgraded.
+ * Notion failures in Bukit's output (plan 5.4, Bukit 2.2.0). Bukit writes stable `BKT-0Bxx` codes:
+ * the cli-error `code` for build/deploy, and `[BKT-0Bxx]` / `✖ [BKT-0Bxx]` lines for config check and
+ * doctor. Only the cli-error code and the line-start codes count; warnings (`⚠ …`) and lines such as
+ * `Error: [BKT-…]` (a multilingual worker's forwarded text) are not errors of the run.
  */
-const PATTERNS: [RegExp, NotionProblem][] = [
-  [/Notion request failed: 401\b/, "unauthorized"],
-  [/Notion request failed: 404\b/, "not_shared"],
-  [/Notion request failed: 403\b/, "forbidden"],
-  [/Notion request rate limited\b/, "rate_limited"],
-  [/Notion database property '[^'\n]*' not found/, "property_missing"],
-  [/Notion request failed due to a transport error/, "network"],
-  // `bukit doctor` (run before a publish) prints its own line for an HTTP failure of the database check.
-  [/Notion database check failed: 401\b/, "unauthorized"],
-  [/Notion database check failed: 404\b/, "not_shared"],
-  [/Notion database check failed: 403\b/, "forbidden"],
-  [/Notion database check failed: 429\b/, "rate_limited"],
-];
+const NOTION_CODES: Record<string, NotionProblem> = {
+  "BKT-0B01": "unauthorized",
+  "BKT-0B02": "forbidden",
+  "BKT-0B03": "not_shared",
+  "BKT-0B04": "rate_limited",
+  "BKT-0B05": "property_missing",
+  "BKT-0B06": "request_failed",
+  "BKT-0B07": "network",
+  "BKT-0B08": "request_failed",
+};
+
+/** Snapshot codes by the change the user sees: 0B10/0B14 are stale, 0B11–0B13 are caused by the change. */
+const SNAPSHOT_CODES: Record<string, NotionSnapshotProblem> = {
+  "BKT-0B10": "stale",
+  "BKT-0B11": "change",
+  "BKT-0B12": "change",
+  "BKT-0B13": "change",
+  "BKT-0B14": "stale",
+};
+
+const CODE = /^BKT-0B[0-9A-F]{2}$/;
+const LINE_CODE = /^(?:✖ )?\[(BKT-0B[0-9A-F]{2})\]/;
+
+/** The Notion codes of the last cli-error document, else the last line-start codes of the full output. */
+function codesIn(stderr: string, output: string): string[] {
+  const cli = bukitErrorCodesIn(stderr).filter((code) => CODE.test(code));
+  if (cli.length > 0) return cli;
+  const codes: string[] = [];
+  for (const line of output.split("\n")) {
+    const match = LINE_CODE.exec(line.replace(/\r$/, ""));
+    if (match?.[1] !== undefined) codes.push(match[1]);
+  }
+  return codes;
+}
 
 /**
- * Warnings that name a Notion request failure without failing the run: a relation target the build skips,
- * and doctor's connectivity check, after which doctor goes on.
+ * The Notion failure that ended a failed run, or null (plan 5.4). The cli-error `code` wins; otherwise
+ * the last line-start `[BKT-0Bxx]` / `✖ [BKT-0Bxx]` from config check or doctor is used.
  */
-const NOT_FATAL = /event=notion\.relation\.resolve_failed|Notion API connectivity check failed/;
+export function notionProblemIn(stderr: string, output: string = stderr): NotionProblem | null {
+  for (const code of codesIn(stderr, output)) {
+    const problem = NOTION_CODES[code];
+    if (problem !== undefined) return problem;
+  }
+  return null;
+}
 
 /**
- * The Notion failure that ended a failed run, or null: the last one named in `text` (Bukit prints the error
- * that stopped it at the end), ignoring warnings that do not stop a build.
+ * An offline build that could not use the Notion snapshot (plan 5.5). 0B10/0B14 are `stale` (record the
+ * snapshot again); 0B11–0B13 are `change` (the change needs data the formal build did not read); 0B15–0B17
+ * are not classified and stay in Bukit's original error.
  */
-export function notionProblemIn(text: string): NotionProblem | null {
-  const lines = text.split("\n").filter((line) => !NOT_FATAL.test(line));
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i] as string;
-    let last: { at: number; problem: NotionProblem } | null = null;
-    for (const [pattern, problem] of PATTERNS) {
-      const at = line.search(pattern);
-      if (at !== -1 && (last === null || at > last.at)) last = { at, problem };
-    }
-    if (last) return last.problem;
+export function notionSnapshotProblemIn(stderr: string, output: string = stderr): NotionSnapshotProblem | null {
+  for (const code of codesIn(stderr, output)) {
+    const problem = SNAPSHOT_CODES[code];
+    if (problem !== undefined) return problem;
   }
   return null;
 }

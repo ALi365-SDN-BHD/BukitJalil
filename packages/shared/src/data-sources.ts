@@ -61,8 +61,8 @@ export interface NotionSourceSchema {
 export const NOTION_MAX_PROPERTIES = 200;
 
 /**
- * A Notion failure recognised in Bukit's output (plan 5.4), shown with what to do about it. The texts come
- * from Bukit 2.0.15's NotionClient and content parser.
+ * A Notion failure recognised in Bukit's output (plan 5.4), shown with what to do about it. The values
+ * come from Bukit 2.2.0's stable `BKT-0Bxx` codes.
  */
 export type NotionProblem =
   | "unauthorized"
@@ -70,6 +70,7 @@ export type NotionProblem =
   | "forbidden"
   | "rate_limited"
   | "property_missing"
+  | "request_failed"
   | "network";
 
 export interface NotionDatabasesResponse {

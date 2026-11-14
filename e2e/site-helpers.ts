@@ -32,10 +32,16 @@ export async function startConversationButton(page: Page): Promise<void> {
 }
 
 /** A committed starter site in a temp folder, imported through the API; returns its id. */
-export async function importSite(page: Page, title = "Chat", language = "en-US"): Promise<string> {
+export async function importSite(
+  page: Page,
+  title = "Chat",
+  language = "en-US",
+  edit?: (dir: string) => void,
+): Promise<string> {
   work ??= fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-sites-")));
   const dir = path.join(work, `site${++counter}`);
   copyStarter(STARTER, dir, { title: `${title} ${counter}`, language });
+  edit?.(dir);
   const git = (...args: string[]) =>
     execFileSync("git", ["-c", "user.name=E2E", "-c", "user.email=e2e@example.com", ...args], {
       cwd: dir,

@@ -27,11 +27,12 @@ const contexts: ReturnType<typeof makeApp>[] = [];
 const fakeBukit = (log: string, versionFile: string) => `#!/bin/sh
 echo "$(pwd) $*" >> ${JSON.stringify(log)}
 case "$1" in
-  version) if [ -f ${JSON.stringify(versionFile)} ]; then cat ${JSON.stringify(versionFile)}; else echo "bukit 2.0.11+fake"; fi; exit 0;;
+  version) if [ -f ${JSON.stringify(versionFile)} ]; then cat ${JSON.stringify(versionFile)}; else echo "bukit 2.2.2+fake"; fi; exit 0;;
   config)
     if [ "$2" = "schema" ]; then
       echo '{"type":"object","properties":{"site":{"type":"object","description":"site section"},"theme":{"type":"object"}}}' > "$4"
     fi
+    if [ -f fake-newdb ]; then echo "[BKT-0B11] Notion offline snapshot has no data for database 'x'. (args: $*)"; exit 2; fi
     echo "config ok"; exit 0;;
   doctor) if [ -f fake-doctor ]; then echo "doctor: template missing"; exit 1; fi; echo "doctor ok"; exit 0;;
   build)
@@ -248,8 +249,7 @@ describe("bukit_check and bukit_build", () => {
     expect(bukitCalls()).toEqual([]);
   });
 
-  it("refuses sites with a Notion source: unreviewed changes never get its token", async () => {
-    const { tools, cwd } = await setup();
+  const addNotionSource = (cwd: string) => {
     const yaml = path.join(cwd, "site.yaml");
     fs.writeFileSync(
       yaml,
@@ -260,8 +260,56 @@ describe("bukit_check and bukit_build", () => {
           "content:\n  sources:\n    - type: notion\n      name: db\n      collection: post\n      notion:\n        databaseId: abc\n",
         ),
     );
-    await expect(call(tools.bukit_check)).rejects.toMatchObject({ code: "notion" });
+  };
+
+  it("refuses a Notion site with no offline snapshot: unreviewed changes never get its token", async () => {
+    const { tools, cwd } = await setup();
+    addNotionSource(cwd);
+    await expect(call(tools.bukit_check)).rejects.toMatchObject({
+      code: "notion",
+      message: expect.stringContaining("build the site once"),
+    });
     expect(bukitCalls()).toEqual([]);
+  });
+
+  it("checks and builds a Notion site offline from its snapshot, with no token (plan 5.5)", async () => {
+    const { ctx, site, tools, cwd, ai, git } = await setup();
+    // As a formal build leaves it: Bukit's snapshot, then the record and the copied media cache.
+    const snapshots = ctx.sites.notionSnapshots;
+    const [, dir] = snapshots.recordArgs(site.id) as [string, string];
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "manifest.json"), '{"format":1}');
+    snapshots.recorded(site.id, git("rev-parse", "HEAD"), cwd);
+    const root = path.join(ctx.paths.notionSnapshots, site.id);
+    addNotionSource(cwd);
+
+    const checked = await call(tools.bukit_check);
+    expect(checked.value).toMatchObject({ passed: true });
+    expect(checked.value?.notionData).toContain(`commit ${git("rev-parse", "HEAD~1").slice(0, 7)}`);
+    const offline = `--notion-snapshot ${path.join(root, "snapshot")} --notion-offline`;
+    expect(bukitCalls()).toEqual([
+      `${cwd} config check --config site.yaml ${offline}`,
+      `${cwd} doctor --config site.yaml ${offline}`,
+    ]);
+    fs.rmSync(calls);
+    const built = await call(tools.bukit_build);
+    expect(built.value).toMatchObject({ succeeded: true });
+    expect(built.value?.notionData).toContain("nothing is fetched");
+    expect(bukitCalls()[0]).toContain(`${offline} --cache-dir ${path.join(root, "cache")}`);
+    expect(bukitCalls()[0]).not.toContain("--secrets-stdin");
+
+    // A database the snapshot lacks: the AI is told what it means, and never sees the snapshot's path.
+    fs.writeFileSync(path.join(cwd, "fake-newdb"), "");
+    const failed = await call(tools.bukit_check);
+    expect(failed.value).toMatchObject({ passed: false });
+    expect(failed.value?.notionData).toContain("applies it and builds the site");
+    expect(failed.text).not.toContain(ctx.paths.notionSnapshots);
+    expect(failed.text).toContain("[notion-snapshot]");
+    // Before applying, that leaves the change unchecked rather than failed.
+    expect(await ai.checkForApply(site.id, cwd)).toMatchObject({ passed: false, problemCode: "notion" });
+    // Unless another step failed for a real reason: that is a failed check.
+    fs.writeFileSync(path.join(cwd, "fake-doctor"), "");
+    expect(await ai.checkForApply(site.id, cwd)).toMatchObject({ passed: false, problemCode: null });
   });
 
   it("tells the AI which ignored files it deleted", async () => {
@@ -334,7 +382,7 @@ describe("bukit_schema", () => {
   it("asks again when Bukit at the same path reports another version", async () => {
     const { tools, ctx } = await setup();
     await call(tools.bukit_schema);
-    fs.writeFileSync(versionFile, "bukit 2.0.12+fake\n");
+    fs.writeFileSync(versionFile, "bukit 2.2.3+fake\n");
     try {
       ctx.bukit.invalidate();
       await call(tools.bukit_schema);

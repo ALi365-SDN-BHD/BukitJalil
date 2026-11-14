@@ -7,7 +7,7 @@ import { BUKIT_VERSION } from "../packages/server/src/bukit/install.ts";
 import { copyStarter } from "../packages/server/src/sites/template.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { putSettings } from "./site-helpers.ts";
+import { importSite, putSettings } from "./site-helpers.ts";
 
 // M2 end to end (plan 12): new site, import, read-only import, builds and the preview, the read-only panels,
 // archive and remove, settings. Builds use a stand-in Bukit unless BUKIT_BIN names a real one.
@@ -119,6 +119,10 @@ test("a new site builds once, shows its preview and the read-only panels", async
   await expect(page.getByTestId("theme-name")).toHaveText("starter");
   await page.getByTestId("tab-data").click();
   await expect(page.getByTestId("data-source").first()).toBeVisible();
+  // Entries per source come from the build (plan 5.5).
+  await expect(
+    page.getByTestId("data-source").filter({ hasText: "posts" }).first().getByTestId("data-source-count"),
+  ).toHaveText(/^1 (entries|条)$/);
 
   // The open tab survives a reload.
   await page.reload();
@@ -190,6 +194,32 @@ test("a failed build shows its outcome and report", async ({ page, server }) => 
   const report = page.getByTestId("build-report");
   await expect(report).toContainText("event=content.error file=broken.md");
   await expect(report).toContainText("boom");
+});
+
+test("a build that lacks a media placeholder shows Bukit's error and how to fix it", async ({ page, server }) => {
+  test.skip(!!REAL_BUKIT, "the failure comes from the stand-in Bukit");
+  await login(page, server);
+  const { name, parent } = fresh("Media");
+  await createSite(page, name, parent);
+  await expect(headerBuild(page)).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
+
+  const dir = await sitePath(page);
+  // New sites keep the link of an image that can't be downloaded (plan 8.6).
+  expect(fs.readFileSync(path.join(dir, "site.yaml"), "utf8")).toMatch(/onFailure: keep/);
+  fs.writeFileSync(path.join(dir, "fake-mode"), "media");
+  git(dir, "add", "fake-mode");
+  git(dir, "commit", "-q", "-m", "break the media");
+
+  await page.getByTestId("build-button").first().click();
+  await expect(headerBuild(page)).toHaveText(/Bukit failed to run|Bukit 运行失败/, { timeout: 30_000 });
+  await page.getByTestId("build-list").getByRole("button").first().click();
+  const report = page.getByTestId("build-report");
+  await expect(report.getByTestId("build-bukit-errors")).toContainText(
+    "Referenced localized media output is missing: assets/images/noneimg-news.jpg",
+  );
+  await expect(report.getByTestId("build-media-problem")).toContainText("onFailure: keep");
+  await expect(report.getByTestId("build-media-problem")).toContainText("2");
+  await expect(report.getByTestId("build-crashed")).toHaveCount(0);
 });
 
 test("a folder that is not a git repository yet is imported after confirming its files", async ({ page, server }) => {
@@ -290,10 +320,10 @@ test("settings show Bukit and the identity; the new-site dialog starts empty eac
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  // The stand-in prints 2.0.11, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
+  // The stand-in prints 2.2.2, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
   // latest release, no install button.
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
-  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.0.11"}`);
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.2");
+  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.2.2"}`);
   await expect(page.getByTestId("bukit-latest")).toHaveCount(0);
   await expect(page.getByTestId("bukit-install")).toHaveCount(0);
   // A fresh app home has no rg yet: the page shows it as not installed and asks before downloading.
@@ -314,7 +344,7 @@ test("settings show Bukit and the identity; the new-site dialog starts empty eac
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("git-guide")).toBeHidden();
   await page.getByTestId("check-updates").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.2");
   await page.getByTestId("rg-install").click();
   await expect(page.getByTestId("rg-install-confirm")).toContainText("15.2.0");
 
@@ -443,6 +473,8 @@ test("a Notion data source keeps its token and several databases are used when c
   await binding.selectOption(id);
   await expect(page.getByTestId("notion-binding")).not.toContainText(/fail|失败/);
   await expect(binding).toBeEnabled();
+  // No formal build recorded Notion data offline, so AI changes cannot be checked yet (plan 5.5).
+  await expect(page.getByTestId("notion-snapshot")).toContainText(/No saved Notion data|还没有保存的 Notion 数据/);
 
   // Fields are read only on request (plan 5.4). The server calls Notion; here the API answer is stubbed.
   let fieldsAnswer: { status: number; body: unknown } = {
@@ -520,11 +552,11 @@ test("reopening settings looks at the bundled Bukit again", async ({ page, serve
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.0.11");
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.2");
 
   // The bundled copy changes between visits; opening settings asks the server for a fresh look.
-  const updated = path.join(work, "bukit-2.0.14");
-  fs.writeFileSync(updated, '#!/bin/sh\nif [ "$1" = "version" ]; then echo "bukit 2.0.14"; exit 0; fi\nexit 0\n', {
+  const updated = path.join(work, "bukit-2.1.4");
+  fs.writeFileSync(updated, '#!/bin/sh\nif [ "$1" = "version" ]; then echo "bukit 2.1.4"; exit 0; fi\nexit 0\n', {
     mode: 0o755,
   });
   server.setBukit(updated);
@@ -532,7 +564,27 @@ test("reopening settings looks at the bundled Bukit again", async ({ page, serve
   await page.getByTestId("settings-close").click();
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText("2.0.14");
-  await expect(page.getByTestId("bukit-state")).toContainText("Bukit 2.0.14");
+  await expect(page.getByTestId("bukit-version")).toHaveText("2.1.4");
+  await expect(page.getByTestId("bukit-state")).toContainText("Bukit 2.1.4");
   await expect(page.getByTestId("bukit-install")).toHaveCount(0);
+});
+
+test("a site still using site.language is migrated from its card", async ({ page, server }) => {
+  await login(page, server);
+  // A site made before Bukit 2.1: site.language instead of site.languages (plan 8.7).
+  const siteId = await importSite(page, "Old language", "en-US", (dir) => {
+    const file = path.join(dir, "site.yaml");
+    fs.writeFileSync(
+      file,
+      fs.readFileSync(file, "utf8").replace(/ {2}languages: \[ ?en-US ?\]\n/, "  language: en-US\n"),
+    );
+  });
+  await page.goto(`/sites/${siteId}`);
+  const card = page.getByTestId("language-migration");
+  await expect(card).toBeVisible();
+  await expect(card.getByTestId("diff-patch")).toContainText("-  language: en-US");
+  await expect(card.getByTestId("diff-patch")).toContainText("+  languages: [ en-US ]");
+  await expect(card.getByTestId("language-migration-moves")).toHaveCount(0);
+  await card.getByTestId("language-migration-apply").click();
+  await expect(card).toHaveCount(0);
 });

@@ -49,7 +49,7 @@ the command; error objects are multi-line JSON, see `bukit-cli-reference`). Read
 | `No route rule matches content document` | No collection rule or type permalink (or a typo in `collection`) | Add `site.collections.<c>` or `site.permalinks.<type>` (`bukit-routing`). |
 | `Route conflict on url\|outputPath` (`RouteConflict`) | Two routes share a URL or file | Change slug/permalink; check `url: /`, aliases, taxonomy prefixes. |
 | `No theme template matches kind='taxonomy_index'` / `Taxonomy template not found` | Front matter `tags`/`categories` auto-creates taxonomy pages | Add taxonomy templates or set `taxonomy.outputMode: data` (`bukit-routing`). |
-| Pages missing from output | `site.language` default `zh-CN` filters other languages; `draft: true`; Notion `Published` filter | Set `site.language`; use `--draft`; adjust `filterType`. |
+| Pages missing from output | `site.languages` default `[zh-CN]` filters other languages; `draft: true`; Notion `Published` filter | Set `languages: [<code>]`; use `--draft`; adjust `filterType`. |
 | `content/index.md` shows at `/index/` | Home `/` is always the home list | Put home content in the home template or data. |
 | HTML in Markdown shows as text | Raw HTML is escaped | Move HTML to templates or shortcodes. |
 | Posts unordered / dates 1970 | Only `publishAt` is the date | Rename `date:` to `publishAt:`. |
@@ -85,7 +85,7 @@ the command; error objects are multi-line JSON, see `bukit-cli-reference`). Read
 | `Build output is not ready for deployment` | No completed build | Run a successful `bukit build` first. |
 | `GITHUB_TOKEN environment variable is required` | Token var unset | Set it or use `--token-env NAME`. |
 | `Non-fast-forward push rejected` | Target branch diverged | `--force` only if overwriting is intended. |
-| Page missing from llms.txt | Invalid front matter `geo` → `llms` curation | Look for build warnings `geo.llms_field_unknown`, `geo.llms_visibility_invalid`, `geo.llms_tier_invalid`, `geo.llms_priority_invalid` (they fail the build under `strict`; Bukit 2.0.11 and earlier do not log them) and the publish audit warning `publish.llms_missing_route route=<url>`; check that the `llms` map uses only `visibility`, `tier`, and an integer `priority` (`bukit-geo`). |
+| Page missing from llms.txt | Invalid front matter `geo` → `llms` curation | Look for build warnings `geo.llms_field_unknown`, `geo.llms_visibility_invalid`, `geo.llms_tier_invalid`, `geo.llms_priority_invalid`, `geo.llms_shape_invalid` (they fail the build under `strict`; versions through 2.0.15 do not log them) and the publish audit warning `publish.llms_missing_route route=<url>`; check that `geo` and `llms` are mappings (not, for example, `llms: false`) and that the `llms` map uses only `visibility`, `tier`, and an integer `priority` (`bukit-geo`). |
 
 ## Reports to inspect
 

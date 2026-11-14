@@ -13,6 +13,7 @@ export * from "./pi.ts";
 export * from "./plugins.ts";
 export * from "./publish.ts";
 export * from "./rg.ts";
+export * from "./secrets.ts";
 export * from "./sessions.ts";
 export * from "./settings.ts";
 export * from "./sites.ts";

@@ -2,6 +2,8 @@
 const zhCN = {
   app: {
     name: "BukitJalil",
+    slogan: "每一次笔记，都值得被看见",
+    sloganSub: "让 AI 帮你实现它",
   },
   common: {
     cancel: "取消",
@@ -198,7 +200,7 @@ const zhCN = {
       stopped: "已停止",
       failed: "Bukit 运行失败",
       refused: "未通过构建前安全检查",
-      notion: "使用 Notion 数据源；需要在数据面板里绑定数据源，AI 改动的预览暂不支持 Notion",
+      notion: "需要 Notion 数据：正式构建要在数据面板里绑定数据源，AI 改动的预览要先正式构建一次",
       base_url: "site.baseUrl 不是可以用来预览的路径（只能用字母、数字和 . _ ~ -，以 / 分隔）",
       symlink: "输出里有符号链接，没有保留",
       interrupted: "服务重启时中断",
@@ -207,7 +209,15 @@ const zhCN = {
     commit: "提交 {commit}",
     changeBuild: "改动预览",
     report: "构建报告",
-    crashed: "Bukit 异常退出，没有给出结果。请查看下面的输出后重试；如果反复出现，请在设置里检查或重新安装 Bukit。",
+    crashed: "Bukit 异常退出，没有给出结果。请查看下面的输出后重试；如果反复出现，请重新安装 BukitJalil。",
+    bukitErrors: "Bukit 的报错",
+    media: {
+      title: "有 {count} 张远程图片下载失败，Bukit 改用占位图 {path}，但网站里没有这个文件。可以任选一种处理：",
+      titleUnknown: "有远程图片下载失败，Bukit 改用占位图 {path}，但网站里没有这个文件。可以任选一种处理：",
+      keep: "在 site.yaml 里设置 content.media.onFailure: keep，下载失败时保留图片原来的链接；",
+      static: "把一张图片放到主题的 static/ 下，路径和上面的占位图一致；",
+      ai: "让 AI 修改 site.yaml 或换掉失效的图片链接。",
+    },
     messages: "警告和错误",
     output: "其他输出",
     noMessages: "没有警告或错误",
@@ -405,7 +415,8 @@ const zhCN = {
     fieldsRead: "{time}用绑定数据源的 token 读取",
     fieldsMore: "数据库的字段比列出的多",
     fieldsMainOnly: "只按正式版本的配置读取字段，不读取未审核改动里的配置。",
-    pagesLater: "页数要等 Bukit 按源输出后才能显示。",
+    count: "{count} 条",
+    countFrom: "{time} 的构建读到的条数",
     notionBinding: "Notion 数据源",
     notionUnbound: "未绑定",
     notionNoSources: "还没有保存的 Notion 数据源。请先在“设置 → 数据源”里添加。",
@@ -433,8 +444,23 @@ const zhCN = {
       rate_limited: "Notion 限制了请求次数。请等一分钟再构建。",
       property_missing:
         "site.yaml 里用到的属性（通常是过滤字段，默认 Published）在 Notion 数据库里不存在。请在 Notion 里添加，或修改 filterProperty。",
+      request_failed: "Notion 返回错误，稍后再试；一直失败就看 Bukit 的原始报错。",
       network: "连不上 Notion。请检查网络后重新构建。",
     },
+  },
+  notionSnapshot: {
+    offline: "Notion 数据来自 {time} 的正式构建（提交 {commit}），之后在 Notion 里的修改不会显示。",
+    queryChanged: "这次改动修改了 Notion 的过滤或排序，Notion 数据仍按正式版本的过滤条件。",
+    rendererMismatch: "部分正文是旧版渲染，正式构建后会更新。",
+    problem: {
+      missing:
+        "还没有可用的 Notion 数据：先在网站页面正式构建一次（要先绑定数据源），之后 AI 改动才能检查和预览。如果这个改动给网站加了第一个 Notion 源，要先应用、再正式构建。",
+      stale: "上次正式构建保存的 Notion 数据读不出来（格式变了或数据不完整），请重新正式构建一次。",
+      change:
+        "这次改动需要上次正式构建没有读过的 Notion 数据（换了 databaseId、新加了 Notion 源、给某个源打开了正文渲染，或改了过滤、排序），应用后正式构建才有这些数据。",
+    },
+    panelRecorded: "AI 改动的检查和预览使用 {time} 正式构建（提交 {commit}）保存的 Notion 数据。",
+    panelNone: "还没有保存的 Notion 数据。绑定数据源并正式构建一次后，AI 改动才能检查和预览。",
   },
   changes: {
     card: "待审核的改动",
@@ -474,11 +500,11 @@ const zhCN = {
       rejected: "已拒绝这些改动。",
     },
     checkFailed: "应用前的检查没有通过，没有应用任何改动。",
-    appliedUnchecked: "网站使用 Notion 内容源，应用前无法用 Bukit 检查，请查看正式构建的结果。",
+    appliedUnchecked: "网站使用 Notion 内容源，应用前没能用 Bukit 检查，请查看正式构建的结果。",
     problem: {
       bukit_missing: "没有安装 Bukit，无法检查这些改动。",
       guard: "构建前安全检查拒绝了这些改动。",
-      notion: "网站使用 Notion 内容源，未审核的改动无法检查。",
+      notion: "网站使用 Notion 内容源，上次正式构建保存的 Notion 数据不能用来检查这些改动。",
       read_only: "网站是只读的。",
     },
   },
@@ -582,6 +608,21 @@ const zhCN = {
     panels: "预览、改动、文件、配置、主题、数据、SEO",
     help: "显示这个列表",
     mac: "在 Mac 上，Alt 是 Option（⌥）键。",
+  },
+  languageMigration: {
+    title: "更新语言设置",
+    why: "新版 Bukit 只认 site.languages，不再接受 site.language；多语言网站的默认语言也改到了网站根目录。这个网站的 site.yaml 需要更新，否则无法构建，或者已发布的网址会变。",
+    what: "应用后会把下面的改动提交到正式分支。多语言网站会加上 defaultLanguageInSubdir: true，所有语言仍在 /<语言>/ 下，已发布的网址不变。",
+    movesToRoot:
+      "这个网站的 languages 只有一种语言。新版 Bukit 把单语言网站放在根目录，原来 /<语言>/ 下的网址会变成根目录下的网址，没有设置能保留旧网址。应用后需要重新发布，外部链接要改。",
+    apply: "应用改动",
+    applyHint: "只改 site.yaml，提交到正式分支",
+    badLanguage:
+      "site.language 的值不是文字，没法自动迁移。请把它改成 languages: [语言代码]，例如 languages: [zh-CN]，可以让 AI 帮你改。",
+    badLanguages:
+      "site.languages 里有不是语言代码的项，或者同一种语言写了两次，新版 Bukit 会报错，没法自动迁移。请把它改成不重复的语言代码列表，例如 languages: [zh-CN, en]，可以让 AI 帮你改。",
+    defaultNotListed:
+      "site.defaultLanguage 不在 site.languages 里，新版 Bukit 会报错，没法自动迁移。请把默认语言加进 languages，或者改成其中一种，可以让 AI 帮你改。",
   },
   deploy: {
     title: "发布",
@@ -849,6 +890,23 @@ const zhCN = {
       keyNotEditable: "这个服务商需要多项配置，请用环境变量设置。",
     },
   },
+  secrets: {
+    plain: "开发模式：token 和模型密钥以未加密文件保存（权限 600）。桌面版会用系统钥匙串加密。",
+    plainLeft: "有旧版本留下的未加密 token 或密钥文件没能加密，请查看日志。",
+    plainUsed: "正在使用旧版本留下的未加密文件；在能加密之前，不能保存新的 token 或密钥。",
+    unavailable: {
+      no_keyring:
+        "找不到系统钥匙串，token 和模型密钥不能安全保存，所以暂时不能保存。在 Linux 上请安装并解锁 gnome-keyring 或 KWallet，然后重新启动 BukitJalil。",
+      locked:
+        '无法解开钥匙串里的密钥（可能拒绝了访问、删除了钥匙串项目，或者数据目录来自另一台电脑），已保存的 token 和模型密钥暂时不能用。可以重新启动后在提示里点"允许"，或者重置后重新输入。',
+      no_answer: "钥匙串一直没有回应（可能没有回答访问提示）。请重新启动 BukitJalil。",
+      reset: "已清除所有保存的 token 和模型密钥。请重新启动 BukitJalil，之后重新输入。",
+      pending:
+        '正在等待钥匙串授权：请在系统弹出的提示里点"允许"，之后才能使用保存的 token 和模型密钥。没看到提示的话，请重新启动 BukitJalil。',
+    },
+    reset: "重置密钥",
+    resetConfirm: "会删除所有保存的 token 和模型密钥，需要重新输入。确定吗？",
+  },
   errors: {
     "auth.required": "登录已失效：在运行 BukitJalil 的终端里按回车，打开新打印的地址",
     "request.bad_host": "请求的地址不被允许",
@@ -889,6 +947,9 @@ const zhCN = {
     "server.shutting_down": "BukitJalil 正在关闭",
     "storage.unreadable": "保存的设置文件读不出来；请修复或删除它后再保存",
     "storage.too_large": "要保存的数据太多；请先删除一些已保存的条目再试",
+    "secrets.unavailable": "没有安全的地方保存 token 和密钥，所以现在不能保存；请看设置页最上面的说明",
+    "secrets.pending": '还在等待钥匙串授权：请先在系统提示里点"允许"，再试一次',
+    "secrets.reset_unsupported": "开发模式下没有加密密钥，不需要重置",
     "build.not_found": "找不到这次构建",
     "site.read_only": "网站不满足安全规则，处于只读状态",
     "build.bukit_missing": "没有安装 Bukit，或者版本不受支持",
@@ -937,6 +998,11 @@ const zhCN = {
     "deploy.config_dirty": "网站目录有未提交的改动，先提交或还原后再保存部署设置",
     "deploy.config_wrong_branch": "网站目录当前不在 {branch} 分支，切换后再保存部署设置",
     "deploy.config_failed": "保存部署设置失败，正式版本可能已更新，请重试",
+    "language.commit_changed": "正式版本已经更新，请看一下新的改动再应用",
+    "language.not_needed": "语言设置已经是新的写法，不需要再改",
+    "language.wrong_branch": "网站目录当前不在 {branch} 分支，切换后再更新语言设置",
+    "language.dirty": "网站目录有未提交的改动，先提交或还原后再更新语言设置",
+    "language.failed": "更新语言设置失败，正式版本可能已更新，请重试",
     "publish.not_found": "找不到这个发布账号",
     "publish.name_exists": "已经有同名的发布账号",
     "publish.in_use": "还有 {count} 个网站使用这个发布账号，不能删除",

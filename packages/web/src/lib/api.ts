@@ -31,6 +31,7 @@ import {
   type HistoryResponse,
   type ImportInspection,
   type ImportSiteRequest,
+  type LanguageMigrationResponse,
   type ModelsResponse,
   type NotionDatabasesResponse,
   type NotionSourceSchema,
@@ -45,6 +46,7 @@ import {
   type RestoreResult,
   type RgResponse,
   type SavedDataSource,
+  type SecretsStatus,
   type SendMessageRequest,
   type SessionDetail,
   type SessionInfo,
@@ -112,6 +114,8 @@ export const api = {
   git: (refresh = false) => request<GitResponse>(`/git${refresh ? "?refresh=1" : ""}`),
   installGit: () => post<unknown>("/git/install"),
   pi: (refresh = false) => request<PiStatus>(`/pi${refresh ? "?refresh=1" : ""}`),
+  secrets: () => request<SecretsStatus>("/secrets"),
+  resetSecrets: () => post<SecretsStatus>("/secrets/reset"),
   dirs: (path: string | null, hidden = false) =>
     request<FsDirsResponse>(`/fs/dirs?${query({ ...(path ? { path } : {}), ...(hidden ? { hidden: "1" } : {}) })}`),
 
@@ -159,6 +163,9 @@ export const api = {
 
   sessions: (siteId: string) => request<SessionInfo[]>(`/sites/${siteId}/sessions`),
   createSession: (siteId: string) => post<SessionInfo>(`/sites/${siteId}/sessions`),
+  languageMigration: (siteId: string) => request<LanguageMigrationResponse>(`/sites/${siteId}/language-migration`),
+  applyLanguageMigration: (siteId: string, commit: string) =>
+    post<LanguageMigrationResponse>(`/sites/${siteId}/language-migration`, { commit }),
   deployStatus: (siteId: string) => request<DeployStatusResponse>(`/sites/${siteId}/deploy`),
   saveDeployConfig: (siteId: string, req: DeployConfigRequest) =>
     request<DeployStatusResponse>(`/sites/${siteId}/deploy`, { method: "PUT", body: JSON.stringify(req) }),
@@ -239,6 +246,8 @@ export const keys = {
   sites: ["sites"] as const,
   site: (id: string) => ["site", id] as const,
   deploy: (siteId: string) => ["deploy", siteId] as const,
+  /** Under "panel": whatever moves the default branch (applying a change, deploy settings) refreshes it too. */
+  languageMigration: (siteId: string) => ["panel", siteId, "language-migration"] as const,
   deploys: (siteId: string) => ["deploys", siteId] as const,
   panel: (id: string, panel: string, ...rest: string[]) => ["panel", id, panel, ...rest] as const,
   builds: (id: string) => ["builds", id] as const,
@@ -257,6 +266,7 @@ export const keys = {
   rg: ["rg"] as const,
   git: ["git"] as const,
   pi: ["pi"] as const,
+  secrets: ["secrets"] as const,
   dataSources: ["data-sources"] as const,
   publishAccounts: ["publish-accounts"] as const,
   customModels: ["custom-models"] as const,

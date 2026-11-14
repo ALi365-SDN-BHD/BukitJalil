@@ -32,6 +32,7 @@ import type { PanelService } from "../panels/service.ts";
 import { parseYaml } from "../panels/yaml.ts";
 import type { AppPaths } from "../paths.ts";
 import type { PublishAccountService } from "../publish/accounts.ts";
+import { type ConfigCommitCodes, commitSiteYaml } from "../sites/config-commit.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
@@ -59,6 +60,13 @@ const MAX_SITE_YAML = 1024 * 1024;
 
 /** Bukit commands that validate or load a Notion source; `publish audit` and `deploy --skip-build` do not. */
 const NOTION_STEPS: ReadonlySet<string> = new Set(["check", "doctor", "build"]);
+/** Errors of the deploy settings commit, worded for that form. */
+const CONFIG_CODES: ConfigCommitCodes = {
+  wrongBranch: "deploy.config_wrong_branch",
+  dirty: "deploy.config_dirty",
+  changed: "deploy.commit_changed",
+  failed: "deploy.config_failed",
+};
 
 /** The report with every copy of `secret` replaced (a token shorter than 8 characters is not looked for). */
 export function redact(report: DeployReport, secret: string): DeployReport {
@@ -93,9 +101,17 @@ export function rootRedirectPage(entry: string): string {
 }
 
 /** A step's warning and error lines and the end of its text output, read as for builds. */
-function logOf(result: BukitRunResult): Pick<DeployReport, "messages" | "output" | "notionProblem"> {
-  const { messages, output, notionProblem } = buildReport(result);
-  return { messages, output, ...(notionProblem ? { notionProblem } : {}) };
+function logOf(
+  result: BukitRunResult,
+): Pick<DeployReport, "messages" | "output" | "notionProblem" | "bukitErrors" | "mediaProblem"> {
+  const { messages, output, notionProblem, bukitErrors, mediaProblem } = buildReport(result);
+  return {
+    messages,
+    output,
+    ...(notionProblem ? { notionProblem } : {}),
+    ...(bukitErrors ? { bukitErrors } : {}),
+    ...(mediaProblem ? { mediaProblem } : {}),
+  };
 }
 
 /**
@@ -166,58 +182,34 @@ export class DeployService {
     return this.opts.locks.run(siteId, "deploy-config", async () => {
       const current = this.opts.sites.get(siteId);
       if (current.readOnly) throw new SiteError("site.read_only", 409);
-      await this.assertCheckoutReady(current);
       const head = await this.opts.sites.headOf(current);
-      const checkout = await this.opts.sites.mainCheckout(siteId, current.path, head);
-      try {
-        const file = path.join(checkout, "site.yaml");
-        const text = await fs.promises.readFile(file, "utf8");
-        const doc = parseDocument(text, { uniqueKeys: true });
-        if (doc.errors.length > 0 || !isRecord(doc.get("site"))) {
-          throw new SiteError("deploy.config_invalid", 409);
-        }
-        const deploy = doc.get("deploy");
-        if (deploy !== undefined && !isRecord(deploy)) throw new SiteError("deploy.config_invalid", 409);
-        doc.setIn(["deploy", "provider"], "github-pages");
-        doc.setIn(["deploy", "repo"], repo);
-        doc.setIn(["deploy", "branch"], target.branch);
-        if (target.cname) doc.setIn(["deploy", "cname"], target.cname);
-        else doc.deleteIn(["deploy", "cname"]);
-        const address = pagesSiteAddress(repo, target.cname);
-        doc.setIn(["site", "url"], address.url);
-        doc.setIn(["site", "baseUrl"], address.baseUrl);
-        await fs.promises.writeFile(file, doc.toString());
-
-        const { git } = this.opts;
-        await git.run(["add", "--", "site.yaml"], { cwd: checkout });
-        const tree = (await git.text(["write-tree"], { cwd: checkout })).trim();
-        const identity = this.opts.sites.commitIdentity();
-        const commit = (
-          await git.text(["commit-tree", tree, "-p", head, "-m", "Configure GitHub Pages deployment"], {
-            cwd: current.path,
-            config: {
-              "author.name": identity["user.name"],
-              "author.email": identity["user.email"],
-              "committer.name": identity["user.name"],
-              "committer.email": identity["user.email"],
-            },
-          })
-        ).trim();
-        await this.assertCheckoutReady(current);
-        if ((await this.opts.sites.headOf(current)) !== head) throw new SiteError("deploy.commit_changed", 409);
-        try {
-          await git.run(["merge", "-q", "--ff-only", "--no-overwrite-ignore", "--end-of-options", commit], {
-            cwd: current.path,
-            config: identity,
-          });
-        } catch {
-          throw new SiteError("deploy.config_failed", 409);
-        }
-        this.opts.sites.setPublishAccountId(siteId, account.id);
-        return await this.status(siteId);
-      } finally {
-        await this.opts.git.run(["reset", "-q", "--hard", head], { cwd: checkout }).catch(() => {});
-      }
+      await commitSiteYaml({
+        git: this.opts.git,
+        sites: this.opts.sites,
+        site: current,
+        head,
+        message: "Configure GitHub Pages deployment",
+        codes: CONFIG_CODES,
+        edit: (text) => {
+          const doc = parseDocument(text, { uniqueKeys: true });
+          if (doc.errors.length > 0 || !isRecord(doc.get("site"))) {
+            throw new SiteError("deploy.config_invalid", 409);
+          }
+          const deploy = doc.get("deploy");
+          if (deploy !== undefined && !isRecord(deploy)) throw new SiteError("deploy.config_invalid", 409);
+          doc.setIn(["deploy", "provider"], "github-pages");
+          doc.setIn(["deploy", "repo"], repo);
+          doc.setIn(["deploy", "branch"], target.branch);
+          if (target.cname) doc.setIn(["deploy", "cname"], target.cname);
+          else doc.deleteIn(["deploy", "cname"]);
+          const address = pagesSiteAddress(repo, target.cname);
+          doc.setIn(["site", "url"], address.url);
+          doc.setIn(["site", "baseUrl"], address.baseUrl);
+          return doc.toString();
+        },
+      });
+      this.opts.sites.setPublishAccountId(siteId, account.id);
+      return await this.status(siteId);
     });
   }
 
@@ -321,19 +313,6 @@ export class DeployService {
     } catch {
       return null;
     }
-  }
-
-  /** The site folder must be on its default branch and clean before a config commit can fast-forward it. */
-  private async assertCheckoutReady(site: Site): Promise<void> {
-    const { git } = this.opts;
-    const branch = (await git.run(["symbolic-ref", "-q", "HEAD"], { cwd: site.path, okCodes: [1] })).stdout
-      .toString("utf8")
-      .trim();
-    if (branch !== `refs/heads/${site.defaultBranch}`) {
-      throw new SiteError("deploy.config_wrong_branch", 409, { branch: site.defaultBranch });
-    }
-    const dirty = await git.text(["status", "--porcelain=v1", "-z", "--untracked-files=no"], { cwd: site.path });
-    if (dirty !== "") throw new SiteError("deploy.config_dirty", 409);
   }
 
   private runnerOpts() {

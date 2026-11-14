@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { BukitFailure } from "@/features/builds/BukitFailure";
 import { IssueGroups, ReportLog } from "@/features/builds/builds";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
@@ -464,6 +465,7 @@ function DeployReportDialog({ siteId, deployId, onClose }: { siteId: string; dep
               {m.notion.problem[report.notionProblem]}
             </p>
           )}
+          <BukitFailure errors={report?.bukitErrors} media={report?.mediaProblem} testId="deploy" />
           {report?.detail && <pre className="whitespace-pre-wrap rounded-md bg-muted p-2 text-xs">{report.detail}</pre>}
           {report?.reasons && report.reasons.length > 0 && (
             <ul className="list-disc pl-5">

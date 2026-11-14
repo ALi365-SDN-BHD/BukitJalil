@@ -2,6 +2,16 @@
 
 给在这个仓库里工作的 AI 编程助手看的说明。项目介绍见 [README](README.md)，详细设计、安全规则和每个阶段的实现说明见 [开发方案与实施计划](docs/development-plan.md)。动手前先读开发方案里和任务相关的章节，尤其是安全规则（第 7 节 git 加固、构建前检查、密钥规则）。
 
+## C# 代码规则
+
+改 Bukit 或其他 C# 代码时遵守：
+
+1. 正确性和安全优先。
+2. 不写冗余代码，复用已有的 helper。
+3. 只优化热路径。
+4. 在 net10.0 下用更清晰的现代写法。
+5. 以工具结果为准：必须通过 `dotnet-format`、analyzer ratchet 和 public-api-drift，复杂度不能超过基线。
+
 ## 待开发任务
 
 M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每项开工前先把"要先定的问题"定下来并写进开发方案，再按分层做：实现 → 审计 → 修复 → 复查 → 提交推送。
@@ -45,38 +55,40 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **工作量**：Bukit 支持后约 2–3 天，包括试运行和确认界面。
 
-### 5. Notion 数据源管理（第一步已完成，第二步等 Bukit 改动）
+### 5. Notion 数据源管理（已完成：字段读取、离线快照、错误码）
 
 **已定的问题**（2026-11-13）：
 
 - 预览：短期不能预览（方案 A），长期给 Bukit 加离线快照（方案 C）。预览时把 token 给 Bukit（方案 D）**不能选**：没审核的 `site.yaml` 可以把 `databaseId` 换成别的库，AI 就能从构建输出里读到别的数据库的内容。
 - 字段显示放在现有数据面板的 Notion 卡片里展开。
-- 每个源的页数先不显示，等 Bukit 输出每个源的数量（2.0.15 只有所有源合计的 `event=content.loaded count=`），不自己重算。
+- 每个源的条数用 Bukit 输出的 `event=content.source.loaded`（2.1.0 起），不自己重算；数据面板已显示。
 
 **第一步已完成**（2026-11-13，开发方案 5.4）：
 
 - 数据面板"读取字段"：只在点击时、只按正式分支的 `databaseId`、用绑定的 token 调 `GET /v1/databases/{id}`，结果不交给 AI。
 - 审核卡和改动面板突出 Notion 配置的变化（新增、删除、换 `databaseId`、改了哪些键）。
-- BukitJalil 自己调 Notion 时按 401/403/404/429 翻译报错；构建、发布失败时从 Bukit 输出（含 `doctor`）认出 Notion 报错，在结果里给出处理办法。这些文字来自 Bukit 2.0.15 源码，升级 Bukit 时要核对 `bukit/notion-errors.ts`。
+- BukitJalil 自己调 Notion 时按 401/403/404/429 翻译报错；构建、发布失败时从 Bukit 输出（含 `doctor`）认出 Notion 报错，在结果里给出处理办法。现在按 Bukit 2.2.0 起的 `BKT-0Bxx` 码认（见下面的错误码）。
 
-**还缺**：
-
-- AI 检查、AI 构建和改动集预览：`ai-bukit.ts` 遇到 Notion 源直接拒绝（不给未审核内容 token）。
-- 每个源的页数。
+**错误码**（已完成，Bukit 2.2.0 起）：Notion 报错和快照报错按 Bukit 的 `BKT-0Bxx` 码识别（`bukit/notion-errors.ts` 的码表），去掉了文字匹配；快照只校验格式版本。方案和码表见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)。内置 Bukit 现在是 2.2.2，升级时要核对码表有没有变化。
 
 **Bukit 的限制**（源码 v2.0.15 核对）：
+
+（下面是 2.1.0 之前的情况，2.1.0 的 `--notion-snapshot` / `--notion-offline` 已经解决。）
 
 - `ContentProviderFactory.cs` 在读取缓存模式之前就要求 `NOTION_TOKEN`。
 - `cacheMode: readonly` 时，`NotionContentSource.LoadCoreAsync` 每次仍然联网读数据库结构、查询数据库，缓存里只有页面正文和关联页面，缓存没命中就报错。
 
 所以"先缓存，预览只读缓存"用现在的 Bukit 做不到，塞一个假 token 也不行。
 
-**第二步：AI 改动的预览**（约 4–6 天，含 Bukit 的改动）：给 Bukit 加完整的离线快照。
+**第二步：AI 改动的预览**（已完成：Bukit 2.1.0 带离线快照，BukitJalil 这边 2026-11-14 实现，实现说明见开发方案 5.5 末尾；下面是当时定的设计）：给 Bukit 加完整的 Notion 离线快照。
 
-- readwrite 时把数据库结构和查询结果也存下来。
-- 新增一个不要 token、不联网的离线模式。
-- BukitJalil 正式构建时把快照写到 AI 工作副本之外，预览时只读放进检出，预览显示的就是"上次正式构建时的 Notion 数据"。
-- 缓存目录和模式由 BukitJalil 指定，不读 `site.yaml`（AI 能改它）。**已定**（2026-11-13）：Bukit 加命令行参数（例如 `--notion-snapshot <dir>`、`--notion-offline`），覆盖 `site.yaml` 里的 `cacheDir` 和 `cacheMode`；不由 BukitJalil 生成临时配置。
-- 快照内容会进入 AI 能读的检出目录。快照只包含按正式分支过滤条件查出的页面，这些本来就要发布，但要写进安全规则。
+- 现在的 `cacheMode: readonly` 只冻结页面正文。数据库结构、查询结果、关联目标、跨源关联、分类可选项都要存进快照；分类可选项和 `pages_index` 没 token 时会静默跳过，离线时必须改成读快照。
+- Bukit 加命令行参数 `--notion-snapshot <dir>`、`--notion-offline`，覆盖 `site.yaml` 里的 `cacheDir` 和 `cacheMode`；离线模式不要 token、不联网，快照缺项明确报错。
+- **快照放在应用数据目录，不放进任何检出目录**（AI 读不到）。快照里有草稿页、网站不显示的字段和其他数据库的关联页面，比要发布的内容多。
+- 存 Notion 接口的原始数据，AI 改 `propertyMap` 或模板时预览照样正确。
+- AI 换 `databaseId` 或新加 Notion 源：离线构建失败，提示应用后正式构建；改过滤或排序：用旧数据，预览上说明。
+- 正式构建的媒体缓存一起保存，离线构建只读使用、不下载。
+- 每个网站只保留最新一份，正式构建成功后才整个替换；预览写明数据来自哪次正式构建。
+- 快照只校验格式版本（`FormatVersion`），不要求 Bukit 版本一致，否则每次升级 BukitJalil 所有快照都失效（2026-11-14 定）。Bukit 的测试里放一份固定的 `format=1` 快照，离线构建结果必须不变；改了快照数据的意思或换了 Notion API 版本就升 `FormatVersion`。
 - 顺便让 Bukit 输出每个源的页数，数据面板再接上。
 - BukitJalil 自带的 Bukit 版本（`BUKIT_VERSION` 和三个安装包的 SHA-256）要跟着升，随新版 BukitJalil 发布；Bukit 不能由用户单独升级。

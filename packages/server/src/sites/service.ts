@@ -6,6 +6,7 @@ import {
   type CreateSiteRequest,
   type ImportInspection,
   type ImportSiteRequest,
+  type LanguageMigrationResponse,
   type Site,
   SiteName,
   type SitePatch,
@@ -16,13 +17,16 @@ import { type GuardResult, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import { checkPassed, usableRunner } from "../bukit/runner.ts";
 import type { DataSourceService } from "../data-sources/service.ts";
-import { resolveBranch } from "../git/objects.ts";
+import { readBlobAt, resolveBranch } from "../git/objects.ts";
 import { clearIndexLock, GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
 import type { SettingsStore } from "../store/settings.ts";
+import { type ConfigCommitCodes, commitSiteYaml } from "./config-commit.ts";
 import { EXCLUDE_PATTERNS, IMPORT_INIT_PATTERNS, removeExcludeBlock, writeExcludeBlock } from "./exclude.ts";
+import { planLanguageMigration, siteYamlPatch } from "./language-migration.ts";
 import { assertDirectory, assertEmptyOrMissing, checkSiteLocation, inside, SiteError } from "./location.ts";
 import type { SiteLocks } from "./locks.ts";
+import { NotionSnapshots } from "./notion-snapshots.ts";
 import { isSiteId, newSiteId, type SiteState, SiteStore } from "./store.ts";
 import { copyStarter, type StarterSource } from "./template.ts";
 
@@ -39,9 +43,19 @@ export interface SiteServiceOptions {
   templateDir: string;
   /** Overrides os.homedir() (tests). */
   userHome?: string;
+  /** The sites' Notion offline snapshots (plan 5.5); made from `paths` when not given. */
+  notionSnapshots?: NotionSnapshots;
 }
 
 const INITIAL_MESSAGE = "Initial site from BukitJalil starter";
+const MAX_SITE_YAML = 1024 * 1024;
+/** Errors of the language migration commit (plan 8.7), worded for its card. */
+const LANGUAGE_CODES: ConfigCommitCodes = {
+  wrongBranch: "language.wrong_branch",
+  dirty: "language.dirty",
+  changed: "language.commit_changed",
+  failed: "language.failed",
+};
 const IMPORT_MESSAGE = "Initial commit from BukitJalil import";
 const MAX_IMPORT_FILES = 100_000;
 
@@ -63,8 +77,33 @@ export class SiteService {
   private readonly addedHooks: ((site: Site) => Promise<void>)[] = [];
   private readonly removingHooks: ((siteId: string) => Promise<void>)[] = [];
 
+  /** Notion offline snapshots (plan 5.5): builds record them, offline checks and builds read them. */
+  readonly notionSnapshots: NotionSnapshots;
+
   constructor(private readonly opts: SiteServiceOptions) {
     this.store = new SiteStore(opts.db);
+    this.notionSnapshots =
+      opts.notionSnapshots ?? new NotionSnapshots({ db: opts.db, root: opts.paths.notionSnapshots });
+    opts.dataSources.onTokenReplaced?.((sourceId) => {
+      for (const site of this.store.list()) {
+        if (this.store.notionDataSourceId(site.id) === sourceId) void this.dropNotionSnapshot(site.id);
+      }
+    });
+  }
+
+  /** Delete a site's Notion offline snapshot once nothing is building with it (the site lock is free). */
+  private async dropNotionSnapshot(id: string): Promise<void> {
+    for (;;) {
+      await this.opts.locks.waitFree(id);
+      try {
+        await this.opts.locks.run(id, "notion-snapshot", async () =>
+          this.notionSnapshots.tryRemove(id, "token_replaced"),
+        );
+        return;
+      } catch (err) {
+        if (!(err instanceof SiteError && err.code === "site.busy")) return;
+      }
+    }
   }
 
   list(): Site[] {
@@ -350,7 +389,11 @@ export class SiteService {
    * site keeps its old binding.
    */
   bindNotionSource(id: string, sourceId: string | null): Promise<Site> {
-    return this.check(id, undefined, () => this.store.setNotionDataSourceId(id, sourceId));
+    return this.check(id, undefined, () => {
+      // The snapshot holds what the old source's token could read; another source (or none) drops it.
+      if (this.store.notionDataSourceId(id) !== sourceId) this.notionSnapshots.remove(id);
+      this.store.setNotionDataSourceId(id, sourceId);
+    });
   }
 
   private async check(id: string, checked?: Prechecked, before?: () => void): Promise<Site> {
@@ -440,6 +483,53 @@ export class SiteService {
       }
       throw err;
     }
+  }
+
+  // --- Bukit 2.1 language migration (plan 8.7) ---
+
+  /** Whether the default branch's site.yaml needs the language migration, with the patch it would commit. */
+  async languageMigration(id: string): Promise<LanguageMigrationResponse> {
+    const site = this.get(id);
+    const head = await this.headOf(site);
+    const none: LanguageMigrationResponse = {
+      commit: head,
+      state: "none",
+      reason: null,
+      patch: null,
+      movesToRoot: false,
+    };
+    if (site.readOnly) return none;
+    const text = await readBlobAt(this.opts.git, site.path, head, "site.yaml", MAX_SITE_YAML);
+    if (text === null) return none;
+    const plan = planLanguageMigration(text.toString("utf8"));
+    if (!plan.needed) return none;
+    if (!plan.ok) return { ...none, state: "blocked", reason: plan.reason };
+    const patch = await siteYamlPatch(this.opts.git, site.path, head, plan.text);
+    return { commit: head, state: "ready", reason: null, patch, movesToRoot: plan.movesToRoot };
+  }
+
+  /** Commit the migration on top of `commit`, the head the user saw the patch for, like deploy settings do. */
+  async applyLanguageMigration(id: string, commit: string): Promise<LanguageMigrationResponse> {
+    return this.opts.locks.run(id, "language-migration", async () => {
+      const site = this.get(id);
+      if (site.readOnly) throw new SiteError("site.read_only", 409);
+      const head = await this.headOf(site);
+      if (head !== commit) throw new SiteError("language.commit_changed", 409);
+      await commitSiteYaml({
+        git: this.opts.git,
+        sites: this,
+        site,
+        head,
+        message: "Migrate language settings for Bukit 2.1",
+        codes: LANGUAGE_CODES,
+        edit: (text) => {
+          const plan = planLanguageMigration(text);
+          if (!plan.needed || !plan.ok) throw new SiteError("language.not_needed", 409);
+          return plan.text;
+        },
+      });
+      return this.languageMigration(id);
+    });
   }
 
   /** worktrees/<siteId>/<name> at `commit`, detached: made when missing or broken, otherwise reset. */
@@ -559,6 +649,7 @@ export class SiteService {
       else if (!common) leftovers.push("exclude_block");
       fs.rmSync(path.join(this.opts.paths.sessions, id), { recursive: true, force: true });
       fs.rmSync(path.join(this.opts.paths.previews, id), { recursive: true, force: true });
+      this.notionSnapshots.remove(id);
       this.store.delete(id);
       return { leftovers };
     });

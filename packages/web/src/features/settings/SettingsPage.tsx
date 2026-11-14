@@ -12,6 +12,7 @@ import { ExtensionsSection } from "./ExtensionsSection";
 import { GeneralSection } from "./GeneralSection";
 import { ModelSection } from "./ModelSection";
 import { PublishingSection } from "./PublishingSection";
+import { SecretsNotice } from "./SecretsNotice";
 import { SkillsSection } from "./SkillsSection";
 import { resolveSettingsSection, type SettingsSection } from "./useOpenSettings";
 
@@ -168,6 +169,7 @@ export function SettingsPage() {
           </nav>
           <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-10 md:py-8">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+              <SecretsNotice />
               {section === "general" && <GeneralSection />}
               {section === "model" && <ModelSection />}
               {section === "skills" && <SkillsSection />}

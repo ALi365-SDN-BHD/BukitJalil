@@ -2,7 +2,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, Menu, session, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  type IpcMainInvokeEvent,
+  ipcMain,
+  Menu,
+  safeStorage,
+  session,
+  shell,
+} from "electron";
+import { loadSecretKey, removeSecretKey } from "./secrets.ts";
 import { ServerProcess, type StartResult } from "./server.ts";
 
 /** The desktop shell (plan M7): starts the server, opens it in a locked-down window, stops it on quit. */
@@ -25,7 +36,9 @@ const statusPage = path.join(__dirname, "status.html");
 const windowIcon = path.join(__dirname, packaged ? "icon.png" : "../assets/icon.png");
 const statusUrl = pathToFileURL(statusPage).href;
 const dataDir = path.resolve(process.env.BUKITJALIL_HOME || path.join(os.homedir(), ".bukitjalil"));
-const zh = () => app.getLocale().toLowerCase().startsWith("zh");
+/** The language the app's settings chose, reported by its page; until then the system's. */
+let appLocale: "zh-CN" | "en" | null = null;
+const zh = () => (appLocale ?? app.getLocale()).toLowerCase().startsWith("zh");
 
 const text = {
   starting: () => (zh() ? "正在启动 BukitJalil…" : "Starting BukitJalil…"),
@@ -44,6 +57,9 @@ const text = {
   restart: () => (zh() ? "重新启动" : "Start again"),
   openLogs: () => (zh() ? "打开日志目录" : "Open Logs Folder"),
   openData: () => (zh() ? "打开数据目录" : "Open Data Folder"),
+  // The slogan, as on the web app's welcome page (app.slogan / app.sloganSub).
+  slogan: () =>
+    zh() ? "每一次笔记，都值得被看见\n让 AI 帮你实现它" : "Every note deserves to be seen\nLet AI make it happen",
 };
 
 const server = new ServerProcess({
@@ -56,6 +72,17 @@ const server = new ServerProcess({
     ...(packaged ? { BUKITJALIL_RESOURCES: resources, BUKITJALIL_VERSION: app.getVersion() } : {}),
   },
   firstPort: Number(process.env.BUKITJALIL_DESKTOP_PORT) || DEFAULT_PORT,
+  // The keychain prompt comes over the app, not over "starting": asked once the window shows the app.
+  // A server that exited meanwhile (a port retry, a restart) asks nothing: no prompt for nobody.
+  secretKey: (alive) =>
+    appShown.then(() => (alive() ? loadSecretKey(dataDir, safeStorage) : { key: null, reason: "locked" })),
+  resetSecrets: () => removeSecretKey(dataDir),
+});
+
+/** Settles the first time the window shows the app (the server answered with a login link). */
+let showApp: () => void = () => {};
+const appShown = new Promise<void>((resolve) => {
+  showApp = resolve;
 });
 
 let win: BrowserWindow | null = null;
@@ -92,8 +119,14 @@ async function open() {
     if (!result.ok) return explain(result);
   }
   const url = await server.login();
-  if (url) await win?.loadURL(url);
-  else showError(text.failed(), "", server.output());
+  if (!url) return showError(text.failed(), "", server.output());
+  try {
+    await win?.loadURL(url);
+  } finally {
+    // Also when the page failed to load: tokens must not wait for a window that will never show the app.
+    // A window closed meanwhile (macOS keeps the app) shows it when it opens again.
+    if (win) showApp();
+  }
 }
 
 server.onExit = (_code, tail) => {
@@ -175,6 +208,13 @@ function lockDown() {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  // The menus and the About panel follow the language chosen in the app's settings.
+  ipcMain.on("desktop:locale", (event, locale: unknown) => {
+    if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`)) return;
+    if ((locale !== "zh-CN" && locale !== "en") || locale === appLocale) return;
+    appLocale = locale;
+    buildMenu();
+  });
   ipcMain.handle("desktop:restart", async (event) => {
     if (!senderUrl(event).startsWith(statusUrl)) return;
     await open();
@@ -182,6 +222,12 @@ function lockDown() {
 }
 
 function buildMenu() {
+  // The About panel (app menu on macOS) shows the slogan under the name and version.
+  app.setAboutPanelOptions({
+    applicationName: "BukitJalil",
+    applicationVersion: app.getVersion(),
+    credits: text.slogan(),
+  });
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       ...(process.platform === "darwin" ? [{ role: "appMenu" as const }] : [{ role: "fileMenu" as const }]),

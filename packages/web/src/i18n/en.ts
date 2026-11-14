@@ -3,6 +3,8 @@ import type { Messages } from "./zh-CN.ts";
 const en: Messages = {
   app: {
     name: "BukitJalil",
+    slogan: "Every note deserves to be seen",
+    sloganSub: "Let AI make it happen",
   },
   common: {
     cancel: "Cancel",
@@ -204,7 +206,7 @@ const en: Messages = {
       failed: "Bukit failed to run",
       refused: "Refused by the pre-build safety check",
       notion:
-        "Uses a Notion source; bind a data source in the Data panel. Previews of AI changes do not support Notion yet",
+        "Needs Notion data: main builds need a data source bound in the Data panel; previews of AI changes need one main build first",
       base_url: "site.baseUrl is not a path a preview can use (letters, digits and . _ ~ - between slashes)",
       symlink: "The output had a symbolic link and was not kept",
       interrupted: "Interrupted by a server restart",
@@ -214,7 +216,17 @@ const en: Messages = {
     changeBuild: "Change preview",
     report: "Build report",
     crashed:
-      "Bukit stopped without a known result. Look at its output below and try again; if it keeps happening, check or reinstall Bukit in the settings.",
+      "Bukit stopped without a known result. Look at its output below and try again; if it keeps happening, reinstall BukitJalil.",
+    bukitErrors: "Bukit's errors",
+    media: {
+      title:
+        "Remote images could not be downloaded ({count} failed), so Bukit used the placeholder {path}, which the site does not have. Any one of these fixes it:",
+      titleUnknown:
+        "Remote images could not be downloaded, so Bukit used the placeholder {path}, which the site does not have. Any one of these fixes it:",
+      keep: "set content.media.onFailure: keep in site.yaml to keep an image's original link when its download fails;",
+      static: "put an image at the placeholder's path under the theme's static/;",
+      ai: "ask the AI to change site.yaml or replace the broken image links.",
+    },
     messages: "Warnings and errors",
     output: "Other output",
     noMessages: "No warnings or errors",
@@ -417,7 +429,8 @@ const en: Messages = {
     fieldsRead: "Read {time} with the bound data source's token",
     fieldsMore: "The database has more fields than listed",
     fieldsMainOnly: "Fields are read for the main version's configuration only, never for unreviewed changes.",
-    pagesLater: "Page counts will show once Bukit reports them per source.",
+    count: "{count} entries",
+    countFrom: "Entries read by the build of {time}",
     notionBinding: "Notion data source",
     notionUnbound: "Not bound",
     notionNoSources: "No saved Notion data source yet. Add one in Settings → Data sources first.",
@@ -447,8 +460,28 @@ const en: Messages = {
       rate_limited: "Notion limited the requests. Wait a minute and build again.",
       property_missing:
         "A property named in site.yaml (usually the filter, Published by default) does not exist in the Notion database. Add it in Notion or change filterProperty.",
+      request_failed:
+        "Notion returned an error; try again later, and check Bukit's original error if it keeps failing.",
       network: "Notion could not be reached. Check the network and build again.",
     },
+  },
+  notionSnapshot: {
+    offline: "Notion data comes from the main build of {time} (commit {commit}); later edits in Notion do not show.",
+    queryChanged:
+      "This change edits the Notion filter or sort; the Notion data still follows the main version's filter.",
+    rendererMismatch: "Some page bodies were rendered by an older Bukit; a main build updates them.",
+    problem: {
+      missing:
+        "No Notion data yet: build the site once from the site page (with a data source bound), then AI changes can be checked and previewed. A change that adds the site's first Notion source is checked after you apply it and build.",
+      stale:
+        "The Notion data saved by the last main build cannot be read (another format or incomplete data); build the site again.",
+      change:
+        "This change needs Notion data the last main build did not read (a changed databaseId, a new Notion source, content rendering turned on for a source, or a changed filter or sort); it arrives with a main build after applying.",
+    },
+    panelRecorded:
+      "Checks and previews of AI changes use the Notion data saved by the main build of {time} (commit {commit}).",
+    panelNone:
+      "No saved Notion data yet. After binding a data source and one main build, AI changes can be checked and previewed.",
   },
   changes: {
     card: "Changes waiting for review",
@@ -489,11 +522,12 @@ const en: Messages = {
       rejected: "The changes were rejected.",
     },
     checkFailed: "The check before applying failed, so nothing was applied.",
-    appliedUnchecked: "The site uses a Notion source, which Bukit cannot check before applying; see the main build.",
+    appliedUnchecked: "The site uses a Notion source, which Bukit could not check before applying; see the main build.",
     problem: {
       bukit_missing: "Bukit is not installed, so the changes could not be checked.",
       guard: "The safety check before building refused the changes.",
-      notion: "The site uses a Notion source, which cannot be checked for unreviewed changes.",
+      notion:
+        "The site uses a Notion source, and the Notion data saved by the last main build cannot check these changes.",
       read_only: "The site is read-only.",
     },
   },
@@ -601,6 +635,21 @@ const en: Messages = {
     panels: "Preview, Changes, Files, Config, Theme, Data, SEO",
     help: "Show this list",
     mac: "On a Mac, Alt is the Option (⌥) key.",
+  },
+  languageMigration: {
+    title: "Update the language settings",
+    why: "The new Bukit only reads site.languages and refuses site.language, and a multilingual site now builds its default language at the site root. This site's site.yaml needs updating, or it will not build, or its published addresses will change.",
+    what: "Applying commits the change below to the default branch. A multilingual site gets defaultLanguageInSubdir: true, so every language stays under /<language>/ and published addresses do not change.",
+    movesToRoot:
+      "This site's languages list has one language. The new Bukit builds a single-language site at the root, so addresses under /<language>/ move to the root, and no setting keeps them. Publish again after applying, and update links from other sites.",
+    apply: "Apply the change",
+    applyHint: "Only site.yaml changes, committed to the default branch",
+    badLanguage:
+      "site.language is not text, so it cannot be migrated automatically. Change it to languages: [code], for example languages: [en]; the AI can do it for you.",
+    badLanguages:
+      "site.languages has an entry that is not a language code, or the same language twice, which the new Bukit refuses, so it cannot be migrated automatically. Make it a list of distinct codes, for example languages: [en, zh-CN]; the AI can do it for you.",
+    defaultNotListed:
+      "site.defaultLanguage is not in site.languages, which the new Bukit refuses, so it cannot be migrated automatically. Add the default language to languages or pick one of them; the AI can do it for you.",
   },
   deploy: {
     title: "Publish",
@@ -891,6 +940,25 @@ const en: Messages = {
       keyNotEditable: "This provider needs several settings; set it up with environment variables.",
     },
   },
+  secrets: {
+    plain:
+      "Development mode: tokens and model keys are saved as unencrypted files (mode 600). The desktop app encrypts them with the system keychain.",
+    plainLeft: "Some unencrypted token or key files from an earlier version could not be encrypted; see the logs.",
+    plainUsed:
+      "Unencrypted files from an earlier version are in use; new tokens and keys cannot be saved until they can be encrypted.",
+    unavailable: {
+      no_keyring:
+        "No system keychain was found, so tokens and model keys cannot be saved safely and saving is turned off. On Linux, install and unlock gnome-keyring or KWallet, then start BukitJalil again.",
+      locked:
+        "The key in the keychain cannot be unlocked (access was denied, the keychain item was removed, or the data folder comes from another computer), so saved tokens and model keys cannot be used. Start again and choose Allow when asked, or reset and enter them again.",
+      no_answer: "The keychain did not answer (maybe its access prompt was not answered). Start BukitJalil again.",
+      reset: "All saved tokens and model keys were removed. Start BukitJalil again, then enter them again.",
+      pending:
+        'Waiting for the keychain: click "Allow" in the system prompt to use saved tokens and model keys. If no prompt appeared, restart BukitJalil.',
+    },
+    reset: "Reset keys",
+    resetConfirm: "This removes every saved token and model key; you will enter them again. Continue?",
+  },
   errors: {
     "auth.required": "Your session has expired. Press Enter in the terminal running BukitJalil and open the new link.",
     "request.bad_host": "This address is not allowed",
@@ -931,6 +999,10 @@ const en: Messages = {
     "server.shutting_down": "BukitJalil is shutting down",
     "storage.unreadable": "A saved settings file cannot be read; fix or remove it before saving again",
     "storage.too_large": "Too much data to save; remove some saved entries and try again",
+    "secrets.unavailable":
+      "There is no safe place to keep tokens and keys, so they cannot be saved now; see the note at the top of the settings",
+    "secrets.pending": 'Still waiting for the keychain: click "Allow" in the system prompt, then try again',
+    "secrets.reset_unsupported": "Development mode has no encryption key to reset",
     "build.not_found": "Build not found",
     "site.read_only": "The site is read-only because it does not meet the safety rules",
     "build.bukit_missing": "Bukit is not installed or its version is not supported",
@@ -981,6 +1053,13 @@ const en: Messages = {
       "The site folder has uncommitted changes; commit or revert them before saving deploy settings",
     "deploy.config_wrong_branch": "The site folder is not on {branch}; switch to it before saving deploy settings",
     "deploy.config_failed": "Could not save the deploy settings; the default branch may have moved, try again",
+    "language.commit_changed": "The default branch has moved; look at the new change before applying it",
+    "language.not_needed": "The language settings already use the new form; nothing to change",
+    "language.wrong_branch":
+      "The site folder is not on the {branch} branch; switch to it, then update the language settings",
+    "language.dirty":
+      "The site folder has uncommitted changes; commit or revert them, then update the language settings",
+    "language.failed": "Could not update the language settings; the default branch may have moved, try again",
     "publish.not_found": "This publishing account was not found",
     "publish.name_exists": "A publishing account with this name already exists",
     "publish.in_use": "{count} sites still use this publishing account, so it cannot be deleted",

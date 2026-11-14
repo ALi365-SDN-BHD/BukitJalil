@@ -3,6 +3,8 @@ export interface DesktopBridge {
   desktop: true;
   /** The system folder dialog, opened at `start`; the chosen folder, or null when cancelled. */
   pickFolder(start?: string): Promise<string | null>;
+  /** Tell the desktop app the chosen language, for its menus and About panel. */
+  setLocale?(locale: string): void;
 }
 
 /** The bridge in the desktop app, null in a browser. */

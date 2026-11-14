@@ -10,7 +10,7 @@ import {
 } from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
-import { JsonFile, JsonFileError } from "../store/json-file.ts";
+import { JsonFile, JsonFileError, type StoredJson } from "../store/json-file.ts";
 
 interface Row {
   id: string;
@@ -18,7 +18,7 @@ interface Row {
   created_at: string;
 }
 
-const MAX_TOKEN_FILE = 256 * 1024;
+export const MAX_TOKEN_FILE = 256 * 1024;
 const NOTION_VERSION = "2022-06-28";
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_TIMEOUT_MS = 15_000;
@@ -29,19 +29,21 @@ const NOTION_PAGES = 5;
  * site without one of these is created with the starter's Markdown content.
  */
 export class DataSourceService {
-  private readonly tokens: JsonFile;
+  private readonly tokens: StoredJson;
 
   constructor(
     private readonly opts: {
       db: DatabaseSync;
       /** Per-data-source Notion tokens (0600); never the database and never an API response. */
-      tokenFile: string;
+      /** A path (plain 0600 file) or the secret store's file (plan 6.7). */
+      tokenFile: string | StoredJson;
       /** null in tests and offline mode: listing Notion databases is refused. */
       fetchImpl: typeof fetch | null;
       notionApi?: string;
     },
   ) {
-    this.tokens = new JsonFile(opts.tokenFile, { maxBytes: MAX_TOKEN_FILE });
+    this.tokens =
+      typeof opts.tokenFile === "string" ? new JsonFile(opts.tokenFile, { maxBytes: MAX_TOKEN_FILE }) : opts.tokenFile;
   }
 
   list(): SavedDataSource[] {
@@ -80,13 +82,23 @@ export class DataSourceService {
     return this.get(id);
   }
 
+  private readonly tokenListeners = new Set<(id: string) => void>();
+
+  /** Called with the source's id after its token was replaced by another one. */
+  onTokenReplaced(listener: (id: string) => void): void {
+    this.tokenListeners.add(listener);
+  }
+
   update(id: string, req: DataSourceRequest): SavedDataSource {
     this.row(id);
     this.assertName(req.name, id);
     // An omitted token keeps the stored one; a null token makes the source unusable, so refuse it.
-    const token = req.token === undefined ? this.token(id) : req.token.trim() || null;
+    const before = this.token(id);
+    const token = req.token === undefined ? before : req.token.trim() || null;
     if (token === null) throw new SiteError("datasource.no_token", 400);
     if (req.token !== undefined) this.writeToken(id, token);
+    // Another token may read another workspace: what the old one recorded must go (plan 5.5).
+    if (token !== before) for (const listener of this.tokenListeners) listener(id);
     this.opts.db.prepare("UPDATE data_sources SET name = ? WHERE id = ?").run(req.name, id);
     return this.get(id);
   }
@@ -248,10 +260,10 @@ export class DataSourceService {
     try {
       const value = this.tokens.read();
       if (value === undefined) return {};
-      if (!isRecord(value)) throw new JsonFileError(this.opts.tokenFile, "token file is not an object");
+      if (!isRecord(value)) throw new JsonFileError(this.tokens.file, "token file is not an object");
       const tokens: Record<string, string> = {};
       for (const [id, token] of Object.entries(value)) {
-        if (typeof token !== "string") throw new JsonFileError(this.opts.tokenFile, "token is not a string");
+        if (typeof token !== "string") throw new JsonFileError(this.tokens.file, "token is not a string");
         tokens[id] = token;
       }
       return tokens;

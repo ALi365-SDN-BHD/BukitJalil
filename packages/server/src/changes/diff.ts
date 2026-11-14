@@ -10,7 +10,7 @@ export const MAX_PATCH_BYTES = 1024 * 1024;
  * hunk layout is pinned, whatever the repository config says, because a partial apply names hunks by their
  * index in the diff the review showed (plan 7.5).
  */
-const DIFF = [
+export const DIFF = [
   "diff",
   "--no-ext-diff",
   "--no-textconv",
