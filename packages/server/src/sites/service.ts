@@ -96,7 +96,9 @@ export class SiteService {
     for (;;) {
       await this.opts.locks.waitFree(id);
       try {
-        await this.opts.locks.run(id, "notion-snapshot", async () => this.notionSnapshots.remove(id));
+        await this.opts.locks.run(id, "notion-snapshot", async () =>
+          this.notionSnapshots.tryRemove(id, "token_replaced"),
+        );
         return;
       } catch (err) {
         if (!(err instanceof SiteError && err.code === "site.busy")) return;

@@ -447,23 +447,16 @@ export class BuildService {
           if (problem) report.notionSnapshotProblem = problem;
         }
       }
-      if (record && outcome === "ok" && result.stdout.includes("event=notion.snapshot.saved")) {
-        // Bukit replaced the snapshot once the build succeeded (and said so); what is left here only decides
-        // the preview.
+      if (record && result.stdout.includes("event=notion.snapshot.saved")) {
+        // Bukit replaced the snapshot as its last step and said so. Record it even when the run was stopped
+        // after that (outcome not ok): otherwise the new data would sit under the old record and media cache.
         try {
           snapshots.recorded(site.id, commit, checkout);
         } catch (err) {
           // A record that names another build than the data, or a media cache that does not go with it, is
           // worse than none: the next formal build records again.
           this.opts.logger.log("warn", "build.notion_snapshot_failed", { siteId: site.id, error: String(err) });
-          try {
-            snapshots.remove(site.id);
-          } catch (removeErr) {
-            this.opts.logger.log("warn", "build.notion_snapshot_remove_failed", {
-              siteId: site.id,
-              error: String(removeErr),
-            });
-          }
+          snapshots.tryRemove(site.id, "record_failed");
         }
       }
       if (outcome !== "ok") {

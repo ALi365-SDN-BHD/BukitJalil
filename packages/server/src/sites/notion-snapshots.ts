@@ -116,6 +116,15 @@ export class NotionSnapshots {
     fs.rmSync(this.siteDir(siteId), { recursive: true, force: true });
   }
 
+  /** `remove`, for callers that must not fail: a failure is only logged. */
+  tryRemove(siteId: string, reason: string): void {
+    try {
+      this.remove(siteId);
+    } catch (err) {
+      this.opts.logger?.log("warn", "notion_snapshot.remove_failed", { siteId, reason, error: String(err) });
+    }
+  }
+
   /**
    * Remove what interrupted runs left next to the snapshot and the cache: Bukit's transaction copies of the
    * cache directory, and half-made or replaced media copies. Callers hold the site lock, so no run uses them;

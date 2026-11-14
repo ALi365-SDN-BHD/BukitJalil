@@ -84,6 +84,7 @@ case "$1" in
       mkdir -p "$out"; echo "<h1>formal</h1>" > "$out/index.html"
       echo '{"ts":"t","level":"Info","msg":"event=content.source.loaded source=posts count=3"}'
       echo '{"ts":"t","level":"Info","msg":"event=notion.snapshot.saved"}'
+      [ "$mode" = "savedfail" ] && { echo "stopped after saving" >&2; exit 3; }
       exit 0
     fi
     case "$mode" in
@@ -316,6 +317,15 @@ it("passes the Notion token of the site's data source to a main build but never 
   expect(newdbReport?.notionSnapshotProblem).toBe("change");
   expect(JSON.stringify(newdbReport)).not.toContain(ctx.paths.notionSnapshots);
   expect(JSON.stringify(newdbReport)).toContain("[notion-snapshot]");
+
+  // Bukit saved the snapshot, then the run failed: the record follows the new data anyway.
+  fs.writeFileSync(path.join(dir, "fake-mode"), "savedfail");
+  commitAll(dir, "saved then failed");
+  const savedCommit = raw(dir, "rev-parse", "HEAD").trim();
+  await ctx.builds.start(site.id, "main");
+  await ctx.builds.settled();
+  expect(ctx.builds.list(site.id)[0]).toMatchObject({ ref: "main", status: "failed" });
+  expect(ctx.sites.notionSnapshots.get(site.id)?.commit).toBe(savedCommit);
 
   // Copying the media cache fails: the record goes, so nothing names a build the data does not come from.
   const mainDir = path.join(ctx.paths.worktrees, site.id, "main");
