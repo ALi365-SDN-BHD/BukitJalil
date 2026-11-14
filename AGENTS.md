@@ -71,6 +71,8 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **还缺**：
 
+- Notion 报错改用 Bukit 的错误码（`BKT-0Bxx`），去掉 `notion-errors.ts` 的正则；快照只校验格式版本、加兼容测试。两项一起随 Bukit 2.2.0 做，实施方案见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)，开工前先定方案第 4 节的 D1–D4。
+
 - AI 检查、AI 构建和改动集预览：`ai-bukit.ts` 遇到 Notion 源直接拒绝（不给未审核内容 token）。
 - 每个源的页数。
 
