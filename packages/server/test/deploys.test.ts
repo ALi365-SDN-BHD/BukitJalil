@@ -127,7 +127,7 @@ echo "$* | token=\${BUKIT_DEPLOY_TOKEN:-} author=\${GIT_AUTHOR_NAME:-} committer
 [ -n "\${NOTION_TOKEN:-}" ] && echo "$1 $NOTION_TOKEN" >> "${log}.notion"
 fail=$(cat fake-fail 2>/dev/null)
 case "$1" in
-  version) echo "bukit 2.2.1+fake"; exit 0;;
+  version) echo "bukit 2.2.2+fake"; exit 0;;
   config) [ "$fail" = check ] && { echo '{"ts":"t","level":"error","msg":"event=config.invalid"}' >&2; exit 2; }; exit 0;;
   doctor) [ "$fail" = doctor ] && exit 1; exit 0;;
   build)

@@ -10,7 +10,7 @@ import path from "node:path";
  */
 export const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
-  version) echo "bukit 2.2.1+e2e"; exit 0;;
+  version) echo "bukit 2.2.2+e2e"; exit 0;;
   config|doctor) exit 0;;
   build)
     out=""; prev=""

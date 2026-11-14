@@ -48,7 +48,7 @@ case " $* " in *" --secrets-stdin "*)
   BUKIT_DEPLOY_TOKEN=$(printf '%s' "$secrets" | sed -n 's/.*"BUKIT_DEPLOY_TOKEN":"\\([^"]*\\)".*/\\1/p');;
 esac
 case "$1" in
-  version) echo "bukit 2.2.1+fake"; exit 0;;
+  version) echo "bukit 2.2.2+fake"; exit 0;;
   config) exit 0;;
   build)
     out=""; snap=""; cache=""; offline=""; prev=""
