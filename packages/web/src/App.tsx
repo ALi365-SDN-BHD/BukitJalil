@@ -13,6 +13,7 @@ import { SiteHome } from "@/features/sites/SiteHome";
 import { SiteList } from "@/features/sites/SiteList";
 import { detectLocale, I18nProvider, useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { desktopBridge } from "@/lib/desktop";
 import { useConnection } from "@/lib/events";
 import { setAppearance } from "@/lib/theme";
 
@@ -23,6 +24,7 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.lang = locale;
+    desktopBridge()?.setLocale?.(locale);
   }, [locale]);
   useEffect(() => {
     if (appearance) setAppearance(appearance);

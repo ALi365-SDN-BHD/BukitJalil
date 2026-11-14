@@ -57,13 +57,40 @@ test("opens the app signed in, with only the desktop bridge exposed", async () =
   ]);
   expect(
     await page.evaluate(() => Object.keys((window as unknown as { bukitjalil: object }).bukitjalil).sort()),
-  ).toEqual(["desktop", "pickFolder", "restart"]);
+  ).toEqual(["desktop", "pickFolder", "restart", "setLocale"]);
   // The server holds the data directory while the app runs and gives it back on quit.
   const pid = Number(fs.readFileSync(lockFile(home), "utf8"));
   expect(pid).toBeGreaterThan(0);
   await app.close();
   expect(fs.existsSync(lockFile(home))).toBe(false);
   expect(() => process.kill(pid, 0)).toThrow();
+});
+
+test("the menus and the About panel follow the language chosen in settings", async () => {
+  const { app, page } = await launch();
+  await expect(page.getByTestId("slogan")).toBeVisible({ timeout: 30_000 });
+  const helpLabels = () =>
+    app.evaluate(({ Menu }) =>
+      (Menu.getApplicationMenu()?.items.at(-1)?.submenu?.items ?? []).map((item) => item.label),
+    );
+  for (const [locale, label, slogan] of [
+    ["en", "Open Logs Folder", "Every note deserves to be seen"],
+    ["zh-CN", "打开日志目录", "每一次笔记，都值得被看见"],
+  ] as const) {
+    await page.evaluate(
+      (value) =>
+        fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "x-bukitjalil": "1" },
+          body: JSON.stringify({ locale: value }),
+        }),
+      locale,
+    );
+    await page.reload();
+    await expect(page.getByTestId("slogan")).toContainText(slogan);
+    await expect.poll(helpLabels).toContain(label);
+  }
+  await app.close();
 });
 
 test("keeps tokens encrypted with a key the keychain protects", async () => {

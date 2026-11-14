@@ -36,7 +36,9 @@ const statusPage = path.join(__dirname, "status.html");
 const windowIcon = path.join(__dirname, packaged ? "icon.png" : "../assets/icon.png");
 const statusUrl = pathToFileURL(statusPage).href;
 const dataDir = path.resolve(process.env.BUKITJALIL_HOME || path.join(os.homedir(), ".bukitjalil"));
-const zh = () => app.getLocale().toLowerCase().startsWith("zh");
+/** The language the app's settings chose, reported by its page; until then the system's. */
+let appLocale: "zh-CN" | "en" | null = null;
+const zh = () => (appLocale ?? app.getLocale()).toLowerCase().startsWith("zh");
 
 const text = {
   starting: () => (zh() ? "正在启动 BukitJalil…" : "Starting BukitJalil…"),
@@ -190,6 +192,13 @@ function lockDown() {
       ...(defaultPath ? { defaultPath } : {}),
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  // The menus and the About panel follow the language chosen in the app's settings.
+  ipcMain.on("desktop:locale", (event, locale: unknown) => {
+    if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`)) return;
+    if ((locale !== "zh-CN" && locale !== "en") || locale === appLocale) return;
+    appLocale = locale;
+    buildMenu();
   });
   ipcMain.handle("desktop:restart", async (event) => {
     if (!senderUrl(event).startsWith(statusUrl)) return;
