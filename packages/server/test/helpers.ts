@@ -20,6 +20,7 @@ import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { GitService, type GitServiceOptions } from "../src/git/service.ts";
 import type { GitHealth } from "../src/git/version.ts";
 import { type Logger, silentLogger } from "../src/log.ts";
+import { MediaService } from "../src/media/service.ts";
 import { PanelService } from "../src/panels/service.ts";
 import { ensureAppHome } from "../src/paths.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
@@ -148,6 +149,7 @@ export function makeApp(
     tmpDir: paths.tmp,
     logger,
   });
+  const media = new MediaService({ git, sites, changes, locks, paths, logger });
   const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
   const customModels = new CustomModelStore(path.join(paths.pi, "custom-models.json"));
   const builds = new BuildService({
@@ -198,6 +200,7 @@ export function makeApp(
     rg,
     sites,
     panels,
+    media,
     builds,
     agent,
     gitStatus,
@@ -220,6 +223,7 @@ export function makeApp(
     loginToken,
     sites,
     panels,
+    media,
     paths,
     git,
     builds,

@@ -28,6 +28,7 @@ import { GitService } from "./git/service.ts";
 import { checkGit } from "./git/version.ts";
 import { acquireHomeLock, HomeInUseError } from "./lock.ts";
 import { createLogger } from "./log.ts";
+import { MediaService } from "./media/service.ts";
 import { PanelService } from "./panels/service.ts";
 import { ensureAppHome, resolveAppHome, resolveResources } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
@@ -189,6 +190,7 @@ const changes = new ChangeService({
   tmpDir: paths.tmp,
   logger,
 });
+const media = new MediaService({ git, sites, changes, locks, paths, logger });
 const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
 const builds = new BuildService({
   db,
@@ -312,6 +314,7 @@ const app = createAdminApp({
   rg,
   sites,
   panels,
+  media,
   builds,
   agent,
   gitStatus,

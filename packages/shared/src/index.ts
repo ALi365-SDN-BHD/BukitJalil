@@ -7,6 +7,7 @@ export * from "./deploys.ts";
 export * from "./errors.ts";
 export * from "./git.ts";
 export * from "./health.ts";
+export * from "./media.ts";
 export * from "./models.ts";
 export * from "./panels.ts";
 export * from "./pi.ts";

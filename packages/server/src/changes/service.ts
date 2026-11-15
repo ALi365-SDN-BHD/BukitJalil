@@ -170,9 +170,15 @@ export class ChangeService {
     return { cwd, change, previous };
   }
 
-  /** Open the site's change set for a Settings edit, without a conversation. */
-  private async beginUserChange(siteId: string): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
+  /** Open the site's change set for a user write (Settings, upload), without a conversation. */
+  async beginUserChange(siteId: string): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
     return this.openChangeSet(siteId, null);
+  }
+
+  /** Close a change set this request created, after a later step failed. The caller holds the site lock. */
+  async discard(id: string): Promise<void> {
+    const change = this.get(id);
+    if (change.status === "open") await this.close(change, "rejected");
   }
 
   private async openChangeSet(

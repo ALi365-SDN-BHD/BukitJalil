@@ -23,6 +23,7 @@ import { dataSourceRoutes } from "./api/data-sources.ts";
 import { deployRoutes } from "./api/deploys.ts";
 import { type EventStreamOptions, eventRoutes } from "./api/events.ts";
 import { gitRoutes } from "./api/git.ts";
+import { mediaRoutes } from "./api/media.ts";
 import { modelRoutes } from "./api/models.ts";
 import { panelRoutes } from "./api/panels.ts";
 import { pluginRoutes } from "./api/plugins.ts";
@@ -40,6 +41,7 @@ import type { GitIdentity } from "./git/identity.ts";
 import type { GitService } from "./git/service.ts";
 import type { GitHealth } from "./git/version.ts";
 import type { Logger } from "./log.ts";
+import type { MediaService } from "./media/service.ts";
 import type { PanelService } from "./panels/service.ts";
 import type { PublishAccountService } from "./publish/accounts.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
@@ -70,6 +72,7 @@ export interface AdminAppOptions {
   rg: RgService;
   sites: SiteService;
   panels: PanelService;
+  media: MediaService;
   builds: BuildService;
   agent: AgentService;
   gitStatus: GitService;
@@ -225,6 +228,7 @@ export function createAdminApp(opts: AdminAppOptions) {
     userHome: opts.userHome,
   });
   panelRoutes(api, opts.panels);
+  mediaRoutes(api, { media: opts.media, agent: opts.agent });
   pluginRoutes(api, { changes: opts.changes, agent: opts.agent });
   buildRoutes(api, opts.builds);
   dataSourceRoutes(api, opts.dataSources);
