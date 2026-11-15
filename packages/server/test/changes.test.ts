@@ -410,6 +410,14 @@ describe("applying and rejecting", () => {
     expect(next.change.baseCommit).toBe(s.git("rev-parse", "HEAD"));
   });
 
+  it("keeps the AI as author after its conversation was deleted (AGENTS.md item 7)", async () => {
+    const { s, session, view } = await reviewed();
+    await ctx.agent.delete(session.id);
+    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(result.outcome).toBe("applied");
+    expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
+  });
+
   it("refuses a changed fingerprint, a closed change set, an empty one, no identity and a busy site", async () => {
     const { s, view, cwd } = await reviewed();
     await expect(ctx.changes.apply(view.id, { treeHash: "0".repeat(40) })).rejects.toMatchObject({
@@ -711,6 +719,18 @@ describe("partial apply (plan 7.5)", () => {
     if (!view) throw new Error("no change set");
     return { s, session, cwd, view };
   }
+
+  it("keeps the AI as author of a partial apply after its conversation was deleted (AGENTS.md item 7)", async () => {
+    const { s, session, view } = await threeChanges();
+    await ctx.agent.delete(session.id);
+    const result = await ctx.changes.apply(view.id, {
+      treeHash: view.treeHash,
+      baseCommit: view.baseCommit,
+      selection: [{ path: "content/pages/faq.md" }],
+    });
+    expect(result.outcome).toBe("partial");
+    expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
+  });
 
   it("applies only the selected files and keeps the rest open for review", async () => {
     const { s, session, cwd, view } = await threeChanges();

@@ -378,16 +378,8 @@ export class ChangeService {
       if (!check.passed && !req.force && !unchecked)
         return { outcome: "check_failed", change: await this.toChangeSet(change), check };
 
-      // A restore is the user's own act, so they are its author too (plan 7.4); once a conversation has taken
-      // part, the AI wrote part of it. The flag outlives a deleted conversation and a rebase onto a newer main.
-      // A change set with no conversation at all is a Settings edit, also the user's own act.
       const sessions = this.store.sessions(change.id);
-      const pureRestore = change.restoreCommit !== null && !change.aiJoined;
-      const userAuthored = change.restoreCommit === null && sessions.length === 0;
-      const author =
-        pureRestore || userAuthored
-          ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
-          : AI_AUTHOR;
+      const author = this.authorOf(change, identity);
       // Without a summary from the AI (summarize_changes), the message says what changed (plan 6.3).
       const text =
         change.summary?.trim() ||
@@ -422,6 +414,17 @@ export class ChangeService {
   }
 
   /**
+   * The author of an applied commit (plan 7.2): the AI once a conversation has taken part, else the user (a
+   * restore, a Settings edit or an upload). `aiJoined` outlives a deleted conversation and a rebase onto a
+   * newer main, so deleting the conversation does not make the user the author of what the AI wrote.
+   */
+  private authorOf(change: ChangeRecord, identity: { "user.name": string; "user.email": string }) {
+    return change.aiJoined
+      ? AI_AUTHOR
+      : { "author.name": identity["user.name"], "author.email": identity["user.email"] };
+  }
+
+  /**
    * Apply the `selected` tree (plan 7.5), with the site lock held and the default branch still at the
    * change set's base: commit it on the default branch, check that commit in the main checkout (the AI
    * checkout is not touched, since checking it would snapshot it), fast-forward the site folder, then move
@@ -438,11 +441,7 @@ export class ChangeService {
     const { git, sites } = this.opts;
     const identity = sites.commitIdentity();
     const sessions = this.store.sessions(change.id);
-    // Restores never get here, so the author is the AI once a conversation took part, else the user.
-    const author =
-      sessions.length === 0
-        ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
-        : AI_AUTHOR;
+    const author = this.authorOf(change, identity);
     const subject = diffSummary(await changedFiles(git, site.path, change.baseCommit, selected));
     const summary = change.summary?.trim();
     const whole = summary?.startsWith(REST_PREFIX) ? summary.slice(REST_PREFIX.length) : summary;
