@@ -1,6 +1,6 @@
 # 素材上传：设计与实施计划
 
-> 日期：2026-11-12 · 版本：v3.2（见第 9 节） · 状态：设计已确认（含素材位置：主题静态目录），待实施 · 对应：开发计划"16. 待定问题"第 2 条 · 估算：约 2 个工作日
+> 日期：2026-11-12 · 版本：v3.4（2026-11-16，见第 9 节） · 状态：设计已确认（含素材位置：主题静态目录，子路径网址和发布前检查），待实施 · 对应：开发计划"16. 待定问题"第 2 条 · 估算：约 2 个工作日
 
 ## 1. 背景
 
@@ -18,7 +18,7 @@ AI 的写工具只能写 1 MB 以内的文本文件，不能写图片等二进�
 2. 上传的文件进入改动集，和 AI 的修改一样要经过审核，应用后才会写进网站文件夹。**上传不绕过审核。**
 3. 改动面板里能直接预览上传的图片。
 4. AI 知道有哪些已上传的文件，能在内容或主题模板里引用它们。比如用户上传 Logo 后说"放到页头"，AI 就改主题模板引用它。png、jpg、gif、webp 的画面内容 AI 能看到；avif 和 pdf 只知道文件名和网址（5.6）。
-5. 改动集里没有 AI 参与时（只有上传，或只有恢复版本），提交作者是用户本人；有对话参与过，作者是 AI。
+5. 改动集里没有 AI 参与时（只有上传、插件开关或恢复版本），提交作者是用户本人；有对话参与过，作者是 AI（`aiJoined`，见 5.5）。
 
 ### 2.2 不在本次范围
 
@@ -31,37 +31,46 @@ AI 的写工具只能写 1 MB 以内的文本文件，不能写图片等二进�
 - 换主题时自动搬运素材（3.1 第 3 点）。
 - 检查内容里有没有引用不存在的素材（8 节）。
 - 让 AI 的读工具拒绝读取识别不出的二进制文件（5.6），这是权限闸门的改动，记为后续事项。
-- avif 的位置信息检测（5.3）。
+- avif 和 JPEG 扩展 XMP 的位置信息检测（5.3）。
+
+**在本次范围内**：发布前检查 `/uploads/` 引用是否指向输出里的上传文件（5.9）。只判断能对上输出 `uploads/` 文件的引用，文件本身不存在不报。
 
 ## 3. 素材放在哪里
 
 ### 3.1 结论
 
-上传的文件放在**当前主题的静态目录**下的 `uploads/` 子目录，发布后的网址是 `/uploads/<文件名>`。这个位置已于 2026-11-12 确认：
+上传的文件放在**当前主题的静态目录**下的 `uploads/` 子目录。发布后的文件在输出根目录的 `uploads/`，网址包含网站的 `site.baseUrl`：
 
 | | 默认情况 | 说明 |
 |---|---|---|
-| 上传目录 | `themes/<theme.name>/static/uploads/` | `site.yaml` 的 `theme.static` 是默认值 `static` 时 |
-| | `<theme.static>/uploads/` | `theme.static` 是别的值时，按相对网站根目录的路径解析 |
-| 网址 | `/uploads/<文件名>` | 静态目录原样复制到输出的根目录 |
+| 上传目录 | `themes/<theme.name>/static/uploads/` | `site.yaml` 的 `theme.static` 缺失或（不区分大小写）等于 `static` 时 |
+| | `<theme.static>/uploads/` | `theme.static` 是别的非空值时，按相对网站根目录的路径解析；显式空字符串会被 Bukit 解析成网站根目录，上传直接拒绝（5.2 第 7 条） |
+| 文件网址 | `<site.baseUrl>uploads/<文件名>` | `site.baseUrl` 为 `/` 时是 `/uploads/<文件名>`；为 `/blog/` 时是 `/blog/uploads/<文件名>` |
 
-BukitJalil 从改动集快照里的 `site.yaml` 读取 `theme.name` 和 `theme.static`，规则和 Bukit 的 `BuildPathUtils` 一致。解析出的目录不在检出目录里时拒绝上传（例如主题来自网站之外的主题包）。
+BukitJalil 从改动集快照里的 `site.yaml` 读取 `theme.name` 和 `theme.static`，规则和 Bukit 的 `BuildPathUtils` 一致：`theme.static` 的比较不区分大小写，但比较的是原字符串，不 trim、不去尾部 `/`；`static/` 不是默认值，按网站根目录的 `static/` 解析。解析出的目录不在检出目录里时拒绝上传（例如主题来自网站之外的主题包）。
 
-对产品有影响的四点：
+拼网址前先把 `site.baseUrl` 规范化成以 `/` 结尾的形式（`/`、`/blog/`），再拼 `uploads/<文件名>`；不要直接做字符串相加，否则 `site.baseUrl: /blog` 会得到 `/bloguploads/...`。
 
-1. **所有上传的文件都会发布**，不管有没有被引用。用户不会遇到"上传了却不在网站上"的情况。
-2. **内容和主题模板都能引用。** 正文、front matter 字段、页头 Logo 都用同一个网址。
+对产品有影响的六点：
+
+1. **上传入口能产生的文件都会发布**，不管有没有被引用。用户不会遇到"上传了却不在网站上"的情况。目录里已有的以 `.` 开头的文件 Bukit 不复制，但上传的文件名整理后不会以 `.` 开头（5.2）。
+2. **内容和主题模板都能引用，但写法不同。**
+   - 正文 Markdown、front matter 字段、接口返回的 `url`：用带 `site.baseUrl` 的网址，例如 `/blog/uploads/logo.png`；`site.baseUrl` 为 `/` 时是 `/uploads/logo.png`。
+   - 主题模板：用 `{{ site.base_url }}/uploads/<文件名>`。starter 先把 `site.base_url` 赋给 `base_url`（见 `templates/starter/themes/starter/layouts/layouts/base.html`），所以在 starter 里写 `{{ base_url }}/uploads/<文件名>`；没有 `base_url` 变量的主题直接写 `site.base_url`。
+   - 不要把已经带前缀的 `url` 再拼一次 base URL，否则会变成 `/blog/blog/uploads/...`。
 3. **素材跟着主题走。** 换主题后，旧主题目录里的素材不再发布。v1 在使用说明里写明这一点，并在换主题时由 AI 提醒（技能文档）；自动搬运不在本次范围。
-4. **引用写错不会让构建失败**，只会在页面上显示一张坏图。所以 AI 必须从 `site_info` 取文件名，审核时要看预览（8 节）。
-5. **（2026-11-13 更新：开发计划 16 第 8 条已实施，预览改用网站真实的 baseUrl，下面描述的预览与发布不一致已不存在；漏写前缀的 `/uploads/...` 仍会在子路径网站上坏掉，但审核预览里就能看到。）** **预览和发布的 `baseUrl` 不同。** 预览构建固定用 `--base-url /`（开发计划 8.4），发布构建用网站自己的 `site.baseUrl`（开发计划 8.3）。而保存部署设置时，BukitJalil 会自动把 `site.baseUrl` 设成 GitHub Pages 地址的路径，项目站点就是 `/<仓库名>/`（`deploys/target.ts` 的 `pagesSiteAddress`）。所以**子路径网站是常见情况**：凡是没有自定义域名的项目站点都是。正文里手写的 `/uploads/a.png` 在预览里正常，发布后可能指向 `https://<用户>.github.io/uploads/a.png`，成了坏图，而审核时看预览发现不了。第 1 层第 3 条必须给出在子路径下也正确的引用写法，否则不能进入第 2 层（7.1 决策点）。
+4. **引用写错不会让构建失败**，只会在页面上显示一张坏图。所以 AI 必须从 `site_info` 取文件名，审核时要看预览（8 节）。发布前的前缀检查只能发现漏带 `site.baseUrl` 的引用，发现不了文件名写错（5.9）。
+5. **预览和发布都用网站真实的 `site.baseUrl`（2026-11-13 起，开发计划 8.3、8.4）。** 保存部署设置时，BukitJalil 会自动把 `site.baseUrl` 设成 GitHub Pages 地址的路径，项目站点就是 `/<仓库名>/`（`deploys/target.ts` 的 `pagesSiteAddress`）。所以**子路径网站是常见情况**：凡是没有自定义域名的项目站点都是。正文里手写的 `/uploads/a.png` 在预览和发布两种构建下都不会被 Bukit 改写，会指向网站根目录而不是 `/blog/uploads/a.png`，成为坏图。本文的写法（上面第 2 点）在两种构建下都正确。
+6. **改 `site.baseUrl` 会让已经写进内容的旧引用失效。** 例如项目站点后来加了自定义域名，`/repo/uploads/...` 变成 `/uploads/...`，旧引用全部坏掉。正文和 front matter 里的旧前缀都算；统一用带前缀的写法，是为了模板直接读 `page.image` 时也正确。处理：部署设置表单和技能文档提醒用户先批量替换；发布前检查（5.9）会把引用和输出里的 `uploads/` 文件对一遍，前缀不对就阻止发布——带旧前缀的 `.../uploads/...` 只要文件还在也能拦住，文件已经删掉的不查。没有自动改写。
 
-### 3.2 依据（Bukit `v2.0.12` 标签，已核对到 `v2.0.15`）
+### 3.2 依据（Bukit 2.2.3，2026-11-15 核对）
 
-- **网站根目录的 `assets/` 和 `static/` 都不会被复制。** `src/Bukit-Core/Bukit.Engine.Primitives/BuildPathUtils.cs`：`theme.assets` 和 `theme.static` 是默认值时，解析到 `themes/<name>/assets` 和 `themes/<name>/static`；只有改成别的值，才按相对网站根目录的路径解析。
+- **网站根目录的 `assets/` 和 `static/` 都不会被复制。** `src/Bukit-Core/Bukit.Engine.Primitives/BuildPathUtils.cs`：`theme.assets` 和 `theme.static` 缺失时用默认值 `assets` / `static`，解析到 `themes/<name>/assets` 和 `themes/<name>/static`；`theme.static` 的比较不区分大小写；只有改成别的非空值，才按相对网站根目录的路径解析。显式空字符串不是默认值，`MakeAbsolute` 会把它解析成网站根目录（上传检查拒绝这种配置，5.2 第 7 条）。
 - **主题静态目录原样复制到输出根目录。** `src/Bukit-Core/Bukit.Engine/AssetOutputPlan.cs`：`ParentStaticDir` 和 `StaticDir` 复制到输出根目录（前缀为空）；`AssetsDir` 复制到 `assets/`。
 - **Bukit 的媒体目录不能用。** `src/Bukit-Core/Bukit.Engine/ContentProviderFactory.cs` 的 `BuildEffectiveMediaConfig`：`content.media.downloadDir` 为空或是默认值 `assets/uploads` 时，实际目录换成缓存目录，也就是 `<网站根>/.cache/media`（`BuildPlanner.cs`、`BuildTransaction.cs`）。而 `.cache` 是 BukitJalil 的构建目录（`server/src/sites/exclude.ts` 的 `BUILD_DIRS`），既不进快照，AI 也不能写。
-- **2.0.12 到 2.0.15 的差异不影响上面的结论**（2026-11-12 核对 `git diff v2.0.12 v2.0.15`）：`BuildPathUtils.cs`、`AssetOutputPlan.cs`、`ContentProviderFactory.cs` 没有改动；`ContentMediaOutput.cs` 只是把重复计算的 `BuildEffectiveMediaConfig` 缓存起来，`VariantBuildPipeline.cs` 只加了计时统计。
-- **以后升级 Bukit 时要重跑第 1 层。** 开发计划 8.1 现在会安装 GitHub 上的最新正式版，不再只装核对过的固定版本（开发计划 16 第 7 条）。本节的结论依赖 Bukit 的具体行为，新版本改了静态目录的处理，上传的文件就可能发布不出去。
+- **2026-11-15 用内置 2.2.3 在 starter 临时站点实测**：未被引用的 `themes/starter/static/uploads/a.png` 复制到输出根目录 `uploads/a.png`；avif、pdf 也能复制；以 `.` 开头的文件不复制；`site.baseUrl: /blog/` 时，正文 `![](/uploads/a.png)` 在预览（`--base-url /blog/`）和发布（不加 `--base-url`）两种构建下都仍是 `/uploads/a.png`，正文 `![](/blog/uploads/a.png)` 和模板 `{{ base_url }}/uploads/a.png` 都得到 `/blog/uploads/a.png`；front matter `image: /uploads/a.png` 经 `page.seo` 输出 `/blog/uploads/a.png`（写成已经带前缀的 `/blog/uploads/a.png` 时保持不变，不会双前缀），模板直接读 `page.image` 则是原值；网站根 `assets/uploads/a.png` 被引用时构建失败（`Referenced localized media is missing or unsafe`）；`bukit config check` 和 `bukit doctor` 都不报缺失的 `/uploads/missing.png`，doctor 只报缺失 alt。源码核对：`BuildPathUtils.ResolveThemeDirInternal`、`AssetOutputPlan.Create`、`BuildEffectiveMediaConfig` 的上述行为在 2.2.3 仍然如此。
+- **2026-11-16 补测多语言和 `/uploads/` 内容路由**：`languages: [en-US, zh-CN]`、`defaultLanguage: en-US`、`baseUrl: /blog/` 时，默认语言输出在根目录，中文在 `out/zh-CN/`；`uploads/a.png` 同时出现在 `out/uploads/` 和 `out/zh-CN/uploads/`；中文页面的 `site.base_url` 是 `/blog/zh-CN/`，模板用 `{{ site.base_url }}/uploads/...` 得到 `/blog/zh-CN/uploads/...` 是正确的；正文用接口返回的 `/blog/uploads/...` 也正确（根目录那份）。front matter `url: /uploads/`（这是内容路由，不是素材网址）的内容页构建成功，输出同时有 `out/uploads/index.html` 和 `out/uploads/a.png`，不冲突；`renderedStaticCopyDestinations` 只处理 `RenderEntryKind.Static` 的静态渲染条目，普通内容页不参与。
+- **Bukit 随 BukitJalil 固定版本发布，用户不能单独升级。** 版本由代码里的 `BUKIT_VERSION` 和三个平台安装包的 SHA-256 固定（开发计划 8.1）；升级 Bukit 就是升级 BukitJalil。本节的结论依赖 Bukit 的具体行为，升级应用时要重跑第 1 层（现在放在 `packages/server/test/bukit-behavior.test.ts`，见 7.1）。
 
 ### 3.3 考虑过、没有采用的方案
 
@@ -71,6 +80,7 @@ BukitJalil 从改动集快照里的 `site.yaml` 读取 `theme.name` 和 `theme.s
 | 在 `site.yaml` 里把 `content.media.downloadDir` 改成别的目录（如 `media`） | 上传要改用户的 `site.yaml`；远程图片本地化下载的文件也会改落到仓库里；只发布被引用的文件，主题模板里的引用会让构建失败（`ContentMediaOutput.ValidateOutputs`） |
 | 网站根目录的 `static/` | Bukit 不复制它（见 3.2） |
 | 把 `theme.static` 改到网站根目录下 | 会替换掉主题自带的静态文件（如 `robots.txt`），而且同样要改 `site.yaml` |
+| 等 Bukit 改写正文里的根路径链接 | 2.2.3 不改写；等它支持会卡住整个功能，没有版本和时间表。v1 改用“带 `site.baseUrl` 的网址 + 发布前前缀检查”（3.1 第 2、5、6 点，5.9） |
 
 ## 4. 用户流程
 
@@ -86,7 +96,7 @@ BukitJalil 从改动集快照里的 `site.yaml` 读取 `theme.name` 和 `theme.s
 上传入口：
 
 1. **网站主页**："开始新对话"旁边加"上传素材"按钮。
-2. **对话界面**：输入框左侧加回形针按钮；把文件拖到对话区域也能上传。上传完成后，输入框里自动插入一句提示，例如"已上传 logo.png（/uploads/logo.png）"。用户可以接着写要求再发送，也可以删掉。
+2. **对话界面**：输入框左侧加回形针按钮；把文件拖到对话区域也能上传。上传完成后，输入框里自动插入一句提示，例如"已上传 logo.png（/blog/uploads/logo.png）"；网址用接口返回的 `url`，`site.baseUrl` 为 `/` 时就是 `/uploads/logo.png`。用户可以接着写要求再发送，也可以删掉。
 3. **改动面板**：顶部加"上传素材"按钮，方便审核时补充文件。
 
 对话正在运行或有消息排队时，三个入口都不可用，并说明原因（5.2）。
@@ -123,7 +133,7 @@ X-BukitJalil: 1
 ```json
 {
   "path": "themes/starter/static/uploads/logo.png",
-  "url": "/uploads/logo.png",
+  "url": "/blog/uploads/logo.png",
   "size": 48213,
   "mime": "image/png",
   "replaced": false,
@@ -132,6 +142,7 @@ X-BukitJalil: 1
 }
 ```
 
+- `url`：按当前 `site.baseUrl` 拼好的网址，正文和 front matter 可以直接用；`site.baseUrl` 为 `/` 时是 `/uploads/logo.png`。主题模板用 `{{ site.base_url }}/uploads/logo.png`（starter 里是 `{{ base_url }}/uploads/logo.png`），不要用这个字段再拼 base URL（3.1 第 2 点）。
 - `location`：写入的文件里仍然带位置信息（5.3）。
 - 改动集的变化照常通过现有的 SSE 事件推送（`type: "change"`，由 `events/bridge.ts` 发出），界面不用另外刷新。
 
@@ -151,8 +162,8 @@ X-BukitJalil: 1
 | 4 | 文件名 | 原始文件名有扩展名，长度不超过 255，不含控制字符；整理规则见下 | `media.bad_name` |
 | 5 | 格式 | 按文件头识别：png、jpeg、gif、webp、avif、pdf。其他一律拒绝，包括 SVG 和 HTML | `media.unsupported_type` |
 | 6 | 扩展名 | 必须和识别出的格式一致（`.jpg` 和 `.jpeg` 都算 jpeg）；改过扩展名的文件拒绝 | `media.type_mismatch` |
-| 7 | 网站配置 | 改动集快照里的 `site.yaml` 能解析，并且有 `theme.name` | `media.config_invalid` |
-| 8 | 上传目录 | 在检出目录内；不在受保护路径下（`BUILD_DIRS` 里的 `dist`、`.bukit`、`.cache`、`.bukitjalil-build`、`.bukitjalil-deploy`，以及 `node_modules`、`plugins`、任何一级以 `.env` 开头的路径，开发计划 6.3）；不被 `.gitignore` 忽略，否则快照会丢掉文件（用 `git check-ignore` 检查）；路径上没有符号链接 | `media.dir_unsafe` |
+| 7 | 网站配置 | 改动集快照里的 `site.yaml` 能解析，并且有 `theme.name`；`theme.static` 缺失或（不区分大小写）等于 `static` 时用主题的 `static/`，其他非空值按网站根目录相对路径解析；显式空字符串拒绝；主题目录必须已经存在，不能靠创建 `uploads/` 造出一个假主题 | `media.config_invalid` |
+| 8 | 上传目录 | 在检出目录内；不在受保护路径下（`BUILD_DIRS` 里的 `dist`、`.bukit`、`.cache`、`.bukitjalil-build`、`.bukitjalil-deploy`，以及 `node_modules`、`plugins`、任何一级以 `.env` 开头的路径，开发计划 6.3）；不被 `.gitignore` 忽略，否则快照会丢掉文件（用 `git check-ignore` 检查）；路径上没有符号链接——`PathGate` 只保证 realpath 在根内，不能代替这一条，要逐段检查（或比较 realpath 和解析后的路径） | `media.dir_unsafe` |
 | 9 | 重名 | AI 工作副本的上传目录里已有同名文件（用 `foldName` 比较，见下），而请求里 `replace` 不是 `true` | `media.exists`（409，带 `name` 和 `suggestion`） |
 
 第 2–6 条只看请求本身，在打开改动集之前做完。这样格式不对的上传不会顺带新建一个空改动集，也不会重置 AI 工作副本（5.4）。
@@ -168,7 +179,7 @@ X-BukitJalil: 1
 
 例子：`Logo 最终版.PNG` → `logo.png`；`首页横幅.jpeg` → `upload-20261112-a3f9.jpg`；`CON.png` → `con-file.png`。
 
-整理后的名字一定是 `主名.扩展名`、只含 `a-z0-9._-`，所以不会有目录分隔符、`..` 或空名字。整理是幂等的：已经整理过的名字再整理一次不变，"去掉位置信息"重新上传时依赖这一点。
+整理后的名字一定是 `主名.扩展名`、只含 `a-z0-9._-`，所以不会有目录分隔符或空名字；`..` 只能作为名字的一部分（例如 `a..b.png`），不能构成路径。整理是幂等的：已经整理过的名字再整理一次不变，"去掉位置信息"重新上传时依赖这一点。
 
 出现重名时，界面询问"替换"、"两个都保留"还是"跳过"。选"两个都保留"时，用 409 返回的 `suggestion` 作为新名字重新上传；服务端照样做全部校验，如果这期间又重名了，就再返回一个新的 `suggestion`。
 
@@ -180,14 +191,15 @@ X-BukitJalil: 1
 
   | 格式 | 检查位置 |
   |---|---|
-  | jpeg | APP1 里的 EXIF GPS 信息（tag `0x8825`）、XMP 里的 `exif:GPSLatitude` |
+  | jpeg | APP1 里的 EXIF GPS 信息（tag `0x8825`）、标准 XMP 包里的 `exif:GPSLatitude` |
   | png | `eXIf` 块、`iTXt` 里的 XMP |
   | webp | `EXIF` 块、`XMP ` 块 |
 
-- **不检测**：avif（EXIF 藏在 ISOBMFF 的 item 里，解析成本高）、gif、pdf。使用说明里提醒这几种格式。
+- **不检测**：avif（EXIF 藏在 ISOBMFF 的 item 里，解析成本高）、gif、pdf、JPEG 扩展 XMP（`http://ns.adobe.com/xmp/extension/` 分段）。使用说明里提醒这几种格式。
 - **提示**：返回 `location: true` 时，界面在这个文件旁边显示"这张照片带有拍摄位置，发布后所有人都能看到"，并提供"去掉位置信息"按钮。
 - **去掉**：浏览器手里还有原文件，用整理后的文件名重新上传，带上 `replace: true, stripLocation: true`。服务端删掉整个 EXIF 块和 XMP 块再写入（`server/src/media/location.ts`）。
-  - 只删元数据，不重新编码图片，画质不变。
+  - 只删元数据，不重新编码图片，画质不变。WebP 删 chunk 时要同时更新 RIFF 总长度和 chunk 的补位（padding）；JPEG 删 APP1 段；PNG 删整块（每块有自己的 CRC）。
+  - 测试必须确认删除后的 JPEG、PNG、WebP 仍能按文件头识别并解码（至少读出文件头和尺寸），不能只检查位置字节消失。
   - 副作用：EXIF 里的旋转方向也会一起丢掉，手机竖拍的照片可能显示成横的。提示里要说明这一点。
 
 默认不自动删除，因为摄影类网站可能需要保留 EXIF。
@@ -201,28 +213,31 @@ X-BukitJalil: 1
 3. 取得或新建改动集：
    - 已有改动集：沿用它，用 `aiWorktree(siteId, snapshotCommit, { reset: false })` 取得 AI 工作副本（工作副本丢了会恢复到快照）。
    - 没有：从默认分支的最新提交新建一个，`sessionId` 为空（和恢复版本一样），并重置 AI 工作副本。
-   - 为此要从 `ChangeService.begin` 里抽出一个不需要会话的 `openOrCreate(siteId)`；`begin` 改为先调用它，再记录会话。
+   - 调用 `ChangeService.beginUserChange(siteId)`（现在已有，内部调用 `openChangeSet`；把它从私有改为公开或改名，不要另抽 `openOrCreate`）。
    - 后面的检查失败时，新建的改动集仍然为空。空改动集和对话开始后什么都没改的情况一样，按现有逻辑处理。
 4. 读取改动集快照里的 `site.yaml`，解析出上传目录（3.1），做 5.2 第 7–9 条检查。
 5. 写文件：
    - 先写到工作副本**外面**的临时目录 `worktrees/<siteId>/.upload-tmp/`，再改名到目标位置。临时目录和 AI 工作副本 `worktrees/<siteId>/ai/` 在同一个磁盘分区上，所以改名是原子操作；删除网站时整个 `worktrees/<siteId>/` 一起删掉（`sites/service.ts`）。
    - 临时文件不能放在工作副本里：快照用的是 `git add -A`（`changes/snapshot.ts`），`.` 开头的文件也会被收进去，进程中途崩溃留下的半个文件就会进入改动。
    - 每次上传开始前清空临时目录。
-   - 上传目录不存在时自动创建。创建目录和写入最终路径都要过 `PathGate.check(abs, "write")`，`PathGate` 用和 AI 相同的根目录。
-6. 调用 `ChangeService.snapshot(siteId, cwd)` 生成快照。改动集、它的 ref 和 SSE 事件都由现有逻辑处理。
+   - 上传目录不存在时自动创建。创建目录和写入最终路径都要过 `PathGate.check(abs, "write")`，`PathGate` 用和 AI 相同的根目录；但 5.2 第 8 条的符号链接、主题目录存在、`.env*` 每一级检查要单独做，`PathGate` 不覆盖。
+   - 替换已有文件时，先按 `foldName` 找到实际存在的文件名（可能只差大小写），把它改名到 `.upload-tmp` 作为备份；新文件改名到规范化后的目标；快照成功后删备份；快照失败把备份改回来。这样 Linux 上不会同时留下 `Logo.png` 和 `logo.png`。
+6. 调用 `ChangeService.snapshot(siteId, cwd)` 生成快照。改动集、它的 ref 和 SSE 事件都由现有逻辑处理。快照失败时按上一步的备份回滚；新文件则删除，不能让接口报错的文件进入下一次快照。
 7. 维护说明：
-   - 改动集**没有 AI 参与**（`aiJoined` 为假）时，由上传维护说明：没有说明时写"上传素材：logo.png"；已有说明（上传写的，或恢复版本写的）就把文件名追加到后面。
-   - 有 AI 参与后不再改动，说明交给 AI 的 `summarize_changes`。
-   - 现有数据里分不清说明是谁写的，所以用 `aiJoined` 判断。
+   - 改动集**没有 AI 参与**（`aiJoined` 为假）时，由上传维护说明：没有说明时写 `Uploaded files: logo.png`（固定英文，提交信息不本地化）；已有说明就把文件名追加到后面。
+   - 如果现有说明以 `Rest of: ` 开头（部分应用后剩下部分），重新写上传说明，不追加；已经应用的文件名不再列进去。
+   - **第一次有对话加入时**（`begin` 里 `aiJoined` 从假变成真），清空已有说明，之后的说明交给 AI 的 `summarize_changes`；AI 没写时 `apply` 用 `diffSummary`。上传、插件开关、恢复版本都一样；恢复信息仍然在 `BukitJalil-Restore` 尾注和 `restoreOf` 里。这是对现有恢复行为（之前保留 `Restore to ...` 说明）的修改，现有恢复测试要同步。
+   - 之后上传不再改动说明；有 AI 参与后，说明由 AI 负责。
 
 ### 5.5 改动集、作者和历史
 
 - **作者**：
-  - 现在的规则（`changes/service.ts` 的 `apply`，开发计划 7.2）有三种情况：纯恢复（`restoreCommit` 不为空且 `aiJoined` 为假）时作者是用户；不是恢复、而且改动集没有关联任何会话（`sessions.length === 0`，例如设置里的插件开关）时作者也是用户；其余情况是 AI。所以按现在的代码，只有上传的改动集**本来就会**记为用户作者。
+  - 现在的规则（`changes/service.ts` 的 `apply`，开发计划 7.2）有三种情况：纯恢复（`restoreCommit` 不为空且 `aiJoined` 为假）时作者是用户；不是恢复、而且改动集没有关联任何会话（`sessions.length === 0`，例如设置里的插件开关）时作者也是用户；其余情况是 AI。所以按现在的代码，纯上传和插件开关的改动集**本来就会**记为用户作者。
   - 改为：**只要 `aiJoined` 为假，作者就是用户。** 理由：一条规则代替两条；而且第二条看的是会话列表，对话被删除后列表变空，AI 参与过的改动集会被错记成用户作者，`aiJoined` 在删除对话后仍然保留，不会出这个错。有对话参与过的改动集，作者仍然是 AI。
+  - `apply` 和 `applyPartial` 两处都要改；部分应用也用 `!aiJoined`，不能继续用 `sessions.length === 0`。
   - `aiJoined` 在迁移 005 里已经有了，不需要新迁移。注意：对话一开始就会把 `aiJoined` 设为真，哪怕这次对话没改任何文件，所以"有对话参与"指的是"开过对话"，不是"AI 改过文件"。
   - 历史里的 `byAi` 按作者邮箱判断（`changes/history.ts`），所以纯上传的版本会自动显示为用户提交，不用另外改。
-- **提交尾注**：只上传、没有恢复也没有 AI 参与的改动集，加一行 `BukitJalil-Uploads: <改动的文件数>`，方便在历史里辨认。文件数就是这个改动集的改动文件数，因为里面只有上传。其他情况不加这行，因为分不清哪些文件是上传的，又不想为此新增数据库字段。
+- **提交尾注**：只有当改动集没有恢复、没有 AI 参与，并且**所有改动路径都在上传目录下**时，才加一行 `BukitJalil-Uploads: <文件数>`。部分应用时只看选中的路径，文件数也按选中的上传文件算。插件开关产生的改动集即使 `aiJoined` 为假，只要还改了 `site.yaml` 就不加。其他情况不加，因为分不清哪些文件是上传的，又不想为此新增数据库字段。历史解析时把这一行去掉，不显示在正文里；它留在 git 里供命令行辨认。
 - **拒绝**：拒绝改动集时，上传的文件跟着一起丢弃，网站文件夹不受影响。工作副本在下一个改动集打开时重置（现有逻辑）。
 - **和恢复版本的关系**：
   - 在恢复版本产生的改动集里可以继续上传。作者仍然是用户，提交带 `BukitJalil-Restore` 尾注，说明里会追加上传的文件名。
@@ -230,15 +245,15 @@ X-BukitJalil: 1
 
 ### 5.6 AI 一侧
 
-- `site_info` 工具的返回值增加 `media` 一项：
-  - 上传目录、网址前缀（`/uploads`）；
-  - 目录里的文件列表，每个文件包括文件名、大小、类型、网址和 `viewable`，最多 200 个；
+- `site_info` 工具的返回值增加 `media` 一项（在 `agent/site-tools.ts` 里返回 `{ ...summarizeConfig(config), media }`，不要改 `ConfigSummary`，它是配置面板共用的）：
+  - 上传目录、内容用的网址前缀（`site.baseUrl` 规范化后拼上 `uploads`，例如 `/blog/uploads`；为 `/` 时是 `/uploads`）和模板用的路径前缀（`/uploads`）；
+  - 目录里的文件列表，每个文件包括文件名、大小、类型、`url`（已经带 `site.baseUrl`）和 `viewable`，最多 200 个；
   - 列表跳过以 `.` 开头的文件和目录、符号链接和子目录。上传的文件名不会以 `.` 开头（5.2 文件名整理），但导入的仓库里可能有，比如 `.env.png`；权限闸门禁止 AI 读取和列出任何一级以 `.env` 开头的路径（开发计划 6.3），`site_info` 不能把它们列出来。
   - `site.yaml` 解析不了时，`media` 只返回错误原因。
 - 建站技能 `skills/bukitjalil/site-editing/SKILL.md` 补充：
-  - 用户上传的素材用 `/uploads/<文件名>` 引用（`site.baseUrl` 不是 `/` 时的写法，按第 1 层实测结果写），内容和主题模板里都可以用；图片一定要写有意义的 `alt` 文字；
+  - 正文和 front matter 用 `site_info.media` 返回的 `url`（已经带 `site.baseUrl`，例如 `/blog/uploads/logo.png`）；主题模板用 `{{ site.base_url }}/uploads/<文件名>`（starter 里可以用 `{{ base_url }}`），不要把带前缀的 `url` 再拼 base URL。图片一定要写有意义的 `alt` 文字；
   - 文件名从 `site_info` 取，不要自己猜，因为写错不会让构建失败，只会出现坏图；
-  - 不要移动、改名或删除上传目录里的文件；换主题前提醒用户：素材在旧主题目录里，需要重新上传；
+  - 不要移动、改名或删除上传目录里的文件；换主题前提醒用户：素材在旧主题目录里，需要重新上传；改 `site.baseUrl` 前提醒用户：正文和 front matter 里已经写死的旧前缀会失效，需要批量替换，发布前检查会拦住漏改；
   - `viewable` 为假的文件（avif、pdf）不要用读工具打开；
   - AI 不能自己添加或修改图片，缺图时请用户上传。
 - AI 的读工具是 Pi 的 read。`agent/tools.ts` 给它接了 `detectSupportedImageMimeTypeFromFile`，能把 jpeg、png（不含动画 png）、gif、webp 作为图片交给模型，所以 AI 能看到这些图片，写出准确的 `alt` 文字。
@@ -249,16 +264,17 @@ X-BukitJalil: 1
 
 - **上传组件** `MediaUpload`：
   - 隐藏的 `<input type="file" multiple accept="…">` 加拖放区域；
-  - 队列逐个上传，每个文件显示进度条、结果和错误，可以重试；
+  - 队列逐个上传，每个文件显示进度（用 XMLHttpRequest 才能拿到字节进度；只用 `fetch` 时显示不确定进度）、结果和错误，可以重试；
   - 超过 10 MiB 或扩展名不在 6 种格式里的文件，在浏览器里就先拦下，不发请求（服务端照样校验）。
 - **重名对话框**：替换 / 两个都保留 / 跳过；可以勾选"后面的文件都这样处理"。
 - **位置信息提示**：见 5.3。
 - **改动面板**：
-  - 文件列表里，图片显示缩略图；
+  - 文件列表里，图片显示缩略图。列表只有 `binary` 标记，没有 MIME，所以缩略图按扩展名判断；选中时再取文件 JSON，用 `kind`/`mime` 确认，并显示尺寸和大小。不是图片的文件不显示缩略图。
   - 选中图片时，右侧显示大图预览，以及尺寸和大小。预览复用现有的 `GET /api/sites/:siteId/file?ref=change&path=…&as=raw`，已经带 CSP 沙盒和 `nosniff`；
-  - 被替换的文件左右并排显示"之前 / 之后"，"之前"用 `ref=main`；
+  - 被替换的文件左右并排显示"之前 / 之后"，"之前"用 `ref=main`；只有文件在 `main` 上存在时才显示"之前"，同一个改动集里先上传后替换时只显示新文件；
   - PDF 显示图标和"下载"，复用现有的 `as=download`，它返回 `Content-Disposition: attachment`。
 - **文件面板**：现有的图片预览加上 avif；pdf 走现有的下载。
+- **改 `site.baseUrl` 的提醒**：部署设置表单的 `site.baseUrl` 下显示固定提示（中英文）：“上传素材的网址包含这个路径；修改后正文和 front matter 里的旧引用会失效，发布前会检查。”技能文档同样要求 AI 在改 `site.baseUrl` 前提醒；发布前检查见 5.9。
 - **桌面版拖放**：主进程的 `will-navigate` 已经拦下"把拖进来的文件当页面打开"（`packages/desktop/src/main.ts`）。页面还要在整个窗口的 `dragover` 和 `drop` 上调用 `preventDefault`，拖到上传区域外时显示"拖到这里上传"的提示，而不是没有反应。
 - 所有文字中英文各一份（`web/src/i18n/zh-CN.ts`、`en.ts`），新增的错误码都要有对应文案。
 
@@ -273,20 +289,39 @@ X-BukitJalil: 1
 
 - avif：偏移 4 处是 `ftyp`，主品牌或兼容品牌里有 `avif` 或 `avis`。
 - pdf：以 `%PDF-` 开头。PDF 可以带脚本（见 `panels/service.ts` 注释），所以 `as=raw` 继续拒绝它，只走 `as=download`。
+- `shared/src/panels.ts` 的 `ImageMime` 要加 `image/avif`；PDF 用单独的媒体类型，不混进 `ImageMime`。
+
+### 5.9 发布前的前缀检查
+
+`site.baseUrl` 变了以后，正文和 front matter 里写死的旧前缀不会自动改。发布前做一次“引用能不能对上输出里的上传文件”的检查：
+
+- **输入**：这次构建的输出目录，以及构建用到的 `site.baseUrl`（规范化成以 `/` 结尾的 `/` 或 `/a/b/`；Bukit 的 `NormalizeBaseUrl` 会去掉尾部 `/`，这里拼前缀时补回来）。
+- **上传文件集合**：输出根目录的 `uploads/` 和每个语言目录下的 `uploads/`（多语言构建会把主题静态目录复制到根和 `/<lang>/`）。只收集普通文件，不跟符号链接。
+- **扫描范围**：生成的 HTML 里的 `src`、`href`、`srcset`（每个候选）。只处理根路径 URL；`og:image`/`twitter:image` 通常是带 `site.url` 的绝对网址，不在扫描范围。
+- **判断**：URL 路径的最后两段是 `uploads/<文件名>`，且这个文件名在上面的集合里，才继续判断。`baseUrl` 按路径段匹配，`/blog/` 不会匹配 `/blogging/`。
+  - 如果 URL 去掉当前 `baseUrl` 后的路径在输出里存在且是普通文件，就是正确。这样 `/blog/uploads/a.png` 和 `/blog/zh-CN/uploads/a.png` 都通过；`/blog/assets/uploads/a.png` 也通过（文件真实存在）。解析后的路径必须在输出目录内；带 `..` 越界的不算正确，直接报错。
+  - 否则报错。这样 `/uploads/a.png`、`/repo/uploads/a.png`（改 baseUrl 后留下的旧前缀）、`/blogging/uploads/a.png` 都会被拦住；两个方向都覆盖。
+- **预览/构建**：把 warning 放进 `BuildReport.messages`（`level: "warn"`，固定前缀，例如 `upload prefix: ...`），列出页面和网址，不阻断预览；`BuildReport.messages` 的注释从“Bukit 的 JSON 日志”改为“Bukit 的日志和 BukitJalil 自己的构建警告”。
+- **发布**：在 `publish audit` 之前跑同一个函数；有 warning 时 `finish("upload_prefix", { detail })`，`detail` 列出页面和网址，不进入 `deploy`。`shared/src/deploys.ts` 的 `DeployOutcome` 加 `"upload_prefix"`，中英文加对应文案；不伪装成 audit 步骤失败。
+- **不检查**：绝对 URL、协议相对 URL、相对 URL、`data:`；RSS/JSON、脚本字符串、CSS `url()`、`og:image`/`twitter:image`；文件不存在（2.2）——只有能对上输出 `uploads/` 文件的引用才判断前缀。这些限制写在使用说明里。
+- **测试**：`site.baseUrl` 为 `/` 和 `/blog/` 各一组；`/blog/uploads/...`、`/blog/zh-CN/uploads/...` 通过；`/uploads/...`、`/repo/uploads/...`、带 `..` 越界的引用报错；绝对、相对、`data:` 不误报，`og:image` 不扫描；预览只警告，发布返回 `upload_prefix`。
 
 ## 6. 安全
 
 | 风险 | 处理 |
 |---|---|
 | 上传带脚本的文件，在访客或管理界面里执行 | 只收 6 种格式，按文件头识别并和扩展名对照；SVG、HTML 一律拒绝。管理界面预览走现有的 CSP 沙盒和 `nosniff`；PDF 只能下载 |
-| 通过文件名写到工作副本外，或写进受保护路径 | 整理后的文件名只含 `a-z0-9._-`；最终路径再过 `PathGate` 的写入检查（检出目录内、不经过符号链接、不在受保护路径） |
-| `site.yaml` 的 `theme.name` 或 `theme.static` 指向检出目录外、受保护或被忽略的位置 | 上传前检查（5.2 第 8 条）；Bukit 自己也要求 `theme.static` 在网站根目录内（`enforceWithinRoot`） |
+| 通过文件名写到工作副本外，或写进受保护路径 | 整理后的文件名只含 `a-z0-9._-`；最终路径再过 `PathGate` 的写入检查（检出目录内、不在受保护路径）；符号链接、主题目录存在、`.env*` 每一级要单独检查，`PathGate` 不覆盖（5.2 第 8 条） |
+| `site.yaml` 的 `theme.name` 或 `theme.static` 指向检出目录外、受保护或被忽略的位置 | 上传前检查（5.2 第 7、8 条）；`theme.static` 缺失或不区分大小写等于 `static` 时用主题 `static/`，显式空字符串拒绝；主题目录必须存在；Bukit 自己也要求 `theme.static` 在网站根目录内（`enforceWithinRoot`） |
 | 用 `theme.name` 拼路径时带 `..` | 解析出的上传目录必须在检出目录内（5.2 第 8 条），带 `..` 跑出去的路径被拒绝 |
 | 跨站请求伪造上传 | 沿用 `/api` 的全部规则：会话 Cookie、精确的 Origin、JSON、自定义请求头，不允许预检 |
 | 畸形 base64 被悄悄接受 | 先用正则严格检查（5.1） |
 | 大文件或大量上传占满内存或磁盘 | 请求体 14 MiB 上限（其他接口 1 MiB），解码后 10 MiB，一次一个文件；磁盘写满时返回现有的 `fs.disk_full` |
-| 崩溃留下半个文件进入改动 | 临时文件写在工作副本外面，改名是原子操作（5.4 第 5 步） |
-| 照片泄露拍摄位置 | 检测并提示，可以一键去掉（5.3） |
+| 崩溃留下半个文件进入改动，或替换后快照失败 | 临时文件写在工作副本外面，改名是原子操作；替换前把旧文件备份到临时目录，快照成功后删除，失败则改回来；新文件在快照失败时删除（5.4 第 5、6 步） |
+| 只差大小写的替换在 Linux 上留下两个文件 | 按 `foldName` 找到实际文件名，先备份旧文件再改名到规范名；快照成功后删备份（5.4 第 5 步） |
+| 照片泄露拍摄位置 | 检测并提示，可以一键去掉（5.3）；avif、gif、pdf、JPEG 扩展 XMP 不检测，在使用说明里提醒 |
+| 去掉位置信息时损坏图片 | WebP 同步更新 RIFF 总长度和 padding；测试确认删除后的 JPEG、PNG、WebP 仍能识别和解码（5.3） |
+| 改 `site.baseUrl` 后旧上传引用失效 | 部署设置表单和技能文档提醒；发布前检查核对引用和输出里的 `uploads/` 文件，旧前缀只要文件还在就阻止发布（3.1 第 6 点、5.9） |
 | 绕过审核直接改网站 | 上传只写 AI 工作副本，进改动集，应用前不碰网站文件夹 |
 | Git LFS 仓库 | 已经整体只读（开发计划 7.3），上传返回 `site.read_only` |
 
@@ -296,78 +331,95 @@ X-BukitJalil: 1
 
 ### 7.1 第 1 层：用真实 Bukit 核对（约 0.25 天）
 
-用 CI 同款脚本取得 Bukit 2.0.15（`packages/server/scripts/fetch-bukit.ts`，取的是代码里内置的版本），用 starter 模板在临时目录里建网站实测，结果记进第 3 节：
+用内置的 Bukit 2.2.3（`packages/server/src/bukit/install.ts` 的 `BUKIT_VERSION`；开发时是 `vendor/bukit-2.2.3/`，由 `packages/server/scripts/fetch-bukit.ts` 取同一个固定版本）在 starter 临时站点实测。检查同时加进 `packages/server/test/bukit-behavior.test.ts`：普通 CI 每次推送用固定版本跑，`bukit-latest.yml` 每天用最新正式版跑；这样升级时不用手工重跑。
 
-1. `themes/starter/static/uploads/a.png` 没被任何地方引用，确认构建后输出里有 `uploads/a.png`。
-2. 分别从正文（`![](/uploads/a.png)`）、front matter 字段（`image: /uploads/a.png`）、主题模板引用，确认构建通过、页面显示正常。
-3. `site.baseUrl` 改成 `/blog/`（和 GitHub Pages 项目站点 `/<仓库名>/` 相同的情况，见 3.1 第 5 点），分别用 `--base-url /`（预览）和不加 `--base-url`（发布）各构建一次：静态文件输出到哪里；正文、front matter 和模板里写 `/uploads/a.png` 时，生成的链接会不会带上 `/blog/`。不会的话，找出在两种构建下都正确的写法（例如相对路径、模板里用 Bukit 的网址函数、front matter 交给模板拼接），写进技能文档。
-4. 多语言网站（每种语言单独输出）：确认静态文件的输出位置和网址。
-5. 内容里有一个网址是 `/uploads/` 的页面时，是否和静态目录冲突（`renderedStaticCopyDestinations`）。
-6. 引用一个不存在的 `/uploads/missing.png`：确认构建是否报错、`bukit check` 是否报出坏链接。会报的话，8 节"引用写错"的风险就降低了。
-7. avif、pdf 和以 `.` 开头的文件能否正常复制。
-8. 确认网站根目录 `assets/uploads/a.png` 被引用时构建失败，记下错误信息。这一条证实 3.2，作为 v1、v2 设计不可行的证据。
+实测项：
+
+1. `themes/starter/static/uploads/a.png` 没被任何地方引用，构建后输出里有 `uploads/a.png`。
+2. `site.baseUrl` 改成 `/blog/`（和 GitHub Pages 项目站点 `/<仓库名>/` 相同，见 3.1 第 5 点），分别用 `--base-url /blog/`（预览）和不加 `--base-url`（发布）构建：静态文件在输出根目录的 `uploads/`；正文 `![](/uploads/a.png)` 仍是 `/uploads/a.png`（Bukit 不改写）；正文 `![](/blog/uploads/a.png)` 和模板 `{{ base_url }}/uploads/a.png` 都得到 `/blog/uploads/a.png`；front matter `image: /uploads/a.png` 经 `page.seo` 输出 `/blog/uploads/a.png`（写成已经带前缀的 `/blog/uploads/a.png` 时保持不变），模板直接读 `page.image` 则是原值。
+3. 多语言网站（每种语言单独输出）：2.2.3 实测（`languages: [en-US, zh-CN]`、`defaultLanguage: en-US`）默认语言在根目录，中文在 `out/zh-CN/`；`uploads/a.png` 同时复制到 `out/uploads/` 和 `out/zh-CN/uploads/`；中文页面的 `site.base_url` 是 `/blog/zh-CN/`。正文用 `/blog/uploads/...`、模板用 `{{ site.base_url }}/uploads/...` 都正确；5.9 的检查必须接受 `/blog/zh-CN/uploads/...`。
+4. 内容里有一个网址是 `/uploads/` 的页面时，是否和静态目录冲突：2.2.3 实测用 `url: /uploads/`（内容路由，不是素材网址）的内容页构建成功，输出同时有 `out/uploads/index.html` 和 `out/uploads/a.png`，不冲突。`renderedStaticCopyDestinations` 只处理 `RenderEntryKind.Static` 的静态渲染条目，普通内容页不参与。
+5. 引用一个不存在的 `/uploads/missing.png`：`bukit config check` 和 `bukit doctor` 是否报出。2.2.3 实测都不报；doctor 只报缺失 alt。
+6. avif、pdf 和以 `.` 开头的文件：2.2.3 实测 avif/pdf 会复制，`.` 开头的文件不复制。
+7. 网站根目录 `assets/uploads/a.png` 被引用时构建失败，记下错误信息。2.2.3 为 `Referenced localized media is missing or unsafe`；这一条证实 3.2，作为 v1、v2 设计不可行的证据。
 
 **决策点**：
-- 实测和第 3 节一致：进入第 2 层。
-- 第 3 条里 `/uploads/...` 在子路径网站下不能用：找到在预览和发布两种构建下都正确的写法后，写进技能文档再进入第 2 层；正文里找不到可用写法时（比如 Markdown 正文只能写死根路径），**先修改本文的设计**再继续，例如上传结果和 `site_info` 直接给出按 `site.baseUrl` 拼好的网址，或者在发布前检查正文里的根路径引用。
+- 实测和 3.2 一致：进入第 2 层。
+- 第 3、4 条已经实测（3.2、7.1），不再作为门槛；5.9 的检查按多语言结果也要接受 `/blog/zh-CN/uploads/...`。
+- 子路径写法已经定下（3.1 第 2、5 点）：正文、front matter、接口 `url` 用带 `site.baseUrl` 的网址；模板用 `{{ site.base_url }}/uploads/<文件名>`（starter 里可以用 `{{ base_url }}`）。如果 2.2.3 实测和这不一致，先改本文再继续。
 - 其他不一致：先修改本文的设计，再进入第 2 层。
 
 ### 7.2 第 2 层：服务端上传（约 0.5 天）
 
 - `shared`：
   - 接口类型 `MediaUploadRequest` / `MediaUploadResult`；
-  - 新增错误码 `media.empty`、`media.too_large`、`media.bad_name`、`media.unsupported_type`、`media.type_mismatch`、`media.config_invalid`、`media.dir_unsafe`、`media.exists`、`request.too_large`。
+  - 新增错误码 `media.empty`、`media.too_large`、`media.bad_name`、`media.unsupported_type`、`media.type_mismatch`、`media.config_invalid`、`media.dir_unsafe`、`media.exists`、`request.too_large`；
+  - `ImageMime` 加 `image/avif`；`apiError` 的 status 联合类型加 413；中英文文案加齐所有新错误码（`web/src/i18n/i18n.test.ts` 会检查）；
+  - `DeployOutcome` 加 `"upload_prefix"`，中英文加对应文案。
 - `server/src/media/sniff.ts`：`sniffMedia`、`imageMime`（5.8）；`panels/service.ts` 改为从这里导入 `imageMime`。
 - `server/src/media/names.ts`：`normalizeMediaName`、Windows 保留名、`suggestName`。
 - `server/src/media/location.ts`：位置信息检测，删除 EXIF 和 XMP 块（5.3）。
-- `server/src/media/dir.ts`：从 `site.yaml` 解析上传目录（3.1），和 Bukit 的 `BuildPathUtils` 规则一致。
+- `server/src/media/dir.ts`：从 `site.yaml` 解析上传目录（3.1），和 Bukit 的 `BuildPathUtils` 规则一致（`theme.static` 不区分大小写；缺失时用默认 `static`；显式空字符串拒绝）。
 - `server/src/media/service.ts`：`MediaService.upload`（5.4）。
-- `server/src/changes/service.ts`：从 `begin` 抽出 `openOrCreate`；作者规则改为 `!aiJoined`；纯上传尾注（5.5）。
+- `server/src/changes/service.ts`：把 `beginUserChange` 公开或改名（已有，不另抽 `openOrCreate`）；`apply` 和 `applyPartial` 的作者规则都改为 `!aiJoined`；`begin` 第一次加入会话时清空说明（`ChangeStore` 的 `setSummary` 接受 null，或加 `clearSummary`）；纯上传尾注按路径判断（5.5）。
+- `server/src/changes/history.ts`：解析时去掉 `BukitJalil-Uploads`，不显示在历史正文里。
+- `server/src/builds/upload-urls.ts`：扫描构建输出的 HTML `src`、`href`、`srcset`；收集根目录和语言目录下的 `uploads/` 文件；按 5.9 的规则判断“去掉 `site.baseUrl` 后是否指向输出里的真实文件”，不对就返回页面和网址。构建报告把这个列表加进 `messages`（`level: "warn"`）；发布流程在 `publish audit` 前用同一个函数。
+- `server/src/builds/service.ts`：成功构建后调用上面的扫描，把 warning 追加到 `BuildReport.messages`；把该字段的注释改成“Bukit 的日志和 BukitJalil 自己的构建警告”。
+- `server/src/deploys/service.ts`：构建成功、`findSymlink` 之后、`publish audit` 之前调用扫描；有问题时 `finish("upload_prefix", { detail })`，`detail` 列页面和网址，不进入 `deploy`。
 - `server/src/api/media.ts`：路由、14 MiB 请求体限制、`agent.busy` 检查；`app.ts` 加全局 1 MiB 请求体限制，并让它跳过上传路径。
 - 测试 `test/media.test.ts`：
   - 6 种格式各上传一次；SVG、HTML、改了扩展名、空文件、10 MiB + 1 字节、非法 base64 都被拒绝；
   - 文件名整理：中文、大小写重名、`..`、`/`、`\`、NUL 字符、没有扩展名、`con.png` 这类 Windows 保留名；整理两次结果不变；
-  - 上传目录解析：默认 `theme.static`、自定义 `theme.static`、`theme.name` 带 `..`、主题在检出目录外、`site.yaml` 解析不了；
+  - 上传目录解析：默认 `theme.static`、自定义 `theme.static`、`theme.static: Static`（不区分大小写）、`theme.static: static/`（按网站根目录，不是主题 static）、`theme.static` 缺失、`theme.static: ""`（拒绝）、`theme.name` 带 `..`、主题在检出目录外、主题目录不存在、`site.yaml` 解析不了；
   - 没有改动集时新建、有改动集时加入；格式不对的上传不会新建改动集；重名返回 409 并带 `suggestion`；`replace` 后替换成功；
+  - 只差大小写的替换：在区分大小写的文件系统上（CI 的 Linux）不会留下两个只差大小写的文件；模拟快照失败时新文件删除、替换文件恢复旧内容；
   - 模拟写入中途失败：工作副本里没有残留文件，下一次快照也不会收进临时文件；
-  - 上传目录被忽略、在受保护路径下、经过符号链接时返回 `media.dir_unsafe`；
+  - 上传目录被忽略、在受保护路径下、经过符号链接、路径上有 `.env*` 段时返回 `media.dir_unsafe`；主题目录不存在或 `theme.static: ""` 时返回 `media.config_invalid`；
   - 对话运行中、有消息排队、网站只读、网站被锁住时都被拒绝；
-  - 位置信息检测和删除，覆盖 EXIF 和 XMP 两种写法。样本放在 `test/fixtures/media/`，由脚本生成，不用真实照片；
-  - 纯上传的改动集应用后：作者和提交者都是用户，带 `BukitJalil-Uploads` 尾注，历史里 `byAi` 为假；
-  - 上传后又有对话参与：作者是 AI，不带上传尾注，说明不再被上传改动；
+  - 位置信息检测和删除，覆盖 EXIF 和 XMP 两种写法。样本放在 `test/fixtures/media/`，由脚本生成，不用真实照片；删除后 JPEG、PNG、WebP 仍能识别和解码；JPEG 扩展 XMP 里的位置信息按“不检测”处理（返回 `location: false`）；
+  - 纯上传的改动集应用后：作者和提交者都是用户，带 `BukitJalil-Uploads` 尾注，历史里 `byAi` 为假；插件开关 + 上传、部分应用只选部分上传时，不带错误的尾注，文件数按选中的上传文件算；历史正文不显示这行；
+  - 部分应用后又上传：说明以 `Rest of: ` 开头时重写，不追加已经应用的文件名；
+  - 上传/插件/恢复后第一次有对话参与、AI 没调用 `summarize_changes`：提交说明用 `diffSummary`，不是上传、插件或恢复说明；第二次对话不清掉 AI 已写的说明。现有 `changes.test.ts` 的恢复用例（断言 `Restore to ...` 的那条）要同步改成 `diffSummary`，`BukitJalil-Restore` 尾注保留；
+  - 上传后又有对话参与：作者是 AI，不带上传尾注，说明清空后交给 AI；
   - 在恢复版本的改动集里上传：作者是用户，带 `BukitJalil-Restore`，说明里有上传的文件名；
+  - 发布前前缀检查：`site.baseUrl` 为 `/` 和 `/blog/` 各一组；`/blog/uploads/...`、`/blog/zh-CN/uploads/...` 通过；`/uploads/...`、`/repo/uploads/...`、带 `..` 越界的引用报错；绝对、相对、`data:` 不误报，`og:image` 不扫描；预览只警告，发布返回 `upload_prefix`；
   - 拒绝改动集后，网站文件夹里没有上传的文件；
   - 请求体超限返回 413 `request.too_large`；上传接口能收 13.3 MiB 的请求；10 万字符的对话消息在 1 MiB 限制下照常发送。
 
 ### 7.3 第 3 层：AI 一侧（约 0.25 天）
 
-- `agent/site-tools.ts`：`site_info` 返回 `media`（5.6），工具描述里也提到素材列表。
-- `skills/bukitjalil/site-editing/SKILL.md`：补充素材说明，替换现在那句"Images and other binary files are added by the user"。
+- `agent/site-tools.ts`：`site_info` 返回 `{ ...summarizeConfig(config), media }`（5.6），不改 `ConfigSummary`；工具描述里也提到素材列表。
+- `skills/bukitjalil/site-editing/SKILL.md`：补充素材说明，替换现在那句"Images and other binary files are added by the user"；写清正文/front matter 用 `media[].url`、模板用 `{{ site.base_url }}/uploads/<文件名>`（starter 里可以用 `{{ base_url }}`）、改 `site.baseUrl` 前提醒。
 - `agent/fake-model.ts`：加一个 `#media` 场景：读取 `site_info` 里的媒体列表，在页面里引用第一张图，供端到端测试使用。
-- 测试：`site-tools.test.ts` 检查 `media` 字段和 `viewable`；会话测试里用假模型走一遍"上传 → 引用 → 检查构建通过 → 输出里有这个文件"。
+- 测试：`site-tools.test.ts` 检查 `media` 字段、`url` 带 `site.baseUrl`、`viewable`；会话测试里用假模型走一遍"上传 → 引用 → 检查构建通过 → 输出里有这个文件"。
 
 ### 7.4 第 4 层：界面（约 0.75 天）
 
 - `web/src/features/media/`：`MediaUpload`、重名对话框、位置信息提示、上传队列（TanStack Query 的 mutation 加本地队列状态）。
 - 三个上传入口（第 4 节），以及对话运行时的禁用状态。
-- 改动面板和文件面板的图片预览、PDF 下载（5.7）。
+- 改动面板和文件面板的图片预览、PDF 下载（5.7）；缩略图按扩展名，选中时用文件 JSON 确认。
+- 部署设置表单 `site.baseUrl` 下的固定提醒（5.7）。
+- 发布结果里显示 `upload_prefix` 的中英文文案和 `detail`（5.9）。
 - 桌面版拖放的 `preventDefault`（5.7）。
 - 中英文文案。
 - 端到端测试 `e2e/media.spec.ts`（chromium / firefox / webkit）：
   - 上传两张图，其中一张重名，选"两个都保留"：改动面板出现两个文件和预览；
   - 假模型引用图片，预览网站里能看到这张图；应用后网站文件夹里有文件，历史里作者是用户（没有对话参与时）；
+  - 子路径网站（`site.baseUrl: /blog/`）里用返回的 `url` 引用图片，预览能看到；故意写 `/uploads/...` 时构建结果显示前缀警告；把 baseUrl 从 `/repo/` 改成 `/` 后，旧的 `/repo/uploads/...` 在发布时返回 `upload_prefix`；
   - 上传 SVG 被拒绝，并显示原因；
   - 带位置信息的照片出现提示，"去掉位置信息"后提示消失；
   - 对话运行中上传按钮不可用，并说明原因。
 
 ### 7.5 第 5 层：文档和验收（约 0.25 天）
 
-- 使用说明 `docs/user-guide.md`：新增"添加图片和文件"一节，覆盖上传、引用写法、素材跟着主题走、审核、位置信息（含 avif/gif/pdf 不检测的提醒）、支持的格式和限制。
+- 使用说明 `docs/user-guide.md`：新增"添加图片和文件"一节，覆盖上传、正文/front matter/模板的引用写法、素材跟着主题走、审核、改 `site.baseUrl` 后旧引用失效、发布前前缀检查、位置信息（含 avif/gif/pdf/JPEG 扩展 XMP 不检测的提醒）、支持的格式和限制。
 - 开发计划：
   - 待定问题第 2 条标为已完成；
   - 9.1 的接口表加上新接口；
+  - 8.1 的“Bukit 随应用固定版本发布”与本文一致；16 第 7 条标为已被 8.1 现行设计取代；
+  - 7.4 的恢复提交说明改成“第一次有对话加入时清空，改用 diffSummary 或 AI 说明”，现有 `changes.test.ts` 恢复用例同步；
   - 写入实现说明。
-- 验收记录 `docs/acceptance/media-upload.md`：用真实 Bukit 和桌面版走一遍完整流程（上传 → AI 引用 → 审核 → 应用 → 构建 → 预览），附截图；包括在桌面版里拖放文件，以及把 Logo 放到页头；再用一个 `baseUrl` 为 `/<仓库名>/` 的网站发布到测试仓库（或用发布构建的输出检查），确认图片网址带上了子路径。
+- 验收记录 `docs/acceptance/media-upload.md`：用真实 Bukit 和桌面版走一遍完整流程（上传 → AI 引用 → 审核 → 应用 → 构建 → 预览），附截图；包括在桌面版里拖放文件，以及把 Logo 放到页头；再用一个 `baseUrl` 为 `/<仓库名>/` 的网站发布到测试仓库（或用发布构建的输出检查），确认图片网址带上了子路径；故意留一个 `/uploads/...` 引用，确认发布前检查阻止发布；改一次 `site.baseUrl`，确认界面提示和发布检查都出现。
 
 ### 7.6 估算
 
@@ -384,16 +436,45 @@ X-BukitJalil: 1
 
 | 事项 | 影响 | 处理 |
 |---|---|---|
-| 子路径网站（`baseUrl` 不是 `/`）里 `/uploads/...` 可能指错地方 | 部署设置会自动把项目站点的 `baseUrl` 设成 `/<仓库名>/`，所以没有自定义域名的 GitHub Pages 网站都会遇到；2026-11-13 起预览也用网站真实的 baseUrl，坏图在审核预览里就能看到，但仍要找出正确写法 | 必须解决，不是可接受的风险：第 1 层第 3 条找出两种构建下都正确的写法，找不到就先改设计（7.1 决策点）；技能文档写明正确写法；验收时用子路径网站发布一次 |
-| 引用写错不会让构建失败 | 页面上出现坏图 | 技能文档要求 AI 从 `site_info` 取文件名；审核时看预览（2026-11-13 起子路径的问题预览里也能看到）；第 1 层第 6 条看 `bukit check` 能否报出 |
-| 升级到没有核对过的 Bukit 版本 | 静态目录的处理变了，上传的文件发布不出去 | 升级 Bukit 时重跑第 1 层（3.2）；开发计划 16 第 7 条决定是否只装固定版本 |
+| 子路径网站（`baseUrl` 不是 `/`）里 `/uploads/...` 指错地方 | 部署设置会自动把项目站点的 `baseUrl` 设成 `/<仓库名>/`，所以没有自定义域名的 GitHub Pages 网站都会遇到；2.2.3 实测正文里的 `/uploads/...` 在预览和发布两种构建下都不被改写 | 已定：正文、front matter、接口 `url` 用带 `site.baseUrl` 的网址，模板用 `{{ site.base_url }}/uploads/...`（starter 里可以用 `{{ base_url }}`）（3.1 第 2、5 点）；发布前检查引用能否对上输出里的 `uploads/` 文件（3.1 第 6 点、5.9）；验收时用子路径网站发布一次 |
+| 引用写错不会让构建失败 | 页面上出现坏图 | 技能文档要求 AI 从 `site_info` 取文件名；审核时看预览；`bukit config check` 和 `doctor` 在 2.2.3 都不报缺失的 `/uploads/missing.png`，发布前检查只判断能对上输出 `uploads/` 文件的引用，文件名不存在的引用不报 |
+| 改 `site.baseUrl` 后旧上传引用失效 | 项目站点加自定义域名、换仓库名时，正文/front matter 里写死的 `/repo/uploads/...` 全部坏掉 | 部署设置表单和技能文档提醒先批量替换；发布前检查会核对引用和输出里的 `uploads/` 文件，旧前缀只要文件还在就拦住；文件已经删掉的不查（5.9）；没有自动改写 |
+| 升级到没有核对过的 Bukit 版本 | 静态目录的处理变了，上传的文件发布不出去 | Bukit 随 BukitJalil 固定版本发布（`BUKIT_VERSION` + 三个 SHA-256），用户不能单独升级；升级应用时重跑第 1 层（3.2、7.1，已放进 `bukit-behavior.test.ts`） |
 | 素材跟着主题走 | 换主题后素材不再发布 | 使用说明写明；技能文档要求 AI 在换主题前提醒；自动搬运另开任务 |
+| 只差大小写的替换在 Linux 上留下两个文件 | 下一次构建前检查报大小写冲突，网站只读 | 按 `foldName` 找到实际文件名，先备份再改名（5.4 第 5 步）；CI Linux 测试覆盖 |
+| `PathGate` 不检查符号链接、主题目录存在、`.env*` 每一级 | 上传写到和返回路径不同的地方，或造出假主题 | 5.2 第 8 条单独检查；`PathGate` 只作第二道；测试覆盖符号链接、缺失主题、`.env*` 段 |
+| 去掉位置信息损坏 WebP | 用户点“去掉位置信息”后图片打不开 | 5.3 写明 RIFF 总长度和 padding；测试确认删除后仍能识别和解码 |
+| JPEG 扩展 XMP 里的位置信息不检测 | 照片带 GPS 却被提示“没有位置信息” | 5.3 列为不检测；使用说明提醒；以后需要再解析扩展 XMP |
 | AI 读 avif、pdf 会得到乱码 | 浪费上下文，模型可能误判 | `site_info` 标出 `viewable`，技能文档要求不读；读工具拒绝二进制文件记为后续事项 |
 | base64 让请求体变大 | 10 MiB 文件约 13.3 MiB 请求 | 本机服务，可以接受；以后有需要再改成流式上传 |
 | 仓库体积增长 | 大量图片会让 git 仓库变大 | v1 只有单个文件上限；以后可以在设置里显示上传目录的总大小 |
 | 去掉位置信息后照片方向可能不对 | 竖拍的照片可能显示成横的 | 提示里说明；以后可以只删 GPS 字段、保留方向 |
 
 ## 9. 修订记录
+
+### v3.4（2026-11-16，按第二次复核修订）
+
+| # | 问题 | 改正 |
+|---|---|---|
+| 1 | 5.9 只拦漏带前缀的 `/uploads/...`，拦不住改 baseUrl 后的旧前缀；严格按 baseUrl 比较又会误报多语言模板网址 | 5.9 改为“引用能不能对上输出里的上传文件”：去掉当前 baseUrl 后路径存在就通过；文件名在根/语言 `uploads/` 里但路径对不上才报错。多语言 `/blog/zh-CN/uploads/...` 通过，`/uploads/...`、`/repo/uploads/...` 报错；`og:image`/`twitter:image` 不再扫描 |
+| 2 | “不新增错误码”和发布流程对不上 | 发布用 `finish("upload_prefix", { detail })`；`DeployOutcome` 加 `"upload_prefix"` 和中英文；预览 warning 放进 `BuildReport.messages` |
+| 3 | 清空说明会让现有恢复测试失败 | 明确选全部清空：恢复改动集第一次有对话加入时也清空说明，提交说明改用 `diffSummary` 或 AI 说明；现有 `changes.test.ts` 恢复用例和开发计划 7.4 同步 |
+| 4 | 第 1 层第 3、4 条未实测；front matter 旧前缀没写；部分应用后上传会追加已应用的文件 | 3.2/7.1 记录 2.2.3 的多语言和 `/uploads/` 内容路由实测结果；3.1 第 6 点写明 front matter 旧前缀也会失效；5.4 第 7 步写明 `Rest of: ` 开头时重写说明 |
+
+### v3.3（2026-11-15，审计后修订）
+
+按 2026-11-15 的文档审计和复核修订：
+
+| # | 问题 | 改正 |
+|---|---|---|
+| 1 | 子路径网站的引用写法没定；正文里写死 `/uploads/...` 在预览和发布两种构建下都坏 | 3.1 定下：正文、front matter、接口 `url` 用带 `site.baseUrl` 的网址；模板用 `{{ site.base_url }}/uploads/...`（starter 里可以用 `{{ base_url }}`）；接口 `url`、聊天提示、`site_info`、技能文档同步（3.1、4、5.1、5.6） |
+| 2 | 改 `site.baseUrl` 后旧引用会静默失效 | 3.1 第 6 点、5.7、5.9、8 节：部署设置和技能文档提醒；发布前检查 `/uploads/` 前缀，不一致就阻止发布；只查前缀，不查文件存在（v3.4 已改为核对输出里的 `uploads/` 文件，旧前缀也能拦住） |
+| 3 | 依据和第 1 层写的是 Bukit 2.0.15；“安装最新正式版”已过时 | 3.2、7.1 改为内置 2.2.3；第 1 层放进 `bukit-behavior.test.ts`；写明 Bukit 随应用固定版本发布、用户不能单独升级；删掉 16 第 7 条“决定是否只装固定版本”的过时说法 |
+| 4 | 上传说明会在 AI 没调用 `summarize_changes` 时变成提交信息；插件开关已有同样问题 | 5.4 第 7 步：上传只在 `aiJoined` 为假时维护说明；`begin` 第一次加入会话时清空已有说明；说明交给 AI，没写时用 `diffSummary`；恢复信息留在 `BukitJalil-Restore` |
+| 5 | 纯上传尾注的条件和文件数不对；作者规则漏了 `applyPartial` | 5.5：按“所有改动路径都在上传目录下”判断，部分应用只数选中的上传文件；`apply` 和 `applyPartial` 都用 `!aiJoined`；历史解析去掉尾注 |
+| 6 | 只差大小写的替换、快照失败回滚、`PathGate` 不查符号链接、`theme.static` 大小写没写 | 5.2、5.4、8 节：实际文件名备份/回滚；逐段符号链接检查；主题目录必须存在；`theme.static` 不区分大小写，缺失时用默认 `static`，显式空字符串拒绝 |
+| 7 | 去掉位置信息的 WebP 可能损坏；JPEG 扩展 XMP 没列进不检测 | 5.3：WebP RIFF 总长度和 padding；删除后必须仍能识别和解码；扩展 XMP 列进不检测 |
+| 8 | 类型、413、i18n、缩略图、before/after、`..` 的说明缺失或有误 | 5.2、5.7、7.2、7.4：`ImageMime` 加 avif、`apiError` 加 413、文案加齐；缩略图按扩展名/文件 JSON；before 只在 `main` 有时显示；`..` 只能作为名字的一部分 |
 
 ### v3.2（2026-11-12，和开发计划 v2.29 对齐）
 
