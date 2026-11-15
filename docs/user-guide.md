@@ -168,7 +168,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
      - **Windows**：DPAPI 只挡其他 Windows 用户，以及把文件拷到别的电脑；同一个用户运行的程序仍能解密。
      - **Linux**：钥匙串解锁后，同一个用户运行的程序都能读到。没有钥匙串服务时，BukitJalil 不保存 token 和密钥，设置页最上面会说明怎么处理。
      - **钥匙串里的密钥解不开时**（拒绝了访问、删了钥匙串项目、数据目录拷到了别的电脑），已保存的 token 和密钥暂时不能用；可以重新启动后在提示里点"允许"，或者在设置页最上面点"重置密钥"，再重新输入。
-     - 构建和发布时，token 通过标准输入交给 Bukit，不放进环境变量。只剩一处：发布推送时 Bukit 把 GitHub token 交给 git，git 运行的那段时间（几秒到几分钟，看网站大小）同一用户的程序能读到。所以发布账号最好用只给这个仓库 Contents 权限、设了过期时间的 fine-grained token。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密。
+     - 构建和发布时，token 通过标准输入交给 Bukit，不放进环境变量。发布推送时 GitHub token 也不进 git 的环境变量，由 Bukit 只给自己用的凭据代理直接交给 git。推送时不读你电脑上全局的 git 设置，需要代理时请设置 `HTTPS_PROXY` 环境变量；公司自签证书要装进系统证书库（macOS 是钥匙串）。发布账号仍建议用只给这个仓库 Contents 权限、设了过期时间的 fine-grained token。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密。
      - 用 `pnpm dev` 从源码运行时没有钥匙串，token 和密钥仍是权限 600 的明文文件，设置页会提示"开发模式"。
 4. 在网站主页的"发布"区点"部署设置"：选择发布账号，填写仓库（`owner/name`，例如 `alice/my-blog`），分支默认 `gh-pages`，有自定义域名再填。保存时会检查这个 token 对仓库是否有 Contents 写权限，并把 `deploy` 段、`site.url` 和 `site.baseUrl` 写进 `site.yaml`。没有自定义域名的项目站点，`site.baseUrl` 是 `/<仓库名>/`：之后的预览也会打开在这个路径下，和发布后的网址一致，模板或正文里漏写这个前缀的链接在预览里就会坏掉。`site.baseUrl` 只能用字母、数字和 `. _ ~ -`，以 `/` 分隔，否则预览构建会失败（结果为"site.baseUrl 不是可以用来预览的路径"）
 5. 在 GitHub 仓库的 Settings → Pages 里，把 Build and deployment 设为 Deploy from a branch，分支选 `gh-pages`（或你设置的分支）。第一次发布后这个分支才会出现
