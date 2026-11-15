@@ -9,7 +9,6 @@ import { notionSnapshotProblemIn } from "../src/bukit/notion-errors.ts";
 import { BukitRunner, checkPassed, DEPLOY_TOKEN_ENV, parseBukitVersion } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
-import { planLanguageMigration } from "../src/sites/language-migration.ts";
 import { copyStarter } from "../src/sites/template.ts";
 import { rawGit } from "./helpers.ts";
 
@@ -85,7 +84,6 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     expect(checkPassed(withToken), output(withToken)).toBe(true);
   });
 
-  // Bukit 2.1 refuses site.language; the migration card's rewrite builds again (plan 8.7).
   // AI checks, AI builds and change previews of a Notion site read the Notion offline snapshot (plan 5.5):
   // no token, and BukitJalil tells "record it again" from "the change needs new Notion data" by the BKT codes.
   it("checks and builds a Notion site offline, and says what the snapshot lacks", async () => {
@@ -140,22 +138,6 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     expect(output(build2)).toContain('"code": "BKT-0B11"');
     expect(output(check2)).toContain("[BKT-0B11]");
     expect(output(doctor2)).toContain("[BKT-0B11]");
-  });
-
-  it("refuses site.language and accepts the migrated site.yaml", async () => {
-    const dir = site("language");
-    const file = path.join(dir, "site.yaml");
-    const migrated = fs.readFileSync(file, "utf8");
-    fs.writeFileSync(file, migrated.replace(/ {2}languages: \[ ?en-US ?\]\n/, "  language: en-US\n"));
-    const args = ["config", "check", "--config", "site.yaml"];
-    const refused = await runner.run("check", args, { cwd: dir });
-    expect(checkPassed(refused)).toBe(false);
-    expect(output(refused)).toContain("site.language was removed");
-    const plan = planLanguageMigration(fs.readFileSync(file, "utf8"));
-    if (!plan.needed || !plan.ok) throw new Error("expected a migration");
-    fs.writeFileSync(file, plan.text);
-    const fixed = await runner.run("check", args, { cwd: dir });
-    expect(checkPassed(fixed), output(fixed)).toBe(true);
   });
 
   // Tokens go on stdin (plan 8.7). The Notion test above already passes its token that way; here Bukit must

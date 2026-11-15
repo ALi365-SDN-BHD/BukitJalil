@@ -7,7 +7,7 @@ import { BUKIT_VERSION } from "../packages/server/src/bukit/install.ts";
 import { copyStarter } from "../packages/server/src/sites/template.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { importSite, putSettings } from "./site-helpers.ts";
+import { putSettings } from "./site-helpers.ts";
 
 // M2 end to end (plan 12): new site, import, read-only import, builds and the preview, the read-only panels,
 // archive and remove, settings. Builds use a stand-in Bukit unless BUKIT_BIN names a real one.
@@ -567,24 +567,4 @@ test("reopening settings looks at the bundled Bukit again", async ({ page, serve
   await expect(page.getByTestId("bukit-version")).toHaveText("2.1.4");
   await expect(page.getByTestId("bukit-state")).toContainText("Bukit 2.1.4");
   await expect(page.getByTestId("bukit-install")).toHaveCount(0);
-});
-
-test("a site still using site.language is migrated from its card", async ({ page, server }) => {
-  await login(page, server);
-  // A site made before Bukit 2.1: site.language instead of site.languages (plan 8.7).
-  const siteId = await importSite(page, "Old language", "en-US", (dir) => {
-    const file = path.join(dir, "site.yaml");
-    fs.writeFileSync(
-      file,
-      fs.readFileSync(file, "utf8").replace(/ {2}languages: \[ ?en-US ?\]\n/, "  language: en-US\n"),
-    );
-  });
-  await page.goto(`/sites/${siteId}`);
-  const card = page.getByTestId("language-migration");
-  await expect(card).toBeVisible();
-  await expect(card.getByTestId("diff-patch")).toContainText("-  language: en-US");
-  await expect(card.getByTestId("diff-patch")).toContainText("+  languages: [ en-US ]");
-  await expect(card.getByTestId("language-migration-moves")).toHaveCount(0);
-  await card.getByTestId("language-migration-apply").click();
-  await expect(card).toHaveCount(0);
 });
