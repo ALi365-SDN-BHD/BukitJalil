@@ -1,10 +1,12 @@
 import type { ChangeView } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
+import { Download, Upload } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
+import { MediaUpload } from "@/features/media/MediaUpload";
 import { PanelError, PanelLoading } from "@/features/panels/common";
 import { useI18n } from "@/i18n";
-import { api, keys } from "@/lib/api";
+import { api, fileUrl, keys } from "@/lib/api";
 import { shortOid } from "@/lib/format";
 import { ChangedFileList } from "./ChangedFileList";
 import { FileDiffView } from "./FileDiffView";
@@ -30,9 +32,21 @@ export function ChangesPanel({ siteId }: { siteId: string }) {
     return (
       <div className="flex flex-1 flex-col gap-2 p-4">
         {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
-        <p className="text-sm text-muted-foreground" data-testid="changes-empty">
-          {change ? m.changes.noChanges : m.changes.none}
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm text-muted-foreground" data-testid="changes-empty">
+            {change ? m.changes.noChanges : m.changes.none}
+          </p>
+          <MediaUpload
+            siteId={siteId}
+            trigger={
+              <>
+                <Upload /> {m.media.upload}
+              </>
+            }
+            ariaLabel={m.media.upload}
+            size="xs"
+          />
+        </div>
       </div>
     );
   }
@@ -52,7 +66,19 @@ export function ChangesPanel({ siteId }: { siteId: string }) {
       <div className="flex shrink-0 flex-col gap-2 border-b p-3">
         {change.restoreOf && <RestoreNote commit={change.restoreOf} />}
         <NotionChangesNote changes={change.notionChanges} />
-        <p className="whitespace-pre-wrap text-sm">{change.summary?.trim() || m.changes.noSummary}</p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="whitespace-pre-wrap text-sm">{change.summary?.trim() || m.changes.noSummary}</p>
+          <MediaUpload
+            siteId={siteId}
+            trigger={
+              <>
+                <Upload /> {m.media.upload}
+              </>
+            }
+            ariaLabel={m.media.upload}
+            size="xs"
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
           {t(m.changes.files, { count: change.files.length })} ·{" "}
           {t(m.changes.base, { commit: shortOid(change.baseCommit) })}
@@ -85,7 +111,31 @@ export function ChangesPanel({ siteId }: { siteId: string }) {
 }
 
 function DiffView({ change, path }: { change: ChangeView; path: string }) {
+  const { m } = useI18n();
   const selection = useSelection(change);
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const image = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+  const pdf = ext === "pdf";
+  const preview = image ? (
+    <div className="flex max-h-80 shrink-0 items-center justify-center overflow-auto border-b bg-muted/20 p-3">
+      <img
+        src={fileUrl(change.siteId, "change", path, "raw")}
+        alt={path}
+        className="max-h-72 max-w-full object-contain"
+        data-testid="media-preview"
+      />
+    </div>
+  ) : pdf ? (
+    <div className="shrink-0 border-b p-3">
+      <a
+        className="inline-flex items-center gap-1 text-sm underline"
+        href={fileUrl(change.siteId, "change", path, "download")}
+        download
+      >
+        <Download className="size-4" /> {m.media.download}
+      </a>
+    </div>
+  ) : undefined;
   // Keyed by base and tree: after a partial apply the rest has the same tree and another diff.
   const diff = useQuery({
     queryKey: keys.changeDiff(change.id, `${change.baseCommit}:${change.treeHash}`, path),
@@ -101,5 +151,5 @@ function DiffView({ change, path }: { change: ChangeView; path: string }) {
           set: (i: number, on: boolean, total: number) => selection.setHunk(path, i, on, total),
         }
       : undefined;
-  return <FileDiffView path={path} diff={diff} hunks={hunks} />;
+  return <FileDiffView path={path} diff={diff} hunks={hunks} preview={preview} />;
 }

@@ -31,6 +31,19 @@ export function App() {
   useEffect(() => {
     if (appearance) setAppearance(appearance);
   }, [appearance]);
+  // A file dropped outside the upload area must not make the browser open it (the desktop app's
+  // will-navigate blocks the page change, but the drop still needs this).
+  useEffect(() => {
+    const prevent = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
+    };
+  }, []);
 
   return (
     <I18nProvider locale={locale}>

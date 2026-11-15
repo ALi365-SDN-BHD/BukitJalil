@@ -228,6 +228,7 @@ function DeploySettingsDialog({
             <span className="text-xs text-muted-foreground">{d.cnameHint}</span>
           </label>
           <p className="text-xs text-muted-foreground">{d.addressHint}</p>
+          <p className="text-xs text-muted-foreground">{d.mediaAddressHint}</p>
         </div>
         {save.error && (
           <p role="alert" className="text-xs text-destructive">

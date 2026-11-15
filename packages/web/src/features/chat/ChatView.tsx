@@ -1,10 +1,11 @@
 import type { ErrorCode, SessionInfo, Site } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitFork, Loader2, Send, Square } from "lucide-react";
-import { type KeyboardEvent, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { GitFork, Loader2, Paperclip, Send, Square } from "lucide-react";
+import { type KeyboardEvent, memo, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { ReviewCard } from "@/features/changes/ReviewCard";
+import { MediaUpload, type MediaUploadHandle } from "@/features/media/MediaUpload";
 import { MarkdownView } from "@/features/panels/MarkdownView";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
@@ -27,6 +28,7 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
     enabled: !deleted,
   });
   const live = useLive(sessionId);
+  const uploader = useRef<MediaUploadHandle>(null);
 
   // Deleted here or in another tab: back to the site home.
   useEffect(() => {
@@ -74,7 +76,16 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
   const { session } = detail.data;
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="chat-view">
+    <section
+      className="flex h-full min-h-0 flex-col"
+      data-testid="chat-view"
+      aria-label={m.conversation.title}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length > 0) uploader.current?.addFiles(e.dataTransfer.files);
+      }}
+    >
       <MessageList
         site={site}
         session={session}
@@ -85,8 +96,8 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
         summary={summary}
       />
       <ReviewCard siteId={site.id} />
-      <Composer site={site} session={session} />
-    </div>
+      <Composer site={site} session={session} uploader={uploader} />
+    </section>
   );
 }
 
@@ -261,8 +272,16 @@ function AssistantMessage({ item }: { item: Extract<ChatItem, { kind: "assistant
  * The input (plan 10.1). Idle: Enter sends. While the session runs, a message is added to the run right
  * away (steer) or after it (follow-up), and the run can be stopped.
  */
-function Composer({ site, session }: { site: Site; session: SessionInfo }) {
-  const { m, errorOf } = useI18n();
+function Composer({
+  site,
+  session,
+  uploader,
+}: {
+  site: Site;
+  session: SessionInfo;
+  uploader: RefObject<MediaUploadHandle | null>;
+}) {
+  const { m, t, errorOf } = useI18n();
   const [text, setText] = useState(() => takeComposerDraft(session.id) ?? "");
   const [failedText, setFailedText] = useState<string | null>(null);
   const textRef = useRef(text);
@@ -363,6 +382,24 @@ function Composer({ site, session }: { site: Site; session: SessionInfo }) {
               </p>
             )}
             <div className="ml-auto flex items-center gap-2">
+              <MediaUpload
+                ref={uploader}
+                siteId={site.id}
+                disabled={session.status !== "idle"}
+                disabledReason={m.media.busy}
+                trigger={<Paperclip />}
+                ariaLabel={m.media.upload}
+                size="icon-sm"
+                variant="ghost"
+                onUploaded={(result, file) => {
+                  const line = t(m.media.uploadedLine, { name: file.name, url: result.url });
+                  setText((current) => {
+                    const next = current.trim() === "" ? line : `${current}\n${line}`;
+                    textRef.current = next;
+                    return next;
+                  });
+                }}
+              />
               {session.status !== "idle" && (
                 <Button
                   type="button"

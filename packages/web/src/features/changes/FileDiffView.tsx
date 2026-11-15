@@ -18,10 +18,12 @@ export function FileDiffView({
   path,
   diff,
   hunks,
+  preview,
 }: {
   path: string;
   diff: UseQueryResult<FileDiff>;
   hunks?: HunkChoice;
+  preview?: React.ReactNode;
 }) {
   const { m } = useI18n();
   const header = (
@@ -51,6 +53,7 @@ export function FileDiffView({
   return (
     <>
       {header}
+      {preview}
       {body}
     </>
   );

@@ -31,6 +31,8 @@ import {
   type HistoryResponse,
   type ImportInspection,
   type ImportSiteRequest,
+  type MediaUploadRequest,
+  type MediaUploadResult,
   type ModelsResponse,
   type NotionDatabasesResponse,
   type NotionSourceSchema,
@@ -162,6 +164,7 @@ export const api = {
 
   sessions: (siteId: string) => request<SessionInfo[]>(`/sites/${siteId}/sessions`),
   createSession: (siteId: string) => post<SessionInfo>(`/sites/${siteId}/sessions`),
+  uploadMedia: (siteId: string, req: MediaUploadRequest) => post<MediaUploadResult>(`/sites/${siteId}/media`, req),
   deployStatus: (siteId: string) => request<DeployStatusResponse>(`/sites/${siteId}/deploy`),
   saveDeployConfig: (siteId: string, req: DeployConfigRequest) =>
     request<DeployStatusResponse>(`/sites/${siteId}/deploy`, { method: "PUT", body: JSON.stringify(req) }),
