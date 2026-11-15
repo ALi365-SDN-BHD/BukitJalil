@@ -12,6 +12,10 @@ import { commitAllAs, installAppBukit, makeApp, rawGit, testBukitDir } from "./h
 
 const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 let base: string;
 let calls: string;
@@ -414,6 +418,37 @@ describe("site_info, list_content, summarize_changes", () => {
     });
     fs.writeFileSync(yaml, "site: [unclosed");
     expect((await call(tools.site_info)).value).toMatchObject({ error: expect.any(String) });
+  });
+
+  it("lists uploaded media with baseUrl URLs and viewable flags", async () => {
+    const { tools, cwd } = await setup();
+    const yaml = path.join(cwd, "site.yaml");
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog/"));
+    const dir = path.join(cwd, "themes/starter/static/uploads");
+    fs.mkdirSync(path.join(dir, "sub"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "logo.png"), PNG);
+    fs.writeFileSync(path.join(dir, "doc.pdf"), "%PDF-1.7\n");
+    fs.writeFileSync(path.join(dir, ".hidden.png"), PNG);
+    if (process.platform !== "win32") fs.symlinkSync(path.join(dir, "logo.png"), path.join(dir, "link.png"));
+
+    const info = (await call(tools.site_info)).value as { media: { dir: string; files: unknown[] } };
+    expect(info.media.dir).toBe("themes/starter/static/uploads");
+    expect(info.media.files).toEqual([
+      {
+        name: "doc.pdf",
+        size: 9,
+        mime: "application/pdf",
+        url: "/blog/uploads/doc.pdf",
+        viewable: false,
+      },
+      {
+        name: "logo.png",
+        size: PNG.length,
+        mime: "image/png",
+        url: "/blog/uploads/logo.png",
+        viewable: true,
+      },
+    ]);
   });
 
   it("refuses a site.yaml that links outside the working copy", async () => {

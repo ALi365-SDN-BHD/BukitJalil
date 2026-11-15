@@ -3,8 +3,11 @@ import path from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { auditText } from "../builds/audit.ts";
 import { isRecord, pathProblem } from "../bukit/guard.ts";
+import { mediaDir, mediaUrl } from "../media/dir.ts";
+import { sniffMedia } from "../media/sniff.ts";
 import { summarizeConfig } from "../panels/service.ts";
 import { parseFrontMatter, parseYaml } from "../panels/yaml.ts";
+import { SiteError } from "../sites/location.ts";
 import { type AiBukit, type BuildResult, type CheckResult, type NotionNote, notionNoteText } from "./ai-bukit.ts";
 import { GateError, type PathGate, segmentKey } from "./gate.ts";
 
@@ -67,11 +70,12 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       name: "site_info",
       label: "Site info",
       description:
-        "Summary of site.yaml in the working copy: site title, URL, languages, collections, content sources, theme, plugins.",
+        "Summary of site.yaml in the working copy: site title, URL, languages, collections, content sources, theme, plugins, and the uploaded media files.",
       parameters: object({}),
       async execute() {
         const { config, error } = readConfig();
-        return json(config ? summarizeConfig(config) : { error });
+        if (!config) return json({ error, media: { error } });
+        return json({ ...summarizeConfig(config), media: mediaInfo(config, cwd) });
       },
     },
     {
@@ -193,6 +197,60 @@ export function schemaText(schema: unknown, section?: string): string {
   if (out.length <= MAX_SCHEMA_CHARS) return out;
   const sections = isRecord(value) && isRecord(value.properties) ? Object.keys(value.properties).join(", ") : "";
   return `${out.slice(0, MAX_SCHEMA_CHARS)}\n…[cut at ${MAX_SCHEMA_CHARS} characters${sections ? `; ask for one section: ${sections}` : ""}]`;
+}
+
+/** Uploaded files in the theme's static/uploads directory, for the model to reference (design 4.6). */
+function mediaInfo(config: Record<string, unknown>, cwd: string) {
+  const baseUrl = isRecord(config.site) ? config.site.baseUrl : undefined;
+  let dir: string;
+  try {
+    dir = mediaDir(cwd, config);
+  } catch (err) {
+    return { error: err instanceof SiteError ? err.code : String(err) };
+  }
+  const files: { name: string; size: number; mime: string; url: string; viewable: boolean }[] = [];
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { dir: path.relative(cwd, dir).split(path.sep).join("/"), files };
+    }
+    return { error: String(err) };
+  }
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  for (const entry of entries) {
+    if (files.length >= 200) break;
+    if (entry.name.startsWith(".") || !entry.isFile() || entry.isSymbolicLink()) continue;
+    const abs = path.join(dir, entry.name);
+    const stat = fs.lstatSync(abs, { throwIfNoEntry: false });
+    if (!stat?.isFile()) continue;
+    const head = readHead(abs, 16);
+    const mime = head ? sniffMedia(head) : null;
+    files.push({
+      name: entry.name,
+      size: stat.size,
+      mime: mime ?? "application/octet-stream",
+      url: mediaUrl(baseUrl, entry.name),
+      viewable: mime === "image/png" || mime === "image/jpeg" || mime === "image/gif" || mime === "image/webp",
+    });
+  }
+  return { dir: path.relative(cwd, dir).split(path.sep).join("/"), files };
+}
+
+function readHead(file: string, bytes: number): Buffer | null {
+  try {
+    const fd = fs.openSync(file, "r");
+    try {
+      const buffer = Buffer.alloc(bytes);
+      const read = fs.readSync(fd, buffer, 0, bytes, 0);
+      return buffer.subarray(0, read);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
 }
 
 interface ContentFile {

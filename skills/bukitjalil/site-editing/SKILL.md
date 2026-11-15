@@ -34,11 +34,29 @@ files with their front matter; `read`, `ls`, `find`, `grep`, `edit` and
 - You cannot write `.git`, `dist`, `.bukit`, `.cache`, `.bukitjalil-build`,
   `plugins/`, `node_modules`, `plugin.yaml`, `plugin.json` or `.env*` files.
 - You can only write text files up to 1 MB. Images and other binary files are
-  added by the user.
+  added by the user; never create them yourself.
 - Do not ignore new files in `.gitignore`: ignored files block `bukit_check`
   and `bukit_build`.
 - Keep paths in `site.yaml` relative and inside the site, and do not set
   `content.media.blockPrivateNetworks: false`; the safety check refuses both.
+
+## Uploaded images and files
+
+The user can upload images and PDFs into the current theme's `static/uploads/`.
+`site_info` returns them under `media.files`; use the exact names it gives you.
+
+- In Markdown and front matter, use each file's `url` as returned by `site_info`
+  (it already includes `site.baseUrl`).
+- In a theme template, use `{{ site.base_url }}/uploads/<file name>`; the starter
+  also defines `base_url`, so `{{ base_url }}/uploads/<file name>` works there.
+  Do not append a base URL to a `url` that already has one.
+- Write meaningful `alt` text for images. A wrong file name still builds, but
+  the page shows a broken image; use the name from `site_info` instead of guessing.
+- Do not move, rename or delete files in `static/uploads/`. If the user changes
+  the theme or `site.baseUrl`, warn them that existing media links may stop
+  working before making the change.
+- Do not open a file whose `viewable` field is false (for example a PDF) with the
+  read tool. Ask the user to upload an image when one is missing.
 
 ## Steps
 
