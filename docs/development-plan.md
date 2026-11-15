@@ -1793,10 +1793,10 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 4. **多会话并发改同一网站**：MVP 限制一个 open 改动集，是否够用？
 5. ~~**界面语言**~~：已确定做多语言，MVP 提供简体中文和英文（10.1）
 6. **默认主题的外观**：MVP 已确定从 Bukit 源码复制 StarterTheme 作为起点（5.2、M2）；是否在此基础上做一套更好看的默认主题，可以放到 MVP 之后决定
-7. **Bukit 安装的信任模型**（2026-11-12 审计发现）：**已被取代（2026-11-13）**：Bukit 改为随 BukitJalil 发布，代码里固定版本和 SHA-256，不再安装最新正式版（见 8.1 现行设计）；行为测试和每日 CI 保留。下面是之前的决定，保留作为记录。~~待定~~ **已决定（2026-11-13）；已实施（2026-11-13）**：继续安装 GitHub 上的最新正式版（校验值用 GitHub API 返回的摘要，8.1），同时加两层保护：
+7. **Bukit 安装的信任模型**（2026-11-12 审计发现）：**现行决定（2026-11-13 定，2026-11-15 再次确认）**：Bukit 随 BukitJalil 发布，代码里固定版本（`BUKIT_VERSION`）和三个安装包的 SHA-256，打进安装包；用户不能单独安装或升级 Bukit，升级 Bukit 就是发新版 BukitJalil（见 8.1 现行设计）。行为测试和每日 CI 保留，用来提前发现新版 Bukit 的变化。下面是之前的决定，**已作废**，只作为记录。~~待定~~ **已决定（2026-11-13）；已实施（2026-11-13）**：继续安装 GitHub 上的最新正式版（校验值用 GitHub API 返回的摘要，8.1），同时加两层保护：
    - 代码里的最低版本 `MIN_BUKIT_VERSION` 跟着依赖走：BukitJalil 一开始依赖 Bukit 的某个新行为（Notion 离线快照、正文链接补 baseUrl、主题静态目录原样复制等），就把最低版本升到第一个有这个行为的版本，低于它的 Bukit 不用。
    - CI 定期（每天一次，加上手动触发）下载真实的最新 Bukit，跑一组行为测试，只测 BukitJalil 依赖的行为：`config check` 遇到 Notion 源只要求 token 存在、`deploy --skip-build` 不校验数据源密钥、主题 `static/` 原样复制到输出根目录、`--base-url` 覆盖等。失败时说明 Bukit 的行为变了，要先核对再决定改 BukitJalil 还是改 Bukit。
-   - 不恢复"代码里固定版本和 SHA-256"：Bukit 是自己的仓库，修复不应该等 BukitJalil 发版才能用上。
+   - ~~不恢复"代码里固定版本和 SHA-256"：Bukit 是自己的仓库，修复不应该等 BukitJalil 发版才能用上。~~（作废：现在恰恰是固定版本和 SHA-256，见上面的现行决定）
    - 实施结果：
      - 行为测试在 `packages/server/test/bukit-behavior.test.ts`，有 `BUKIT_BIN` 时运行，共 4 项：版本不低于 `MIN_BUKIT_VERSION`；有 Notion 源时 `config check` 没有 `NOTION_TOKEN` 就失败，给一个占位值就通过（不联网）；`build --base-url /docs/` 覆盖 `site.yaml` 里的 `/`，链接和样式都带前缀，主题 `static/robots.txt` 原样复制到输出根目录；有 Notion 源、没有 token 时 `deploy --skip-build` 照样推送成功（推到本地裸仓库，git 包装脚本和发布测试相同）
      - 普通 CI 的真实 Bukit 任务（内置版本 2.0.15）随 `pnpm test` 跑这组测试；新的 `.github/workflows/bukit-latest.yml` 每天 03:17 UTC 和手动触发时，用 `scripts/fetch-bukit.ts --latest` 取最新正式版（拿不到 GitHub 的发布信息就失败，不退回内置版本；`GITHUB_TOKEN` 只发给 api.github.com，用来提高限额），设 `BUKIT_BEHAVIOUR_REQUIRED=1` 让缺少 Bukit 时直接失败而不是全部跳过
