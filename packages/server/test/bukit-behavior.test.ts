@@ -10,7 +10,7 @@ import { BukitRunner, checkPassed, DEPLOY_TOKEN_ENV, parseBukitVersion } from ".
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
 import { copyStarter } from "../src/sites/template.ts";
-import { rawGit } from "./helpers.ts";
+import { commitAllAs, rawGit } from "./helpers.ts";
 
 /**
  * The Bukit behaviour BukitJalil relies on (plan 16 #7), run against a real Bukit: CI runs it with the pinned
@@ -63,6 +63,32 @@ function addNotionSource(dir: string, extra = ""): void {
 }
 
 const output = (r: { stdout: string; stderr: string }) => `${r.stdout}\n${r.stderr}`;
+
+/** A 1x1 PNG: the upload tests only need bytes that are copied, not a decoded image. */
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+/** Add themes/starter/static/uploads/a.png; returns its path. */
+function addUpload(dir: string): string {
+  const file = path.join(dir, "themes/starter/static/uploads/a.png");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, PNG);
+  return file;
+}
+/** Replace site.baseUrl in the starter's site.yaml. */
+function setBaseUrl(dir: string, baseUrl: string): void {
+  const file = path.join(dir, "site.yaml");
+  const text = fs.readFileSync(file, "utf8");
+  if (!text.includes("baseUrl: /")) throw new Error("starter site.yaml has no baseUrl");
+  fs.writeFileSync(file, text.replace("baseUrl: /", `baseUrl: ${baseUrl}`));
+}
+/** Build the site into a subdirectory and return the run result. */
+function build(dir: string, out: string, extra: readonly string[] = []) {
+  return runner.run("build", ["build", "--config", "site.yaml", "--output", out, "--log-format", "json", ...extra], {
+    cwd: dir,
+  });
+}
 
 describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
   it(`is at least ${MIN_BUKIT_VERSION}`, async () => {
@@ -173,6 +199,72 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     expect(fs.readFileSync(path.join(out, "robots.txt"), "utf8")).toBe(
       fs.readFileSync(path.join(STARTER, "themes/starter/static/robots.txt"), "utf8"),
     );
+  });
+
+  // Material uploads live in the theme's static/ tree: Bukit copies it as is, whether or not a page uses it.
+  it("copies theme static uploads even when nothing references them", async () => {
+    const dir = site("upload-copy");
+    const file = addUpload(dir);
+    const result = await build(dir, "out");
+    expect(result.exitCode, output(result)).toBe(0);
+    const copied = fs.readFileSync(path.join(dir, "out/uploads/a.png"));
+    expect(copied.equals(fs.readFileSync(file))).toBe(true);
+  });
+
+  // BukitJalil's upload URL contains site.baseUrl. Bukit does not rewrite root paths in Markdown, so only
+  // the prefixed form works on a sub-path site; templates get the prefix from site.base_url.
+  it("keeps root-relative upload links and resolves baseUrl-prefixed links", async () => {
+    const dir = site("upload-base-url");
+    addUpload(dir);
+    setBaseUrl(dir, "/blog/");
+    fs.appendFileSync(
+      path.join(dir, "content/pages/about.md"),
+      "\n![raw](/uploads/a.png)\n![prefixed](/blog/uploads/a.png)\n",
+    );
+    const layout = path.join(dir, "themes/starter/layouts/layouts/base.html");
+    const layoutText = fs.readFileSync(layout, "utf8");
+    const stylesheet = '<link rel="stylesheet" href="{{ base_url }}/assets/style.css" />';
+    if (!layoutText.includes(stylesheet)) throw new Error("starter base layout has no stylesheet link");
+    fs.writeFileSync(
+      layout,
+      layoutText.replace(stylesheet, `${stylesheet}\n  <link rel="icon" href="{{ base_url }}/uploads/a.png" />`),
+    );
+
+    for (const [out, extra] of [
+      ["out-preview", ["--base-url", "/blog/"]],
+      ["out-publish", []],
+    ] as const) {
+      const result = await build(dir, out, extra);
+      expect(result.exitCode, output(result)).toBe(0);
+      const html = fs.readFileSync(path.join(dir, out, "pages/about/index.html"), "utf8");
+      expect(html).toContain('src="/uploads/a.png"');
+      expect(html).toContain('src="/blog/uploads/a.png"');
+      expect(html).toContain('href="/blog/uploads/a.png"');
+    }
+  });
+
+  // Multilingual builds copy the theme's static/ tree to the root and to each language directory, so a
+  // template using site.base_url with a language prefix still finds the file (design 6.1 item 3).
+  it("copies theme static uploads to the root and language directories", async () => {
+    const dir = site("upload-i18n");
+    addUpload(dir);
+    const yaml = path.join(dir, "site.yaml");
+    const text = fs.readFileSync(yaml, "utf8");
+    if (!/languages:\s*\[[^\]]*\]/.test(text)) throw new Error("starter site.yaml has no languages");
+    fs.writeFileSync(
+      yaml,
+      text.replace(/languages:\s*\[[^\]]*\]/, "languages: [en-US, zh-CN]\n  defaultLanguage: en-US"),
+    );
+    fs.writeFileSync(path.join(dir, ".gitignore"), "out/\n");
+    rawGit(base, dir, "init", "-q");
+    commitAllAs(base, dir);
+
+    const result = await build(dir, "out");
+    expect(result.exitCode, output(result)).toBe(0);
+    const root = fs.readFileSync(path.join(dir, "out/uploads/a.png"));
+    const zh = fs.readFileSync(path.join(dir, "out/zh-CN/uploads/a.png"));
+    expect(root.equals(PNG)).toBe(true);
+    expect(zh.equals(PNG)).toBe(true);
   });
 
   // Publishing builds with the token, then deploys the audited folder with `deploy --skip-build`, which does
