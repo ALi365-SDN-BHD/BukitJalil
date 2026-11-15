@@ -10,6 +10,8 @@ export function hasJpegLocation(data: Buffer): boolean {
       offset++;
       continue;
     }
+    while (data[offset + 1] === 0xff) offset++; // fill bytes before a marker
+    if (offset + 4 > data.length) break;
     const marker = data[offset + 1] ?? 0;
     if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
       offset += 2;
@@ -26,7 +28,7 @@ export function hasJpegLocation(data: Buffer): boolean {
         if (tiffHasGps(payload.subarray(6))) return true;
       } else if (payload.subarray(0, 29).toString("latin1") === "http://ns.adobe.com/xap/1.0/\0") {
         const xml = payload.subarray(29).toString("utf8");
-        if (xml.includes("exif:GPSLatitude") || xml.includes("GPSLatitude")) return true;
+        if (xml.includes("GPSLatitude")) return true;
       }
     }
     offset = end;

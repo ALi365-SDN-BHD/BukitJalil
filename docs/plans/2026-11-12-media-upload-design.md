@@ -29,7 +29,7 @@
 | 正文、front matter 里的写法 | 用上面拼好的网址，也就是接口和 `site_info` 返回的 `url` |
 | 主题模板里的写法 | `{{ site.base_url }}/uploads/<文件名>`；starter 里写 `{{ base_url }}/uploads/<文件名>`。不要把已经带前缀的 `url` 再拼一次 |
 
-`theme.name` 和 `theme.static` 从改动集快照里的 `site.yaml` 读取，规则和 Bukit 的 `BuildPathUtils` 一致：比较时不区分大小写，但不去空格，也不去掉末尾的 `/`。所以 `static/` 不算默认值，按网站根目录下的 `static/` 解析。
+`theme.name` 和 `theme.static` 从改动集快照里的 `site.yaml` 读取，规则和 Bukit 的 `BuildPathUtils` 一致：比较时不区分大小写，但不去空格，也不去掉末尾的 `/`。所以 `static/` 不算默认值，按网站根目录下的 `static/` 解析。`site.baseUrl` 从默认分支的 `site.yaml` 读取（部署设置直接提交到默认分支），否则改动集开着时改了部署设置，返回的网址会落在旧前缀下。
 
 不能直接写 `/uploads/...`：部署设置会自动把 GitHub Pages 项目站点的 `site.baseUrl` 设成 `/<仓库名>/`，而 Bukit 不改写正文里的根路径，这样写在预览和发布时都是坏图。
 
@@ -117,12 +117,12 @@ X-BukitJalil: 1
 
 1. 做 NFKC 规范化，转小写；扩展名 `jpeg` 统一成 `jpg`。
 2. 主名里不属于 `a-z0-9._-` 的字符换成 `-`，合并连续的 `-`，去掉首尾的 `-` 和 `.`，最长 80 个字符。
-3. 整理后主名为空时（例如全是中文），改用 `upload-<YYYYMMDD>-<4 位十六进制>`。
-4. 主名是 Windows 保留名（`con`、`prn`、`aux`、`nul`、`com1`–`9`、`lpt1`–`9`）时，在后面加 `-file`。
+3. 整理后主名为空时（例如全是中文），改用 `upload-<YYYYMMDD>-<8 位十六进制>`。
+4. 主名第一个点之前的部分是 Windows 保留名（`con`、`prn`、`aux`、`nul`、`com1`–`9`、`lpt1`–`9`；`CON.tar.png` 按 `con` 算）时，在后面加 `-file`。
 
 整理后的名字只含 `a-z0-9._-`，不会出现目录分隔符，也不会是空名字。`..` 只能出现在名字中间，构不成路径。
 
-例子：`Logo 最终版.PNG` 整理成 `logo.png`，`首页横幅.jpeg` 整理成 `upload-20261112-a3f9.jpg`，`CON.png` 整理成 `con-file.png`。
+例子：`Logo 最终版.PNG` 整理成 `logo.png`，`首页横幅.jpeg` 整理成 `upload-20261112-a3f9c1d2.jpg`，`CON.png` 整理成 `con-file.png`。
 
 ### 4.3 写入流程（`MediaService.upload`）
 
@@ -154,7 +154,7 @@ X-BukitJalil: 1
 
 手机照片常常带拍摄地点，发布后谁都能看到。v1 只检测和提示，不改用户的文件。
 
-- **检测**：只看 JPEG 的 APP1 段，包括 EXIF 的 GPS IFD（tag `0x8825`）和标准 XMP 包里的 `exif:GPSLatitude`。只解析元数据，不解码图片。
+- **检测**：只看 JPEG 的 APP1 段，包括 EXIF 的 GPS IFD（tag `0x8825`）和标准 XMP 包里的 `GPSLatitude`（`exif:GPSLatitude` 也包含它）。标记前允许有任意个 `0xFF` 填充字节。只解析元数据，不解码图片。
 - **不检测**：PNG、WebP、GIF、PDF，以及 JPEG 的扩展 XMP 分段。使用说明里提醒这些情况。
 - **提示**：`location` 为真时，在文件旁边显示"这张照片带有拍摄位置，发布后所有人都能看到。不想公开的话，请先用相册或其他工具去掉位置信息，再上传替换"。文件照常写入，审核时可以拒绝。
 
@@ -178,10 +178,11 @@ X-BukitJalil: 1
 
 - **上传组件**：
   - 使用 `<input type="file" multiple>` 加拖放区域。
-  - 按队列逐个上传，每个文件显示"上传中"、结果和错误，失败的可以重试。
+  - 按队列逐个上传，每个文件显示"等待中"、"上传中"、结果和错误，失败的可以重试。
+  - 网站被别的操作锁住（`site.busy`）时，当前文件报错、队列暂停，其余文件保持"等待中"；点一次重试就从停下的位置继续。
   - 超过 10 MiB 或扩展名不对的文件，在浏览器里直接拦下。
-- **重名**：询问"替换 / 跳过"。选替换时带 `replace: true` 重新上传。
-- **改动面板**：选中图片时，用现有的 `GET /api/sites/:siteId/file?ref=change&path=…&as=raw` 显示预览（已有 CSP 沙盒和 `nosniff`）。PDF 用现有的 `as=download` 下载。
+- **重名**：询问"替换 / 跳过"，对话框显示服务器返回的已有文件名（不是这次上传的原始名字）。选替换时带 `replace: true` 重新上传。
+- **改动面板**：选中图片时，用现有的 `GET /api/sites/:siteId/file?ref=change&path=…&as=raw` 显示预览（已有 CSP 沙盒和 `nosniff`）。PDF 用现有的 `as=download` 下载。已删除的文件不显示预览。
 - **部署设置表单**：在 `site.baseUrl` 下加固定提示："上传素材的网址包含这个路径，修改后正文里已有的素材引用会失效。"
 - **桌面版**：页面在整个窗口的 `dragover` 和 `drop` 上调用 `preventDefault`。主进程的 `will-navigate` 已经能拦住"拖进来的文件被当成页面打开"。
 - 新文案和新错误码都要有中英文两份。
@@ -195,7 +196,7 @@ X-BukitJalil: 1
 文件内容、文件名、目录、写入和审核的安全规则见 4.1–4.5、4.8。另外两点：
 
 - **跨站伪造上传**：沿用 `/api` 的全部规则，包括会话 Cookie、精确的 Origin、JSON 和自定义请求头。
-- **Git LFS 仓库**：这类网站已经整体只读，上传返回 `site.read_only`。
+- **Git LFS 仓库**：这类网站已经整体只读，上传返回 `site.read_only`；界面上的上传入口同时禁用。
 
 ## 6. 实施计划
 
@@ -227,11 +228,11 @@ X-BukitJalil: 1
 - `api/media.ts`：路由，挂 14 MiB 的 `bodyLimit`。
 - `test/media.test.ts`：
   - 5 种格式各上传一次；SVG、HTML、改了扩展名的文件、空文件、10 MiB + 1 字节、非法 base64 都被拒绝；格式不对的上传不会新建改动集。
-  - 文件名整理：中文、只差大小写、`..`、`/`、`\`、NUL、没有扩展名、`con.png`；整理两次结果不变。
+  - 文件名整理：中文、只差大小写、`..`、`/`、`\`、NUL、没有扩展名、`con.png`、`con.tar.png`；生成名有 8 位十六进制；整理两次结果不变。
   - 上传目录：`theme.static` 缺失、`static`、`Static`、`static/`、自定义值、空字符串；`theme.name` 带 `..`；主题目录不存在；`site.yaml` 解析不了；目录被忽略、在受保护路径下、经过符号链接、路径上有 `.env*`。
-  - 新建和加入改动集；重名返回 409；`replace` 生效；只差大小写的替换在 Linux 上只留一个文件；快照失败时新文件被删除、旧文件恢复；本次新建的改动集在失败时关闭。
+  - 新建和加入改动集；重名返回 409；`replace` 生效；只差大小写的替换落盘名和接口返回的 `path` 一致；`site.baseUrl` 从默认分支读取；快照失败时新文件被删除、旧文件恢复；本次新建的改动集在失败时关闭。
   - 对话运行中、有消息排队、网站只读、网站被锁住时都拒绝。
-  - JPEG 位置信息：EXIF GPS 和 XMP 都能检测到；没有位置信息、扩展 XMP 和非 JPEG 都返回 `location: false`；写入的文件和上传的字节完全相同。样本由脚本生成，不用真实照片。
+  - JPEG 位置信息：EXIF GPS 和 XMP 都能检测到，标记前有 `0xFF` 填充字节也能；没有位置信息、扩展 XMP 和非 JPEG 都返回 `location: false`；写入的文件和上传的字节完全相同。样本由脚本生成，不用真实照片。
   - 只有上传的改动集应用后，作者是用户，说明来自 `diffSummary`；拒绝后网站文件夹里没有这些文件。
   - 请求体超限返回 413；13.3 MiB 的请求能收下。
 

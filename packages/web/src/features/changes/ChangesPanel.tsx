@@ -17,7 +17,7 @@ import { type Notice, NoticeView, ReviewActions } from "./ReviewActions";
 import { canPick, reviewKey, useSelection } from "./selection";
 
 /** The "Changes" panel (plan 10.2): the open change set's files and one file's diff at a time. */
-export function ChangesPanel({ siteId }: { siteId: string }) {
+export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: boolean }) {
   const { m, t } = useI18n();
   const current = useCurrentChange(siteId);
   const [params, setParams] = useSearchParams();
@@ -38,6 +38,8 @@ export function ChangesPanel({ siteId }: { siteId: string }) {
           </p>
           <MediaUpload
             siteId={siteId}
+            disabled={readOnly}
+            disabledReason={m.conversation.readOnlyHint}
             trigger={
               <>
                 <Upload /> {m.media.upload}
@@ -70,6 +72,8 @@ export function ChangesPanel({ siteId }: { siteId: string }) {
           <p className="whitespace-pre-wrap text-sm">{change.summary?.trim() || m.changes.noSummary}</p>
           <MediaUpload
             siteId={siteId}
+            disabled={readOnly}
+            disabledReason={m.conversation.readOnlyHint}
             trigger={
               <>
                 <Upload /> {m.media.upload}
@@ -114,8 +118,10 @@ function DiffView({ change, path }: { change: ChangeView; path: string }) {
   const { m } = useI18n();
   const selection = useSelection(change);
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  const image = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
-  const pdf = ext === "pdf";
+  // A deleted file has no bytes in the change's tree, so its preview would be a broken image or link.
+  const present = change.files.find((f) => f.path === path)?.status !== "deleted";
+  const image = present && ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+  const pdf = present && ext === "pdf";
   const preview = image ? (
     <div className="flex max-h-80 shrink-0 items-center justify-center overflow-auto border-b bg-muted/20 p-3">
       <img

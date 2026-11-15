@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { segmentKey } from "../agent/gate.ts";
 import { isRecord } from "../bukit/guard.ts";
-import { BUILD_DIRS } from "../sites/exclude.ts";
 import { SiteError } from "../sites/location.ts";
 
 const within = (p: string, base: string) => p === base || p.startsWith(base + path.sep);
@@ -53,14 +52,8 @@ export function assertNoSymlinks(cwd: string, target: string): void {
   }
 }
 
-/** The same protected-path rules as the AI gate, including .env at every level (design 4.2 #8). */
+/** The one rule PathGate's write check does not cover: .env at every level (design 4.2 #8). */
 export function assertSafePath(cwd: string, target: string): void {
   const parts = path.relative(cwd, target).split(path.sep).filter(Boolean);
-  const keys = parts.map(segmentKey);
-  if (keys[0] !== undefined && (BUILD_DIRS.some((d) => segmentKey(d) === keys[0]) || keys[0] === "plugins")) {
-    throw unsafe();
-  }
-  if (keys.includes("node_modules") || keys.includes(".git") || keys.some((key) => key.startsWith(".env"))) {
-    throw unsafe();
-  }
+  if (parts.map(segmentKey).some((key) => key.startsWith(".env"))) throw unsafe();
 }

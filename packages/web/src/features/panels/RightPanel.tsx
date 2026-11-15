@@ -62,7 +62,7 @@ export function RightPanel({ siteId, readOnly }: { siteId: string | null; readOn
   else if (tab === "theme") body = <ThemePanel siteId={siteId} />;
   else if (tab === "data") body = <DataPanel siteId={siteId} />;
   else if (tab === "seo") body = <SeoPanel siteId={siteId} readOnly={readOnly} />;
-  else body = <ChangesPanel siteId={siteId} />;
+  else body = <ChangesPanel siteId={siteId} readOnly={readOnly} />;
 
   return (
     <>

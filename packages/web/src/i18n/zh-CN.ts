@@ -261,6 +261,7 @@ const zhCN = {
     upload: "上传素材",
     uploadHint: "图片或 PDF，单个不超过 10 MiB",
     dropHint: "拖到这里上传",
+    waiting: "等待中",
     uploading: "上传中",
     uploaded: "已上传",
     uploadedLine: "已上传 {name}（{url}）",

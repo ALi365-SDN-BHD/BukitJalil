@@ -270,6 +270,7 @@ const en: Messages = {
     upload: "Upload media",
     uploadHint: "Images or PDF, up to 10 MiB each",
     dropHint: "Drop files here to upload",
+    waiting: "Waiting",
     uploading: "Uploading",
     uploaded: "Uploaded",
     uploadedLine: "Uploaded {name} ({url})",

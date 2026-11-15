@@ -123,10 +123,11 @@ describe("media names", () => {
   it("normalizes a name once and keeps it stable", () => {
     expect(normalizeMediaName("Logo 最终版.PNG")).toBe("logo.png");
     expect(normalizeMediaName("CON.png")).toBe("con-file.png");
+    expect(normalizeMediaName("CON.tar.png")).toBe("con.tar-file.png");
     expect(normalizeMediaName("a/b\\c.png")).toBe("a-b-c.png");
     expect(normalizeMediaName("a..b.png")).toBe("a..b.png");
     const chinese = normalizeMediaName("首页横幅.jpeg");
-    expect(chinese).toMatch(/^upload-\d{8}-[0-9a-f]{4}\.jpg$/);
+    expect(chinese).toMatch(/^upload-\d{8}-[0-9a-f]{8}\.jpg$/);
     expect(normalizeMediaName(chinese)).toBe(chinese);
   });
 });
@@ -146,6 +147,13 @@ describe("media types and location", () => {
     expect(hasJpegLocation(jpegWith(exifPayload()))).toBe(true);
     expect(hasJpegLocation(jpegWith(Buffer.from(`${XMP_HEAD}<x exif:GPSLatitude="1" />`)))).toBe(true);
     expect(hasJpegLocation(jpegWith(Buffer.from(`${EXTENDED_XMP_HEAD}<x exif:GPSLatitude="1" />`)))).toBe(false);
+    // A fill byte before the APP1 marker is allowed by JPEG and must not end the scan.
+    const padded = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff]),
+      jpegSegment(exifPayload()),
+      Buffer.from([0xff, 0xd9]),
+    ]);
+    expect(hasJpegLocation(padded)).toBe(true);
     expect(hasJpegLocation(Buffer.from([0xff, 0xd8, 0xff, 0xd9]))).toBe(false);
     expect(hasJpegLocation(PNG)).toBe(false);
   });
@@ -228,6 +236,18 @@ describe("MediaService.upload", () => {
     expect(second.changeId).toBe(first.changeId);
   });
 
+  it("takes the URL baseUrl from the default branch, not the change snapshot", async () => {
+    const site = await makeSite("base-main");
+    const first = await upload(site.id, { name: "one.png", data: PNG.toString("base64") });
+    expect(first.url).toBe("/uploads/one.png");
+    const file = path.join(site.dir, "site.yaml");
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("baseUrl: /", "baseUrl: /blog/"));
+    commitAllAs(base, site.dir, "deploy settings");
+    const second = await upload(site.id, { name: "two.png", data: PNG.toString("base64") });
+    expect(second.url).toBe("/blog/uploads/two.png");
+    expect(second.changeId).toBe(first.changeId);
+  });
+
   it("returns media.exists without replace and replaces with replace", async () => {
     const site = await makeSite("replace");
     await upload(site.id, { name: "logo.png", data: PNG.toString("base64") });
@@ -250,7 +270,8 @@ describe("MediaService.upload", () => {
     const change = openChange(site.id);
     const cwd = await ctx.sites.aiWorktree(site.id, change.snapshotCommit, { reset: false });
     const names = fs.readdirSync(path.join(cwd, "themes/starter/static/uploads"));
-    expect(names.filter((name) => name.toLowerCase() === "logo.png")).toHaveLength(1);
+    // The API returns logo.png and Pages is case-sensitive, so the stored name must match exactly.
+    expect(names).toContain("logo.png");
   });
 
   it("rejects invalid requests before opening a change set", async () => {

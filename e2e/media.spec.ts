@@ -109,3 +109,26 @@ test("uploads are disabled while a conversation is running", async ({ page, serv
   await page.getByTestId("composer-input").press("Enter");
   await expect(page.getByTestId("media-upload")).toBeDisabled();
 });
+
+test("a site lock error pauses the queue and one retry finishes it", async ({ page, server }) => {
+  await openSite(page, server, "Media queue");
+  let fail = true;
+  await page.route("**/api/sites/*/media", async (route) => {
+    if (!fail) return route.continue();
+    fail = false;
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "site.busy", params: { operation: "build" } }),
+    });
+  });
+  await input(page).setInputFiles([
+    { name: "one.png", mimeType: "image/png", buffer: PNG },
+    { name: "two.png", mimeType: "image/png", buffer: PNG },
+  ]);
+  const queue = page.getByTestId("media-queue");
+  await expect(queue).toContainText("The site is busy");
+  await expect(queue).toContainText("Waiting");
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(queue.getByText("Uploaded")).toHaveCount(2);
+});

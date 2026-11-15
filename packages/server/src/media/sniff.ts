@@ -1,8 +1,5 @@
-import type { ImageMime } from "@bukitjalil/shared";
+import type { MediaMime } from "@bukitjalil/shared";
 import { imageMime } from "../panels/service.ts";
-
-/** The formats an upload may contain: the bitmaps the file panel can show, plus PDF (download only). */
-export type MediaMime = ImageMime | "application/pdf";
 
 /** Recognize an upload by its first bytes; the file name does not count. */
 export function sniffMedia(data: Buffer): MediaMime | null {

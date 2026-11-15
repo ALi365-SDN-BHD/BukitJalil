@@ -66,14 +66,16 @@ export class MediaService {
         // call uses the same form (the worktree path itself can stay a symlinked path).
         const root = fs.realpathSync.native(cwd);
         const config = await this.readConfig(site.path, change.snapshotCommit);
+        // The URL follows the default branch: deploy settings commit there directly (design 4.2).
+        const base = await this.readConfig(site.path, await this.opts.sites.headOf(site));
         const uploadDir = mediaDir(root, config);
         assertSafePath(root, uploadDir);
-        assertNoSymlinks(root, uploadDir);
         const gate = new PathGate(root);
         const realDir = this.gated(gate, uploadDir);
+        // Check the requested path, not the gate's resolved one: every level must be free of symlinks.
+        assertNoSymlinks(root, path.join(uploadDir, decoded.name));
         target = path.join(realDir, decoded.name);
-        assertNoSymlinks(root, target);
-        const targetReal = this.gated(gate, target);
+        this.gated(gate, target);
         const rel = path.relative(root, target).split(path.sep).join("/");
         const ignored = await this.opts.git.run(["check-ignore", "-q", "--", rel], {
           cwd: root,
@@ -93,7 +95,6 @@ export class MediaService {
           const stat = fs.lstatSync(existingAbs);
           if (stat.isSymbolicLink() || !stat.isFile()) throw dirUnsafe();
         }
-        if (fs.lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink()) throw dirUnsafe();
 
         tmpDir = path.join(this.opts.paths.worktrees, siteId, ".upload-tmp");
         fs.mkdirSync(path.dirname(tmpDir), { recursive: true, mode: 0o700 });
@@ -105,7 +106,7 @@ export class MediaService {
           backup = path.join(tmpDir, "backup");
           fs.renameSync(existingAbs, backup);
         }
-        fs.renameSync(temp, targetReal);
+        fs.renameSync(temp, target);
         targetWritten = true;
         await this.opts.changes.snapshot(siteId, root);
         snapshotted = true;
@@ -119,7 +120,7 @@ export class MediaService {
         }
         return {
           path: rel,
-          url: mediaUrl(isRecord(config.site) ? config.site.baseUrl : undefined, decoded.name),
+          url: mediaUrl(isRecord(base.site) ? base.site.baseUrl : undefined, decoded.name),
           size: decoded.data.length,
           mime: decoded.mime,
           replaced: existingAbs !== null,

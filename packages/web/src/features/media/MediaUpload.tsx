@@ -8,7 +8,7 @@ import { useSessions } from "@/features/chat/sessions";
 import { useI18n } from "@/i18n";
 import { ApiRequestError, api, keys } from "@/lib/api";
 
-type ItemStatus = "uploading" | "done" | "error" | "skipped";
+type ItemStatus = "pending" | "uploading" | "done" | "error" | "skipped";
 interface Item {
   key: string;
   file: File;
@@ -74,7 +74,9 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
       setDuplicate({ name });
     });
 
-  const send = async (item: Item) => {
+  // Returns false when the queue should pause: a site.busy error is not the file's fault, and the rest stay
+  // pending until one Retry.
+  const send = async (item: Item): Promise<boolean> => {
     update(item.key, { status: "uploading", error: undefined });
     try {
       const data = await fileToBase64(item.file);
@@ -83,9 +85,9 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
         result = await api.uploadMedia(siteId, { name: item.file.name, data });
       } catch (err) {
         if (!(err instanceof ApiRequestError) || err.code !== "media.exists") throw err;
-        if ((await askReplace(item.file.name)) === "skip") {
+        if ((await askReplace(String(err.params.name ?? item.file.name))) === "skip") {
           update(item.key, { status: "skipped" });
-          return;
+          return true;
         }
         result = await api.uploadMedia(siteId, { name: item.file.name, data, replace: true });
       }
@@ -93,8 +95,10 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
       onUploaded?.(result, item.file);
       void queryClient.invalidateQueries({ queryKey: keys.change(siteId) });
       void queryClient.invalidateQueries({ queryKey: keys.panel(siteId, "tree") });
+      return true;
     } catch (err) {
       update(item.key, { status: "error", error: err });
+      return !(err instanceof ApiRequestError && err.code === "site.busy");
     }
   };
 
@@ -104,7 +108,7 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
     try {
       while (pending.current.length > 0) {
         const item = pending.current.shift();
-        if (item) await send(item);
+        if (item && !(await send(item))) break;
       }
     } finally {
       running.current = false;
@@ -113,11 +117,11 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
 
   const addFiles = (files: FileList | File[]) => {
     if (blocked) return;
-    const chosen = [...files].map((file) => {
-      const item: Item = { key: `${Date.now()}-${nextKey.current++}`, file, status: "error" };
-      if (!ALLOWED.test(file.name)) return { ...item, error: new Error(m.media.unsupported) };
-      if (file.size > MAX_BYTES) return { ...item, error: new Error(m.media.tooLarge) };
-      if (file.size === 0) return { ...item, error: new Error(errorText("media.empty")) };
+    const chosen = [...files].map((file): Item => {
+      const item: Item = { key: `${Date.now()}-${nextKey.current++}`, file, status: "pending" };
+      if (!ALLOWED.test(file.name)) return { ...item, status: "error", error: new Error(m.media.unsupported) };
+      if (file.size > MAX_BYTES) return { ...item, status: "error", error: new Error(m.media.tooLarge) };
+      if (file.size === 0) return { ...item, status: "error", error: new Error(errorText("media.empty")) };
       return item;
     });
     const accepted = chosen.filter((item) => item.error === undefined);
@@ -183,6 +187,7 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
               <span className="min-w-0 max-w-48 truncate" title={item.file.name}>
                 {item.file.name}
               </span>
+              {item.status === "pending" && <span className="text-muted-foreground">{m.media.waiting}</span>}
               {item.status === "uploading" && (
                 <span className="flex items-center gap-1 text-muted-foreground">
                   <Loader2 className="size-3 animate-spin" /> {m.media.uploading}
@@ -195,7 +200,11 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
               {item.status === "error" && (
                 <>
                   <span className="text-destructive">
-                    {item.error instanceof Error ? item.error.message : errorOf(item.error)}
+                    {item.error instanceof ApiRequestError
+                      ? errorOf(item.error)
+                      : item.error instanceof Error
+                        ? item.error.message
+                        : errorOf(item.error)}
                   </span>
                   <Button
                     type="button"

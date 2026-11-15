@@ -27,7 +27,7 @@ export function normalizeMediaName(original: string): string {
   ).slice(0, 80);
   main = trimMain(main);
   if (main === "")
-    main = `upload-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${crypto.randomBytes(2).toString("hex")}`;
-  if (RESERVED.has(main)) main = `${main}-file`;
+    main = `upload-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${crypto.randomBytes(4).toString("hex")}`;
+  if (RESERVED.has(main.split(".")[0] ?? "")) main = `${main}-file`;
   return `${main}.${extension}`;
 }
