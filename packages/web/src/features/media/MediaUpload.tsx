@@ -136,6 +136,7 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
     <section
       className={`flex flex-col gap-2 ${dragging ? "rounded-md border border-dashed border-ring p-1" : ""}`}
       aria-label={ariaLabel}
+      data-testid="media-upload-area"
       onDragOver={(e) => {
         if (blocked) return;
         e.preventDefault();

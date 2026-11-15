@@ -17,6 +17,7 @@
 | `pnpm vitest run` | 616 passed，17 skipped |
 | `pnpm vitest run packages/web` | 21 passed |
 | `pnpm exec playwright test e2e/media.spec.ts` | 15 passed（Chromium、Firefox、WebKit） |
+| `pnpm e2e:desktop` | 10 passed；桌面版用内置真实 Bukit 完成拖放上传和改动面板预览 |
 | `pnpm check` | 通过（只有已有的 lint warning） |
 | `pnpm build` | 通过 |
 
@@ -30,16 +31,17 @@
 - 只有上传的改动集应用后作者是用户，说明来自 `diffSummary`；拒绝后网站文件夹没有文件。
 - `site_info.media` 的 URL、MIME、`viewable`、跳过隐藏文件/符号链接/子目录。
 - 界面：上传、重名替换、SVG 拒绝、位置提示、子路径 `/blog/uploads/...` 引用、对话运行时禁用上传。
+- 桌面版：真实拖放事件上传、队列完成、改动面板图片预览，使用应用内置的 Bukit 2.2.3。
 - 请求体 14 MiB 上限和 13.3 MiB 请求接收。
 
 ## 未完成的手动验收
 
-下面两项需要在有桌面版和测试仓库的环境中手动完成，本次没有伪报为已通过：
+桌面版的拖放上传和改动面板预览已经由 `pnpm e2e:desktop` 自动覆盖，使用的是应用内置的真实 Bukit。下面两项仍需要人工或发布环境：
 
-1. 桌面版里拖放上传、AI 把 Logo 放到页头、审核、应用、构建和预览。
-2. 用一个 `site.baseUrl` 为 `/<仓库名>/` 的网站发布到测试仓库，确认图片网址带子路径，并检查发布后的页面。
+1. 在桌面版里让 AI 把 Logo 放到页头，并人工看一次页面效果（脚本模型只覆盖在页面里引用图片，不覆盖页头布局）。
+2. 用一个 `site.baseUrl` 为 `/<仓库名>/` 的网站发布到真实的 GitHub Pages 测试仓库，确认发布后的页面能加载图片；构建输出里的 `/repo/uploads/...` 已由真实 Bukit 行为测试覆盖，缺的是托管环境这一跳。
 
-自动化 e2e 使用项目里的 Bukit 替身和真实浏览器界面；真实 Bukit 2.2.3 的静态目录和网址行为由 `bukit-behavior.test.ts` 覆盖。桌面安装包和真实 GitHub Pages 测试仓库不在本次自动化环境中。
+自动化 e2e 里的网页测试使用项目里的 Bukit 替身和真实浏览器界面；真实 Bukit 2.2.3 的静态目录、子路径和多语言行为由 `bukit-behavior.test.ts` 覆盖。真实 GitHub Pages 测试仓库需要外部账号和 token，不在本次自动化环境中。
 
 ## 结论
 
