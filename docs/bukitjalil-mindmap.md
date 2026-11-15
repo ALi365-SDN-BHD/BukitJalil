@@ -1,6 +1,6 @@
 # BukitJalil 架构与功能思维导图
 
-本地 AI 建站工作台 · `pi-harness-ui @ 8d7f4f3`
+本地 AI 建站工作台 · `pi-harness-ui @ 5acca57`
 
 [打开离线 HTML 版](bukitjalil-mindmap.html)
 
