@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Regenerate templates/starter/ (plan 5.2) from the StarterTheme resources embedded in Bukit's CLI source.
-# Bukit has no "new site" command; its starter theme only exists as CLI resources (MIT).
+# Bukit 2.2.4 adds `bukit new`; until BukitJalil switches to it (plan 5.2) the theme is copied from the CLI resources (MIT).
 # Run again when Bukit is upgraded, then build the result with the real Bukit (see templates/README.md).
 #
-# Usage: BUKIT_SRC=/path/to/Bukit/clone [BUKIT_TAG=v2.1.0] scripts/make-starter.sh
+# Usage: BUKIT_SRC=/path/to/Bukit/clone [BUKIT_TAG=v2.2.4] scripts/make-starter.sh
 set -euo pipefail
 BUKIT_SRC=${BUKIT_SRC:?set BUKIT_SRC to a clone of github.com/ALi365-SDN-BHD/Bukit}
-TAG=${BUKIT_TAG:-v2.1.0}
+TAG=${BUKIT_TAG:-v2.2.4}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$ROOT/templates/starter
 RES=src/Bukit-Core/Bukit.Cli/Resources/StarterTheme
@@ -19,7 +19,7 @@ fill() { sed -e 's/{{--[[:space:]]*bukit:primary-color[[:space:]]*--}}/#0b5fff/g
              -e 's/{{--[[:space:]]*bukit:accent-color[[:space:]]*--}}/#0f7b6c/g' \
              -e 's/{{--[[:space:]]*bukit:brand[[:space:]]*--}}//g'; }
 # Site settings are plain text: escape them like <title> does, so "Tom & Jerry" or "<3" renders as written.
-escape() { sed -E 's/\{\{ (site\.title|site\.params\.[a-z_]+) \}\}/{{ \1 | html.escape }}/g'; }
+escape() { sed -E 's/\{\{ (site\.title|site\.description|site\.params\.[a-z_]+) \}\}/{{ \1 | html.escape }}/g'; }
 
 rm -rf "$OUT"
 T=$OUT/themes/starter

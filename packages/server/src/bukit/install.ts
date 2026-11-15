@@ -12,7 +12,7 @@ import { unzipSync } from "fflate";
  * `BUKIT_VERSION` and the three checksums, then releasing BukitJalil.
  */
 
-export const BUKIT_VERSION = "2.2.3";
+export const BUKIT_VERSION = "2.2.4";
 /**
  * The oldest Bukit that works (`--secrets-stdin`, `site.languages` as the only language setting, plan 8.7, and `--notion-pin`, plan 5.5), for a
  * development copy picked with BUKITJALIL_BUKIT_DIR. Raise it to the first release with a behaviour
@@ -30,23 +30,26 @@ export interface BukitPackage {
 
 const RELEASE_URL = `https://github.com/ALi365-SDN-BHD/Bukit/releases/download/v${BUKIT_VERSION}`;
 
-/** Official packages by `<platform>-<arch>`: macOS arm64, Linux x64 and Windows x64. */
+/**
+ * Official packages by `<platform>-<arch>`: macOS arm64, Linux x64 and Windows x64. Bukit 2.2.4 also ships osx-x64 and
+ * linux-arm64; BukitJalil does not package those platforms yet (plan 8.1).
+ */
 export const PACKAGES: Record<string, BukitPackage> = {
   "darwin-arm64": {
     file: `bukit-${BUKIT_VERSION}-osx-arm64.tar.gz`,
-    sha256: "d639d907292ef01d263f2ebc8730caf530788185bccab2e24af0effbe9f9abf9",
+    sha256: "827ce56767d348fefbb2388d4ee90aff336fbc8d03fa2ee9426971089e2da02d",
     files: ["bukit", "libSkiaSharp.dylib"],
     executable: "bukit",
   },
   "linux-x64": {
     file: `bukit-${BUKIT_VERSION}-linux-x64.tar.gz`,
-    sha256: "badf61dac596df8823d1e24852d8d599dfd5253569410c416088f2451cdd28f4",
+    sha256: "9c00a165cb71734c3a3471c74853e14687330059004e917a996f2df89a8555f2",
     files: ["bukit", "libSkiaSharp.so"],
     executable: "bukit",
   },
   "win32-x64": {
     file: `bukit-${BUKIT_VERSION}-win-x64.zip`,
-    sha256: "83b0ef90bdf33aac1c27c12d0994bd4ef377dc926d07b47d03d51805e4d05ed3",
+    sha256: "8973f4bcb70f8f0abedaf116b8cc8e9919de573e04b521274e2d8067018c29d5",
     files: ["bukit.exe", "libSkiaSharp.dll"],
     executable: "bukit.exe",
   },

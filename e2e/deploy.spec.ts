@@ -24,6 +24,8 @@ test.afterAll(async ({ browser, server }) => {
   await putSettings(page, { commitName: null, commitEmail: null });
   await page.close();
   removeImportedSites();
+  // The app's Bukit link points at the stand-in in `work`; the spec files that run next on this server need one.
+  server.resetBukit();
   fs.rmSync(work, { recursive: true, force: true });
 });
 

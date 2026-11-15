@@ -4,7 +4,7 @@
   <p class="eyebrow">Starter theme</p>
   <h1>{{ site.title | html.escape }}</h1>
   {{ if site.description }}
-    <p>{{ site.description }}</p>
+    <p>{{ site.description | html.escape }}</p>
   {{ else }}
     <p>A clean content-first starting point for Markdown, Notion, blog, and documentation sites.</p>
   {{ end }}

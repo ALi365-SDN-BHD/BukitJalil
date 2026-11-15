@@ -43,7 +43,7 @@ describe("templates/starter", () => {
   it("records its Bukit source", () => {
     const source = JSON.parse(fs.readFileSync(path.join(TEMPLATES, "starter.source.json"), "utf8"));
     // Regenerated from 2.1.0 for site.languages (plan 8.7); not tied to BUKIT_VERSION, which may move on.
-    expect(source).toMatchObject({ tag: "v2.1.0", license: "MIT" });
+    expect(source).toMatchObject({ tag: "v2.2.4", license: "MIT" });
     expect(source.commit).toMatch(/^[0-9a-f]{40}$/);
   });
 

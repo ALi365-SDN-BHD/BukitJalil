@@ -13,6 +13,8 @@ interface Server {
   bukitPath: string;
   /** Replace the app's Bukit copy with `source`; refresh the cached status from the page afterwards. */
   setBukit(source: string): void;
+  /** Point the app's Bukit back at the worker's default (BUKIT_BIN or the stand-in) before deleting another one. */
+  resetBukit(): void;
 }
 
 const URL_RE = /http:\/\/127\.0\.0\.1:\d+\/\?token=[\w-]+/g;
@@ -36,7 +38,8 @@ export const test = base.extend<object, { server: Server }>({
         fs.rmSync(bukitLink, { force: true });
         fs.symlinkSync(path.resolve(source), bukitLink);
       };
-      setBukit(bukitForTests(home));
+      const defaultBukit = bukitForTests(home);
+      setBukit(defaultBukit);
       const child: ChildProcess = spawn(
         process.execPath,
         [
@@ -102,6 +105,7 @@ export const test = base.extend<object, { server: Server }>({
         },
         bukitPath: bukitLink,
         setBukit,
+        resetBukit: () => setBukit(defaultBukit),
       });
 
       child.kill("SIGTERM");

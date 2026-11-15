@@ -11,7 +11,7 @@ BukitJalil 把每个网站当作一个项目来管理。你用对话告诉 AI �
 | macOS（Apple 芯片）或 Linux x64 | 暂不支持 Windows。桌面版目前只有 macOS（Apple 芯片）。Intel Mac 没有官方 Bukit 包，暂不支持 |
 | Node 22.19 或更新（推荐 24 LTS） | 从源码运行 BukitJalil 时需要；桌面版自带，不用装 |
 | git 2.38 或更新 | 每个网站都是一个 git 仓库，版本、差异、恢复都靠它 |
-| Bukit 2.2.3 | 构建网站。随 BukitJalil 一起发布，不用另外安装，也不能单独升级；新版本的 Bukit 随新版本的 BukitJalil 提供 |
+| Bukit 2.2.4 | 构建网站。随 BukitJalil 一起发布，不用另外安装，也不能单独升级；新版本的 Bukit 随新版本的 BukitJalil 提供 |
 | 一个 AI 模型服务商的 API Key | 例如 Anthropic、OpenAI 等 Pi 支持的服务商 |
 
 ## 2. 安装和启动
@@ -61,7 +61,7 @@ pnpm start
 第一次打开时，首页会显示"开始使用"清单，按顺序检查五件事，每一步都能直接打开对应的设置：
 
 1. **git**：没有找到或版本太旧时，安装新版 git 并重启 BukitJalil
-2. **Bukit**：不用安装。Bukit 随 BukitJalil 一起发布（现在是 2.2.3），设置 → 环境显示它的版本。BukitJalil 只用应用自带的这一份，不会下载或升级 Bukit；要用新版本的 Bukit，请安装新版本的 BukitJalil。以前版本的 BukitJalil 装在 `~/.bukitjalil/bin/` 里的 Bukit 会在启动时自动删除
+2. **Bukit**：不用安装。Bukit 随 BukitJalil 一起发布（现在是 2.2.4），设置 → 环境显示它的版本。BukitJalil 只用应用自带的这一份，不会下载或升级 Bukit；要用新版本的 Bukit，请安装新版本的 BukitJalil。以前版本的 BukitJalil 装在 `~/.bukitjalil/bin/` 里的 Bukit 会在启动时自动删除
 3. **提交身份**（设置 → 发布）：你应用改动时用的名字和邮箱，默认取全局 git 设置
 4. **AI 模型**：见下一节
 5. **第一个网站**：新建或导入，见第 5 节

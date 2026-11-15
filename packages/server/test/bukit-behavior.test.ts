@@ -223,7 +223,7 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     );
     const layout = path.join(dir, "themes/starter/layouts/layouts/base.html");
     const layoutText = fs.readFileSync(layout, "utf8");
-    const stylesheet = '<link rel="stylesheet" href="{{ base_url }}/assets/style.css" />';
+    const stylesheet = '<link rel="stylesheet" href="{{ asset_base_url }}/assets/style.css" />';
     if (!layoutText.includes(stylesheet)) throw new Error("starter base layout has no stylesheet link");
     fs.writeFileSync(
       layout,
