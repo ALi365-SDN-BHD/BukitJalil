@@ -217,6 +217,8 @@ for a in "$@"; do
   set -- "$@" "$a"
 done
 shift $n
+# Bukit 2.2.3 allows only https for deploy; the stand-in remote is a local bare repository.
+[ $net = 1 ] && export GIT_ALLOW_PROTOCOL=file
 exec "${gitPath}" "$@"
 `,
       { mode: 0o755 },
