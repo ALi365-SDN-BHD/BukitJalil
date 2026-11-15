@@ -11,7 +11,7 @@ import type { PiModules } from "./pi.ts";
  *   page, runs bukit_check and summarize_changes; these changes stay in the AI working copy, as a real
  *   model's would
  * - "#auth": tries to read Pi's auth.json outside the working copy
- * - "#media": reads site_info's uploaded media list and puts the first file's URL into the About page
+ * - "#media": reads site_info's uploaded media list and puts the first file's URL into the site header
  * - "#plugin": adds a plugin that is not built in to site.yaml, runs bukit_build, then takes the plugin out
  *   again so later builds are not refused
  * - "#fail-key", "#fail-limit", "#fail-network": fails like a provider would (a refused key, a rate limit,
@@ -125,10 +125,15 @@ function nextCall(request: string, results: readonly Message[]): Call | null {
       return {
         tool: "edit",
         args: {
-          path: "content/pages/about.md",
-          edits: [{ oldText: "# About", newText: `# About\n\n![Uploaded image](${first.url})` }],
+          path: "themes/starter/layouts/partials/header.html",
+          edits: [
+            {
+              oldText: '<header class="site-header">',
+              newText: `<header class="site-header">\n  <img src="${first.url}" alt="Uploaded image" />`,
+            },
+          ],
         },
-        note: "Adding the uploaded image.",
+        note: "Adding the uploaded image to the header.",
       };
     }
     return null;

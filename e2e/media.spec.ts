@@ -96,7 +96,7 @@ test("a subpath site gets the baseUrl in the reference and fake model uses it", 
   await page
     .getByTestId("changes-panel")
     .getByTestId("changed-files")
-    .getByText("content/pages/about.md", { exact: true })
+    .getByText("themes/starter/layouts/partials/header.html", { exact: true })
     .click();
   await expect(page.getByTestId("diff-patch")).toContainText("/blog/uploads/logo.png");
 });
