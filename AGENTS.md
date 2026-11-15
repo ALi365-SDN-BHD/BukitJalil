@@ -92,3 +92,21 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 - 快照只校验格式版本（`FormatVersion`），不要求 Bukit 版本一致，否则每次升级 BukitJalil 所有快照都失效（2026-11-14 定）。Bukit 的测试里放一份固定的 `format=1` 快照，离线构建结果必须不变；改了快照数据的意思或换了 Notion API 版本就升 `FormatVersion`。
 - 顺便让 Bukit 输出每个源的页数，数据面板再接上。
 - BukitJalil 自带的 Bukit 版本（`BUKIT_VERSION` 和三个安装包的 SHA-256）要跟着升，随新版 BukitJalil 发布；Bukit 不能由用户单独升级。
+
+### 6. 素材上传（已设计，待实施）
+
+设计见 [docs/plans/2026-11-12-media-upload-design.md](docs/plans/2026-11-12-media-upload-design.md)（v4），约 2 天。下面三项是 2026-11-16 从中移出的，不随它实施。
+
+### 7. 改动集作者和说明的规则（未排期）
+
+**现状**：`apply` 按"没有会话"判断用户作者，`applyPartial` 只看 `sessions.length === 0`；对话被删除后，AI 参与过的改动集会被记成用户作者。插件开关、恢复版本写的说明在对话加入后仍会成为提交说明，盖住 AI 的修改（上传加进这类改动集时也一样）。
+
+**要先定的问题**：作者是否统一成 `!aiJoined`（两处都改）；对话第一次加入时是否清空用户写的说明——清空会改变现有恢复行为，`changes.test.ts` 里断言 `Restore to …` 的用例要一起改。
+
+### 8. 全局请求体上限（未排期）
+
+`/api` 现在没有全局请求体上限。加 1 MiB 的全局 `bodyLimit`（素材上传路由用自己的 14 MiB 上限，要跳过全局限制）；最大的现有请求是 10 万字符的对话消息，约 600 KB。
+
+### 9. 上传网址的发布前检查（未排期，等素材上传完成）
+
+改 `site.baseUrl` 后，正文里写死的旧上传网址会失效，构建不报错。在发布流程 `publish audit` 之前扫描输出 HTML 的 `src`、`href`、`srcset`，文件名能对上输出 `uploads/` 里的文件、但去掉当前 `baseUrl` 后路径不存在时阻止发布（新 `DeployOutcome`）。完整设计见素材上传设计 v3.4 的 5.9（git 提交 `ea1c896`）。
