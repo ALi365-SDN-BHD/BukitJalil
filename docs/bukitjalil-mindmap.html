@@ -98,7 +98,7 @@
 <section id="bukitjalil-mindmap" aria-labelledby="bj-map-title">
   <header>
     <h1 id="bj-map-title">BukitJalil 架构与功能思维导图</h1>
-    <p class="text-small">本地 AI 建站工作台 · <code>pi-harness-ui @ 70f469a</code></p>
+    <p class="text-small">本地 AI 建站工作台 · <code>pi-harness-ui @ 8d7f4f3</code></p>
   </header>
   <div class="branches">
     <details class="branch" id="bj-flow" open>
@@ -238,7 +238,7 @@
       <summary class="cursor-interaction">待开发与上游依赖</summary>
       <ul class="node-list">
         <li><strong>本地素材上传</strong>
-          <p>设计 v4 已定：用户上传图片和 PDF 到当前主题的 <code>static/uploads/</code>，网址带 <code>site.baseUrl</code>，进改动集审核，不收 SVG。上传入口待实现。</p></li>
+          <p>设计 v4.1 已实现（2026-11-16）：用户上传图片和 PDF 到当前主题的 <code>static/uploads/</code>，网址带 <code>site.baseUrl</code>，进改动集审核，不收 SVG。上传入口、AI 引用、改动面板预览和子路径验收已完成。</p></li>
         <li><strong>上传网址的发布前检查</strong>
           <p>改 <code>site.baseUrl</code> 后正文里的旧上传网址会失效，计划在发布前扫描输出 HTML 拦下；等素材上传完成后做。</p></li>
         <li><strong>改动集规则与接口加固</strong>

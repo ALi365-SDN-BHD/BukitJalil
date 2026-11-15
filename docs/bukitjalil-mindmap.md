@@ -1,6 +1,6 @@
 # BukitJalil 架构与功能思维导图
 
-本地 AI 建站工作台 · `pi-harness-ui @ 70f469a`
+本地 AI 建站工作台 · `pi-harness-ui @ 8d7f4f3`
 
 [打开离线 HTML 版](bukitjalil-mindmap.html)
 
@@ -124,7 +124,7 @@
 ## 待开发与上游依赖
 
 - **本地素材上传**
-  设计 v4 已定：用户上传图片和 PDF 到当前主题的 `static/uploads/`，网址带 `site.baseUrl`，进改动集审核，不收 SVG。上传入口待实现。
+  设计 v4.1 已实现（2026-11-16）：用户上传图片和 PDF 到当前主题的 `static/uploads/`，网址带 `site.baseUrl`，进改动集审核，不收 SVG。上传入口、AI 引用、改动面板预览和子路径验收已完成。
 - **上传网址的发布前检查**
   改 `site.baseUrl` 后正文里的旧上传网址会失效，计划在发布前扫描输出 HTML 拦下；等素材上传完成后做。
 - **改动集规则与接口加固**

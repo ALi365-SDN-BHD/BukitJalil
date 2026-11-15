@@ -93,9 +93,9 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 - 顺便让 Bukit 输出每个源的页数，数据面板再接上。
 - BukitJalil 自带的 Bukit 版本（`BUKIT_VERSION` 和三个安装包的 SHA-256）要跟着升，随新版 BukitJalil 发布；Bukit 不能由用户单独升级。
 
-### 6. 素材上传（已设计，待实施）
+### 6. 素材上传（已实现）
 
-设计见 [docs/plans/2026-11-12-media-upload-design.md](docs/plans/2026-11-12-media-upload-design.md)（v4），约 2 天。下面三项是 2026-11-16 从中移出的，不随它实施。
+设计见 [docs/plans/2026-11-12-media-upload-design.md](docs/plans/2026-11-12-media-upload-design.md)（v4.1）。2026-11-16 已实现并合并到 `pi-harness-ui`（`8d7f4f3`），验收见 [docs/acceptance/media-upload.md](docs/acceptance/media-upload.md)。下面三项是 2026-11-16 从中移出的，不随它实施。
 
 ### 7. 改动集作者和说明的规则（未排期）
 
@@ -107,6 +107,6 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 `/api` 现在没有全局请求体上限。加 1 MiB 的全局 `bodyLimit`（素材上传路由用自己的 14 MiB 上限，要跳过全局限制）；最大的现有请求是 10 万字符的对话消息，约 600 KB。
 
-### 9. 上传网址的发布前检查（未排期，等素材上传完成）
+### 9. 上传网址的发布前检查（未排期）
 
 改 `site.baseUrl` 后，正文里写死的旧上传网址会失效，构建不报错。在发布流程 `publish audit` 之前扫描输出 HTML 的 `src`、`href`、`srcset`，文件名能对上输出 `uploads/` 里的文件、但去掉当前 `baseUrl` 后路径不存在时阻止发布（新 `DeployOutcome`）。完整设计见素材上传设计 v3.4 的 5.9（git 提交 `ea1c896`）。
