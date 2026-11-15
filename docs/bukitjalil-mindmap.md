@@ -1,6 +1,6 @@
 # BukitJalil 架构与功能思维导图
 
-本地 AI 建站工作台 · `pi-harness-ui @ 7c60c6d`
+本地 AI 建站工作台 · `pi-harness-ui @ 70f469a`
 
 [打开离线 HTML 版](bukitjalil-mindmap.html)
 
@@ -65,7 +65,7 @@
 ## Bukit 构建、预览与 SEO/GEO
 
 - **构建引擎与报告**
-  随应用打包 Bukit 2.0.15，开发和打包时下载并校验 SHA-256。服务调用配置检查、诊断、构建和审计等固定命令，记录版本、阶段、结果和报告，整理 Bukit 原始错误及远程图片占位缺失等提示。
+  随应用打包 Bukit 2.2.3，开发和打包时下载并校验 SHA-256。服务调用配置检查、诊断、构建和审计等固定命令，记录版本、阶段、结果和报告，整理 Bukit 原始错误及远程图片占位缺失等提示。
 - **正式构建与改动预览**
   正式构建用默认分支的独立检出，改动预览用审核快照。按站点真实 `baseUrl` 提供静态页面，每份打开的预览使用独立端口，可在界面内或新标签页查看。旧产物按保留策略清理。
 - **SEO 与 GEO**
@@ -76,7 +76,7 @@
 ## Notion、插件与 GitHub Pages
 
 - **Notion 数据源**
-  设置中管理命名凭据，每个网站可绑定一个数据源并配置多个数据库。数据面板由用户点击后按正式分支的 `databaseId` 读取字段；审核突出数据源增删和配置差异；构建、发布翻译常见权限和限流错误。
+  设置中管理命名凭据，每个网站可绑定一个数据源并配置多个数据库。数据面板由用户点击后按正式分支的 `databaseId` 读取字段；审核突出数据源增删和配置差异；构建、发布按 Bukit 的 `BKT-0Bxx` 码翻译常见权限和限流错误；数据面板显示每个源的条数。
 - **Bukit 内置插件**
   设置的扩展页展示内置插件；网站配置页按站启停。变更写入工作副本，纳入快照与审核。
 - **GitHub Pages 发布设置**
@@ -106,7 +106,7 @@
 - **AI 和 Git 操作边界**
   白名单工具与路径闸门限制工作副本，保护敏感文件和应用目录。Git 使用受控环境与仓库配置白名单，关闭钩子、签名和外部驱动，导入与审核阶段均进行检查。
 - **Bukit 与凭据边界**
-  构建前检查插件、路径、符号链接及私网访问限制；GitHub token 按发布操作使用，Notion token 用于授权的数据源请求和正式版本操作。未审核的 Notion 构建和改动预览被拦截。
+  构建前检查插件、路径、符号链接及私网访问限制；GitHub token 按发布操作使用，Notion token 用于授权的数据源请求和正式版本操作。未审核的改动不拿 Notion token：改动预览读正式构建留下的离线快照，快照里没有的数据源（换了 `databaseId` 或新加的源）要应用后正式构建。
 
 源码 · [`packages/server/src/paths.ts`](../packages/server/src/paths.ts)、[`packages/server/src/store/migrations`](../packages/server/src/store/migrations)、[`packages/server/src/security`](../packages/server/src/security)、[`packages/server/src/agent/gate.ts`](../packages/server/src/agent/gate.ts)、[`packages/server/src/bukit/guard.ts`](../packages/server/src/bukit/guard.ts)
 
@@ -123,12 +123,14 @@
 
 ## 待开发与上游依赖
 
-- **Notion 离线预览与每源页数**
-  待 Bukit 提供离线快照和每个内容源的计数，再接入未审核改动的安全预览和面板页数。
+- **本地素材上传**
+  设计 v4 已定：用户上传图片和 PDF 到当前主题的 `static/uploads/`，网址带 `site.baseUrl`，进改动集审核，不收 SVG。上传入口待实现。
+- **上传网址的发布前检查**
+  改 `site.baseUrl` 后正文里的旧上传网址会失效，计划在发布前扫描输出 HTML 拦下；等素材上传完成后做。
+- **改动集规则与接口加固**
+  改动集作者统一按 `aiJoined` 判断、用户写的说明在对话加入后的处理；`/api` 的全局请求体上限。
 - **Cloudflare Pages、自有服务器**
   两种发布目标暂缓，待 Bukit 增加对应部署后端，再接入多目标选择。自有服务器设计采用 SSH 密钥、rsync 试运行与用户确认。
-- **本地素材上传**
-  已有图片与文件上传设计，计划让素材进入主题静态目录和同一审核流程。当前源码已有远程图片构建报错提示，本地上传入口仍待实现。
 - **外部官方插件**
   外部官方插件接入列为后续，当前站点界面提供内置插件启停。
 
