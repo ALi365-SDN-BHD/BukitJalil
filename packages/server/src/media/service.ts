@@ -62,18 +62,21 @@ export class MediaService {
       let tmpDir: string | null = null;
       let targetWritten = false;
       try {
+        // app home may be reached through /var -> /private/var; resolve once so every path check and git
+        // call uses the same form (the worktree path itself can stay a symlinked path).
+        const root = fs.realpathSync.native(cwd);
         const config = await this.readConfig(site.path, change.snapshotCommit);
-        const uploadDir = mediaDir(cwd, config);
-        assertSafePath(cwd, uploadDir);
-        assertNoSymlinks(cwd, uploadDir);
-        const gate = new PathGate(cwd);
+        const uploadDir = mediaDir(root, config);
+        assertSafePath(root, uploadDir);
+        assertNoSymlinks(root, uploadDir);
+        const gate = new PathGate(root);
         const realDir = this.gated(gate, uploadDir);
         target = path.join(realDir, decoded.name);
-        assertNoSymlinks(cwd, target);
+        assertNoSymlinks(root, target);
         const targetReal = this.gated(gate, target);
-        const rel = path.relative(cwd, target).split(path.sep).join("/");
+        const rel = path.relative(root, target).split(path.sep).join("/");
         const ignored = await this.opts.git.run(["check-ignore", "-q", "--", rel], {
-          cwd,
+          cwd: root,
           okCodes: [0, 1],
         });
         if (ignored.code === 0) throw dirUnsafe();
@@ -104,7 +107,7 @@ export class MediaService {
         }
         fs.renameSync(temp, targetReal);
         targetWritten = true;
-        await this.opts.changes.snapshot(siteId, cwd);
+        await this.opts.changes.snapshot(siteId, root);
         snapshotted = true;
         if (backup) {
           try {

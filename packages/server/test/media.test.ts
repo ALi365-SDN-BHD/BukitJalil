@@ -391,6 +391,31 @@ describe("MediaService.upload", () => {
     expect(history.entries[0]?.byAi).toBe(false);
   });
 
+  it("works when the app home is reached through a symlinked path", async () => {
+    const rawHome = fs.mkdtempSync(path.join(os.tmpdir(), "bj-media-symlink-"));
+    const ctx2 = makeApp({
+      appHome: rawHome,
+      userHome: path.join(base, "home"),
+      bukit: ctx.bukit,
+    });
+    const dir = path.join(fs.realpathSync(os.tmpdir()), `bj-media-site-${++n}`);
+    try {
+      copyStarter(STARTER, dir, { title: "Symlinked home", language: "en-US" });
+      rawGit(base, dir, "init", "-q", "-b", "main");
+      commitAllAs(base, dir);
+      const site = await ctx2.sites.import({ path: dir });
+      await ctx2.builds.settled();
+      const result = await ctx2.media.upload(site.id, { name: "logo.png", data: PNG.toString("base64") });
+      expect(result.url).toBe("/uploads/logo.png");
+    } finally {
+      await ctx2.agent.shutdown();
+      await ctx2.builds.shutdown();
+      ctx2.db.close();
+      fs.rmSync(rawHome, { recursive: true, force: true });
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("discards uploaded files when the change set is rejected", async () => {
     const site = await makeSite("reject");
     const result = await upload(site.id, { name: "logo.png", data: PNG.toString("base64") });
