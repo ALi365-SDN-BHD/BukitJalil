@@ -48,7 +48,7 @@ case " $* " in *" --secrets-stdin "*)
   BUKIT_DEPLOY_TOKEN=$(printf '%s' "$secrets" | sed -n 's/.*"BUKIT_DEPLOY_TOKEN":"\\([^"]*\\)".*/\\1/p');;
 esac
 case "$1" in
-  version) echo "bukit 2.2.2+fake"; exit 0;;
+  version) echo "bukit 2.2.3+fake"; exit 0;;
   config) exit 0;;
   build)
     out=""; snap=""; cache=""; offline=""; prev=""
@@ -305,12 +305,21 @@ it("passes the Notion token of the site's data source to a main build but never 
   expect(fs.existsSync(tokenFile)).toBe(false);
   expect(fs.readFileSync(path.join(bk, "bukit.env"), "utf8")).not.toMatch(/NOTION_TOKEN|ntn_main_only/);
   const offlineArgs = fs.readFileSync(path.join(bk, "bukit.args"), "utf8");
+  // The pin holds the formal build's Notion keys, privately (plan 5.5).
+  const pinFile = path.join(snapshotRoot, "pin.json");
+  expect(fs.statSync(pinFile).mode & 0o777).toBe(0o600);
+  expect(Object.keys(JSON.parse(fs.readFileSync(pinFile, "utf8")).sources)).toEqual(["posts"]);
   expect(offlineArgs).toContain(
-    `--notion-snapshot ${path.join(snapshotRoot, "snapshot")} --notion-offline --cache-dir ${path.join(snapshotRoot, "cache")}`,
+    `--notion-snapshot ${path.join(snapshotRoot, "snapshot")} --notion-offline --notion-pin ${path.join(snapshotRoot, "pin.json")} --cache-dir ${path.join(snapshotRoot, "cache")}`,
   );
   expect(offlineArgs).not.toContain("--secrets-stdin");
   const offlineReport = ctx.builds.get(site.id, changeBuild.id).report;
-  expect(offlineReport?.notionOffline).toEqual({ ...record, queryChanged: false, rendererMismatch: false });
+  expect(offlineReport?.notionOffline).toEqual({
+    ...record,
+    queryChanged: false,
+    pinned: false,
+    rendererMismatch: false,
+  });
   const preview = await ctx.builds.openPreview(site.id, "change");
   expect(preview.notionOffline).toEqual(offlineReport?.notionOffline);
   // The image came from the copied media cache.

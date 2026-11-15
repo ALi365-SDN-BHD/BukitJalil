@@ -31,6 +31,8 @@ describe("notionSnapshotProblemIn (plan 5.5)", () => {
       ["BKT-0B11", "change"],
       ["BKT-0B12", "change"],
       ["BKT-0B13", "change"],
+      ["BKT-0B18", "stale"],
+      ["BKT-0B19", "change"],
     ] as const) {
       expect(notionSnapshotProblemIn(cliError("x", code))).toBe(problem);
     }

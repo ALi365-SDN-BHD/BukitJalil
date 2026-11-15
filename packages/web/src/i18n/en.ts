@@ -469,6 +469,8 @@ const en: Messages = {
     offline: "Notion data comes from the main build of {time} (commit {commit}); later edits in Notion do not show.",
     queryChanged:
       "This change edits the Notion filter or sort; the Notion data still follows the main version's filter.",
+    pinned:
+      "This change edits Notion field or filter settings; they follow the main version and take effect after you apply the change and build.",
     rendererMismatch: "Some page bodies were rendered by an older Bukit; a main build updates them.",
     problem: {
       missing:

@@ -645,6 +645,7 @@ export function notionOfflineData(offline: OfflineNotion, result: BukitRunResult
   return {
     ...offline.record,
     queryChanged: all.includes("event=notion.snapshot.query_changed"),
+    pinned: all.includes("event=notion.offline.pinned"),
     rendererMismatch: all.includes("event=notion.cache.renderer_mismatch"),
   };
 }

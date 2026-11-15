@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { Logger } from "../log.ts";
+import { parseYaml } from "../panels/yaml.ts";
+import { notionPinFrom } from "./notion-pin.ts";
 import { isSiteId } from "./store.ts";
 
 /** The formal build a site's Notion offline snapshot comes from (plan 5.5). */
@@ -21,6 +23,8 @@ export interface OfflineNotion {
   buildArgs: string[];
 }
 
+const PIN_FILE = "pin.json";
+
 /** What replaces the snapshot directory in output an AI or the build report can show. */
 export const SNAPSHOT_MASK = "[notion-snapshot]";
 
@@ -30,7 +34,9 @@ export const SNAPSHOT_MASK = "[notion-snapshot]";
  *   staging directory next to it and replaces it only after the whole build succeeded, reusing the bodies
  *   of the previous snapshot;
  * - cache/media/: a copy of the formal build's media cache, the `--cache-dir` of offline builds, so images
- *   need no download and the formal build's own cache is never written by an offline build.
+ *   need no download and the formal build's own cache is never written by an offline build;
+ * - pin.json: the Notion field and filter keys of the formal build's site.yaml (`--notion-pin`), so an
+ *   unreviewed site.yaml cannot show fields or drafts the snapshot holds but the site does not.
  *
  * Both stay out of every checkout (the AI never reads them: they hold drafts and fields the site does not
  * show), are 0700 / 0600 and kept out of Time Machine. The record (commit, time) is in app.db.
@@ -68,12 +74,13 @@ export class NotionSnapshots {
   }
 
   /**
-   * After a formal build that recorded the snapshot succeeded: copy its media cache (`<checkout>/.cache/media`)
-   * and note the commit. Without a snapshot from Bukit nothing is recorded.
+   * After a formal build that recorded the snapshot succeeded: copy its media cache (`<checkout>/.cache/media`),
+   * pin its Notion keys and note the commit. Without a snapshot from Bukit nothing is recorded.
    */
   recorded(siteId: string, commit: string, checkout: string): void {
     if (!fs.existsSync(path.join(this.snapshotDir(siteId), "manifest.json"))) return;
     const dir = this.siteDir(siteId);
+    this.writePin(siteId, checkout);
     const media = path.join(checkout, ".cache", "media");
     const next = path.join(dir, `.cache-${crypto.randomBytes(6).toString("hex")}`);
     try {
@@ -105,7 +112,12 @@ export class NotionSnapshots {
     }
     this.sweep(siteId);
     privateDir(path.join(this.cacheDir(siteId), "media"));
-    const checkArgs = ["--notion-snapshot", snapshot, "--notion-offline"];
+    if (!fs.existsSync(this.pinFile(siteId))) {
+      // A snapshot from before pins existed: without one an offline build would trust the unreviewed keys.
+      this.remove(siteId);
+      return null;
+    }
+    const checkArgs = ["--notion-snapshot", snapshot, "--notion-offline", "--notion-pin", this.pinFile(siteId)];
     return { record, checkArgs, buildArgs: [...checkArgs, "--cache-dir", this.cacheDir(siteId)] };
   }
 
@@ -133,7 +145,8 @@ export class NotionSnapshots {
   private sweep(siteId: string): void {
     const dir = this.siteDir(siteId);
     for (const name of fs.readdirSync(dir)) {
-      if (name === "snapshot" || name === "cache" || name.startsWith(".snapshot.staging-")) continue;
+      if (name === "snapshot" || name === "cache" || name === PIN_FILE || name.startsWith(".snapshot.staging-"))
+        continue;
       fs.rmSync(path.join(dir, name), { recursive: true, force: true });
     }
   }
@@ -150,6 +163,23 @@ export class NotionSnapshots {
 
   private cacheDir(siteId: string): string {
     return path.join(this.siteDir(siteId), "cache");
+  }
+
+  private pinFile(siteId: string): string {
+    return path.join(this.siteDir(siteId), PIN_FILE);
+  }
+
+  /** pin.json from the site.yaml the formal build used (0600, replaced atomically). */
+  private writePin(siteId: string, checkout: string): void {
+    const parsed = parseYaml(fs.readFileSync(path.join(checkout, "site.yaml"), "utf8"), { asText: true });
+    if (parsed.error !== null) throw new Error("the formal build's site.yaml cannot be read for the Notion pin");
+    const next = `${this.pinFile(siteId)}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+    try {
+      fs.writeFileSync(next, JSON.stringify(notionPinFrom(parsed.value)), { mode: 0o600, flag: "wx" });
+      fs.renameSync(next, this.pinFile(siteId));
+    } finally {
+      fs.rmSync(next, { force: true });
+    }
   }
 
   /** Never fails the caller: a backup exclusion that does not work is only logged. */

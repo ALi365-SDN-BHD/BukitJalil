@@ -451,6 +451,7 @@ const zhCN = {
   notionSnapshot: {
     offline: "Notion 数据来自 {time} 的正式构建（提交 {commit}），之后在 Notion 里的修改不会显示。",
     queryChanged: "这次改动修改了 Notion 的过滤或排序，Notion 数据仍按正式版本的过滤条件。",
+    pinned: "Notion 字段和过滤按正式版本，这些改动应用并正式构建后才生效。",
     rendererMismatch: "部分正文是旧版渲染，正式构建后会更新。",
     problem: {
       missing:

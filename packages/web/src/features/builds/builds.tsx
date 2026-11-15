@@ -207,6 +207,7 @@ export function NotionOfflineNote({ data, testId }: { data: NotionOfflineData; t
   return (
     <div className="flex flex-col gap-0.5 text-xs" data-testid={testId}>
       <p>{t(n.offline, { time: formatTime(data.builtAt, locale), commit: shortOid(data.commit) })}</p>
+      {data.pinned && <p data-testid={`${testId}-pinned`}>{n.pinned}</p>}
       {data.queryChanged && <p data-testid={`${testId}-query`}>{n.queryChanged}</p>}
       {data.rendererMismatch && <p data-testid={`${testId}-renderer`}>{n.rendererMismatch}</p>}
     </div>
