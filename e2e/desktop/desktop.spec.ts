@@ -56,6 +56,7 @@ test.afterEach(() => {
 test("opens the app signed in, with only the desktop bridge exposed", async () => {
   const { app, page, home } = await launch();
   await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("app-update")).toBeVisible();
   expect(new URL(page.url()).origin).toBe(`http://127.0.0.1:${PORT}`);
   expect(await page.evaluate(() => [typeof (window as { require?: unknown }).require, typeof process])).toEqual([
     "undefined",
@@ -63,7 +64,7 @@ test("opens the app signed in, with only the desktop bridge exposed", async () =
   ]);
   expect(
     await page.evaluate(() => Object.keys((window as unknown as { bukitjalil: object }).bukitjalil).sort()),
-  ).toEqual(["desktop", "pickFolder", "restart", "setLocale"]);
+  ).toEqual(["desktop", "pickFolder", "platform", "restart", "setLocale"]);
   // The server holds the data directory while the app runs and gives it back on quit.
   const pid = Number(fs.readFileSync(lockFile(home), "utf8"));
   expect(pid).toBeGreaterThan(0);

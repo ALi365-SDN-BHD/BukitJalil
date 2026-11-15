@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SessionList } from "@/features/chat/sessions";
 import { useOpenSettings } from "@/features/settings/useOpenSettings";
+import { UpdateButton } from "@/features/updates/UpdateButton";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { type SiteDialog, SiteDialogs } from "./SiteDialogs";
@@ -95,15 +96,19 @@ function SidebarFooter() {
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, retry: false });
   const version = health.data?.version;
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t px-2 py-1.5">
-      <Link
-        to="/"
-        className="min-w-0 flex-1 truncate text-xs text-muted-foreground hover:text-foreground"
-        data-testid="app-version"
-      >
-        {m.app.name}
-        {version && version !== "0.0.0" ? ` v${version}` : ""}
-      </Link>
+    <div className="@container flex shrink-0 items-center gap-1 border-t px-2 py-1.5">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        <Link
+          to="/"
+          className="flex min-w-0 items-center text-xs text-muted-foreground hover:text-foreground"
+          data-testid="app-version"
+          title={`${m.app.name}${version && version !== "0.0.0" ? ` v${version}` : ""}`}
+        >
+          <span className="truncate @max-[280px]:hidden">{m.app.name}</span>
+          {version && version !== "0.0.0" && <span className="shrink-0"> v{version}</span>}
+        </Link>
+        <UpdateButton />
+      </div>
       <Button
         size="sm"
         variant="ghost"

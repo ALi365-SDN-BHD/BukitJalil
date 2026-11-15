@@ -2,6 +2,7 @@ import {
   ApiError,
   type ApplyRequest,
   type ApplyResult,
+  AppUpdateResponse,
   type AuditReportResponse,
   type Build,
   type BuildListResponse,
@@ -104,6 +105,11 @@ const query = (params: Record<string, string>) => new URLSearchParams(params).to
 
 export const api = {
   health: () => request("/health", {}, HealthResponse),
+  update: () => request("/update", {}, AppUpdateResponse),
+  checkUpdate: (manual = true) => post<AppUpdateResponse>(`/update/check${manual ? "?manual=1" : ""}`),
+  downloadUpdate: () => post<AppUpdateResponse>("/update/download"),
+  cancelUpdate: () => post<AppUpdateResponse>("/update/cancel"),
+  openUpdate: () => post<AppUpdateResponse>("/update/open"),
   settings: () => request("/settings", {}, Settings),
   updateSettings: (patch: SettingsPatch) =>
     request("/settings", { method: "PUT", body: JSON.stringify(patch) }, Settings),
@@ -241,6 +247,7 @@ export function fileUrl(siteId: string, ref: PanelRef, path: string, as: "raw" |
 /** Query keys, so mutations can invalidate exactly what they change. */
 export const keys = {
   settings: ["settings"] as const,
+  update: ["update"] as const,
   skills: ["skills"] as const,
   sites: ["sites"] as const,
   site: (id: string) => ["site", id] as const,

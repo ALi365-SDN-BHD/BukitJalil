@@ -45,6 +45,8 @@ pnpm start
 2. macOS：打开 dmg，把 `BukitJalil.app` 拖进"应用程序"（zip 先解压）
 3. macOS 第一次打开：安装包没有 Apple 开发者签名，macOS 会说"无法验证开发者"或"Apple 无法检查其是否包含恶意软件"。先点"完成"，到"系统设置 → 隐私与安全性"，在下面找到 BukitJalil，点"仍要打开"并确认。之后就能正常双击打开
 
+以后有新版本时，左下角版本号后面的"更新"按钮会出现提示。点开后下载对应平台的安装包：macOS 把新版本拖进"应用程序"，Windows 运行安装程序，Linux AppImage 会替换当前文件并重启，deb 用软件中心安装。没有 Developer ID，macOS 不会自己替换正在运行的 `.app`。
+
 和在终端里运行的区别：
 
 - 窗口自动登录，不需要登录地址
@@ -257,7 +259,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 
 ## 14. 目前的限制
 
-- 只支持 macOS（Apple 芯片）和 Linux x64，没有 Windows 版；桌面版只有 macOS（Apple 芯片），没有开发者签名和自动更新
+- 只支持 macOS（Apple 芯片）和 Linux x64，没有 Windows 版；桌面版只有 macOS（Apple 芯片），没有开发者签名，所以不能在应用内自动安装更新。左下角可以检查更新并下载安装包，下载后手动安装
 - 只能发布到 GitHub Pages；Cloudflare Pages 和自己的服务器以后再做
 - 不支持 Bukit 的外部插件，只允许内置插件
 - Notion 数据源需要每个数据源自己的 token，并且要在 Notion 中把数据库共享给对应 integration；不同 Notion 工作区的数据源可以分别配置，但一个网站只能选一个 Notion 数据源

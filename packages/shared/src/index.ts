@@ -19,3 +19,4 @@ export * from "./sessions.ts";
 export * from "./settings.ts";
 export * from "./sites.ts";
 export * from "./skills.ts";
+export * from "./updates.ts";

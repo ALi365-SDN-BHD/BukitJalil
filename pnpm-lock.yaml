@@ -217,6 +217,9 @@ importers:
       hono:
         specifier: 4.13.17
         version: 4.13.17
+      semver:
+        specifier: 7.7.4
+        version: 7.7.4
       tsx:
         specifier: 4.23.15
         version: 4.23.15
@@ -226,6 +229,10 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+    devDependencies:
+      '@types/semver':
+        specifier: 7.8.0
+        version: 7.8.0
 
   packages/shared:
     dependencies:
@@ -2039,6 +2046,9 @@ packages:
 
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
+
+  '@types/semver@7.8.0':
+    resolution: {integrity: sha512-1mAINjtQCXXeLkJ9ehXkwOcBpqtLxiVtKhpUf83DdRNdQKV0iXZpaHYqRr7nj+wvxuJzoAmAwXI+sCNMv1CzLQ==}
 
   '@types/unist@2.0.11':
     resolution: {integrity: sha512-CmBKiL6NNo/OqgmMn95Fk9Whlp2mtvIv+KNpQKN2F4SjvrEesubTRWGYSg+BnWZOnlCaSTU1sMpsBOzgbYhnsA==}
@@ -6620,6 +6630,8 @@ snapshots:
       '@types/node': 24.19.2
 
   '@types/retry@0.12.0': {}
+
+  '@types/semver@7.8.0': {}
 
   '@types/unist@2.0.11': {}
 

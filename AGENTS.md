@@ -115,3 +115,9 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 - 构建成功后扫描输出 HTML 的 `src`、`href`、`srcset`；引用必须按路径段带当前 `baseUrl`，去掉后是输出里大小写一致的普通文件，否则在构建报告的警告里列出页面和网址，不阻断预览。
 - 发布在 `publish audit` 之前做同一个检查；有问题时以新的 `DeployOutcome` `upload_prefix` 结束，`detail` 列出页面和网址，不进入 `deploy`。
 - 文件本身不在 `uploads/` 集合里的引用不查；绝对、协议相对、相对和 `data:` 不查。
+
+### 10. 应用更新（已完成，仅手动安装）
+
+2026-11-16 已实现：左下角版本后面有“更新”按钮；检查 GitHub Releases，用户点“下载安装包”后后台下载并校验 SHA-256，完成后打开对应平台的安装程序（macOS dmg、Windows exe、Linux AppImage 或 deb；Linux 按 `APPIMAGE` 选格式）。Linux AppImage 会替换运行中的文件并重启；deb 用系统安装器；Windows 在平台支持前隐藏更新按钮。没有 Developer ID 时 macOS 不能应用内安装，所以没有使用 Squirrel.Mac；以后签名后再换成 `electron-updater`。版本号改为根 `package.json` 唯一来源，发布标签必须和它一致。设计见 [docs/plans/2026-11-16-auto-update-design.md](docs/plans/2026-11-16-auto-update-design.md)。
+
+**阶段和已知风险**（2026-11-16）：开发/测试阶段，只在测试环境使用。更新包和 `SHA256SUMS.txt` 来自同一个 GitHub Release，没有独立签名；发布账号或 CI 的写权限被攻破时，能让客户端下载并打开恶意安装包。对外发布前必须先选一个方案：删掉应用内下载/打开、只打开 Release 页面；或加 Ed25519 签名清单，私钥离线保存。详见设计文档第 10 节。

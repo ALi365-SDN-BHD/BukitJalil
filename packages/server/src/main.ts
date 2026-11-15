@@ -18,7 +18,7 @@ import { BukitService, removeOldAppCopies } from "./bukit/locate.ts";
 import { ChangeService } from "./changes/service.ts";
 import { DataSourceService, MAX_TOKEN_FILE } from "./data-sources/service.ts";
 import { DeployService } from "./deploys/service.ts";
-import { type DesktopChannel, desktopChannel, requestSecretKey } from "./desktop.ts";
+import { type DesktopChannel, desktopChannel, requestOpenInstaller, requestSecretKey } from "./desktop.ts";
 import { connectEvents } from "./events/bridge.ts";
 import { EventHub } from "./events/hub.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
@@ -30,7 +30,7 @@ import { acquireHomeLock, HomeInUseError } from "./lock.ts";
 import { createLogger } from "./log.ts";
 import { MediaService } from "./media/service.ts";
 import { PanelService } from "./panels/service.ts";
-import { ensureAppHome, resolveAppHome, resolveResources } from "./paths.ts";
+import { ensureAppHome, readPackageVersion, resolveAppHome, resolveResources } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
 import { PublishAccountService } from "./publish/accounts.ts";
 import { SecretStore } from "./secrets/store.ts";
@@ -40,8 +40,14 @@ import { NotionSnapshots } from "./sites/notion-snapshots.ts";
 import { SiteService } from "./sites/service.ts";
 import { openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
+import { UpdateService } from "./updates/service.ts";
 
-const VERSION = process.env.BUKITJALIL_VERSION?.trim() || "0.0.0";
+// The desktop app passes app.getVersion(); development reads the root package.json so the footer and the
+// update check see the same version as a release. Explicit paths avoid picking a parent package.json.
+const versionFile = process.env.BUKITJALIL_RESOURCES
+  ? path.join(process.env.BUKITJALIL_RESOURCES, "package.json")
+  : path.resolve(import.meta.dirname, "../../../package.json");
+const VERSION = process.env.BUKITJALIL_VERSION?.trim() || readPackageVersion(versionFile) || "0.0.0";
 
 /** Set with --desktop: the desktop app's main process started this server (plan M7). */
 let desktop: DesktopChannel | null = null;
@@ -115,6 +121,21 @@ const gitPath = resolveGitPath() ?? appGitPath(paths.home);
 
 const settingsStore = new SettingsStore(db);
 const offline = process.env.BUKITJALIL_OFFLINE === "1";
+
+// Without a Developer ID macOS cannot install an update itself, so this only downloads the installer and
+// hands it to the desktop app to open; Windows and Linux follow the same user-confirmed path.
+const desktopForUpdates = desktop;
+const updates = new UpdateService({
+  currentVersion: VERSION,
+  dir: path.join(paths.home, "updates"),
+  fetchImpl: offline ? null : fetch,
+  logger,
+  openInstaller: desktopForUpdates ? (file) => requestOpenInstaller(desktopForUpdates, file) : null,
+  platform: process.platform,
+  arch: process.arch,
+  // AppImage sets APPIMAGE; a deb install does not. The update downloads the same format the user runs.
+  linuxPackage: process.env.APPIMAGE ? "appimage" : "deb",
+});
 
 // Tokens and model keys (plan 6.7): the desktop app hands over the key its keychain protects; `pnpm dev`
 // and tests keep plain 0600 files. The desktop server does not wait for the key: the app asks the keychain
@@ -328,6 +349,7 @@ const app = createAdminApp({
   events,
   readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,
+  updates,
   secrets: secretsApi,
   logger,
 });

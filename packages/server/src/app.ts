@@ -31,6 +31,7 @@ import { publishAccountRoutes } from "./api/publish-accounts.ts";
 import { sessionRoutes } from "./api/sessions.ts";
 import { siteRoutes } from "./api/sites.ts";
 import { skillRoutes } from "./api/skills.ts";
+import { updateRoutes } from "./api/updates.ts";
 import type { BuildService } from "./builds/service.ts";
 import type { BukitService } from "./bukit/locate.ts";
 import type { ChangeService } from "./changes/service.ts";
@@ -55,6 +56,7 @@ import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
 import { storageErrorCode } from "./storage-errors.ts";
 import { SettingsStore } from "./store/settings.ts";
+import type { UpdateService } from "./updates/service.ts";
 
 export interface AdminAppOptions {
   port: number;
@@ -92,6 +94,7 @@ export interface AdminAppOptions {
   /** Overrides the home directory used by the directory picker (tests). */
   userHome?: string;
   version: string;
+  updates: UpdateService;
   /** How tokens and model keys are kept (plan 6.7); plain files when absent (tests). */
   secrets?: { status(): SecretsStatus; reset(): void };
   logger: Logger;
@@ -235,6 +238,7 @@ export function createAdminApp(opts: AdminAppOptions) {
   publishAccountRoutes(api, opts.publishAccounts);
   deployRoutes(api, opts.deploys);
   gitRoutes(api, opts.gitStatus);
+  updateRoutes(api, opts.updates);
   sessionRoutes(api, opts.agent);
   skillRoutes(api, opts.agent);
   changeRoutes(api, { changes: opts.changes, agent: opts.agent, builds: opts.builds, logger: opts.logger });

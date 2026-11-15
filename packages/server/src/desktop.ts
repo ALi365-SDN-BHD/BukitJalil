@@ -11,6 +11,8 @@ export type DesktopOutbound =
   /** Ask for the secret key (plan 6.7); `reset` asks the app to forget it, a new one is made at the next start. */
   | { type: "secrets"; reset?: boolean }
   | { type: "login"; url: string }
+  /** Open a downloaded installer with the desktop app (the app checks the path is inside its data directory). */
+  | { type: "open-update"; id: number; path: string }
   | { type: "error"; code: "port_in_use" | "home_in_use" | "start_failed"; message: string };
 
 /** What the desktop app asks of the server. */
@@ -18,7 +20,9 @@ export type DesktopInbound =
   | { type: "login" }
   | { type: "shutdown" }
   /** The secret key (base64, 32 bytes), or why there is none. */
-  | { type: "secrets"; key: string | null; reason: SecretsUnavailableReason | null };
+  | { type: "secrets"; key: string | null; reason: SecretsUnavailableReason | null }
+  /** Result of opening an installer; null means it opened. */
+  | { type: "open-update-result"; id: number; error: string | null };
 
 export interface DesktopChannel {
   send(message: DesktopOutbound): void;
@@ -36,7 +40,13 @@ const REASONS = new Set<string>(["no_keyring", "locked", "no_answer", "reset"]);
 
 function inbound(data: unknown): DesktopInbound | null {
   if (typeof data !== "object" || data === null) return null;
-  const { type, key, reason } = data as { type?: unknown; key?: unknown; reason?: unknown };
+  const { type, key, reason, id, error } = data as {
+    type?: unknown;
+    key?: unknown;
+    reason?: unknown;
+    id?: unknown;
+    error?: unknown;
+  };
   if (type === "login" || type === "shutdown") return { type };
   if (type === "secrets") {
     return {
@@ -44,6 +54,9 @@ function inbound(data: unknown): DesktopInbound | null {
       key: typeof key === "string" ? key : null,
       reason: typeof reason === "string" && REASONS.has(reason) ? (reason as SecretsUnavailableReason) : null,
     };
+  }
+  if (type === "open-update-result" && typeof id === "number" && (error === null || typeof error === "string")) {
+    return { type, id, error };
   }
   return null;
 }
@@ -76,6 +89,50 @@ export function requestSecretKey(
       else finish({ reason: message.reason ?? "locked" });
     });
     channel.send({ type: "secrets" });
+  });
+}
+
+const openPending = new Map<number, (error: string | null) => void>();
+const openListenerChannels = new WeakSet<DesktopChannel>();
+let openSequence = 0;
+
+/**
+ * Ask the desktop app to open an installer and wait for the result. The main process returns the
+ * `shell.openPath` error, so the UI does not claim success when nothing opened.
+ */
+export function requestOpenInstaller(
+  channel: DesktopChannel,
+  file: string,
+  timeoutMs = 15_000,
+): Promise<string | null> {
+  if (!openListenerChannels.has(channel)) {
+    openListenerChannels.add(channel);
+    channel.onMessage((message) => {
+      if (message.type !== "open-update-result") return;
+      const finish = openPending.get(message.id);
+      if (!finish) return;
+      openPending.delete(message.id);
+      finish(message.error);
+    });
+  }
+  const id = ++openSequence;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      openPending.delete(id);
+      resolve("timeout");
+    }, timeoutMs);
+    timer.unref?.();
+    openPending.set(id, (error) => {
+      clearTimeout(timer);
+      resolve(error);
+    });
+    try {
+      channel.send({ type: "open-update", id, path: file });
+    } catch (err) {
+      openPending.delete(id);
+      clearTimeout(timer);
+      resolve(err instanceof Error ? err.message : String(err));
+    }
   });
 }
 

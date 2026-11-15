@@ -7,6 +7,7 @@ import { contextBridge, ipcRenderer } from "electron";
  */
 contextBridge.exposeInMainWorld("bukitjalil", {
   desktop: true,
+  platform: process.platform,
   pickFolder: (start?: string): Promise<string | null> => ipcRenderer.invoke("desktop:pick-folder", start),
   restart: (): Promise<void> => ipcRenderer.invoke("desktop:restart"),
   setLocale: (locale: string): void => ipcRenderer.send("desktop:locale", locale),

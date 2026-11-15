@@ -1,6 +1,8 @@
 /** What the desktop app's preload script exposes (plan M7, packages/desktop/src/preload.ts). */
 export interface DesktopBridge {
   desktop: true;
+  /** The host platform, used to keep unsupported update paths hidden. */
+  platform: string;
   /** The system folder dialog, opened at `start`; the chosen folder, or null when cancelled. */
   pickFolder(start?: string): Promise<string | null>;
   /** Tell the desktop app the chosen language, for its menus and About panel. */

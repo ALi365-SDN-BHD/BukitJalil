@@ -15,6 +15,7 @@ import {
 } from "electron";
 import { loadSecretKey, removeSecretKey } from "./secrets.ts";
 import { ServerProcess, type StartResult } from "./server.ts";
+import { replaceAppImage } from "./update.ts";
 
 /** The desktop shell (plan M7): starts the server, opens it in a locked-down window, stops it on quit. */
 
@@ -36,6 +37,40 @@ const statusPage = path.join(__dirname, "status.html");
 const windowIcon = path.join(__dirname, packaged ? "icon.png" : "../assets/icon.png");
 const statusUrl = pathToFileURL(statusPage).href;
 const dataDir = path.resolve(process.env.BUKITJALIL_HOME || path.join(os.homedir(), ".bukitjalil"));
+const updatesDir = path.join(dataDir, "updates");
+/** Root package.json while developing, the app bundle when packaged; BUKITJALIL_VERSION overrides for tests. */
+const appVersion = process.env.BUKITJALIL_VERSION?.trim() || (packaged ? app.getVersion() : packageVersion());
+
+function packageVersion(): string {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : app.getVersion();
+  } catch {
+    return app.getVersion();
+  }
+}
+
+/** Only files the server downloaded into the app's own updates folder may be opened. */
+async function openUpdate(file: string): Promise<string | null> {
+  try {
+    const root = fs.realpathSync(updatesDir);
+    const target = fs.realpathSync(file);
+    if (!target.startsWith(`${root}${path.sep}`) || !fs.statSync(target).isFile()) return "not an update file";
+    if (process.platform === "linux" && process.env.APPIMAGE && target.endsWith(".AppImage")) {
+      return await replaceAppImage(target, process.env.APPIMAGE, (appImage) => {
+        app.relaunch({ execPath: appImage });
+        app.quit();
+      });
+    }
+    const error = await shell.openPath(target);
+    // NSIS cannot replace files while this app is running; close after the installer has started.
+    if (!error && process.platform === "win32") setTimeout(() => app.quit(), 500);
+    return error || null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 /** The language the app's settings chose, reported by its page; until then the system's. */
 let appLocale: "zh-CN" | "en" | null = null;
 const zh = () => (appLocale ?? app.getLocale()).toLowerCase().startsWith("zh");
@@ -69,7 +104,8 @@ const server = new ServerProcess({
   cwd: packaged ? resources : path.join(repoRoot, "packages/server"),
   env: {
     ...process.env,
-    ...(packaged ? { BUKITJALIL_RESOURCES: resources, BUKITJALIL_VERSION: app.getVersion() } : {}),
+    ...(packaged ? { BUKITJALIL_RESOURCES: resources } : {}),
+    BUKITJALIL_VERSION: appVersion,
   },
   firstPort: Number(process.env.BUKITJALIL_DESKTOP_PORT) || DEFAULT_PORT,
   // The keychain prompt comes over the app, not over "starting": asked once the window shows the app.
@@ -77,6 +113,7 @@ const server = new ServerProcess({
   secretKey: (alive) =>
     appShown.then(() => (alive() ? loadSecretKey(dataDir, safeStorage) : { key: null, reason: "locked" })),
   resetSecrets: () => removeSecretKey(dataDir),
+  openUpdate,
 });
 
 /** Settles the first time the window shows the app (the server answered with a login link). */
@@ -225,7 +262,7 @@ function buildMenu() {
   // The About panel (app menu on macOS) shows the slogan under the name and version.
   app.setAboutPanelOptions({
     applicationName: "BukitJalil",
-    applicationVersion: app.getVersion(),
+    applicationVersion: appVersion,
     credits: text.slogan(),
   });
   Menu.setApplicationMenu(

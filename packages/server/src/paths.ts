@@ -3,6 +3,19 @@ import os from "node:os";
 import path from "node:path";
 import { devBukitDir } from "./bukit/locate.ts";
 
+/**
+ * The app version from one explicit package.json: the repository root in development,
+ * Resources/app/package.json in the desktop app. BUKITJALIL_VERSION still wins where it is set.
+ */
+export function readPackageVersion(file: string): string | null {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(file, "utf8")) as { name?: unknown; version?: unknown };
+    return pkg.name === "bukitjalil" && typeof pkg.version === "string" && pkg.version.length > 0 ? pkg.version : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Application data directory (plan 4.1); BUKITJALIL_HOME overrides ~/.bukitjalil. */
 export function resolveAppHome(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.BUKITJALIL_HOME;

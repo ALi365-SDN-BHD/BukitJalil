@@ -30,6 +30,7 @@ import { SiteLocks } from "../src/sites/locks.ts";
 import { SiteService } from "../src/sites/service.ts";
 import { openDatabase } from "../src/store/db.ts";
 import { SettingsStore } from "../src/store/settings.ts";
+import { UpdateService } from "../src/updates/service.ts";
 
 export const PORT = 47880;
 export const ADMIN = `http://127.0.0.1:${PORT}`;
@@ -179,6 +180,13 @@ export function makeApp(
     ...overrides.agent,
   });
   const events = new EventHub(overrides.replayBytes);
+  const updates = new UpdateService({
+    currentVersion: "0.1.0-beta.4",
+    dir: path.join(paths.home, "updates"),
+    fetchImpl: null,
+    logger,
+    openInstaller: null,
+  });
   const panels = new PanelService({
     git,
     sites,
@@ -215,6 +223,7 @@ export function makeApp(
     readIdentity: async () => ({ name: "Global Name", email: "global@example.com" }),
     userHome: overrides.userHome,
     version: "test",
+    updates,
     logger,
   });
   return {
@@ -235,6 +244,7 @@ export function makeApp(
     agent,
     gitStatus,
     events,
+    updates,
     customModels,
     dataSources,
     publishAccounts,

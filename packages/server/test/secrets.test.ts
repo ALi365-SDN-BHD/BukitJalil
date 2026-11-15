@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SecretCredentialStore } from "../src/agent/secret-credentials.ts";
-import { type DesktopChannel, type DesktopInbound, type DesktopOutbound, requestSecretKey } from "../src/desktop.ts";
+import {
+  type DesktopChannel,
+  type DesktopInbound,
+  type DesktopOutbound,
+  requestOpenInstaller,
+  requestSecretKey,
+} from "../src/desktop.ts";
 import { SecretBox, SecretBoxError } from "../src/secrets/box.ts";
 import { type SecretFileSpec, SecretStore } from "../src/secrets/store.ts";
 import { JsonFileError } from "../src/store/json-file.ts";
@@ -301,6 +307,20 @@ describe("requestSecretKey", () => {
     expect(await requestSecretKey(short)).toEqual({ reason: "locked" });
     const silent = channel(() => {});
     expect(await requestSecretKey(silent, 20)).toEqual({ reason: "no_answer" });
+  });
+
+  it("waits for the installer result and returns its error", async () => {
+    const c = channel((reply) => {
+      const sent = c.sent.at(-1);
+      if (sent?.type === "open-update") reply({ type: "open-update-result", id: sent.id, error: "boom" });
+    });
+    expect(await requestOpenInstaller(c, "/tmp/installer.dmg")).toBe("boom");
+    expect(c.sent[0]).toMatchObject({ type: "open-update", path: "/tmp/installer.dmg" });
+  });
+
+  it("times out when the desktop app does not answer", async () => {
+    const silent = channel(() => {});
+    expect(await requestOpenInstaller(silent, "/tmp/installer.dmg", 20)).toBe("timeout");
   });
 
   it("without a deadline waits however long the keychain prompt stays open", async () => {

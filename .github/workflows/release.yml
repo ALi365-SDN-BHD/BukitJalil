@@ -74,6 +74,15 @@ jobs:
             echo "::error::Not a version: $version"
             exit 1
           fi
+          # The tag is the release identity; package.json must describe the same code. Manual runs may
+          # build an older or test version, so they are exempt.
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            package_version="$(node -p "require('./package.json').version")"
+            if [ "$version" != "$package_version" ]; then
+              echo "::error::Tag version $version does not match package.json $package_version"
+              exit 1
+            fi
+          fi
           echo "BUKITJALIL_VERSION=$version" >> "$GITHUB_ENV"
       - name: Install Electron
         run: pnpm --filter @bukitjalil/desktop exec install-electron

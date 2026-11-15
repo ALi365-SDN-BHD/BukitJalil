@@ -136,6 +136,15 @@ export const errorCodes = [
   "model.no_key",
   "rg.install_running",
   "rg.unsupported_platform",
+  "update.offline",
+  "update.check_failed",
+  "update.no_asset",
+  "update.checksum_missing",
+  "update.checksum_mismatch",
+  "update.download_failed",
+  "update.not_available",
+  "update.desktop_only",
+  "update.open_failed",
 ] as const;
 
 export const ErrorCode = z.enum(errorCodes);
