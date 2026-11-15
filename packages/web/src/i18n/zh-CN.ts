@@ -680,6 +680,7 @@ const zhCN = {
       notion: "网站使用 Notion 内容源，请先在数据面板里绑定数据源",
       step_failed: "失败",
       symlink: "构建结果里有符号链接",
+      upload_prefix: "有上传素材的网址和当前的 site.baseUrl 对不上",
       stopped: "已停止",
       interrupted: "服务重启，发布中断",
       error: "出错",

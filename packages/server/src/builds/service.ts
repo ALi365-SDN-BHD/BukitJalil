@@ -34,6 +34,7 @@ import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
 import { compareAudits, readAudit, readIssues } from "./audit.ts";
 import { type BuildRecord, BuildStore, newBuildId } from "./store.ts";
+import { findUploadUrlProblems } from "./upload-urls.ts";
 
 export interface BuildServiceOptions {
   db: DatabaseSync;
@@ -469,6 +470,11 @@ export class BuildService {
       // The preview server refuses symlinks too, but a build that made one is not kept at all (plan 8.4).
       const link = findSymlink(temp);
       if (link) return finish("failed", "symlink", result.exitCode, { ...report, detail: link });
+
+      // Old upload prefixes do not fail the build; the preview warns and a publish refuses (design 4.9).
+      for (const problem of findUploadUrlProblems(temp, basePath)) {
+        report.messages.push({ level: "warn", msg: `upload prefix: ${problem.url} in ${problem.page}` });
+      }
 
       const dest = path.join(this.opts.paths.previews, site.id, id);
       fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });

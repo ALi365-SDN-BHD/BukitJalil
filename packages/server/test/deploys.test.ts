@@ -135,7 +135,10 @@ case "$1" in
     for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
     [ "$fail" = build ] && { echo '{"ts":"t","level":"error","msg":"event=content.error file=x.md"}' >&2; exit 2; }
     mkdir -p "$out/.bukit"
-    if [ "$fail" = multilingual ]; then mkdir -p "$out/de-DE" "$out/en-US"; echo de > "$out/de-DE/index.html"; echo en > "$out/en-US/index.html"
+    if [ -f fake-upload ]; then
+      mkdir -p "$out/uploads"; echo png > "$out/uploads/a.png"
+      echo '<img src="/uploads/a.png">' > "$out/index.html"
+    elif [ "$fail" = multilingual ]; then mkdir -p "$out/de-DE" "$out/en-US"; echo de > "$out/de-DE/index.html"; echo en > "$out/en-US/index.html"
     else echo "<h1>site</h1>" > "$out/index.html"; fi
     echo '{"siteUrl":"https://someone.github.io/blog","documents":[{},{}],"issues":[{"severity":"warning","code":"publish.time_missing","route":"/a/","message":"No time."}]}' > "$out/.bukit/publish-audit-report.json"
     exit 0;;
@@ -158,7 +161,9 @@ afterEach(async () => {
 });
 
 let counter = 0;
-async function publishable(opts: { fail?: string; branch?: string; notion?: boolean } = {}) {
+async function publishable(
+  opts: { fail?: string; branch?: string; notion?: boolean; base?: string; upload?: boolean } = {},
+) {
   const name = `pub${++counter}`;
   const fakeDir = path.join(base, `${name}-bin`);
   fs.mkdirSync(fakeDir);
@@ -188,6 +193,11 @@ async function publishable(opts: { fail?: string; branch?: string; notion?: bool
       `site:\n  name: ${name}\n  title: ${name}\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\ndeploy:\n  repo: someone/blog\n  branch: gh-pages\n`,
     );
   if (opts.fail) fs.writeFileSync(path.join(dir, "fake-fail"), opts.fail);
+  if (opts.upload) fs.writeFileSync(path.join(dir, "fake-upload"), "");
+  if (opts.base) {
+    const yaml = path.join(dir, "site.yaml");
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", `baseUrl: ${opts.base}`));
+  }
   rawGit(base, dir, "init", "-q", "-b", "main");
   commitAllAs(base, dir, "init");
   const site = await ctx.sites.import({ path: dir });
@@ -297,6 +307,14 @@ describe("publishing (M6 layer 3)", () => {
     const list = (await p.call("GET", "/deploys")).json as unknown as DeployListResponse;
     expect(list.deploys).toHaveLength(1);
     expect(list.deploys[0]).toMatchObject({ id: d.id, report: null });
+  });
+
+  it("refuses to publish upload links that do not use the current baseUrl", async () => {
+    const p = await publishable({ base: "/blog/", upload: true });
+    const d = await p.publish();
+    expect(d).toMatchObject({ status: "failed", outcome: "upload_prefix" });
+    expect(d.report?.detail).toContain("index.html: /uploads/a.png");
+    expect(p.calls().map((c) => c.split(" ")[0])).toEqual(["config", "doctor", "build"]);
   });
 
   for (const [fail, step] of [

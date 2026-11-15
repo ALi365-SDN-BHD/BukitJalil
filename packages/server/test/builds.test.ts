@@ -110,6 +110,9 @@ JSON
       full) echo "write index.html: no space left on device" >&2; exit 1;;
       fulljson) echo '{"ts":"t","level":"error","msg":"event=output.failed error=no space left on device"}'; exit 3;;
       symlink) mkdir -p "$out"; echo hi > "$out/index.html"; ln -s /etc/hosts "$out/leak";;
+      upload)
+        mkdir -p "$out/uploads"; echo png > "$out/uploads/a.png"
+        echo '<img src="/uploads/a.png"><img src="/blog/uploads/a.png">' > "$out/index.html";;
       audit)
         # Like Bukit 2.0.x: the JSON log on stderr, the SEO / GEO reports in .bukit/.
         mkdir -p "$out/.bukit"; echo "<h1>a</h1>" > "$out/index.html"
@@ -500,6 +503,19 @@ describe("main builds (plan 8.3, 8.4)", () => {
     // Nothing is written into the site directory, and the temporary output is gone.
     expect(fs.existsSync(path.join(s.dir, ".bukitjalil-build"))).toBe(false);
     expect(fs.readdirSync(path.join(s.paths.worktrees, s.site.id, "main", ".bukitjalil-build"))).toEqual([]);
+  });
+
+  it("warns about upload links that do not use the current baseUrl", async () => {
+    const s = await setup("upload-warning", { mode: "upload" });
+    const yaml = path.join(s.dir, "site.yaml");
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog/"));
+    commitAll(s.dir, "subpath");
+    const b = await s.build();
+    expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
+    expect(b.report?.messages).toContainEqual({
+      level: "warn",
+      msg: "upload prefix: /uploads/a.png in index.html",
+    });
   });
 
   it("publishes build.start and build.end on the event stream", async () => {

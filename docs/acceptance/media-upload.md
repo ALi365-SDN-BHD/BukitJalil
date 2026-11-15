@@ -12,9 +12,9 @@
 | 检查 | 结果 |
 | --- | --- |
 | `BUKIT_BIN="$PWD/vendor/bukit-2.2.3/bukit" pnpm vitest run packages/server/test/bukit-behavior.test.ts` | 9 passed |
-| `pnpm vitest run packages/server/test/media.test.ts` | 24 passed |
+| `pnpm vitest run packages/server/test/media.test.ts` | 28 passed |
 | `pnpm vitest run packages/server/test/site-tools.test.ts` | 21 passed，1 skipped（平台相关） |
-| `pnpm vitest run` | 617 passed，17 skipped |
+| `pnpm vitest run` | 623 passed，17 skipped |
 | `pnpm vitest run packages/web` | 21 passed |
 | `pnpm exec playwright test e2e/media.spec.ts` | 18 passed（Chromium、Firefox、WebKit） |
 | `pnpm e2e:desktop` | 10 passed；桌面版用内置真实 Bukit 完成拖放上传和改动面板预览 |
@@ -36,6 +36,7 @@
 - AI 把上传的图片加到主题页头，变化进入改动集（脚本模型 `#media`）。
 - 桌面版：真实拖放事件上传、队列完成、改动面板图片预览，使用应用内置的 Bukit 2.2.3。
 - 子路径托管：真实 Bukit 发布构建的输出挂在本地 `/blog/`，页面链接和图片请求都正确。
+- 上传网址前缀检查：`/blog/uploads/...` 和语言目录通过；旧前缀、段名相近、`..`、只差大小写的引用报错；构建只警告，发布返回 `upload_prefix` 且不进入 audit/deploy。
 - 请求体 14 MiB 上限和 13.3 MiB 请求接收。
 
 ## 未完成的手动验收

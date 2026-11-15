@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { MediaUploadRequest } from "@bukitjalil/shared";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { findUploadUrlProblems } from "../src/builds/upload-urls.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { mediaDir } from "../src/media/dir.ts";
 import { hasJpegLocation } from "../src/media/location.ts";
@@ -156,6 +157,78 @@ describe("media types and location", () => {
     expect(hasJpegLocation(padded)).toBe(true);
     expect(hasJpegLocation(Buffer.from([0xff, 0xd8, 0xff, 0xd9]))).toBe(false);
     expect(hasJpegLocation(PNG)).toBe(false);
+  });
+});
+
+describe("upload URL prefix check", () => {
+  function outputWith(files: Record<string, string>): string {
+    const dir = path.join(base, "upload-urls", `${++n}`);
+    for (const [rel, body] of Object.entries(files)) {
+      const file = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, body);
+    }
+    return dir;
+  }
+
+  it("accepts upload links under the current base, including language copies", () => {
+    const out = outputWith({
+      "uploads/a.png": "png",
+      "zh-CN/uploads/a.png": "png",
+      "pages/about/index.html": '<img src="/blog/uploads/a.png"><img src="/blog/zh-CN/uploads/a.png">',
+    });
+    expect(findUploadUrlProblems(out, "/blog/")).toEqual([]);
+    expect(findUploadUrlProblems(out, "/")).toEqual([
+      { page: "pages/about/index.html", url: "/blog/uploads/a.png" },
+      { page: "pages/about/index.html", url: "/blog/zh-CN/uploads/a.png" },
+    ]);
+  });
+
+  it("reports old prefixes, segment lookalikes and parent segments", () => {
+    const out = outputWith({
+      "uploads/a.png": "png",
+      "pages/index.html":
+        '<img src="/uploads/a.png"><img src="/repo/uploads/a.png"><img src="/blogging/uploads/a.png"><img src="/blog/../uploads/a.png">',
+    });
+    expect(findUploadUrlProblems(out, "/blog/")).toEqual([
+      { page: "pages/index.html", url: "/uploads/a.png" },
+      { page: "pages/index.html", url: "/repo/uploads/a.png" },
+      { page: "pages/index.html", url: "/blogging/uploads/a.png" },
+      { page: "pages/index.html", url: "/blog/../uploads/a.png" },
+    ]);
+  });
+
+  it("ignores non-root links, other folders, missing files, scripts, styles and comments", () => {
+    const out = outputWith({
+      "uploads/a.png": "png",
+      "pages/index.html": `
+        <meta property="og:image" content="/uploads/a.png">
+        <a href="https://example.test/uploads/a.png">absolute</a>
+        <img src="//cdn.example.test/uploads/a.png">
+        <img src="uploads/a.png">
+        <img src="data:image/png;base64,AAAA">
+        <img src="/blog/images/a.png">
+        <img src="/blog/uploads/missing.png">
+        <script>const src = "/uploads/a.png";</script>
+        <style>/* src="/uploads/a.png" */</style>
+        <!-- <img src="/uploads/a.png"> -->
+      `,
+    });
+    expect(findUploadUrlProblems(out, "/blog/")).toEqual([]);
+  });
+
+  it("checks srcset candidates, exact case and real files after the prefix", () => {
+    const out = outputWith({
+      "uploads/a.png": "png",
+      "uploads/b.png": "png",
+      "blog/assets/uploads/c.png": "png",
+      "pages/index.html":
+        '<img srcset="/blog/uploads/a.png 1x, /uploads/b.png 2x"><img src="/blog/blog/assets/uploads/c.png"><img src="/blog/uploads/A.png">',
+    });
+    expect(findUploadUrlProblems(out, "/blog/")).toEqual([
+      { page: "pages/index.html", url: "/uploads/b.png" },
+      { page: "pages/index.html", url: "/blog/uploads/A.png" },
+    ]);
   });
 });
 

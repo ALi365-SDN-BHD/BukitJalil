@@ -151,7 +151,7 @@ export interface MediaProblem {
 }
 
 export interface BuildReport {
-  /** Warning and error lines from Bukit's JSON log, in order. */
+  /** Warning and error lines from Bukit's JSON log and BukitJalil's own build warnings, in order. */
   messages: BuildMessage[];
   /** End of Bukit's stderr and of any stdout that was not a JSON log line. */
   output: string;

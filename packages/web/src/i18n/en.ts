@@ -719,6 +719,7 @@ const en: Messages = {
       notion: "The site uses a Notion source; bind a data source in the Data panel first",
       step_failed: "Failed",
       symlink: "The build output has a symbolic link",
+      upload_prefix: "Some upload links do not use the current site.baseUrl",
       stopped: "Stopped",
       interrupted: "Interrupted by a server restart",
       error: "Error",
