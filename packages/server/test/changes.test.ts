@@ -1394,9 +1394,41 @@ describe("history and restore", () => {
     expect(view.restoreOf).toBe(init);
     await ctx.changes.apply(view.id, { treeHash: view.treeHash });
     expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
+    // The user's line stays first; what the AI added is noted below it (AGENTS.md item 7).
     expect(s.git("log", "-1", "--format=%B")).toBe(
-      `Restore to ${init.slice(0, 7)}: init\n\nBukitJalil-Sessions: ${session.id}\nBukitJalil-Restore: ${init}`,
+      `Restore to ${init.slice(0, 7)}: init\n\nAI changes: Add 1 file: extra.md\n\nBukitJalil-Sessions: ${session.id}\nBukitJalil-Restore: ${init}`,
     );
+  });
+
+  it("puts the AI's summary under the restore line, and the review shows both", async () => {
+    const { s, session, init } = await withHistory();
+    await ctx.changes.restore(s.id, init);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "extra.md"), "extra\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    ctx.changes.setSummary(s.id, "Added an extra page.");
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    expect(view.summary).toBe(`Restore to ${init.slice(0, 7)}: init\n\nAdded an extra page.`);
+    await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(s.git("log", "-1", "--format=%B")).toBe(
+      `Restore to ${init.slice(0, 7)}: init\n\nAdded an extra page.\n\nBukitJalil-Sessions: ${session.id}\nBukitJalil-Restore: ${init}`,
+    );
+  });
+
+  it("does not count a user action's files as the AI's", async () => {
+    const { s, session, init } = await withHistory();
+    await ctx.changes.restore(s.id, init);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    // An upload after the conversation joined is the user's, not the AI's.
+    fs.writeFileSync(path.join(cwd, "upload.md"), "upload\n");
+    await ctx.changes.snapshot(s.id, cwd, { byUser: true });
+    fs.writeFileSync(path.join(cwd, "extra.md"), "extra\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(s.git("log", "-1", "--format=%b")).toContain("AI changes: Add 1 file: extra.md");
   });
 
   it("keeps the AI as author of its edits on a restore after the conversation was deleted", async () => {
@@ -1465,6 +1497,22 @@ describe("built-in plugin switches (Settings → site Config)", () => {
     expect(s.git("show", "HEAD:site.yaml")).toContain("related-content: false");
     expect(s.git("log", "-1", "--format=%an|%cn")).toBe("Site Owner|Site Owner");
     expect(s.git("log", "-1", "--format=%s")).toBe("Plugin settings: related-content off");
+  });
+
+  it("keeps the plugin line and names the files a conversation changed afterwards", async () => {
+    const s = await site();
+    await ctx.changes.setPlugin(s.id, "related-content", false);
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+    await ctx.changes.snapshot(s.id, cwd);
+    const view = await ctx.changes.current(s.id, false);
+    if (!view) throw new Error("no change set");
+    expect(view.summary).toBe("Plugin settings: related-content off");
+    await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    expect(s.git("log", "-1", "--format=%an|%B")).toBe(
+      `BukitJalil AI|Plugin settings: related-content off\n\nAI changes: Add 1 file: content/pages/faq.md\n\nBukitJalil-Sessions: ${session.id}`,
+    );
   });
 
   it("exposes the toggle through the API", async () => {

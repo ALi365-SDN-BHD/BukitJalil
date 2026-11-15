@@ -108,7 +108,7 @@ export class MediaService {
         }
         fs.renameSync(temp, target);
         targetWritten = true;
-        await this.opts.changes.snapshot(siteId, root);
+        await this.opts.changes.snapshot(siteId, root, { byUser: true });
         snapshotted = true;
         if (backup) {
           try {

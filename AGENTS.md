@@ -97,11 +97,12 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 设计见 [docs/plans/2026-11-12-media-upload-design.md](docs/plans/2026-11-12-media-upload-design.md)（v4.1）。2026-11-16 已实现并合并到 `pi-harness-ui`（`8d7f4f3`），验收见 [docs/acceptance/media-upload.md](docs/acceptance/media-upload.md)。下面三项是 2026-11-16 从中移出的，不随它实施。
 
-### 7. 改动集作者和说明的规则（作者已完成，说明待定）
+### 7. 改动集作者和说明的规则（已完成）
 
-**作者**（2026-11-16 已完成）：`apply` 和 `applyPartial` 都按 `!aiJoined` 判断用户作者（`ChangeService.authorOf`），对话被删除后 AI 参与过的改动集仍记 AI 作者。
+2026-11-16 已完成，规则见开发方案 7.2：
 
-**说明（要先定的问题）**：插件开关、恢复版本写的说明在对话加入后仍会成为提交说明，盖住 AI 的修改（上传加进这类改动集时也一样）。对话第一次加入时是否清空用户写的说明——清空会改变现有恢复行为，`changes.test.ts` 里断言 `Restore to …` 的用例要一起改。
+- **作者**：`apply` 和 `applyPartial` 都按 `!aiJoined` 判断用户作者（`ChangeService.authorOf`），对话被删除后 AI 参与过的改动集仍记 AI 作者。
+- **说明**：恢复、插件开关写的说明存在 `user_summary`，和 AI 的说明分开。对话加入后，提交说明第一行仍是用户说明，下面补 AI 的说明；AI 没写时补 `AI changes: …`，列出 AI 改过的文件（快照时记录，插件开关和上传不算 AI 的）。
 
 ### 8. 全局请求体上限（不做）
 
