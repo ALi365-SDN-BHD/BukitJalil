@@ -3,13 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { MIN_BUKIT_VERSION } from "../src/bukit/install.ts";
 import { versionState } from "../src/bukit/locate.ts";
 import { notionSnapshotProblemIn } from "../src/bukit/notion-errors.ts";
 import { BukitRunner, checkPassed, DEPLOY_TOKEN_ENV, parseBukitVersion } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
-import { copyStarter } from "../src/sites/template.ts";
+import { copyStarter, fillSiteYaml } from "../src/sites/template.ts";
 import { commitAllAs, rawGit } from "./helpers.ts";
 
 /**
@@ -331,5 +332,22 @@ exec "${gitPath}" "$@"
     expect(result.exitCode, output(result)).toBe(0);
     const files = rawGit(base, base, "--git-dir", bare, "ls-tree", "-r", "--name-only", "gh-pages").split("\n");
     expect(files).toContain("index.html");
+  });
+
+  // New Simplified Chinese sites get the starter theme's text in Chinese (plan 5.2); it must be what
+  // `bukit new --language zh-CN` writes, so the copied theme reads the same keys (Bukit 2.2.5).
+  it("writes the same Chinese theme text as bukit new", () => {
+    const dir = path.join(base, "new-zh");
+    const created = spawnSync(REAL_BIN as string, ["new", dir, "--title", "x", "--language", "zh-CN"], {
+      env: runner.env(),
+      encoding: "utf8",
+    });
+    expect(created.status, `${created.stdout}\n${created.stderr}`).toBe(0);
+    const bukit = parse(fs.readFileSync(path.join(dir, "site.yaml"), "utf8")).theme.params;
+    const ours = parse(
+      fillSiteYaml(fs.readFileSync(path.join(STARTER, "site.yaml"), "utf8"), { title: "x", language: "zh-CN" }),
+    ).theme.params;
+    expect(ours.labels).toEqual(bukit.labels);
+    expect(ours.latest_heading).toBe(bukit.latest_heading);
   });
 });

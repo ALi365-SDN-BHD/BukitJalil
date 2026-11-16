@@ -92,11 +92,45 @@ export function fillSiteYaml(text: string, values: StarterValues): string {
   doc.setIn(["site", "languages"], languages);
   doc.setIn(["theme", "params", "brand"], title);
   doc.setIn(["theme", "params", "footer_text"], title);
+  if (isSimplifiedChinese(values.language)) {
+    doc.setIn(["theme", "params", "latest_heading"], "最新文章");
+    for (const [key, text] of Object.entries(CHINESE_LABELS)) doc.setIn(["theme", "params", "labels", key], text);
+  }
   if (values.sources) doc.setIn(["content", "sources"], values.sources);
   // A remote image that can't be downloaded keeps its link instead of Bukit's placeholder, which the
   // starter theme does not have (plan 8.6).
   doc.setIn(["content", "media", "onFailure"], "keep");
   return doc.toString();
+}
+
+/** The starter theme's interface text in Simplified Chinese, as `bukit new --language zh-CN` writes it (Bukit 2.2.5). */
+const CHINESE_LABELS: Record<string, string> = {
+  skip: "跳到正文",
+  menu: "菜单",
+  home: "首页",
+  blog: "博客",
+  pages: "页面",
+  featured: "精选",
+  previous: "上一页",
+  next: "下一页",
+  pagination: "分页",
+  items: "篇",
+  search: "搜索",
+  search_placeholder: "搜索文章和页面",
+  no_results: "没有找到结果",
+  untitled: "无标题",
+  powered_by: "技术支持",
+};
+
+/**
+ * Bukit's rule for Simplified Chinese: a `zh` tag whose script is Hans, or without a script, one whose region is
+ * not TW, HK or MO (and no Hant).
+ */
+export function isSimplifiedChinese(language: string): boolean {
+  const subtags = language.toLowerCase().split("-");
+  if (subtags[0] !== "zh") return false;
+  if (subtags.includes("hans")) return true;
+  return !subtags.some((tag) => tag === "hant" || tag === "tw" || tag === "hk" || tag === "mo");
 }
 
 /** Plain recursive copy of directories and regular files; anything else in the template is an error. */

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Regenerate templates/starter/ (plan 5.2) from the StarterTheme resources embedded in Bukit's CLI source.
-# Bukit 2.2.4 adds `bukit new`; until BukitJalil switches to it (plan 5.2) the theme is copied from the CLI resources (MIT).
+# Bukit 2.2.4 added `bukit new`; until BukitJalil switches to it (plan 5.2) the theme is copied from the CLI resources (MIT).
 # Run again when Bukit is upgraded, then build the result with the real Bukit (see templates/README.md).
 #
-# Usage: BUKIT_SRC=/path/to/Bukit/clone [BUKIT_TAG=v2.2.4] scripts/make-starter.sh
+# Usage: BUKIT_SRC=/path/to/Bukit/clone [BUKIT_TAG=v2.2.5] scripts/make-starter.sh
 set -euo pipefail
 BUKIT_SRC=${BUKIT_SRC:?set BUKIT_SRC to a clone of github.com/ALi365-SDN-BHD/Bukit}
-TAG=${BUKIT_TAG:-v2.2.4}
+TAG=${BUKIT_TAG:-v2.2.5}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$ROOT/templates/starter
 RES=src/Bukit-Core/Bukit.Cli/Resources/StarterTheme
@@ -157,6 +157,23 @@ theme:
     brand: My Site
     footer_text: My Site
     latest_heading: Latest posts
+    # Interface text of the starter theme (Bukit 2.2.5); a Simplified Chinese site gets Chinese text on creation.
+    labels:
+      skip: Skip to content
+      menu: Menu
+      home: Home
+      blog: Blog
+      pages: Pages
+      featured: Featured
+      previous: Previous
+      next: Next
+      pagination: Pagination
+      items: items
+      search: Search
+      search_placeholder: Search posts and pages
+      no_results: No results
+      untitled: Untitled
+      powered_by: Powered by
 
 logging:
   level: info

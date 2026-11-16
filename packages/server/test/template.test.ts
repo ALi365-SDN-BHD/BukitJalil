@@ -8,7 +8,13 @@ import { guardCommit } from "../src/bukit/guard.ts";
 import { BukitRunner, buildOutcome, checkPassed } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
-import { copyStarter, fillSiteYaml, siteSlug, validateStarterValues } from "../src/sites/template.ts";
+import {
+  copyStarter,
+  fillSiteYaml,
+  isSimplifiedChinese,
+  siteSlug,
+  validateStarterValues,
+} from "../src/sites/template.ts";
 
 const TEMPLATES = path.resolve(import.meta.dirname, "../../../templates");
 const STARTER = path.join(TEMPLATES, "starter");
@@ -42,8 +48,8 @@ function listFiles(dir: string, prefix = ""): string[] {
 describe("templates/starter", () => {
   it("records its Bukit source", () => {
     const source = JSON.parse(fs.readFileSync(path.join(TEMPLATES, "starter.source.json"), "utf8"));
-    // Regenerated from 2.1.0 for site.languages (plan 8.7); not tied to BUKIT_VERSION, which may move on.
-    expect(source).toMatchObject({ tag: "v2.2.4", license: "MIT" });
+    // Not tied to BUKIT_VERSION, which may move on; regenerated from 2.2.5 for the refreshed theme.
+    expect(source).toMatchObject({ tag: "v2.2.5", license: "MIT" });
     expect(source.commit).toMatch(/^[0-9a-f]{40}$/);
   });
 
@@ -116,6 +122,32 @@ describe("starter values", () => {
     expect(filled.theme.params).toMatchObject({ brand: '我的 "网站": 1', footer_text: '我的 "网站": 1' });
     expect(filled.content).toEqual({ ...original.content, media: { onFailure: "keep" } });
     expect(filled.build).toEqual(original.build);
+  });
+
+  it("writes the theme's interface text in Chinese for a Simplified Chinese site only", () => {
+    const text = fs.readFileSync(path.join(STARTER, "site.yaml"), "utf8");
+    const zh = parse(fillSiteYaml(text, { title: "x", language: "zh-CN" })).theme.params;
+    expect(zh.latest_heading).toBe("最新文章");
+    expect(zh.labels).toMatchObject({ menu: "菜单", home: "首页", powered_by: "技术支持" });
+    const en = parse(fillSiteYaml(text, { title: "x", language: "en-US" })).theme.params;
+    expect(en.labels).toEqual(parse(text).theme.params.labels);
+    expect(Object.keys(zh.labels)).toEqual(Object.keys(en.labels));
+    expect(["zh", "zh-CN", "zh-SG", "zh-Hans", "zh-Hans-HK"].map(isSimplifiedChinese)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(["zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-Hant-CN", "en-US", "ja"].map(isSimplifiedChinese)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 });
 
