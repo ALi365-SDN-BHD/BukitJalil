@@ -140,7 +140,7 @@ BukitJalil/
 | M4 审核与版本 ✅ | 工作副本快照、网站操作锁、差异审核、应用 / 拒绝、历史与恢复                               | 6–8 天  |
 | M5 MVP ✅        | 端到端测试、错误处理、首次启动引导、文档、真实模型验收                                    | 4–5 天  |
 | M6 发布 ✅       | GitHub Pages（`bukit deploy`）                                                            | 3–4 天  |
-| M7 桌面版 ✅     | Electron 壳，macOS arm64 安装包                                                           | 4–5 天  |
+| M7 桌面版 ✅     | Electron 壳，macOS、Linux 安装包                                                          | 4–5 天  |
 
 ### 待开发
 
@@ -165,7 +165,7 @@ pnpm check      # Biome + 类型检查
 pnpm test       # 单元测试
 pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
 pnpm desktop        # 桌面版（Electron），从源码运行（先 pnpm --filter @bukitjalil/desktop exec install-electron）
-pnpm package:desktop     # 打包 macOS arm64 的 BukitJalil.app 和 zip，在 packages/desktop/out/
+pnpm package:desktop     # 按本机平台打包安装包（macOS 的 dmg 和 zip 等），在 packages/desktop/out/installers/
 pnpm e2e:desktop    # 桌面版测试；打包过时也测试打包后的应用
 ```
 
@@ -175,7 +175,7 @@ pnpm e2e:desktop    # 桌面版测试；打包过时也测试打包后的应用
 
 ### 现在能做什么（M7）
 
-1. 打开设置（左下角齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）。Bukit 随应用发布（macOS arm64、Linux x64），不用安装；从源码运行时先执行 `pnpm fetch:bukit`。
+1. 打开设置（左下角齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）。Bukit 随应用发布（macOS Apple Silicon 和 Intel、Linux x64 和 arm64），不用安装；从源码运行时先执行 `pnpm fetch:bukit`。
 2. 在设置 → AI 模型里选服务商。支持订阅账号的服务商可以直接登录（Claude Pro/Max、GitHub Copilot、Kimi For Coding、OpenRouter、xAI、Radius、ChatGPT），按浏览器提示授权，无需 API Key；也可以填 API Key（只保存在本机 `~/.bukitjalil/pi/auth.json`，界面只显示末四位，或用服务商的环境变量）。选模型和思考程度，点"测试连接"确认可用，再点"使用这个模型"。完全离线时可以打开"本地部署"，连接 Ollama、LM Studio、vLLM、llama.cpp 或自定义 OpenAI / Anthropic 兼容后端，自行填写模型 ID 和显示名称。
 3. 在设置 → 数据源里保存 Notion 数据源（每个数据源一个 token；先把 Notion 数据库共享给对应 integration）。新建网站：填名称、选默认语言和位置；需要多语言时勾选“多语言网站”，创建后的对话会先询问其他语言；不选数据源时默认使用 Markdown，并自动创建 Markdown 内容文件；选 Notion 时要勾选数据库，并逐个选择用途（文章 / 页面 / 数据）。随后由内置 Bukit 的 `bukit new` 生成网站并提交第一个版本，自动构建。
 4. 导入网站：选一个已有的 Bukit 网站文件夹，先检查再导入；还不是 git 仓库的会先列出要提交的文件，确认后才导入；不满足安全规则的仓库以只读方式导入，界面写明原因。

@@ -339,6 +339,40 @@ describe("UpdateService", () => {
     expect(status.state).toMatchObject({ phase: "available", release: { asset: { name: deb, format: "deb" } } });
   });
 
+  it("selects the package of the machine's architecture", async () => {
+    const cases = [
+      { platform: "darwin", arch: "x64", want: "mac-x64.dmg", format: "dmg", other: "mac-arm64.dmg" },
+      {
+        platform: "linux",
+        arch: "arm64",
+        want: "linux-arm64.AppImage",
+        format: "appimage",
+        other: "linux-x86_64.AppImage",
+      },
+      { platform: "linux", arch: "arm64", want: "linux-arm64.deb", format: "deb", other: "linux-amd64.deb" },
+    ] as const;
+    for (const c of cases) {
+      const want = `BukitJalil-0.1.0-beta.5-${c.want}`;
+      const releases = [
+        release("0.1.0-beta.5", {
+          assets: [asset(`BukitJalil-0.1.0-beta.5-${c.other}`), asset(want), asset("SHA256SUMS.txt")],
+        }),
+      ];
+      const { updates } = service({
+        platform: c.platform,
+        arch: c.arch,
+        linuxPackage: c.format === "deb" ? "deb" : "appimage",
+        releases,
+        fetchImpl: fakeFetch(releases, HASH, want),
+      });
+      const status = await updates.check(true);
+      expect(status.state, want).toMatchObject({
+        phase: "available",
+        release: { asset: { name: want, format: c.format } },
+      });
+    }
+  });
+
   it("selects the Windows installer for Windows", async () => {
     const { updates } = service({
       platform: "win32",

@@ -656,6 +656,13 @@ describe("fetchBukit (packaging, plan 8.1)", () => {
   });
 
   it("pins a SHA-256 for every official package", () => {
+    expect(Object.keys(PACKAGES).sort()).toEqual([
+      "darwin-arm64",
+      "darwin-x64",
+      "linux-arm64",
+      "linux-x64",
+      "win32-x64",
+    ]);
     for (const pkg of Object.values(PACKAGES)) {
       expect(pkg.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(pkg.file).toContain(BUKIT_VERSION);

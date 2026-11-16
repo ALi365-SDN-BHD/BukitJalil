@@ -444,35 +444,37 @@ export class UpdateService {
   }
 }
 
-const ASSET_NAME = /^BukitJalil-(.+)-(?:mac-arm64|win-x64|linux-x86_64|linux-amd64)\.(?:dmg|zip|exe|AppImage|deb)$/;
+const ASSET_NAME =
+  /^BukitJalil-(.+)-(?:mac-arm64|mac-x64|win-x64|linux-x86_64|linux-amd64|linux-arm64)\.(?:dmg|zip|exe|AppImage|deb)$/;
 
 /** The exact version segment of `BukitJalil-<version>-<platform>.<ext>`. */
 function assetVersion(name: string): string | null {
   return ASSET_NAME.exec(name)?.[1] ?? null;
 }
 
+/** electron-builder names Linux x64 packages x86_64 (AppImage) and amd64 (deb); arm64 is arm64 in both. */
+const LINUX_ARCH: Record<string, { appimage: string; deb: string } | undefined> = {
+  x64: { appimage: "x86_64", deb: "amd64" },
+  arm64: { appimage: "arm64", deb: "arm64" },
+};
+
 function assetPatterns(
   platform: NodeJS.Platform,
   arch: string,
   linuxPackage: "appimage" | "deb",
 ): { pattern: RegExp; format: AppUpdateFormat }[] {
-  if (platform === "darwin" && arch === "arm64") {
+  if (platform === "darwin" && (arch === "arm64" || arch === "x64")) {
     return [
-      { pattern: /-mac-arm64\.dmg$/, format: "dmg" },
-      { pattern: /-mac-arm64\.zip$/, format: "zip" },
+      { pattern: new RegExp(`-mac-${arch}\\.dmg$`), format: "dmg" },
+      { pattern: new RegExp(`-mac-${arch}\\.zip$`), format: "zip" },
     ];
   }
   if (platform === "win32" && arch === "x64") return [{ pattern: /-win-x64\.exe$/, format: "exe" }];
-  if (platform === "linux" && arch === "x64") {
-    return linuxPackage === "appimage"
-      ? [
-          { pattern: /-linux-x86_64\.AppImage$/, format: "appimage" },
-          { pattern: /-linux-amd64\.deb$/, format: "deb" },
-        ]
-      : [
-          { pattern: /-linux-amd64\.deb$/, format: "deb" },
-          { pattern: /-linux-x86_64\.AppImage$/, format: "appimage" },
-        ];
+  const linux = LINUX_ARCH[arch];
+  if (platform === "linux" && linux) {
+    const appimage = { pattern: new RegExp(`-linux-${linux.appimage}\\.AppImage$`), format: "appimage" } as const;
+    const deb = { pattern: new RegExp(`-linux-${linux.deb}\\.deb$`), format: "deb" } as const;
+    return linuxPackage === "appimage" ? [appimage, deb] : [deb, appimage];
   }
   return [];
 }

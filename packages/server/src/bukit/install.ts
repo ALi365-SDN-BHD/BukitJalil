@@ -9,7 +9,7 @@ import { unzipSync } from "fflate";
  * Bukit packages (plan 8.1): Bukit ships inside BukitJalil, like Pi. The packaging script and
  * `pnpm fetch:bukit` download the official package for `BUKIT_VERSION`, check it against the SHA-256 fixed
  * here and unpack it strictly; the app itself never downloads or upgrades Bukit. Raising Bukit means changing
- * `BUKIT_VERSION` and the three checksums, then releasing BukitJalil.
+ * `BUKIT_VERSION` and the five checksums, then releasing BukitJalil.
  */
 
 export const BUKIT_VERSION = "2.2.5";
@@ -31,10 +31,7 @@ export interface BukitPackage {
 
 const RELEASE_URL = `https://github.com/ALi365-SDN-BHD/Bukit/releases/download/v${BUKIT_VERSION}`;
 
-/**
- * Official packages by `<platform>-<arch>`: macOS arm64, Linux x64 and Windows x64. Bukit 2.2.4+ also ships osx-x64 and
- * linux-arm64; BukitJalil does not package those platforms yet (plan 8.1).
- */
+/** Official packages by `<platform>-<arch>`: macOS arm64 and x64, Linux x64 and arm64, Windows x64 (plan 8.1). */
 export const PACKAGES: Record<string, BukitPackage> = {
   "darwin-arm64": {
     file: `bukit-${BUKIT_VERSION}-osx-arm64.tar.gz`,
@@ -42,9 +39,21 @@ export const PACKAGES: Record<string, BukitPackage> = {
     files: ["bukit", "libSkiaSharp.dylib"],
     executable: "bukit",
   },
+  "darwin-x64": {
+    file: `bukit-${BUKIT_VERSION}-osx-x64.tar.gz`,
+    sha256: "28e21ed75340622a9d3d03d59625fbf437f69eed23304eccb80e94c8b27fe617",
+    files: ["bukit", "libSkiaSharp.dylib"],
+    executable: "bukit",
+  },
   "linux-x64": {
     file: `bukit-${BUKIT_VERSION}-linux-x64.tar.gz`,
     sha256: "872ac21538670541b223056092922982b084b0e1a50ce9f5fb78007c0d099cc3",
+    files: ["bukit", "libSkiaSharp.so"],
+    executable: "bukit",
+  },
+  "linux-arm64": {
+    file: `bukit-${BUKIT_VERSION}-linux-arm64.tar.gz`,
+    sha256: "be0a053d0c7517f4011fae72db52d530b93001219cf3cac28d4ecfd9fc2fa67a",
     files: ["bukit", "libSkiaSharp.so"],
     executable: "bukit",
   },
