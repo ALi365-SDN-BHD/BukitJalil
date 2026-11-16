@@ -1,24 +1,17 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { guardCommit } from "../src/bukit/guard.ts";
+import { BukitService } from "../src/bukit/locate.ts";
 import { BukitRunner, buildOutcome, checkPassed } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
-import {
-  copyStarter,
-  fillSiteYaml,
-  isSimplifiedChinese,
-  siteSlug,
-  validateStarterValues,
-} from "../src/sites/template.ts";
+import { bukitNewSite, validateStarterValues, writeSources } from "../src/sites/template.ts";
+import { STARTER_FIXTURE, writeStarter } from "./fixtures/starter.ts";
 
-const TEMPLATES = path.resolve(import.meta.dirname, "../../../templates");
-const STARTER = path.join(TEMPLATES, "starter");
-// Optional: the real Bukit, to build the template (plan M2: "用真实 Bukit 构建通过").
+// Optional: the real Bukit, to create and build a site with `bukit new` (plan 5.2).
 const REAL_BIN = process.env.BUKIT_BIN;
 
 const gitPath = resolveGitPath();
@@ -45,53 +38,23 @@ function listFiles(dir: string, prefix = ""): string[] {
   });
 }
 
-describe("templates/starter", () => {
-  it("records its Bukit source", () => {
-    const source = JSON.parse(fs.readFileSync(path.join(TEMPLATES, "starter.source.json"), "utf8"));
-    // Not tied to BUKIT_VERSION, which may move on; regenerated from 2.2.5 for the refreshed theme.
-    expect(source).toMatchObject({ tag: "v2.2.5", license: "MIT" });
-    expect(source.commit).toMatch(/^[0-9a-f]{40}$/);
-  });
+/** A Bukit stand-in whose `new` records its arguments and writes a site.yaml, or fails with `fail`. */
+function fakeBukit(name: string, fail = false): { service: BukitService; argsFile: string } {
+  const dir = path.join(base, name);
+  fs.mkdirSync(dir, { recursive: true });
+  const argsFile = path.join(dir, "args");
+  const newBody = fail
+    ? `echo "boom: $2" >&2; exit 2`
+    : `printf '%s\\n' "$@" > ${JSON.stringify(argsFile)}; mkdir -p "$2"; echo "site: {}" > "$2/site.yaml"; exit 0`;
+  fs.writeFileSync(
+    path.join(dir, "bukit"),
+    `#!/bin/sh\ncase "$1" in\n  version) echo "bukit 2.2.5+fake"; exit 0;;\n  new) ${newBody};;\nesac\nexit 1\n`,
+    { mode: 0o755 },
+  );
+  return { service: new BukitService({ dir, tmpDir: app.bukitTmp }), argsFile };
+}
 
-  it("matches the generator output (regenerate with scripts/make-starter.sh, never edit by hand)", () => {
-    const source = JSON.parse(fs.readFileSync(path.join(TEMPLATES, "starter.source.json"), "utf8"));
-    const actual = Object.fromEntries(
-      listFiles(STARTER)
-        .sort()
-        .map((f) => [
-          f,
-          crypto
-            .createHash("sha256")
-            .update(fs.readFileSync(path.join(STARTER, f)))
-            .digest("hex"),
-        ]),
-    );
-    expect(actual).toEqual(source.files);
-  });
-
-  it("escapes site settings, shows no fixed brand and links relatively", () => {
-    const theme = path.join(STARTER, "themes/starter/layouts");
-    const header = fs.readFileSync(path.join(theme, "partials/header.html"), "utf8");
-    expect(header).not.toMatch(/^\s*starter\s*$/m);
-    for (const file of ["partials/header.html", "partials/footer.html", "pages/index.html", "layouts/base.html"]) {
-      const text = fs.readFileSync(path.join(theme, file), "utf8");
-      expect(text.match(/\{\{ site\.(title|params\.[a-z_]+) \}\}/g) ?? []).toEqual([]);
-    }
-    expect(fs.readFileSync(path.join(STARTER, "content/posts/welcome.md"), "utf8")).toContain(
-      "](../../../../pages/about/)",
-    );
-    expect(parse(fs.readFileSync(path.join(STARTER, "site.yaml"), "utf8")).site.url).toBeUndefined();
-  });
-
-  it("is a plain Bukit project with no BukitJalil files and no symlinks", () => {
-    const files = listFiles(STARTER);
-    expect(files).toContain("site.yaml");
-    expect(files).toContain("themes/starter/theme.yaml");
-    expect(files).toContain("themes/starter/LICENSE");
-    expect(files.filter((f) => /bukitjalil|\.bukit\/|^dist\//i.test(f))).toEqual([]);
-    for (const f of files) expect(fs.lstatSync(path.join(STARTER, f)).isFile()).toBe(true);
-  });
-});
+const runnerOpts = () => ({ git, home: app.home, tmpDir: app.bukitTmp });
 
 describe("starter values", () => {
   it("validates the form values", () => {
@@ -104,98 +67,73 @@ describe("starter values", () => {
     expect(validateStarterValues({ title: "x", language: "en_US" })).toMatch(/language/);
     expect(validateStarterValues({ title: "x", language: "zh-Hant-TW" })).toBeNull();
   });
+});
 
-  it("derives site.name", () => {
-    expect(siteSlug("My Café Blog!")).toBe("my-cafe-blog");
-    expect(siteSlug("我的网站")).toBe("site");
-    expect(siteSlug("  --A--  ")).toBe("a");
+describe("bukitNewSite", () => {
+  it("runs bukit new with the values as --opt=value, so a title starting with - stays a value", async () => {
+    const { service, argsFile } = fakeBukit("fake-ok");
+    const target = path.join(base, "created");
+    await bukitNewSite(service, runnerOpts())(target, { title: "  --language ", language: "zh-CN" });
+    expect(fs.readFileSync(argsFile, "utf8").split("\n").slice(0, -1)).toEqual([
+      "new",
+      target,
+      "--title=--language",
+      "--language=zh-CN",
+    ]);
   });
 
-  it("fills site.yaml and keeps the rest", () => {
-    const text = fs.readFileSync(path.join(STARTER, "site.yaml"), "utf8");
-    const filled = parse(fillSiteYaml(text, { title: '我的 "网站": 1', language: "zh-CN" }));
-    const original = parse(text);
-    expect(filled.site).toMatchObject({ name: "1", title: '我的 "网站": 1', languages: ["zh-CN"] });
-    // Bukit 2.1 refuses site.language (plan 8.7); the list is written inline like the template's.
-    expect(filled.site.language).toBeUndefined();
-    expect(fillSiteYaml(text, { title: "x", language: "zh-CN" })).toContain("  languages: [ zh-CN ]\n");
-    expect(filled.theme.params).toMatchObject({ brand: '我的 "网站": 1', footer_text: '我的 "网站": 1' });
-    expect(filled.content).toEqual({ ...original.content, media: { onFailure: "keep" } });
-    expect(filled.build).toEqual(original.build);
-  });
-
-  it("writes the theme's interface text in Chinese for a Simplified Chinese site only", () => {
-    const text = fs.readFileSync(path.join(STARTER, "site.yaml"), "utf8");
-    const zh = parse(fillSiteYaml(text, { title: "x", language: "zh-CN" })).theme.params;
-    expect(zh.latest_heading).toBe("最新文章");
-    expect(zh.labels).toMatchObject({ menu: "菜单", home: "首页", powered_by: "技术支持" });
-    const en = parse(fillSiteYaml(text, { title: "x", language: "en-US" })).theme.params;
-    expect(en.labels).toEqual(parse(text).theme.params.labels);
-    expect(Object.keys(zh.labels)).toEqual(Object.keys(en.labels));
-    expect(["zh", "zh-CN", "zh-SG", "zh-Hans", "zh-Hans-HK"].map(isSimplifiedChinese)).toEqual([
-      true,
-      true,
-      true,
-      true,
-      true,
-    ]);
-    expect(["zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-Hant-CN", "en-US", "ja"].map(isSimplifiedChinese)).toEqual([
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-    ]);
+  it("reports Bukit's own error, a missing Bukit and bad values", async () => {
+    const failing = fakeBukit("fake-fail", true).service;
+    await expect(
+      bukitNewSite(failing, runnerOpts())(path.join(base, "failed"), { title: "x", language: "en" }),
+    ).rejects.toMatchObject({
+      code: "site.create_failed",
+      status: 500,
+      params: { detail: expect.stringContaining("boom") },
+    });
+    const missing = new BukitService({ dir: path.join(base, "no-bukit"), tmpDir: app.bukitTmp });
+    await expect(
+      bukitNewSite(missing, runnerOpts())(path.join(base, "missing"), { title: "x", language: "en" }),
+    ).rejects.toMatchObject({ code: "build.bukit_missing", status: 409 });
+    const ok = fakeBukit("fake-values").service;
+    await expect(
+      bukitNewSite(ok, runnerOpts())(path.join(base, "bad"), { title: "a\nb", language: "en" }),
+    ).rejects.toMatchObject({ code: "request.invalid_body", status: 400 });
+    expect(fs.existsSync(path.join(base, "bad"))).toBe(false);
   });
 });
 
-describe("copyStarter", () => {
-  it("copies into a new or empty directory only", () => {
-    const target = path.join(base, "new", "site");
-    copyStarter(STARTER, target, { title: "Demo", language: "en-US" });
-    expect(listFiles(target).sort()).toEqual(listFiles(STARTER).sort());
-    expect(parse(fs.readFileSync(path.join(target, "site.yaml"), "utf8")).site.title).toBe("Demo");
-
-    expect(() => copyStarter(STARTER, target, { title: "Again", language: "en" })).toThrow(/empty/);
-    const file = path.join(base, "a-file");
-    fs.writeFileSync(file, "");
-    expect(() => copyStarter(STARTER, file, { title: "x", language: "en" })).toThrow(/empty/);
-    expect(() => copyStarter(STARTER, path.join(base, "bad"), { title: "", language: "en" })).toThrow(/title/);
-    expect(fs.existsSync(path.join(base, "bad"))).toBe(false);
+describe("writeSources", () => {
+  it("replaces the content sources and keeps the rest of site.yaml", () => {
+    const target = path.join(base, "sources");
+    writeStarter(target, { title: "Sources", language: "en-US" });
+    const before = parse(fs.readFileSync(path.join(target, "site.yaml"), "utf8"));
+    const sources = [
+      { type: "notion" as const, name: "notes", collection: "post", notion: { databaseId: "a".repeat(32) } },
+    ];
+    writeSources(target, sources);
+    const after = parse(fs.readFileSync(path.join(target, "site.yaml"), "utf8"));
+    expect(after.content.sources).toEqual(sources);
+    expect({ ...after, content: { ...after.content, sources: null } }).toEqual({
+      ...before,
+      content: { ...before.content, sources: null },
+    });
   });
+});
 
-  it("refuses a template with a symlink", () => {
-    const tpl = path.join(base, "evil-template");
-    fs.mkdirSync(tpl);
-    fs.writeFileSync(path.join(tpl, "site.yaml"), "site:\n  title: x\n");
-    fs.symlinkSync("/etc/passwd", path.join(tpl, "link"));
-    expect(() => copyStarter(tpl, path.join(base, "evil-site"), { title: "x", language: "en" })).toThrow(/unexpected/);
-  });
-
-  it("removes what it wrote when the copy fails, so the location can be retried", () => {
-    const tpl = path.join(base, "half-template");
-    fs.mkdirSync(path.join(tpl, "a"), { recursive: true });
-    fs.writeFileSync(path.join(tpl, "site.yaml"), "site:\n  title: x\n");
-    fs.writeFileSync(path.join(tpl, "a/file.md"), "x");
-    fs.symlinkSync("/etc/passwd", path.join(tpl, "z-link")); // read after the other entries
-
-    const fresh = path.join(base, "half-new");
-    expect(() => copyStarter(tpl, fresh, { title: "x", language: "en" })).toThrow(/unexpected/);
-    expect(fs.existsSync(fresh)).toBe(false);
-
-    const empty = path.join(base, "half-empty");
-    fs.mkdirSync(empty);
-    expect(() => copyStarter(tpl, empty, { title: "x", language: "en" })).toThrow(/unexpected/);
-    expect(fs.readdirSync(empty)).toEqual([]);
-    copyStarter(STARTER, empty, { title: "Retry", language: "en" });
-    expect(fs.existsSync(path.join(empty, "site.yaml"))).toBe(true);
+describe("the bukit new stand-in (test/fixtures/starter)", () => {
+  it("is a plain Bukit project with no BukitJalil files and no symlinks", () => {
+    const files = listFiles(STARTER_FIXTURE);
+    expect(files).toContain("site.yaml");
+    expect(files).toContain("themes/starter/theme.yaml");
+    expect(files).toContain("themes/starter/LICENSE");
+    expect(files.filter((f) => /bukitjalil|\.bukit\/|^dist\//i.test(f))).toEqual([]);
+    for (const f of files) expect(fs.lstatSync(path.join(STARTER_FIXTURE, f)).isFile()).toBe(true);
   });
 
   it("passes the pre-build guard once committed", async () => {
     const target = path.join(base, "guarded");
-    copyStarter(STARTER, target, { title: "Guarded", language: "zh-CN" });
+    writeStarter(target, { title: "Guarded", language: "zh-CN" });
     const id = { "user.name": "t", "user.email": "t@t" };
     await git.run(["init", "-q", "-b", "main"], { cwd: target, repoCheck: false });
     await git.run(["add", "-A"], { cwd: target });
@@ -204,28 +142,47 @@ describe("copyStarter", () => {
     expect(await guardCommit(git, target, commit)).toEqual({ ok: true, reasons: [], usesNotion: false });
   });
 
-  it.skipIf(!REAL_BIN)(
-    "builds with the real Bukit",
-    async () => {
-      const target = path.join(base, "real");
-      copyStarter(STARTER, target, { title: "真实构建 & <3", language: "zh-CN" });
-      const runner = new BukitRunner({ bukitPath: REAL_BIN as string, git, home: app.home, tmpDir: app.bukitTmp });
-      expect(checkPassed(await runner.run("check", ["config", "check"], { cwd: target }))).toBe(true);
-      expect(checkPassed(await runner.run("doctor", ["doctor"], { cwd: target }))).toBe(true);
-      const out = ".bukitjalil-build/out";
-      const build = await runner.run("build", ["build", "--output", out, "--base-url", "/", "--log-format", "json"], {
-        cwd: target,
-      });
-      expect(buildOutcome(build)).toBe("ok");
-      for (const page of ["index.html", "blog/2026/01/welcome/index.html", "pages/about/index.html"]) {
-        expect(fs.existsSync(path.join(target, out, page))).toBe(true);
-      }
-      const index = fs.readFileSync(path.join(target, out, "index.html"), "utf8");
-      const brand = /class="brand"[^>]*>([^<]*)</.exec(index)?.[1]?.trim();
-      expect(brand).toBe("真实构建 &amp; &lt;3");
-      const post = fs.readFileSync(path.join(target, out, "blog/2026/01/welcome/index.html"), "utf8");
-      expect(post).toContain('href="../../../../pages/about/"');
-    },
-    120_000,
-  );
+  it.skipIf(!REAL_BIN)("is what the bundled Bukit writes (regenerate it after raising BUKIT_VERSION)", async () => {
+    const service = new BukitService({ dir: path.dirname(REAL_BIN as string), tmpDir: app.bukitTmp });
+    const values = { title: ' Stand-in "site" ', language: "fr-CA" };
+    const real = path.join(base, "real-new");
+    const standIn = path.join(base, "stand-in-new");
+    await bukitNewSite(service, runnerOpts())(real, values);
+    writeStarter(standIn, values);
+    const files = listFiles(real).sort();
+    expect(listFiles(standIn).sort()).toEqual(files);
+    for (const f of files) {
+      expect(fs.readFileSync(path.join(standIn, f), "utf8"), f).toBe(fs.readFileSync(path.join(real, f), "utf8"));
+    }
+    expect(fs.readFileSync(path.join(real, "site.yaml"), "utf8")).not.toMatch(/\n\.\.\.\n$/);
+  });
+});
+
+describe.skipIf(!REAL_BIN)("a site from the real bukit new", () => {
+  it("has the Chinese theme text and builds, with the title escaped", async () => {
+    const service = new BukitService({ dir: path.dirname(REAL_BIN as string), tmpDir: app.bukitTmp });
+    const target = path.join(base, "real");
+    await bukitNewSite(service, runnerOpts())(target, { title: "-真实构建 & <3", language: "zh-CN" });
+    const yaml = parse(fs.readFileSync(path.join(target, "site.yaml"), "utf8"));
+    expect(yaml.site).toMatchObject({ title: "-真实构建 & <3", languages: ["zh-CN"] });
+    expect(yaml.content.media).toEqual({ onFailure: "keep" });
+    expect(yaml.site.url).toBeUndefined();
+    expect(yaml.theme.params).toMatchObject({ brand: "-真实构建 & <3", latest_heading: "最新文章" });
+    expect(yaml.theme.params.labels).toMatchObject({ menu: "菜单", home: "首页" });
+
+    const runner = new BukitRunner({ bukitPath: REAL_BIN as string, git, home: app.home, tmpDir: app.bukitTmp });
+    expect(checkPassed(await runner.run("check", ["config", "check"], { cwd: target }))).toBe(true);
+    expect(checkPassed(await runner.run("doctor", ["doctor"], { cwd: target }))).toBe(true);
+    const out = ".bukitjalil-build/out";
+    const build = await runner.run("build", ["build", "--output", out, "--base-url", "/", "--log-format", "json"], {
+      cwd: target,
+    });
+    expect(buildOutcome(build)).toBe("ok");
+    for (const page of ["index.html", "pages/about/index.html"]) {
+      expect(fs.existsSync(path.join(target, out, page))).toBe(true);
+    }
+    const index = fs.readFileSync(path.join(target, out, "index.html"), "utf8");
+    expect(/class="brand"[^>]*>([^<]*)</.exec(index)?.[1]?.trim()).toBe("-真实构建 &amp; &lt;3");
+    expect(index).toContain("菜单");
+  }, 120_000);
 });

@@ -3,14 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { parse } from "yaml";
 import { MIN_BUKIT_VERSION } from "../src/bukit/install.ts";
 import { versionState } from "../src/bukit/locate.ts";
 import { notionSnapshotProblemIn } from "../src/bukit/notion-errors.ts";
 import { BukitRunner, checkPassed, DEPLOY_TOKEN_ENV, parseBukitVersion } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome } from "../src/paths.ts";
-import { copyStarter, fillSiteYaml } from "../src/sites/template.ts";
 import { commitAllAs, rawGit } from "./helpers.ts";
 
 /**
@@ -22,11 +20,10 @@ import { commitAllAs, rawGit } from "./helpers.ts";
 const REAL_BIN = process.env.BUKIT_BIN;
 // The scheduled workflow sets this, so a missing Bukit fails there instead of skipping every test.
 if (process.env.BUKIT_BEHAVIOUR_REQUIRED && !REAL_BIN) throw new Error("BUKIT_BIN is not set");
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 /** Not a token: Bukit's checks that only need one to be present get this. */
 const PLACEHOLDER = "bj-placeholder-not-a-token";
 const NOTION_SOURCE =
-  "    - type: notion\n      name: notes\n      collection: post\n      notion:\n        databaseId: 0123456789abcdef0123456789abcdef\n";
+  "  - type: notion\n    name: notes\n    collection: post\n    notion:\n      databaseId: 0123456789abcdef0123456789abcdef\n";
 
 const gitPath = resolveGitPath();
 if (!gitPath) throw new Error("git is required for these tests");
@@ -46,10 +43,14 @@ afterAll(() => {
   fs.rmSync(base, { recursive: true, force: true });
 });
 
-/** A fresh copy of the starter site; `notion` adds a Notion source to it. */
+/** A fresh site from `bukit new` (plan 5.2); `notion` adds a Notion source to it. */
 function site(name: string, notion = false): string {
   const dir = path.join(base, name);
-  copyStarter(STARTER, dir, { title: "Behaviour", language: "en-US" });
+  const created = spawnSync(REAL_BIN as string, ["new", dir, "--title=Behaviour", "--language=en-US"], {
+    env: runner.env(),
+    encoding: "utf8",
+  });
+  if (created.status !== 0) throw new Error(`bukit new failed: ${created.stdout}\n${created.stderr}`);
   if (notion) addNotionSource(dir);
   return dir;
 }
@@ -185,6 +186,7 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
   // The preview's basePath is passed as --base-url (plan 16 #8), over the "/" in site.yaml.
   it("builds under --base-url, copying the theme's static files to the output root", async () => {
     const dir = site("base-url");
+    const robots = fs.readFileSync(path.join(dir, "themes/starter/static/robots.txt"), "utf8");
     const result = await runner.run(
       "build",
       ["build", "--config", "site.yaml", "--output", "out", "--base-url", "/docs/", "--log-format", "json"],
@@ -197,9 +199,7 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     expect(index).not.toMatch(/href="\/assets\//);
     expect(index).toContain('href="/docs/blog/');
     // themes/starter/static/robots.txt, as is, at the root of the output (not under the base path).
-    expect(fs.readFileSync(path.join(out, "robots.txt"), "utf8")).toBe(
-      fs.readFileSync(path.join(STARTER, "themes/starter/static/robots.txt"), "utf8"),
-    );
+    expect(fs.readFileSync(path.join(out, "robots.txt"), "utf8")).toBe(robots);
   });
 
   // Material uploads live in the theme's static/ tree: Bukit copies it as is, whether or not a page uses it.
@@ -251,11 +251,9 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     addUpload(dir);
     const yaml = path.join(dir, "site.yaml");
     const text = fs.readFileSync(yaml, "utf8");
-    if (!/languages:\s*\[[^\]]*\]/.test(text)) throw new Error("starter site.yaml has no languages");
-    fs.writeFileSync(
-      yaml,
-      text.replace(/languages:\s*\[[^\]]*\]/, "languages: [en-US, zh-CN]\n  defaultLanguage: en-US"),
-    );
+    const languages = "  languages:\n  - en-US\n";
+    if (!text.includes(languages)) throw new Error("starter site.yaml has no languages");
+    fs.writeFileSync(yaml, text.replace(languages, "  languages: [en-US, zh-CN]\n  defaultLanguage: en-US\n"));
     fs.writeFileSync(path.join(dir, ".gitignore"), "out/\n");
     rawGit(base, dir, "init", "-q");
     commitAllAs(base, dir);
@@ -332,22 +330,5 @@ exec "${gitPath}" "$@"
     expect(result.exitCode, output(result)).toBe(0);
     const files = rawGit(base, base, "--git-dir", bare, "ls-tree", "-r", "--name-only", "gh-pages").split("\n");
     expect(files).toContain("index.html");
-  });
-
-  // New Simplified Chinese sites get the starter theme's text in Chinese (plan 5.2); it must be what
-  // `bukit new --language zh-CN` writes, so the copied theme reads the same keys (Bukit 2.2.5).
-  it("writes the same Chinese theme text as bukit new", () => {
-    const dir = path.join(base, "new-zh");
-    const created = spawnSync(REAL_BIN as string, ["new", dir, "--title", "x", "--language", "zh-CN"], {
-      env: runner.env(),
-      encoding: "utf8",
-    });
-    expect(created.status, `${created.stdout}\n${created.stderr}`).toBe(0);
-    const bukit = parse(fs.readFileSync(path.join(dir, "site.yaml"), "utf8")).theme.params;
-    const ours = parse(
-      fillSiteYaml(fs.readFileSync(path.join(STARTER, "site.yaml"), "utf8"), { title: "x", language: "zh-CN" }),
-    ).theme.params;
-    expect(ours.labels).toEqual(bukit.labels);
-    expect(ours.latest_heading).toBe(bukit.latest_heading);
   });
 });

@@ -6,12 +6,11 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { BukitService } from "../src/bukit/locate.ts";
 import { deployTarget, pagesUrl } from "../src/deploys/target.ts";
 import { resolveGitPath } from "../src/git/run.ts";
-import { copyStarter } from "../src/sites/template.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import { ADMIN, commitAllAs, installAppBukit, makeApp, rawGit, req, testBukitDir } from "./helpers.ts";
 
 // M6 (plan 14): where a site is published, read from site.yaml on the default branch.
 
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bj-deploys-")));
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
 
@@ -63,7 +62,7 @@ describe("GET /api/sites/:id/deploy", () => {
   it("reports the target of the default branch and whether a publish can start", async () => {
     const ctx = makeApp({ appHome: path.join(base, "app"), userHome: base });
     const dir = path.join(base, "site");
-    copyStarter(STARTER, dir, { title: "Deploy", language: "en-US" });
+    writeStarter(dir, { title: "Deploy", language: "en-US" });
     rawGit(base, dir, "init", "-q", "-b", "main");
     commitAllAs(base, dir, "init");
     const site = await ctx.sites.import({ path: dir });
@@ -98,7 +97,7 @@ describe("GET /api/sites/:id/deploy", () => {
   it("refuses the site's source branch as the publish branch", async () => {
     const ctx = makeApp({ appHome: path.join(base, "app-source"), userHome: base });
     const dir = path.join(base, "site-source");
-    copyStarter(STARTER, dir, { title: "Source", language: "en-US" });
+    writeStarter(dir, { title: "Source", language: "en-US" });
     rawGit(base, dir, "init", "-q", "-b", "main");
     fs.appendFileSync(path.join(dir, "site.yaml"), "\ndeploy:\n  repo: someone/source\n  branch: main\n");
     commitAllAs(base, dir, "deploy");
@@ -182,7 +181,7 @@ async function publishable(
   });
   contexts.push(ctx);
   const dir = path.join(base, name);
-  copyStarter(STARTER, dir, { title: name, language: "en-US" });
+  writeStarter(dir, { title: name, language: "en-US" });
   fs.appendFileSync(
     path.join(dir, "site.yaml"),
     `\ndeploy:\n  repo: someone/blog\n  branch: ${opts.branch ?? "gh-pages"}\n`,
@@ -507,7 +506,7 @@ exec "${realGit}" "$@"
     });
     contexts.push(ctx);
     const dir = path.join(base, "real-site");
-    copyStarter(STARTER, dir, { title: "Real", language: "en-US" });
+    writeStarter(dir, { title: "Real", language: "en-US" });
     fs.appendFileSync(
       path.join(dir, "site.yaml"),
       "\ndeploy:\n  provider: github-pages\n  repo: someone/someone.github.io\n",

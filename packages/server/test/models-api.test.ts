@@ -6,14 +6,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
 import { ModelService, redact, settingsModel } from "../src/agent/models.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
-import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import { ADMIN, commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
 
 // M3 layer 7 (plan 6.5, 9.1): model settings. No request leaves the machine: connection tests and runs
 // use Pi's faux provider; keys are saved for real providers but never used.
 
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 // Providers whose environment variables this file sets or clears.
 const ENV_KEYS = ["CEREBRAS_API_KEY", "GROQ_API_KEY"];
 
@@ -238,7 +237,7 @@ describe("the chosen model in conversations", () => {
   let siteCount = 0;
   async function session() {
     const dir = path.join(base, "home", `site${++siteCount}`);
-    copyStarter(STARTER, dir, { title: `Site ${siteCount}`, language: "en-US" });
+    writeStarter(dir, { title: `Site ${siteCount}`, language: "en-US" });
     rawGit(base, dir, "init", "-q", "-b", "main");
     commitAllAs(base, dir);
     const site = await ctx.sites.import({ path: dir });

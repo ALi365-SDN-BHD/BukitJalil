@@ -23,8 +23,8 @@ import { listHistory } from "../src/changes/history.ts";
 import { applyHunks, parseHunks } from "../src/changes/partial.ts";
 import { changeRef, commitText, diffSummary } from "../src/changes/service.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
-import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import {
   ADMIN,
   commitAllAs,
@@ -40,8 +40,6 @@ import {
 // M4 layers 1 to 3, 5 and 6 (plan 7.2, 7.4, 8.4, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
 // works in the ai/ checkout, and its result is snapshotted into the change set; the site folder only
 // changes when a change set is applied.
-
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 
 let base: string;
 let ctx: ReturnType<typeof makeApp>;
@@ -100,7 +98,7 @@ afterAll(async () => {
 
 async function site() {
   const dir = path.join(base, "home", `site${++n}`);
-  copyStarter(STARTER, dir, { title: `Site ${n}`, language: "en-US" });
+  writeStarter(dir, { title: `Site ${n}`, language: "en-US" });
   rawGit(base, dir, "init", "-q", "-b", "main");
   commitAllAs(base, dir);
   const s = await ctx.sites.import({ path: dir });
@@ -200,7 +198,7 @@ describe("a run", () => {
     const session = ctx.agent.create(s.id);
     faux.setResponses([
       toolCall("write", { path: "content/pages/faq.md", content: "---\ntitle: FAQ\n---\n\nHello\n" }),
-      toolCall("edit", { path: "site.yaml", edits: [{ oldText: `title: Site ${n}`, newText: "title: Renamed" }] }),
+      toolCall("edit", { path: "site.yaml", edits: [{ oldText: `title: "Site ${n}"`, newText: "title: Renamed" }] }),
       toolCall("summarize_changes", { summary: "Added an FAQ page and renamed the site." }),
       pi.ai.fauxAssistantMessage("Done."),
     ]);
@@ -1075,7 +1073,7 @@ describe("the change set API and events", () => {
       yaml,
       text.replace(
         /^ {2}sources:\n/m,
-        "  sources:\n    - type: Notion\n      name: stolen\n      collection: post\n      notion:\n        databaseId: 12345678901234567890123456789012\n",
+        "  sources:\n  - type: Notion\n    name: stolen\n    collection: post\n    notion:\n      databaseId: 12345678901234567890123456789012\n",
       ),
     );
     await ctx.changes.snapshot(s.id, cwd);

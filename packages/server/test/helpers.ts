@@ -31,6 +31,7 @@ import { SiteService } from "../src/sites/service.ts";
 import { openDatabase } from "../src/store/db.ts";
 import { SettingsStore } from "../src/store/settings.ts";
 import { UpdateService } from "../src/updates/service.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 
 export const PORT = 47880;
 export const ADMIN = `http://127.0.0.1:${PORT}`;
@@ -137,7 +138,8 @@ export function makeApp(
     bukit,
     locks,
     dataSources,
-    templateDir: path.resolve(import.meta.dirname, "../../../templates/starter"),
+    // No real Bukit in unit tests: a copy of its `bukit new` output (plan 5.2).
+    newSite: async (target, values) => writeStarter(target, values),
     userHome: overrides.userHome,
   });
   const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);

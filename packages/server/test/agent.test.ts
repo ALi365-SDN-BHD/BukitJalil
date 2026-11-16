@@ -11,12 +11,10 @@ import { type AgentEvent, AgentService } from "../src/agent/service.ts";
 import { agentEventTranslator } from "../src/events/bridge.ts";
 import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
-import { copyStarter } from "../src/sites/template.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import { commitAllAs, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
 
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
-
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 
 // Pi keeps the directory it saw when it loaded, so this file uses one app home (vitest runs each test
 // file in its own module graph).
@@ -45,7 +43,7 @@ let siteCount = 0;
 /** A committed starter site, imported (no Bukit, so no first build); `files` are committed with it. */
 async function site(files: Record<string, string> = {}) {
   const dir = path.join(base, "home", `site${++siteCount}`);
-  copyStarter(STARTER, dir, { title: `Site ${siteCount}`, language: "en-US" });
+  writeStarter(dir, { title: `Site ${siteCount}`, language: "en-US" });
   for (const [name, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
     fs.writeFileSync(path.join(dir, name), content);

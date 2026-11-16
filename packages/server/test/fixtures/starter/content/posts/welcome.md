@@ -11,5 +11,5 @@ categories: [news]
 
 # Welcome
 
-This site was created by BukitJalil. Ask the assistant to change anything: the layout, the colors,
-this post, or the [about page](../../../../pages/about/).
+This site was created by Bukit. Change the layout, the colors, this post, or
+the [about page](../../../../pages/about/).

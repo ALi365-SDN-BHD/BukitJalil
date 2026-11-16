@@ -1047,6 +1047,7 @@ const en: Messages = {
     "secrets.reset_unsupported": "Development mode has no encryption key to reset",
     "build.not_found": "Build not found",
     "site.read_only": "The site is read-only because it does not meet the safety rules",
+    "site.create_failed": "Bukit could not create the site: {detail}",
     "build.bukit_missing": "Bukit is not installed or its version is not supported",
     "preview.not_built": "There is no successful build to preview yet",
     "preview.no_port": "No free preview port was found",

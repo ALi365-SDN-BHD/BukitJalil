@@ -2,10 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { SiteLanguage, SiteName } from "@bukitjalil/shared";
 import { parseDocument } from "yaml";
+import type { BukitService } from "../bukit/locate.ts";
+import { usableRunner } from "../bukit/runner.ts";
+import type { GitRunner } from "../git/run.ts";
+import { SiteError } from "./location.ts";
 
 /**
- * Copy the starter template into a new site directory (plan 5.2 steps 2–3). The template lives in
- * templates/starter/ and is regenerated from Bukit's StarterTheme by scripts/make-starter.sh.
+ * A new site's starting files (plan 5.2): the bundled Bukit's `bukit new` writes them, so the starter theme
+ * follows Bukit. BukitJalil only replaces the content sources when the user picked Notion databases.
  * Checking where the site may be created belongs to the caller; this only needs an empty or missing target.
  */
 
@@ -19,13 +23,14 @@ export interface StarterSource {
 }
 
 export interface StarterValues {
-  /** Display name, used as site.title and the theme's brand text. */
+  /** Display name: site.title and the theme's brand and footer text. */
   title: string;
-  /** BCP 47 tag, e.g. "zh-CN" or "en-US". */
+  /** BCP 47 tag, e.g. "zh-CN" or "en-US"; a Simplified Chinese one gets the theme's text in Chinese. */
   language: string;
-  /** Content sources chosen for this site; omitted keeps the starter's default Markdown sources. */
-  sources?: StarterSource[];
 }
+
+/** Writes the starter into `target` (missing or empty), or throws and leaves nothing of its own behind. */
+export type NewSite = (target: string, values: StarterValues) => Promise<void>;
 
 export function validateStarterValues(values: StarterValues): string | null {
   // The same rules as the API request (shared SiteName / SiteLanguage), so a valid request never fails here.
@@ -39,113 +44,54 @@ export function validateStarterValues(values: StarterValues): string | null {
   return null;
 }
 
-/** site.name: a lower-case ASCII slug of the title, or "site" when the title has no ASCII letters or digits. */
-export function siteSlug(title: string): string {
-  const slug = title
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64)
-    .replace(/-+$/, "");
-  return slug || "site";
+/** Bukit's output in an error detail stays short. */
+const MAX_DETAIL = 500;
+
+/**
+ * `bukit new` with the bundled Bukit. The values go as `--opt=value`, so a title starting with "-" is not
+ * read as an option; `bukit new` runs no git, build or network, and removes what it wrote when it fails.
+ */
+export function bukitNewSite(
+  bukit: BukitService,
+  runnerOpts: { git: GitRunner; home: string; tmpDir: string },
+): NewSite {
+  return async (target, values) => {
+    const problem = validateStarterValues(values);
+    if (problem) throw new SiteError("request.invalid_body", 400, { detail: problem });
+    const runner = await usableRunner(bukit, runnerOpts);
+    if (!runner) throw new SiteError("build.bukit_missing", 409);
+    fs.mkdirSync(runnerOpts.tmpDir, { recursive: true, mode: 0o700 });
+    const result = await runner.run(
+      "new",
+      ["new", target, `--title=${values.title.trim()}`, `--language=${values.language}`],
+      { cwd: runnerOpts.tmpDir },
+    );
+    if (result.stopped !== null || result.exitCode !== 0) {
+      const detail = (result.stderr.trim() || result.stdout.trim() || `exit ${result.exitCode}`).slice(0, MAX_DETAIL);
+      throw new SiteError("site.create_failed", 500, { detail });
+    }
+    const file = path.join(target, "site.yaml");
+    if (!fs.existsSync(file)) {
+      throw new SiteError("site.create_failed", 500, { detail: "bukit new wrote no site.yaml" });
+    }
+    dropDocumentEnd(file);
+  };
 }
 
 /**
- * Copy `templateDir` into `target` (created if missing; must be empty) and fill in site.yaml.
- * On failure everything written is removed again, so the same location can be retried.
+ * `bukit new` ends site.yaml with the YAML document end marker "...". Settings later appended to the file
+ * would start a second document, which BukitJalil's reader refuses, so the marker is dropped.
  */
-export function copyStarter(templateDir: string, target: string, values: StarterValues): void {
-  const problem = validateStarterValues(values);
-  if (problem) throw new Error(problem);
-  const existed = fs.existsSync(target);
-  if (existed && (!fs.lstatSync(target).isDirectory() || fs.readdirSync(target).length > 0)) {
-    throw new Error(`${target} must be an empty directory`);
-  }
-  const siteYaml = fillSiteYaml(fs.readFileSync(path.join(templateDir, "site.yaml"), "utf8"), values);
-  // Only the deepest new directory is ours to remove; parents created on the way stay (empty).
-  if (!existed) fs.mkdirSync(target, { recursive: true });
-  try {
-    copyTree(templateDir, target);
-    fs.writeFileSync(path.join(target, "site.yaml"), siteYaml);
-  } catch (err) {
-    if (existed) {
-      for (const name of fs.readdirSync(target)) fs.rmSync(path.join(target, name), { recursive: true, force: true });
-    } else {
-      fs.rmSync(target, { recursive: true, force: true });
-    }
-    throw err;
-  }
+export function dropDocumentEnd(file: string): void {
+  const yaml = fs.readFileSync(file, "utf8");
+  if (yaml.endsWith("\n...\n")) fs.writeFileSync(file, yaml.slice(0, -"...\n".length));
 }
 
-/** Set the form values in the template's site.yaml, keeping its layout and comments. */
-export function fillSiteYaml(text: string, values: StarterValues): string {
-  const doc = parseDocument(text);
-  if (doc.errors.length > 0) throw new Error(`template site.yaml is invalid: ${doc.errors[0]?.message}`);
-  const title = values.title.trim();
-  doc.setIn(["site", "name"], siteSlug(title));
-  doc.setIn(["site", "title"], title);
-  // Bukit 2.1 only reads site.languages; one entry builds a single-language site at the output root (plan 8.7).
-  doc.deleteIn(["site", "language"]);
-  const languages = doc.createNode([values.language]);
-  languages.flow = true;
-  doc.setIn(["site", "languages"], languages);
-  doc.setIn(["theme", "params", "brand"], title);
-  doc.setIn(["theme", "params", "footer_text"], title);
-  if (isSimplifiedChinese(values.language)) {
-    doc.setIn(["theme", "params", "latest_heading"], "最新文章");
-    for (const [key, text] of Object.entries(CHINESE_LABELS)) doc.setIn(["theme", "params", "labels", key], text);
-  }
-  if (values.sources) doc.setIn(["content", "sources"], values.sources);
-  // A remote image that can't be downloaded keeps its link instead of Bukit's placeholder, which the
-  // starter theme does not have (plan 8.6).
-  doc.setIn(["content", "media", "onFailure"], "keep");
-  return doc.toString();
-}
-
-/** The starter theme's interface text in Simplified Chinese, as `bukit new --language zh-CN` writes it (Bukit 2.2.5). */
-const CHINESE_LABELS: Record<string, string> = {
-  skip: "跳到正文",
-  menu: "菜单",
-  home: "首页",
-  blog: "博客",
-  pages: "页面",
-  featured: "精选",
-  previous: "上一页",
-  next: "下一页",
-  pagination: "分页",
-  items: "篇",
-  search: "搜索",
-  search_placeholder: "搜索文章和页面",
-  no_results: "没有找到结果",
-  untitled: "无标题",
-  powered_by: "技术支持",
-};
-
-/**
- * Bukit's rule for Simplified Chinese: a `zh` tag whose script is Hans, or without a script, one whose region is
- * not TW, HK or MO (and no Hant).
- */
-export function isSimplifiedChinese(language: string): boolean {
-  const subtags = language.toLowerCase().split("-");
-  if (subtags[0] !== "zh") return false;
-  if (subtags.includes("hans")) return true;
-  return !subtags.some((tag) => tag === "hant" || tag === "tw" || tag === "hk" || tag === "mo");
-}
-
-/** Plain recursive copy of directories and regular files; anything else in the template is an error. */
-function copyTree(from: string, to: string): void {
-  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
-    const src = path.join(from, entry.name);
-    const dst = path.join(to, entry.name);
-    if (entry.isDirectory()) {
-      fs.mkdirSync(dst, { mode: 0o755 });
-      copyTree(src, dst);
-    } else if (entry.isFile()) {
-      fs.copyFileSync(src, dst, fs.constants.COPYFILE_EXCL);
-      fs.chmodSync(dst, 0o644);
-    } else {
-      throw new Error(`unexpected entry in the template: ${src}`);
-    }
-  }
+/** Replace site.yaml's content sources with the ones picked for a new site, keeping the rest of the file. */
+export function writeSources(target: string, sources: StarterSource[]): void {
+  const file = path.join(target, "site.yaml");
+  const doc = parseDocument(fs.readFileSync(file, "utf8"));
+  if (doc.errors.length > 0) throw new Error(`site.yaml is invalid: ${doc.errors[0]?.message}`);
+  doc.setIn(["content", "sources"], sources);
+  fs.writeFileSync(file, doc.toString());
 }

@@ -84,13 +84,11 @@ describe("resource folders (plan M7)", () => {
   it("come from the repository unless BUKITJALIL_RESOURCES names the desktop app's", () => {
     expect(resolveResources("/repo", {})).toEqual({
       skills: "/repo/skills",
-      starter: "/repo/templates/starter",
       web: "/repo/packages/web/dist",
       bukit: `/repo/vendor/bukit-${BUKIT_VERSION}`,
     });
     expect(resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app" })).toEqual({
       skills: "/App/Resources/app/skills",
-      starter: "/App/Resources/app/templates/starter",
       web: "/App/Resources/app/web",
       bukit: "/App/Resources/app/bukit",
     });

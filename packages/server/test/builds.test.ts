@@ -16,8 +16,8 @@ import { BukitService } from "../src/bukit/locate.ts";
 import { resolveGitPath } from "../src/git/run.ts";
 import { silentLogger } from "../src/log.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
-import { copyStarter } from "../src/sites/template.ts";
 import { openDatabase } from "../src/store/db.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import {
   ADMIN,
   commitAllAs,
@@ -30,7 +30,6 @@ import {
   testBukitDir,
 } from "./helpers.ts";
 
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const REAL_BIN = process.env.BUKIT_BIN;
 const _gitPath = resolveGitPath() as string;
 
@@ -185,7 +184,7 @@ async function setup(name: string, opts: { mode?: string; bin?: string | null } 
   });
   contexts.push(ctx);
   const dir = path.join(userHome, name);
-  copyStarter(STARTER, dir, { title: name, language: "en-US" });
+  writeStarter(dir, { title: name, language: "en-US" });
   fs.writeFileSync(path.join(dir, "marker"), "v1");
   raw(dir, "init", "-q", "-b", "main");
   commitAll(dir, "init");
@@ -230,7 +229,7 @@ it("passes the Notion token of the site's data source to a main build but never 
   });
   contexts.push(ctx);
   const dir = path.join(userHome, "notion");
-  copyStarter(STARTER, dir, { title: "notion", language: "en-US" });
+  writeStarter(dir, { title: "notion", language: "en-US" });
   fs.writeFileSync(
     path.join(dir, "site.yaml"),
     "site:\n  name: notion\n  title: Notion\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n",
@@ -828,7 +827,7 @@ describe("first build after adding a site (plan 5.2 step 5)", () => {
     });
     contexts.push(ctx);
     const dir = path.join(userHome, "auto");
-    copyStarter(STARTER, dir, { title: "Auto", language: "en-US" });
+    writeStarter(dir, { title: "Auto", language: "en-US" });
     raw(dir, "init", "-q", "-b", "main");
     commitAll(dir, "init");
     const res = await ctx.app.fetch(

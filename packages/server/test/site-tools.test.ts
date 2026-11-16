@@ -7,10 +7,9 @@ import { AiBukit, AiBukitError } from "../src/agent/ai-bukit.ts";
 import { PathGate } from "../src/agent/gate.ts";
 import { createSiteTools, type SITE_TOOLS, schemaText } from "../src/agent/site-tools.ts";
 import { BukitService } from "../src/bukit/locate.ts";
-import { copyStarter } from "../src/sites/template.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import { commitAllAs, installAppBukit, makeApp, rawGit, testBukitDir } from "./helpers.ts";
 
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -83,7 +82,7 @@ async function setup(opts: { bin?: string | null; files?: Record<string, string>
   const ctx = makeApp({ userHome: path.join(base, "home"), appHome: path.join(base, `app-${n}`), bukit });
   contexts.push(ctx);
   const dir = path.join(base, "home", `site${n}`);
-  copyStarter(STARTER, dir, { title: `Site ${n}`, language: "en-US" });
+  writeStarter(dir, { title: `Site ${n}`, language: "en-US" });
   for (const [name, content] of Object.entries(opts.files ?? {})) {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
     fs.writeFileSync(path.join(dir, name), content);
@@ -261,7 +260,7 @@ describe("bukit_check and bukit_build", () => {
         .readFileSync(yaml, "utf8")
         .replace(
           "content:\n  sources:\n",
-          "content:\n  sources:\n    - type: notion\n      name: db\n      collection: post\n      notion:\n        databaseId: abc\n",
+          "content:\n  sources:\n  - type: notion\n    name: db\n    collection: post\n    notion:\n      databaseId: abc\n",
         ),
     );
   };
@@ -409,7 +408,7 @@ describe("site_info, list_content, summarize_changes", () => {
   it("summarizes site.yaml from the working copy", async () => {
     const { tools, cwd } = await setup();
     const yaml = path.join(cwd, "site.yaml");
-    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("title: Site", "title: Changed Site"));
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace('title: "Site', 'title: "Changed Site'));
     const r = await call(tools.site_info);
     expect(r.value).toMatchObject({
       site: { title: expect.stringContaining("Changed Site"), language: "en-US" },

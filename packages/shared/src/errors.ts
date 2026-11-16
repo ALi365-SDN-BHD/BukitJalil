@@ -49,6 +49,7 @@ export const errorCodes = [
   "site.not_repo",
   "site.branch_missing",
   "site.read_only",
+  "site.create_failed",
   "build.bukit_missing",
   "build.not_found",
   "preview.not_built",

@@ -1,10 +1,11 @@
 site:
   name: my-site
-  title: My Site
+  title: "My Site"
   baseUrl: /
   seo:
     defaultImage: /assets/og-default.png
-  languages: [en-US]
+  languages:
+  - en-US
   timezone: UTC
   collections:
     post:
@@ -20,42 +21,40 @@ site:
     page:
       permalink: /pages/{slug}/
       listRoute: /pages/
-
 content:
   sources:
-    - type: markdown
-      name: posts
-      mode: content
-      collection: post
-      markdown:
-        dir: content/posts
-    - type: markdown
-      name: pages
-      mode: content
-      collection: page
-      markdown:
-        dir: content/pages
-    - type: markdown
-      name: modules
-      mode: data
-      markdown:
-        dir: data
-        defaultType: module
-
+  - type: markdown
+    name: posts
+    mode: content
+    collection: post
+    markdown:
+      dir: content/posts
+  - type: markdown
+    name: pages
+    mode: content
+    collection: page
+    markdown:
+      dir: content/pages
+  - type: markdown
+    name: modules
+    mode: data
+    markdown:
+      dir: data
+      defaultType: module
+  media:
+    onFailure: keep
 build:
   output: dist
   clean: false
-
 theme:
   name: starter
   layouts: layouts
   assets: assets
   static: static
   params:
-    brand: My Site
-    footer_text: My Site
+    brand: "My Site"
+    footer_text: "My Site"
     latest_heading: Latest posts
-    # Interface text of the starter theme (Bukit 2.2.5); a Simplified Chinese site gets Chinese text on creation.
     labels:
       skip: Skip to content
       menu: Menu
@@ -72,6 +71,6 @@ theme:
       no_results: No results
       untitled: Untitled
       powered_by: Powered by
-
 logging:
   level: info
+...

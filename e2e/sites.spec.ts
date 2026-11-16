@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { BUKIT_VERSION } from "../packages/server/src/bukit/install.ts";
-import { copyStarter } from "../packages/server/src/sites/template.ts";
+import { writeStarter } from "../packages/server/test/fixtures/starter.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
 import { putSettings } from "./site-helpers.ts";
@@ -13,7 +13,6 @@ import { putSettings } from "./site-helpers.ts";
 // archive and remove, settings. Builds use a stand-in Bukit unless BUKIT_BIN names a real one.
 
 const REAL_BUKIT = process.env.BUKIT_BIN;
-const STARTER = path.resolve(import.meta.dirname, "../templates/starter");
 
 // Creating a site runs its first build, and the first test also walks all the panels: give builds on a slow
 // runner (or a real Bukit) room beyond the default 30 s.
@@ -106,7 +105,7 @@ test("a new site builds once, shows its preview and the read-only panels", async
   const tree = page.getByTestId("file-tree");
   await tree.getByRole("button", { name: "site.yaml" }).click();
   await expect(page.getByTestId("file-path")).toHaveText("site.yaml");
-  await expect(page.getByTestId("code-view")).toContainText(`title: ${name}`);
+  await expect(page.getByTestId("code-view")).toContainText(`title: "${name}"`);
   await tree.getByRole("button", { name: "content" }).click();
   await tree.getByRole("button", { name: "posts" }).click();
   await tree.getByRole("button", { name: "welcome.md" }).click();
@@ -226,7 +225,7 @@ test("a folder that is not a git repository yet is imported after confirming its
   await login(page, server);
   const { name, parent } = fresh("Import");
   const dir = path.join(parent, "existing");
-  copyStarter(STARTER, dir, { title: "Imported Original", language: "en-US" });
+  writeStarter(dir, { title: "Imported Original", language: "en-US" });
 
   await page.getByTestId("import-site").click();
   await goToFolder(page, dir);
@@ -248,7 +247,7 @@ test("a site with a plugin folder is imported read-only and cannot build", async
   await login(page, server);
   const { name, parent } = fresh("ReadOnly");
   const dir = path.join(parent, "plugged");
-  copyStarter(STARTER, dir, { title: "Plugged", language: "en-US" });
+  writeStarter(dir, { title: "Plugged", language: "en-US" });
   fs.mkdirSync(path.join(dir, "plugins/x"), { recursive: true });
   fs.writeFileSync(path.join(dir, "plugins/x/plugin.yaml"), "name: x\n");
   git(dir, "init", "-q", "-b", "main");

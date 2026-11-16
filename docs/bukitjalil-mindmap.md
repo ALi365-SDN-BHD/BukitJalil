@@ -34,7 +34,7 @@
 - **预览、改动、SEO**
   预览打开静态构建产物；改动查看差异并发起审核；SEO 查看最新报告、比较问题并生成修复提示。
 
-源码 · [`packages/web/src/features/sites`](../packages/web/src/features/sites)、[`packages/web/src/features/panels/RightPanel.tsx`](../packages/web/src/features/panels/RightPanel.tsx)、[`packages/server/src/sites`](../packages/server/src/sites)、[`packages/server/src/panels`](../packages/server/src/panels)、[`templates/starter`](../templates/starter)
+源码 · [`packages/web/src/features/sites`](../packages/web/src/features/sites)、[`packages/web/src/features/panels/RightPanel.tsx`](../packages/web/src/features/panels/RightPanel.tsx)、[`packages/server/src/sites`](../packages/server/src/sites)、[`packages/server/src/panels`](../packages/server/src/panels)
 
 ## AI 对话、模型与技能
 

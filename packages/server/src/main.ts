@@ -38,6 +38,7 @@ import { LoginToken, randomSecret } from "./security/token.ts";
 import { SiteLocks } from "./sites/locks.ts";
 import { NotionSnapshots } from "./sites/notion-snapshots.ts";
 import { SiteService } from "./sites/service.ts";
+import { bukitNewSite } from "./sites/template.ts";
 import { openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
 import { UpdateService } from "./updates/service.ts";
@@ -191,7 +192,7 @@ const sites = new SiteService({
   bukit,
   locks,
   dataSources,
-  templateDir: resources.starter,
+  newSite: bukitNewSite(bukit, { git, home: paths.home, tmpDir: paths.bukitTmp }),
   notionSnapshots: new NotionSnapshots({ db, root: paths.notionSnapshots, logger }),
 });
 

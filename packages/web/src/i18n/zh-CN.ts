@@ -992,6 +992,7 @@ const zhCN = {
     "secrets.reset_unsupported": "开发模式下没有加密密钥，不需要重置",
     "build.not_found": "找不到这次构建",
     "site.read_only": "网站不满足安全规则，处于只读状态",
+    "site.create_failed": "Bukit 无法生成网站：{detail}",
     "build.bukit_missing": "没有安装 Bukit，或者版本不受支持",
     "preview.not_built": "还没有成功的构建可以预览",
     "preview.no_port": "找不到可用的预览端口",

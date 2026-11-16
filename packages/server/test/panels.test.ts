@@ -6,10 +6,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveGitPath } from "../src/git/run.ts";
 import { decodeText, imageMime } from "../src/panels/service.ts";
 import { parseFrontMatter } from "../src/panels/yaml.ts";
-import { copyStarter } from "../src/sites/template.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import { commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
 
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const _gitPath = resolveGitPath() as string;
 const PNG = Buffer.from(
   "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4b00000000049454e44ae426082",
@@ -32,7 +31,7 @@ const raw = (cwd: string, ...args: string[]) => rawGit(base, cwd, ...args);
 async function siteWithFiles(name: string) {
   const ctx = makeApp({ userHome, appHome: fs.mkdtempSync(path.join(base, "app-")) });
   const dir = path.join(userHome, name);
-  copyStarter(STARTER, dir, { title: "Panel Site", language: "en-US" });
+  writeStarter(dir, { title: "Panel Site", language: "en-US" });
   fs.mkdirSync(path.join(dir, "static", "img"), { recursive: true });
   fs.writeFileSync(path.join(dir, "static", "img", "dot.png"), PNG);
   fs.writeFileSync(
@@ -111,7 +110,7 @@ describe("file panel (plan 5.3, 9.1)", () => {
   it("returns text from the commit, not the working tree", async () => {
     const res = await s.get<FileResponse>(s.api("/file?path=site.yaml"));
     expect(res.body).toMatchObject({ kind: "text", path: "site.yaml" });
-    expect(res.body.kind === "text" && res.body.content).toContain("title: Panel Site");
+    expect(res.body.kind === "text" && res.body.content).toContain('title: "Panel Site"');
     expect((await s.get(s.api("/file?path=.env"))).body).toEqual({ code: "panel.not_found" });
   });
 
@@ -237,7 +236,7 @@ describe("config, theme and data panels (plan 5.3)", () => {
       path.join(ctx.dir, "site.yaml"),
       committed.replace(
         "content:\n  sources:\n",
-        "content:\n  sources:\n    - type: notion\n      name: db\n      notion:\n        databaseId: abc123\n        cacheMode: readonly\n",
+        "content:\n  sources:\n  - type: notion\n    name: db\n    notion:\n      databaseId: abc123\n      cacheMode: readonly\n",
       ),
     );
     raw(ctx.dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "notion");

@@ -63,7 +63,9 @@ async function startConversation(
   });
   await startConversationButton(page);
   await expect(page.getByTestId("chat-view")).toBeVisible();
-  const title = /^ {2}title: *(.+)$/m.exec(fs.readFileSync(path.join(folder, "site.yaml"), "utf8"))?.[1] ?? "";
+  // `bukit new` writes the title as a double-quoted (JSON) string.
+  const quoted = /^ {2}title: *(.+)$/m.exec(fs.readFileSync(path.join(folder, "site.yaml"), "utf8"))?.[1] ?? '""';
+  const title: string = JSON.parse(quoted);
   return { siteId, folder, title };
 }
 

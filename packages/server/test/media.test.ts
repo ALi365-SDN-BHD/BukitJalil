@@ -9,11 +9,10 @@ import { mediaDir } from "../src/media/dir.ts";
 import { hasJpegLocation } from "../src/media/location.ts";
 import { normalizeMediaName } from "../src/media/names.ts";
 import { sniffMedia } from "../src/media/sniff.ts";
-import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import { ADMIN, commitAllAs, installAppBukit, makeApp, rawGit, req, testBukitDir } from "./helpers.ts";
 
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
@@ -60,7 +59,7 @@ afterAll(async () => {
 /** A registered starter site; `prepare` runs before the first commit. */
 async function makeSite(name: string, prepare?: (dir: string) => void) {
   const dir = path.join(base, "sites", `${++n}-${name}`);
-  copyStarter(STARTER, dir, { title: `Media ${n}`, language: "en-US" });
+  writeStarter(dir, { title: `Media ${n}`, language: "en-US" });
   prepare?.(dir);
   rawGit(base, dir, "init", "-q", "-b", "main");
   commitAllAs(base, dir);
@@ -494,7 +493,7 @@ describe("MediaService.upload", () => {
     });
     const dir = path.join(fs.realpathSync(os.tmpdir()), `bj-media-site-${++n}`);
     try {
-      copyStarter(STARTER, dir, { title: "Symlinked home", language: "en-US" });
+      writeStarter(dir, { title: "Symlinked home", language: "en-US" });
       rawGit(base, dir, "init", "-q", "-b", "main");
       commitAllAs(base, dir);
       const site = await ctx2.sites.import({ path: dir });

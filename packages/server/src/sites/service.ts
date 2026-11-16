@@ -25,7 +25,7 @@ import { assertDirectory, assertEmptyOrMissing, checkSiteLocation, inside, SiteE
 import type { SiteLocks } from "./locks.ts";
 import { NotionSnapshots } from "./notion-snapshots.ts";
 import { isSiteId, newSiteId, type SiteState, SiteStore } from "./store.ts";
-import { copyStarter, type StarterSource } from "./template.ts";
+import { type NewSite, type StarterSource, writeSources } from "./template.ts";
 
 export interface SiteServiceOptions {
   db: DatabaseSync;
@@ -36,8 +36,8 @@ export interface SiteServiceOptions {
   locks: SiteLocks;
   /** Optional saved Notion source copied into a new site. */
   dataSources: DataSourceService;
-  /** templates/starter */
-  templateDir: string;
+  /** Writes a new site's starting files: `bukit new` (plan 5.2), a stand-in in tests. */
+  newSite: NewSite;
   /** Overrides os.homedir() (tests). */
   userHome?: string;
   /** The sites' Notion offline snapshots (plan 5.5); made from `paths` when not given. */
@@ -191,8 +191,9 @@ export class SiteService {
     const site = await this.reserved(real, async () => {
       assertEmptyOrMissing(real);
       const existed = fs.existsSync(real);
-      copyStarter(this.opts.templateDir, real, { title: req.name, language: req.language, sources: selected?.sources });
       try {
+        await this.opts.newSite(real, { title: req.name, language: req.language });
+        if (selected) writeSources(real, selected.sources);
         const { git } = this.opts;
         // -b main: global config (init.defaultBranch) is not read, so git would pick "master".
         await git.run(["init", "-q", "-b", "main"], { cwd: real, repoCheck: false });

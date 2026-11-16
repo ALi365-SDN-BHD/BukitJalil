@@ -8,10 +8,9 @@ import { resolveGitPath } from "../src/git/run.ts";
 import { withBlock } from "../src/sites/exclude.ts";
 import { checkSiteLocation, listDirs, realPathOf, SiteError } from "../src/sites/location.ts";
 import { SiteLocks } from "../src/sites/locks.ts";
-import { copyStarter } from "../src/sites/template.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import { ADMIN, commitAllAs, installAppBukit, makeApp, rawGit, req, testBukitDir } from "./helpers.ts";
 
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const REAL_BIN = process.env.BUKIT_BIN;
 const _gitPath = resolveGitPath() as string;
 
@@ -35,7 +34,7 @@ const commitAll = (dir: string, msg = "init") => commitAllAs(base, dir, msg);
 /** A git repository holding the starter site, on branch `branch`. */
 function starterRepo(name: string, branch = "main"): string {
   const dir = path.join(userHome, name);
-  copyStarter(STARTER, dir, { title: name, language: "en-US" });
+  writeStarter(dir, { title: name, language: "en-US" });
   raw(dir, "init", "-q", "-b", branch);
   commitAll(dir);
   return dir;
@@ -308,7 +307,7 @@ describe("import a site (plan 5.1)", () => {
   it("imports a site that fails the pre-build guard read-only", async () => {
     const { call, paths } = setup();
     const dir = path.join(userHome, "imp-guard");
-    copyStarter(STARTER, dir, { title: "g", language: "en" });
+    writeStarter(dir, { title: "g", language: "en" });
     fs.symlinkSync("/etc/passwd", path.join(dir, "content", "posts", "leak.md"));
     raw(dir, "init", "-q", "-b", "main");
     commitAll(dir);
@@ -321,7 +320,7 @@ describe("import a site (plan 5.1)", () => {
   it("initializes a plain directory only with the confirmed file list", async () => {
     const { call, identity } = setup();
     const dir = path.join(userHome, "imp-plain");
-    copyStarter(STARTER, dir, { title: "Plain", language: "en" });
+    writeStarter(dir, { title: "Plain", language: "en" });
     fs.writeFileSync(path.join(dir, ".env"), "SECRET=1\n");
     fs.mkdirSync(path.join(dir, "dist"));
     fs.writeFileSync(path.join(dir, "dist", "index.html"), "old build");
@@ -369,7 +368,7 @@ describe("import a site (plan 5.1)", () => {
   it("refuses a plain directory that contains another repository", async () => {
     const { call } = setup();
     const dir = path.join(userHome, "imp-nested");
-    copyStarter(STARTER, dir, { title: "n", language: "en" });
+    writeStarter(dir, { title: "n", language: "en" });
     fs.mkdirSync(path.join(dir, "vendor", "lib"), { recursive: true });
     raw(path.join(dir, "vendor", "lib"), "init", "-q");
     expect((await call("POST", "/api/sites/import/inspect", { path: dir })).json).toEqual({
@@ -381,7 +380,7 @@ describe("import a site (plan 5.1)", () => {
   it("refuses a .git symlink instead of writing through it", async () => {
     const ctx = setup();
     const dir = path.join(userHome, "imp-git-link");
-    copyStarter(STARTER, dir, { title: "link", language: "en" });
+    writeStarter(dir, { title: "link", language: "en" });
     const target = path.join(base, "git-link-target");
     fs.symlinkSync(target, path.join(dir, ".git"));
 

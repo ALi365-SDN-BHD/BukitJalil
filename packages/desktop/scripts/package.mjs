@@ -9,7 +9,7 @@
 //   server.mjs, migrations/            BukitJalil's server code, bundled; npm packages stay outside the
 //                                      bundle because Pi SDK reads files next to its own modules
 //   node_modules/                      the server's production dependencies (pnpm deploy, lockfile versions)
-//   skills/, templates/starter/, web/  read through BUKITJALIL_RESOURCES
+//   skills/, web/  read through BUKITJALIL_RESOURCES
 //   bukit/                             the pinned Bukit (plan 8.1), checked against the SHA-256 in the
 //                                      server's bukit/install.ts; the app never installs another
 import { execFileSync } from "node:child_process";
@@ -118,7 +118,6 @@ try {
 } finally {
   fs.rmSync(fetched, { recursive: true, force: true });
 }
-fs.cpSync(path.join(repo, "templates/starter"), path.join(stage, "templates/starter"), { recursive: true });
 fs.cpSync(web, path.join(stage, "web"), { recursive: true });
 // The window icon on Windows and Linux, read next to main.cjs.
 const assets = path.join(desktop, "assets");
@@ -148,7 +147,7 @@ const [appDir] = await packager({
   // The app and its executable: an .icns on macOS, an .ico on Windows (Linux takes the installers' icon).
   ...(process.platform === "darwin" ? { icon: path.join(assets, "icon.icns") } : {}),
   ...(process.platform === "win32" ? { icon: path.join(assets, "icon.ico") } : {}),
-  // The server runs git and copies templates from these folders, so they stay plain files.
+  // The server runs git and Bukit and reads skills from these folders, so they stay plain files.
   asar: false,
   // The stage holds production dependencies only.
   prune: false,

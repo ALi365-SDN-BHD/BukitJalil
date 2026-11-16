@@ -14,10 +14,11 @@ import type { BukitService } from "./locate.ts";
  *   --secrets-stdin, never in the environment, where other programs of the same user could read them (plan 8.7)
  */
 
-export type BukitCommand = "version" | "check" | "doctor" | "build" | "schema" | "publish" | "deploy";
+export type BukitCommand = "version" | "new" | "check" | "doctor" | "build" | "schema" | "publish" | "deploy";
 
 export const DEFAULT_TIMEOUTS: Record<BukitCommand, number> = {
   version: 15_000,
+  new: 30_000,
   check: 60_000,
   doctor: 60_000,
   schema: 60_000,
