@@ -122,6 +122,6 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **阶段和已知风险**（2026-11-16）：开发/测试阶段，只在测试环境使用。更新包和 `SHA256SUMS.txt` 来自同一个 GitHub Release，没有独立签名；发布账号或 CI 的写权限被攻破时，能让客户端下载并打开恶意安装包。对外发布前必须先选一个方案：删掉应用内下载/打开、只打开 Release 页面；或加 Ed25519 签名清单，私钥离线保存。详见设计文档第 10 节。
 
-### 11. 预览里的搜索（内置 Bukit 已升到 2.2.6，待三浏览器验证）
+### 11. 预览里的搜索（已在 Bukit 2.2.6 上验证）
 
-2026-11-16 已在 Bukit 仓库的分支 `codex/add-search-index-script` 提交脚本形式的搜索索引（每个 `search.json` 旁边写 `search.json.js`；内置搜索先 `fetch`，被 CSP 拦下时改用同源 `<script>`），已推送并开了 PR #196，尚未合并发布。2026-11-16 Bukit 2.2.6 发布了这项改动（PR #196），内置版本已升到 2.2.6。升级前预览里的搜索不可用：starter 的搜索页点了没有结果也没有提示，内置 `bukit-search.html` 显示 "Search is unavailable"；发布后的网站正常（没有预览那条 CSP）。**还没完成**：按开发方案 8.4 在 Chromium、Firefox、WebKit 的预览里各验证一次，验证前不能说预览搜索已可用。已经生成到主题里的搜索页不会自动获得回退，主题作者要复制新生成的 `themes/starter/layouts/pages/search.html` 里整段 `<script>`。
+2026-11-16 已在 Bukit 仓库的分支 `codex/add-search-index-script` 提交脚本形式的搜索索引（每个 `search.json` 旁边写 `search.json.js`；内置搜索先 `fetch`，被 CSP 拦下时改用同源 `<script>`），已推送并开了 PR #196，尚未合并发布。2026-11-16 Bukit 2.2.6 发布了这项改动（PR #196），内置版本已升到 2.2.6。升级前预览里的搜索不可用：starter 的搜索页点了没有结果也没有提示，内置 `bukit-search.html` 显示 "Search is unavailable"；发布后的网站正常（没有预览那条 CSP）。2026-11-16 用 Bukit 2.2.6 构建的 `bukit-search.html`，在带预览 CSP（`connect-src 'none'`）的服务里，Chromium、Firefox、WebKit 三种浏览器都能搜到结果、没有页面错误；索引走 `search.json.js` 的 `<script>` 回退。已经生成到主题里的搜索页不会自动获得回退，主题作者要复制新生成的 `themes/starter/layouts/pages/search.html` 里整段 `<script>`。
