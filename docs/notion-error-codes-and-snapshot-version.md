@@ -234,7 +234,7 @@ Notion 接口错误：
   - `notionSnapshot.problem.stale` 两份都要改：en 现在写"Bukit was upgraded or the data is incomplete"，zh-CN 写"（Bukit 升级了或数据不完整）"。2.2.0 以后升级 Bukit 不会再让快照失效，只有格式版本变了才会，两份都改成"格式变了或数据不完整"。
   - 同样的说法还在两处注释里，一起改成"another format, unreadable or incomplete"这类不提 Bukit 版本的写法：`packages/shared/src/builds.ts` 里 `NotionSnapshotProblem` 的注释（"another format or Bukit version"），`packages/server/src/bukit/notion-errors.ts` 里 `notionSnapshotProblemIn` 的注释（同样的话）。
   - 这几个文件别的会话也在改，行号经常变，按键名和函数名找。
-- 升级内置 Bukit：`BUKIT_VERSION`、三个安装包的 SHA-256、`MIN_BUKIT_VERSION` 都改成 2.2.0（开发方案 8.1 的规则）。
+- 升级内置 Bukit：`BUKIT_VERSION`、五个安装包的 SHA-256、`MIN_BUKIT_VERSION` 都改成 2.2.0（开发方案 8.1 的规则）。
 
 ### 3.4 快照版本校验
 

@@ -48,7 +48,7 @@
   - `site.baseUrl: /blog/` 时，正文里的 `/uploads/a.png` 原样输出，是坏的。正文里写 `/blog/uploads/a.png`、模板里写 `{{ base_url }}/uploads/a.png`，输出都是 `/blog/uploads/a.png`，是对的。front matter 写成带前缀的形式时，经 `page.seo` 输出不会重复加前缀。
   - 多语言网站会把静态目录同时复制到根目录和 `/<语言>/` 目录，所以模板里 `{{ site.base_url }}` 带语言前缀时也能找到文件。
   - `config check` 和 `doctor` 都不报缺失的上传文件。
-- Bukit 随 BukitJalil 一起固定版本（`BUKIT_VERSION` 加三个安装包的 SHA-256），用户不能单独升级。上面的关键行为放进 `bukit-behavior.test.ts`（6.1），升级时由 CI 发现变化。
+- Bukit 随 BukitJalil 一起固定版本（`BUKIT_VERSION` 加五个安装包的 SHA-256），用户不能单独升级。上面的关键行为放进 `bukit-behavior.test.ts`（6.1），升级时由 CI 发现变化。
 
 不采用的放法：网站根目录的 `assets/uploads/` 或 `static/`（Bukit 不复制）；改 `content.media.downloadDir` 或 `theme.static`（要改用户的 `site.yaml`，还会影响主题自带的文件）。
 
