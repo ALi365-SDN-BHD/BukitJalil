@@ -23,6 +23,10 @@ const MOCK_KEYCHAIN = process.platform === "darwin" ? ["--use-mock-keychain"] : 
 function environment(home: string, profile: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    // The development app finds Bukit in vendor/ (pnpm fetch:bukit); CI fetches it elsewhere and sets BUKIT_BIN.
+    ...(process.env.BUKIT_BIN && !process.env.BUKITJALIL_BUKIT_DIR
+      ? { BUKITJALIL_BUKIT_DIR: path.dirname(process.env.BUKIT_BIN) }
+      : {}),
     BUKITJALIL_HOME: home,
     BUKITJALIL_DESKTOP_PROFILE: profile,
     BUKITJALIL_DESKTOP_PORT: String(PORT),
