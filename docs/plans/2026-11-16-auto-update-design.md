@@ -138,7 +138,7 @@ Linux 按启动方式选资产：`APPIMAGE` 环境变量存在时选 AppImage，
 - **#3 Windows**：在 Windows 支持前隐藏更新按钮；`openUpdate` 成功打开 exe 后退出应用。
 - **#4 Linux AppImage**：有 `APPIMAGE` 时把新文件替换到运行中的 AppImage，设置执行权限并重启；deb 仍用包管理器。
 - **#5 `.part`**：启动时清理 updates 目录里的 `*.part` 和没有完整安装包的空版本目录。
-- **#6 beta 发布**：发布检查里写明 beta tag 必须是 GitHub prerelease，发布后核对。
+- **#6 beta 发布**：发布检查里写明 beta tag 必须是 GitHub prerelease，发布后核对。2026-11-16 已把现有的 `v0.1.0-beta.3`、`v0.1.0-beta.4` 标为 prerelease。
 - **#7 版本绑定**：安装包文件名必须包含 Release 版本，否则不提供该资产。
 - **#8 校验值错误**：404 报“没有校验值”，429/5xx/网络报“检查失败”。
 - **#9 磁盘/权限**：`ENOSPC` 报磁盘满，`EACCES`/`EPERM` 报权限错误。
