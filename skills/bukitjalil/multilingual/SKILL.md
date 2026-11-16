@@ -37,6 +37,17 @@ section to see the exact language fields of this Bukit version.
   publish audit reports pages as missing from the sitemap.
 - Localize the shared parts too: the page title in `<title>`, the brand, the
   navigation and the footer text should follow the page's language.
+- The starter theme's interface text (menu, pagination, search, "Powered by"
+  and so on) comes from `theme.params.labels.<key>` and the latest-posts
+  heading from `theme.params.latest_heading`. They hold one language: keep them
+  in the default language. For each other language, write
+  `data/<lang>/ui.yaml` with the same keys in that language (for example
+  `data/en-US/ui.yaml` with `menu: Menu`), and in each template that prints a
+  label read the page's language first:
+  `{{ (site.data_files[site.language].ui.menu ?? site.params.labels.menu) | object.default "Menu" | html.escape }}`.
+  Keep the template's existing filters (`html.escape`, or the `string.escape`
+  chain inside scripts). A language without its own file falls back to the
+  default language's text.
 - Do not machine-translate legal text (terms, privacy policy); add the page
   and ask the user to provide or approve the text.
 

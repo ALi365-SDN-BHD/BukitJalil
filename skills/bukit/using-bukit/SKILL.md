@@ -16,9 +16,9 @@ static site to `dist/` plus audit reports in `dist/.bukit/`.
 
 ## Ground rules
 
-1. Use only the twelve Core commands: `build`, `doctor`, `config`, `preview`, `dev`,
-   `clean`, `version`, `completion`, `seo`, `geo`, `publish`, `deploy`. There is no
-   `init`, `new`, `theme`, `import`, `clone`, or `lint` command and no `--version` flag.
+1. Use only the thirteen Core commands: `build`, `doctor`, `config`, `preview`, `dev`,
+   `clean`, `new`, `version`, `completion`, `seo`, `geo`, `publish`, `deploy`. There is
+   no `init`, `theme`, `import`, `clone`, or `lint` command and no `--version` flag.
 2. Labs features (site cloning, HTML import, intent files, webhooks, theme wizards,
    registries or marketplaces, external plugins such as IndexNow) are not Core.
 3. Every `site.yaml` key must exist: unknown keys fail. Check a key in `bukit-config`
@@ -41,7 +41,8 @@ dist/                 build output (do not commit)
 .bukit/               optional local files such as --metrics output (do not commit)
 ```
 
-Core has no scaffolding command; create these files directly.
+`bukit new my-site` creates these files. In BukitJalil the site already exists (BukitJalil
+ran `bukit new` when the site was created): edit the files directly.
 
 ## Standard loop
 

@@ -195,6 +195,13 @@ taxonomy:
     expect(codes("site: [\n")[0]).toMatch(/^invalid_site_yaml/);
     expect(codes("build: { output: dist }\nbuild: { output: /etc }\n")[0]).toMatch(/^invalid_site_yaml/);
     expect(codes("- a\n")[0]).toMatch(/^invalid_site_yaml/);
+    // Bukit ignores everything after the first document; a file that ends with "..." is still one document.
+    expect(checkSiteConfig("site:\n  title: x\n...\n").reasons).toEqual([]);
+    for (const text of ["site:\n  title: x\n...\ndeploy:\n  repo: a/b\n", "site:\n  title: x\n---\nsite: {}\n"]) {
+      expect(checkSiteConfig(text).reasons).toEqual([
+        { code: "invalid_site_yaml", detail: expect.stringContaining("Bukit reads only the part before") },
+      ]);
+    }
   });
 
   it("detects Notion sources", () => {

@@ -159,8 +159,15 @@ export function checkSiteConfig(text: string): { reasons: GuardReason[]; usesNot
   // .NET bool.TryParse, which also accepts a quoted "false". The failsafe schema keeps every value as text
   // too, so the guard judges the same values Bukit will use.
   const doc = parseDocument(text, { schema: "failsafe", uniqueKeys: true });
-  if (doc.errors.length > 0) {
-    return { reasons: [{ code: "invalid_site_yaml", detail: doc.errors[0]?.message }], usesNotion: false };
+  const error = doc.errors[0];
+  if (error) {
+    // Bukit reads only the first document and silently ignores the rest (checked with Bukit 2.2.5), so
+    // settings after a "..." or "---" line would have no effect: refuse the file and say how to fix it.
+    const detail =
+      error.code === "MULTIPLE_DOCS"
+        ? 'more than one YAML document: Bukit reads only the part before the first "..." or "---" line; move the settings above it and remove the line'
+        : error.message;
+    return { reasons: [{ code: "invalid_site_yaml", detail }], usesNotion: false };
   }
   const config: unknown = doc.toJS({ maxAliasCount: 100 });
   if (!isRecord(config))

@@ -183,6 +183,18 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     expect(`${bad.stdout}${bad.stderr}`).not.toContain(PLACEHOLDER);
   });
 
+  // `bukit new` ends site.yaml with "..." and Bukit ignores whatever follows, even unknown keys, so the guard
+  // refuses a second document (bukit/guard.ts) and new sites drop the marker (sites/template.ts).
+  it("reads only the first YAML document of site.yaml", async () => {
+    const dir = site("multi-doc");
+    const file = path.join(dir, "site.yaml");
+    const text = fs.readFileSync(file, "utf8");
+    fs.writeFileSync(file, `${text.trimEnd()}\n...\nnotABukitKey: 1\n---\nsite: {}\n`);
+    const result = await runner.run("check", ["config", "check", "--config", "site.yaml"], { cwd: dir });
+    expect(checkPassed(result), output(result)).toBe(true);
+    expect(output(result)).toContain("title:  Behaviour");
+  });
+
   // The preview's basePath is passed as --base-url (plan 16 #8), over the "/" in site.yaml.
   it("builds under --base-url, copying the theme's static files to the output root", async () => {
     const dir = site("base-url");
