@@ -19,6 +19,8 @@ interface Item {
 
 export interface MediaUploadHandle {
   addFiles(files: FileList | File[]): void;
+  /** Open the browser's file picker, as clicking the button does. */
+  open(): void;
 }
 
 interface Props {
@@ -134,7 +136,7 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
     }
   };
 
-  useImperativeHandle(ref, () => ({ addFiles }));
+  useImperativeHandle(ref, () => ({ addFiles, open: () => input.current?.click() }));
 
   return (
     <section

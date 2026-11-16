@@ -1,9 +1,9 @@
 import type { ChangeView } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Upload } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
-import { MediaUpload } from "@/features/media/MediaUpload";
+import { MediaUpload, type MediaUploadHandle } from "@/features/media/MediaUpload";
 import { PanelError, PanelLoading } from "@/features/panels/common";
 import { useI18n } from "@/i18n";
 import { api, fileUrl, keys } from "@/lib/api";
@@ -24,36 +24,33 @@ export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: b
   const [notice, setNotice] = useState<Notice | null>(null);
   const change = current.change;
   const selection = useSelection(change);
+  // The preview toolbar's "upload" button switches here with upload=1; this is the one place that keeps
+  // the queue and the file list, so it opens the picker once the panel is ready.
+  const uploader = useRef<MediaUploadHandle>(null);
+  const wantsUpload = params.get("upload") === "1";
+  useEffect(() => {
+    if (!wantsUpload || current.isPending) return;
+    uploader.current?.open();
+    setParams(
+      (p) => {
+        p.delete("upload");
+        return p;
+      },
+      { replace: true },
+    );
+  }, [wantsUpload, current.isPending, setParams]);
 
   if (current.isPending) return <PanelLoading />;
   if (current.error) return <PanelError error={current.error} />;
-  const hasFiles = !!change && (change.files.length > 0 || change.filesTruncated);
-  if (!change || !hasFiles) {
-    return (
-      <div className="flex flex-1 flex-col gap-2 p-4">
-        {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-sm text-muted-foreground" data-testid="changes-empty">
-            {change ? m.changes.noChanges : m.changes.none}
-          </p>
-          <MediaUpload
-            siteId={siteId}
-            disabled={readOnly}
-            disabledReason={m.conversation.readOnlyHint}
-            trigger={
-              <>
-                <Upload /> {m.media.upload}
-              </>
-            }
-            ariaLabel={m.media.upload}
-            size="xs"
-          />
-        </div>
-      </div>
-    );
-  }
   const wanted = params.get("diff");
-  const selected = change.files.some((f) => f.path === wanted) ? wanted : (change.files[0]?.path ?? null);
+  // One tree for both states: an upload creates the change set, and a remount here would throw away the
+  // queue and the "replace or skip" dialog of the upload that caused it.
+  const shown = change && (change.files.length > 0 || change.filesTruncated) ? change : null;
+  const selected = shown
+    ? shown.files.some((f) => f.path === wanted)
+      ? wanted
+      : (shown.files[0]?.path ?? null)
+    : null;
   const select = (path: string) =>
     setParams(
       (p) => {
@@ -65,12 +62,19 @@ export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: b
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="changes-panel">
-      <div className="flex shrink-0 flex-col gap-2 border-b p-3">
-        {change.restoreOf && <RestoreNote commit={change.restoreOf} />}
-        <NotionChangesNote changes={change.notionChanges} />
+      <div className={`flex shrink-0 flex-col gap-2 ${shown ? "border-b p-3" : "p-4"}`}>
+        {!shown && notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
+        {shown?.restoreOf && <RestoreNote commit={shown.restoreOf} />}
+        {shown && <NotionChangesNote changes={shown.notionChanges} />}
         <div className="flex items-start justify-between gap-2">
-          <p className="whitespace-pre-wrap text-sm">{change.summary?.trim() || m.changes.noSummary}</p>
+          <p
+            className={shown ? "whitespace-pre-wrap text-sm" : "text-sm text-muted-foreground"}
+            data-testid={shown ? undefined : "changes-empty"}
+          >
+            {shown ? shown.summary?.trim() || m.changes.noSummary : change ? m.changes.noChanges : m.changes.none}
+          </p>
           <MediaUpload
+            ref={uploader}
             siteId={siteId}
             disabled={readOnly}
             disabledReason={m.conversation.readOnlyHint}
@@ -83,33 +87,39 @@ export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: b
             size="xs"
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-          {t(m.changes.files, { count: change.files.length })} ·{" "}
-          {t(m.changes.base, { commit: shortOid(change.baseCommit) })}
-        </p>
-        {!change.reviewable && <p className="text-xs text-muted-foreground">{m.changes.working}</p>}
-        {canPick(change) && <p className="text-xs text-muted-foreground">{m.changes.selectionHint}</p>}
-        {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
-        <ReviewActions siteId={siteId} change={change} onNotice={setNotice} />
+        {shown && (
+          <>
+            <p className="text-xs text-muted-foreground">
+              {t(m.changes.files, { count: shown.files.length })} ·{" "}
+              {t(m.changes.base, { commit: shortOid(shown.baseCommit) })}
+            </p>
+            {!shown.reviewable && <p className="text-xs text-muted-foreground">{m.changes.working}</p>}
+            {canPick(shown) && <p className="text-xs text-muted-foreground">{m.changes.selectionHint}</p>}
+            {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
+            <ReviewActions siteId={siteId} change={shown} onNotice={setNotice} />
+          </>
+        )}
       </div>
-      <div className="flex min-h-0 flex-1">
-        <nav className="w-56 shrink-0 overflow-auto border-r p-1">
-          <ChangedFileList
-            files={change.files}
-            selected={selected}
-            onSelect={select}
-            include={canPick(change) ? { on: selection.fileOn, set: selection.setFile } : undefined}
-          />
-          {change.filesTruncated && <p className="p-2 text-xs text-muted-foreground">{m.changes.more}</p>}
-        </nav>
-        <div className="flex min-w-0 flex-1 flex-col">
-          {selected ? (
-            <DiffView key={`${reviewKey(change)}:${selected}`} change={change} path={selected} />
-          ) : (
-            <p className="p-6 text-sm text-muted-foreground">{m.changes.selectFile}</p>
-          )}
+      {shown && (
+        <div className="flex min-h-0 flex-1">
+          <nav className="w-56 shrink-0 overflow-auto border-r p-1">
+            <ChangedFileList
+              files={shown.files}
+              selected={selected}
+              onSelect={select}
+              include={canPick(shown) ? { on: selection.fileOn, set: selection.setFile } : undefined}
+            />
+            {shown.filesTruncated && <p className="p-2 text-xs text-muted-foreground">{m.changes.more}</p>}
+          </nav>
+          <div className="flex min-w-0 flex-1 flex-col">
+            {selected ? (
+              <DiffView key={`${reviewKey(shown)}:${selected}`} change={shown} path={selected} />
+            ) : (
+              <p className="p-6 text-sm text-muted-foreground">{m.changes.selectFile}</p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

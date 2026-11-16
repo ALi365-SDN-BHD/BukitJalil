@@ -39,7 +39,13 @@ async function openSite(
 }
 
 function input(page: Page) {
-  return page.getByTestId("site-home").locator('input[type="file"]');
+  return page.getByTestId("media-upload-area").locator('input[type="file"]');
+}
+
+/** The preview toolbar's upload button hands over to the changes panel, which opens its picker. */
+async function openUploader(page: Page) {
+  await page.getByTestId("preview-upload").click();
+  await expect(page.getByTestId("tab-changes")).toHaveAttribute("aria-selected", "true");
 }
 
 async function upload(page: Page, file: { name: string; mimeType: string; buffer: Buffer }) {
@@ -53,6 +59,7 @@ test.describe.configure({ timeout: 90_000 });
 
 test("uploads a file, replaces a duplicate and previews the image", async ({ page, server }) => {
   await openSite(page, server, "Media replace");
+  await openUploader(page);
   await upload(page, { name: "logo.png", mimeType: "image/png", buffer: PNG });
   await expect(page.getByTestId("media-queue")).toContainText("Uploaded");
   await upload(page, { name: "logo.png", mimeType: "image/png", buffer: PNG });
@@ -70,12 +77,14 @@ test("uploads a file, replaces a duplicate and previews the image", async ({ pag
 
 test("rejects SVG", async ({ page, server }) => {
   await openSite(page, server, "Media SVG");
+  await openUploader(page);
   await input(page).setInputFiles({ name: "vector.svg", mimeType: "image/svg+xml", buffer: Buffer.from("<svg/>") });
   await expect(page.getByTestId("media-queue")).toContainText("Only PNG, JPEG, GIF, WebP and PDF");
 });
 
 test("warns about a JPEG location", async ({ page, server }) => {
   await openSite(page, server, "Media location");
+  await openUploader(page);
   await upload(page, { name: "photo.jpg", mimeType: "image/jpeg", buffer: jpegWithLocation() });
   await expect(page.getByTestId("media-queue")).toContainText("contains a location");
 });
@@ -85,6 +94,7 @@ test("a subpath site gets the baseUrl in the reference and fake model uses it", 
     const file = path.join(dir, "site.yaml");
     fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("baseUrl: /", "baseUrl: /blog/"));
   });
+  await openUploader(page);
   await upload(page, { name: "logo.png", mimeType: "image/png", buffer: PNG });
   await expect(page.getByTestId("media-queue")).toContainText("/blog/uploads/logo.png");
   await startConversationButton(page);
@@ -107,7 +117,7 @@ test("uploads are disabled while a conversation is running", async ({ page, serv
   await expect(page.getByTestId("chat-view")).toBeVisible();
   await page.getByTestId("composer-input").fill("#fail-network Hold the run open");
   await page.getByTestId("composer-input").press("Enter");
-  await expect(page.getByTestId("media-upload")).toBeDisabled();
+  await expect(page.getByTestId("chat-view").getByTestId("media-upload")).toBeDisabled();
 });
 
 test("a site lock error pauses the queue and one retry finishes it", async ({ page, server }) => {
@@ -122,6 +132,7 @@ test("a site lock error pauses the queue and one retry finishes it", async ({ pa
       body: JSON.stringify({ code: "site.busy", params: { operation: "build" } }),
     });
   });
+  await openUploader(page);
   await input(page).setInputFiles([
     { name: "one.png", mimeType: "image/png", buffer: PNG },
     { name: "two.png", mimeType: "image/png", buffer: PNG },

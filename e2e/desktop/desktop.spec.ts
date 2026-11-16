@@ -218,7 +218,10 @@ test("uploads a dropped file and previews it in the desktop app", async () => {
     await page.goto(new URL(`/sites/${siteId}`, page.url()).toString());
     await expect(page.getByTestId("build-status").first()).toHaveText(/成功|Succeeded/, { timeout: 60_000 });
 
-    // A real drag event reaches the shared uploader, not just the hidden file input.
+    // A real drag event reaches the shared uploader, not just the hidden file input. The preview toolbar's
+    // button hands over to the changes panel, which is where the drop area lives now.
+    await page.getByTestId("preview-upload").click();
+    await expect(page.getByTestId("tab-changes")).toHaveAttribute("aria-selected", "true");
     const png = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
       "base64",

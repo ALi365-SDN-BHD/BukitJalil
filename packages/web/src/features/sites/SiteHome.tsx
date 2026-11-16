@@ -1,13 +1,12 @@
 import type { Site } from "@bukitjalil/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MessageSquare, RefreshCw, Upload } from "lucide-react";
+import { MessageSquare, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BuildButton, BuildList } from "@/features/builds/builds";
 import { HistorySection } from "@/features/changes/HistorySection";
 import { useCreateSession } from "@/features/chat/sessions";
 import { DeploySection } from "@/features/deploys/DeploySection";
-import { MediaUpload } from "@/features/media/MediaUpload";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { ReasonList } from "./ReasonList";
@@ -77,17 +76,6 @@ export function SiteHome({ site }: { site: Site }) {
         {!site.readOnly && <p className="text-xs text-muted-foreground">{m.conversation.startHint}</p>}
         <div className="flex flex-wrap items-start gap-2">
           <StartConversation site={site} />
-          <MediaUpload
-            siteId={site.id}
-            disabled={site.readOnly !== null}
-            disabledReason={m.conversation.readOnlyHint}
-            trigger={
-              <>
-                <Upload /> {m.media.upload}
-              </>
-            }
-            ariaLabel={m.media.upload}
-          />
           <BuildButton siteId={site.id} disabled={site.readOnly !== null} />
           <Button
             size="sm"
