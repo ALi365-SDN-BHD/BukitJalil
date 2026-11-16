@@ -39,10 +39,9 @@ files with their front matter; `read`, `ls`, `find`, `grep`, `edit` and
   and `bukit_build`.
 - Keep paths in `site.yaml` relative and inside the site, and do not set
   `content.media.blockPrivateNetworks: false`; the safety check refuses both.
-- `site.yaml` is one YAML document. Bukit reads only the part before the
-  first `...` or `---` line and ignores the rest without an error, so the
-  safety check refuses a second document. Put new settings inside the
-  existing sections, never below such a line, and never add one.
+- `site.yaml` is one YAML document. Bukit 2.2.6 refuses a file with more than
+  one document (`BKT-0003`), and the safety check refuses it too. Put new
+  settings inside the existing sections, and never add a `...` or `---` line.
 
 ## Uploaded images and files
 

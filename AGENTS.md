@@ -91,7 +91,7 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 - 每个网站只保留最新一份，正式构建成功后才整个替换；预览写明数据来自哪次正式构建。
 - 快照只校验格式版本（`FormatVersion`），不要求 Bukit 版本一致，否则每次升级 BukitJalil 所有快照都失效（2026-11-14 定）。Bukit 的测试里放一份固定的 `format=1` 快照，离线构建结果必须不变；改了快照数据的意思或换了 Notion API 版本就升 `FormatVersion`。
 - 顺便让 Bukit 输出每个源的页数，数据面板再接上。
-- BukitJalil 自带的 Bukit 版本（`BUKIT_VERSION` 和三个安装包的 SHA-256）要跟着升，随新版 BukitJalil 发布；Bukit 不能由用户单独升级。
+- BukitJalil 自带的 Bukit 版本（`BUKIT_VERSION` 和五个安装包的 SHA-256）要跟着升，随新版 BukitJalil 发布；Bukit 不能由用户单独升级。
 
 ### 6. 素材上传（已实现）
 
@@ -122,6 +122,6 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 **阶段和已知风险**（2026-11-16）：开发/测试阶段，只在测试环境使用。更新包和 `SHA256SUMS.txt` 来自同一个 GitHub Release，没有独立签名；发布账号或 CI 的写权限被攻破时，能让客户端下载并打开恶意安装包。对外发布前必须先选一个方案：删掉应用内下载/打开、只打开 Release 页面；或加 Ed25519 签名清单，私钥离线保存。详见设计文档第 10 节。
 
-### 11. 预览里的搜索（等内置 Bukit 升级）
+### 11. 预览里的搜索（内置 Bukit 已升到 2.2.6，待三浏览器验证）
 
-2026-11-16 已在 Bukit 仓库的分支 `codex/add-search-index-script` 提交脚本形式的搜索索引（每个 `search.json` 旁边写 `search.json.js`；内置搜索先 `fetch`，被 CSP 拦下时改用同源 `<script>`），已推送并开了 PR #196，尚未合并发布。把 `BUKIT_VERSION` 和三个安装包的 SHA-256 升到包含该改动的版本之前，预览里的搜索仍然不可用：starter 的搜索页点了没有结果也没有提示，内置 `bukit-search.html` 显示 "Search is unavailable"；发布后的网站正常（没有预览那条 CSP）。升级后按开发方案 8.4 在 Chromium、Firefox、WebKit 的预览里各验证一次。已经生成到主题里的搜索页不会自动获得回退，主题作者要复制新生成的 `themes/starter/layouts/pages/search.html` 里整段 `<script>`。
+2026-11-16 已在 Bukit 仓库的分支 `codex/add-search-index-script` 提交脚本形式的搜索索引（每个 `search.json` 旁边写 `search.json.js`；内置搜索先 `fetch`，被 CSP 拦下时改用同源 `<script>`），已推送并开了 PR #196，尚未合并发布。2026-11-16 Bukit 2.2.6 发布了这项改动（PR #196），内置版本已升到 2.2.6。升级前预览里的搜索不可用：starter 的搜索页点了没有结果也没有提示，内置 `bukit-search.html` 显示 "Search is unavailable"；发布后的网站正常（没有预览那条 CSP）。**还没完成**：按开发方案 8.4 在 Chromium、Firefox、WebKit 的预览里各验证一次，验证前不能说预览搜索已可用。已经生成到主题里的搜索页不会自动获得回退，主题作者要复制新生成的 `themes/starter/layouts/pages/search.html` 里整段 `<script>`。

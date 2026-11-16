@@ -48,7 +48,7 @@ function fakeBukit(name: string, fail = false): { service: BukitService; argsFil
     : `printf '%s\\n' "$@" > ${JSON.stringify(argsFile)}; mkdir -p "$2"; echo "site: {}" > "$2/site.yaml"; exit 0`;
   fs.writeFileSync(
     path.join(dir, "bukit"),
-    `#!/bin/sh\ncase "$1" in\n  version) echo "bukit 2.2.5+fake"; exit 0;;\n  new) ${newBody};;\nesac\nexit 1\n`,
+    `#!/bin/sh\ncase "$1" in\n  version) echo "bukit 2.2.6+fake"; exit 0;;\n  new) ${newBody};;\nesac\nexit 1\n`,
     { mode: 0o755 },
   );
   return { service: new BukitService({ dir, tmpDir: app.bukitTmp }), argsFile };

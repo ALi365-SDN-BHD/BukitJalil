@@ -20,7 +20,7 @@ const PNG = Buffer.from(
 
 const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
-  version) echo "bukit 2.2.5+fake"; exit 0;;
+  version) echo "bukit 2.2.6+fake"; exit 0;;
   config|doctor) exit 0;;
   build)
     out=""; prev=""

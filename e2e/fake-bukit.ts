@@ -20,7 +20,7 @@ const NEW_SITE = [
  */
 export const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
-  version) echo "bukit 2.2.5+e2e"; exit 0;;
+  version) echo "bukit 2.2.6+e2e"; exit 0;;
   config|doctor) exit 0;;
   new) exec ${NEW_SITE} "$@";;
   build)

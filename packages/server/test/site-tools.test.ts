@@ -30,7 +30,7 @@ const contexts: ReturnType<typeof makeApp>[] = [];
 const fakeBukit = (log: string, versionFile: string) => `#!/bin/sh
 echo "$(pwd) $*" >> ${JSON.stringify(log)}
 case "$1" in
-  version) if [ -f ${JSON.stringify(versionFile)} ]; then cat ${JSON.stringify(versionFile)}; else echo "bukit 2.2.5+fake"; fi; exit 0;;
+  version) if [ -f ${JSON.stringify(versionFile)} ]; then cat ${JSON.stringify(versionFile)}; else echo "bukit 2.2.6+fake"; fi; exit 0;;
   config)
     if [ "$2" = "schema" ]; then
       echo '{"type":"object","properties":{"site":{"type":"object","description":"site section"},"theme":{"type":"object"}}}' > "$4"
@@ -385,7 +385,7 @@ describe("bukit_schema", () => {
   it("asks again when Bukit at the same path reports another version", async () => {
     const { tools, ctx } = await setup();
     await call(tools.bukit_schema);
-    fs.writeFileSync(versionFile, "bukit 2.2.6+fake\n");
+    fs.writeFileSync(versionFile, "bukit 2.2.7+fake\n");
     try {
       ctx.bukit.invalidate();
       await call(tools.bukit_schema);

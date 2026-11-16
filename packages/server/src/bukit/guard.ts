@@ -161,8 +161,7 @@ export function checkSiteConfig(text: string): { reasons: GuardReason[]; usesNot
   const doc = parseDocument(text, { schema: "failsafe", uniqueKeys: true });
   const error = doc.errors[0];
   if (error) {
-    // Bukit reads only the first document and silently ignores the rest (checked with Bukit 2.2.5), so
-    // settings after a "..." or "---" line would have no effect: refuse the file and say how to fix it.
+    // Bukit 2.2.6 also refuses more than one document (BKT-0003), so refuse the file here too, with the fix.
     const detail =
       error.code === "MULTIPLE_DOCS"
         ? 'more than one YAML document: Bukit reads only the part before the first "..." or "---" line; move the settings above it and remove the line'
