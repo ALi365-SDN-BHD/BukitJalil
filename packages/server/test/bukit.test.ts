@@ -384,6 +384,7 @@ describe("BukitRunner", () => {
   });
 
   it("puts only git on the private PATH and accepts only known secrets", async () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion
     const bin = fakeBukit("path-bukit", 'echo "PATH=$PATH"; echo "X=$EVIL"; command -v git; ls "${PATH%%:*}"');
     const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
     const fs2 = path.join(runner.binDir, "stray");
@@ -401,6 +402,7 @@ describe("BukitRunner", () => {
   });
 
   it("passes the deploy token on stdin only, and no stdin or flag without secrets", async () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion
     const bin = fakeBukit("stdin-bukit", 'echo "args:$*"; echo "tok=${BUKIT_DEPLOY_TOKEN:-}"; echo "stdin:$(cat)"');
     const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
     const deploy = { token: "gh-token-123456", name: "A", email: "a@example.test" };

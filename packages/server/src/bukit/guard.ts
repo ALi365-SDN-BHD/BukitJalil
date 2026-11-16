@@ -128,7 +128,7 @@ export async function guardCommit(git: GitRunner, repo: string, commit: string):
   // Only the exact name counts; a "Site.yaml" alone is reported missing, and a second spelling next to
   // "site.yaml" was reported as a case collision above.
   const site = entries.find((e) => e.path === "site.yaml");
-  if (!site || site.type !== "blob" || site.mode === SYMLINK_MODE) {
+  if (site?.type !== "blob" || site.mode === SYMLINK_MODE) {
     reasons.push({ code: "missing_site_yaml", where: "site.yaml" });
     return { ok: false, reasons, usesNotion: false };
   }
