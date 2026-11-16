@@ -886,6 +886,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
     - `<img>` 跨端口 GET 都会发出（`Sec-Fetch-Site: cross-site`）。Chromium、Firefox 不带 `SameSite=Strict` 的 Cookie；**WebKit 在预览嵌在管理界面里时会带上**（直接打开预览时不带）。图片请求读不到响应内容，所以这只要求"GET 没有副作用"（11 节），不会泄露数据
     - **预览页能把管理界面嵌进自己的 iframe**：没有防护头时三种浏览器都正常渲染，可以用来诱导点击。所以管理端口所有响应加 `frame-ancestors 'none'` 和 `X-Frame-Options: DENY`，加上后三种浏览器都拒绝渲染（11 节"点击劫持"）
   - `allow-popups` 让预览页能用 `window.open` 打开管理端的 GET 地址（实测会打开新页面显示 JSON）。这是用户可见的顶层页面，预览脚本读不到内容，配合"GET 没有副作用"不构成风险；保留它是为了预览里 `target="_blank"` 的链接能用
+- **预览里搜索不可用**（2026-11-16 定，不修）：starter 的 `layouts/pages/search.html` 和 Bukit 内置的 `bukit-search.html` 都用 `fetch` 读 `search.json`，被 `connect-src 'none'` 拦下，预览里搜不出结果（发布后正常）。不放宽预览 CSP：`sandbox` 让来源是 `null`，`connect-src 'self'` 匹配不到任何地址，只能显式放行预览端口再加 `Access-Control-Allow-Origin: null`，而限定 `null` 挡不住任何网页（所有沙箱页面的来源都是 `null`），等于让全网读未发布的预览；也不在预览里改写输出。等 Bukit 发布含脚本形式索引的版本（普通 `<script src>`；`type="module"`、`import()` 和 `fetch` 一样受限），内置搜索和 starter 模板再改用它
 
 ### 8.5 构建前的安全检查
 
