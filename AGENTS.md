@@ -69,7 +69,7 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 - 审核卡和改动面板突出 Notion 配置的变化（新增、删除、换 `databaseId`、改了哪些键）。
 - BukitJalil 自己调 Notion 时按 401/403/404/429 翻译报错；构建、发布失败时从 Bukit 输出（含 `doctor`）认出 Notion 报错，在结果里给出处理办法。现在按 Bukit 2.2.0 起的 `BKT-0Bxx` 码认（见下面的错误码）。
 
-**错误码**（已完成，Bukit 2.2.0 起）：Notion 报错和快照报错按 Bukit 的 `BKT-0Bxx` 码识别（`bukit/notion-errors.ts` 的码表），去掉了文字匹配；快照只校验格式版本。方案和码表见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)。内置 Bukit 现在是 2.2.5（2.2.3 起带 `--notion-pin`，码表加了 0B18、0B19；2.2.4、2.2.5 码表没有变化），升级时要核对码表有没有变化。
+**错误码**（已完成，Bukit 2.2.0 起）：Notion 报错和快照报错按 Bukit 的 `BKT-0Bxx` 码识别（`bukit/notion-errors.ts` 的码表），去掉了文字匹配；快照只校验格式版本。方案和码表见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)。内置 Bukit 现在是 2.2.6（2.2.3 起带 `--notion-pin`，码表加了 0B18、0B19；2.2.4–2.2.6 码表没有变化），升级时要核对码表有没有变化。
 
 **Bukit 的限制**（源码 v2.0.15 核对）：
 

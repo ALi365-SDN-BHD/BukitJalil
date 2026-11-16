@@ -183,9 +183,8 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
     expect(`${bad.stdout}${bad.stderr}`).not.toContain(PLACEHOLDER);
   });
 
-  // `bukit new` ends site.yaml with "..." and Bukit ignores whatever follows, even unknown keys, so the guard
-  // refuses a second document (bukit/guard.ts) and new sites drop the marker (sites/template.ts).
-  // Bukit 2.2.6 (PR #197) refuses a file with more than one YAML document; before, it read only the first.
+  // Bukit 2.2.6 (PR #197) refuses a file with more than one YAML document; before, it silently read only the
+  // first. The guard refuses it too (bukit/guard.ts), and `bukit new` no longer ends site.yaml with "...".
   it("rejects a site.yaml with more than one YAML document (BKT-0003)", async () => {
     const dir = site("multi-doc");
     const file = path.join(dir, "site.yaml");

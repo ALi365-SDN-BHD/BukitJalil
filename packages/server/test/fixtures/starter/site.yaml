@@ -73,4 +73,3 @@ theme:
       powered_by: Powered by
 logging:
   level: info
-...

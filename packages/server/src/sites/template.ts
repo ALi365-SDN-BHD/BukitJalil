@@ -70,21 +70,10 @@ export function bukitNewSite(
       const detail = (result.stderr.trim() || result.stdout.trim() || `exit ${result.exitCode}`).slice(0, MAX_DETAIL);
       throw new SiteError("site.create_failed", 500, { detail });
     }
-    const file = path.join(target, "site.yaml");
-    if (!fs.existsSync(file)) {
+    if (!fs.existsSync(path.join(target, "site.yaml"))) {
       throw new SiteError("site.create_failed", 500, { detail: "bukit new wrote no site.yaml" });
     }
-    dropDocumentEnd(file);
   };
-}
-
-/**
- * `bukit new` ends site.yaml with the YAML document end marker "...". Settings later appended to the file
- * would start a second document, which BukitJalil's reader refuses, so the marker is dropped.
- */
-export function dropDocumentEnd(file: string): void {
-  const yaml = fs.readFileSync(file, "utf8");
-  if (yaml.endsWith("\n...\n")) fs.writeFileSync(file, yaml.slice(0, -"...\n".length));
 }
 
 /** Replace site.yaml's content sources with the ones picked for a new site, keeping the rest of the file. */

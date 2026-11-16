@@ -154,6 +154,7 @@ describe("the bukit new stand-in (test/fixtures/starter)", () => {
     for (const f of files) {
       expect(fs.readFileSync(path.join(standIn, f), "utf8"), f).toBe(fs.readFileSync(path.join(real, f), "utf8"));
     }
+    // Bukit 2.2.6: no trailing document end marker, so settings appended to the file stay in its one document.
     expect(fs.readFileSync(path.join(real, "site.yaml"), "utf8")).not.toMatch(/\n\.\.\.\n$/);
   });
 });

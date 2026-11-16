@@ -164,7 +164,7 @@ export function checkSiteConfig(text: string): { reasons: GuardReason[]; usesNot
     // Bukit 2.2.6 also refuses more than one document (BKT-0003), so refuse the file here too, with the fix.
     const detail =
       error.code === "MULTIPLE_DOCS"
-        ? 'more than one YAML document: Bukit reads only the part before the first "..." or "---" line; move the settings above it and remove the line'
+        ? 'more than one YAML document: Bukit accepts only one; move the settings above the first "..." or "---" line and remove it'
         : error.message;
     return { reasons: [{ code: "invalid_site_yaml", detail }], usesNotion: false };
   }

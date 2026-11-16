@@ -1,12 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { dropDocumentEnd } from "../../src/sites/template.ts";
 
 /**
  * A stand-in for `bukit new` (plan 5.2) in tests without a real Bukit: `starter/` is the output of
  * `bukit new starter --title="My Site" --language=en-US` from the bundled Bukit; this copies it and sets the
- * values `bukit new` sets, as `bukitNewSite` leaves it (not the Chinese theme text of a Simplified Chinese site). Regenerate `starter/` with the real command after raising BUKIT_VERSION. Run as a
+ * values `bukit new` sets (not the Chinese theme text of a Simplified Chinese site). Regenerate `starter/` with the real command after raising BUKIT_VERSION. Run as a
  * script (`new <dir> --title=… --language=…`), it is the `new` command of the end-to-end Bukit stand-in.
  */
 export const STARTER_FIXTURE = path.join(import.meta.dirname, "starter");
@@ -42,7 +41,6 @@ export function writeStarter(target: string, values: { title: string; language: 
     yaml = yaml.replace(from, () => to);
   }
   fs.writeFileSync(file, yaml);
-  dropDocumentEnd(file);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
