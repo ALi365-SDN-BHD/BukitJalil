@@ -76,7 +76,8 @@ test("the packaged app runs its bundled server and creates a site from its own f
   await page.getByTestId("open-settings").click();
   await expect(page.getByTestId("settings-page")).toBeVisible();
   await page.getByTestId("settings-nav-model").click();
-  await expect(page.getByTestId("model-provider-anthropic")).toBeVisible();
+  // The first open loads Pi's model catalog; on CI's macOS runner that can take longer than the default 5 s.
+  await expect(page.getByTestId("model-provider-anthropic")).toBeVisible({ timeout: 30_000 });
   await page.getByTestId("model-provider-anthropic").click();
   await expect(page.getByTestId("provider-oauth-sign-in")).toBeVisible();
   await page.getByTestId("model-back").click();
