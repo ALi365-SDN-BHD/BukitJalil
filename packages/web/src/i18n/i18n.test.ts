@@ -2,6 +2,7 @@ import { errorCodes } from "@bukitjalil/shared";
 import { describe, expect, it } from "vitest";
 import en from "./en.ts";
 import { catalogs, detectLocale, format } from "./index.tsx";
+import ms from "./ms.ts";
 import zhCN from "./zh-CN.ts";
 
 describe("i18n (plan 10.1)", () => {
@@ -11,6 +12,7 @@ describe("i18n (plan 10.1)", () => {
     expect(detectLocale(["fr-FR", "de"])).toBe("zh-CN");
     expect(detectLocale(["fr-FR", "en"])).toBe("en");
     expect(detectLocale([])).toBe("zh-CN");
+    expect(detectLocale(["ms-MY"])).toBe("ms");
   });
 
   it("fills placeholders and leaves unknown ones", () => {
@@ -22,6 +24,7 @@ describe("i18n (plan 10.1)", () => {
     const keys = (o: object, prefix = ""): string[] =>
       Object.entries(o).flatMap(([k, v]) => (typeof v === "object" ? keys(v, `${prefix}${k}.`) : [`${prefix}${k}`]));
     expect(keys(en).sort()).toEqual(keys(zhCN).sort());
+    expect(keys(ms).sort()).toEqual(keys(zhCN).sort());
     for (const catalog of Object.values(catalogs)) {
       for (const code of errorCodes) expect(catalog.errors[code], code).toBeTruthy();
     }

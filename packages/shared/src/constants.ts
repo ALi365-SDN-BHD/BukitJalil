@@ -13,5 +13,5 @@ export const CSRF_HEADER_VALUE = "1";
  */
 export const sessionCookieName = (adminPort: number) => `bj_session_${adminPort}`;
 
-export const SUPPORTED_LOCALES = ["zh-CN", "en"] as const;
+export const SUPPORTED_LOCALES = ["zh-CN", "en", "ms"] as const;
 export const DEFAULT_LOCALE: (typeof SUPPORTED_LOCALES)[number] = "zh-CN";

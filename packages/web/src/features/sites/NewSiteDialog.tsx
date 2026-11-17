@@ -45,7 +45,7 @@ export function NewSiteDialog({
   const dataSources = useQuery({ queryKey: keys.dataSources, queryFn: api.dataSources });
   const identity = useIdentity();
   const [name, setName] = useState("");
-  const [language, setLanguage] = useState(locale === "en" ? "en-US" : "zh-CN");
+  const [language, setLanguage] = useState({ "zh-CN": "zh-CN", en: "en-US", ms: "ms-MY" }[locale]);
   const [multilingual, setMultilingual] = useState(false);
   const [parent, setParent] = useState<string | null>(null);
   const [folder, setFolder] = useState<string | null>(null);

@@ -71,8 +71,8 @@ async function openUpdate(file: string): Promise<string | null> {
   }
 }
 
-/** The language the app's settings chose, reported by its page; until then the system's. */
-let appLocale: "zh-CN" | "en" | null = null;
+/** The language the app's settings chose, reported by its page; until then the system's. Malay menus use English. */
+let appLocale: "zh-CN" | "en" | "ms" | null = null;
 const zh = () => (appLocale ?? app.getLocale()).toLowerCase().startsWith("zh");
 
 const text = {
@@ -248,7 +248,7 @@ function lockDown() {
   // The menus and the About panel follow the language chosen in the app's settings.
   ipcMain.on("desktop:locale", (event, locale: unknown) => {
     if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`)) return;
-    if ((locale !== "zh-CN" && locale !== "en") || locale === appLocale) return;
+    if ((locale !== "zh-CN" && locale !== "en" && locale !== "ms") || locale === appLocale) return;
     appLocale = locale;
     buildMenu();
   });
