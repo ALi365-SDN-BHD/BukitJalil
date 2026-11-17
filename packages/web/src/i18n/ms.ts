@@ -641,7 +641,7 @@ const ms: Messages = {
     theme: "Tema",
     data: "Data",
     seo: "SEO",
-    empty: "Pilih laman untuk melihat {panel}nya di sini",
+    empty: "Pilih laman untuk melihat {panel} di sini",
   },
   seo: {
     notBuilt: "Belum ada binaan berjaya yang mempunyai laporan SEO. Bina laman untuk melihatnya di sini.",
