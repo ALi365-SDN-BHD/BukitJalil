@@ -125,3 +125,7 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 ### 11. 预览里的搜索（已在 Bukit 2.2.6 上验证）
 
 2026-11-16 已在 Bukit 仓库的分支 `codex/add-search-index-script` 提交脚本形式的搜索索引（每个 `search.json` 旁边写 `search.json.js`；内置搜索先 `fetch`，被 CSP 拦下时改用同源 `<script>`），已推送并开了 PR #196，尚未合并发布。2026-11-16 Bukit 2.2.6 发布了这项改动（PR #196），内置版本已升到 2.2.6。升级前预览里的搜索不可用：starter 的搜索页点了没有结果也没有提示，内置 `bukit-search.html` 显示 "Search is unavailable"；发布后的网站正常（没有预览那条 CSP）。2026-11-16 用 Bukit 2.2.6 构建的 `bukit-search.html`，在带预览 CSP（`connect-src 'none'`）的服务里，Chromium、Firefox、WebKit 三种浏览器都能搜到结果、没有页面错误；索引走 `search.json.js` 的 `<script>` 回退。已经生成到主题里的搜索页不会自动获得回退，主题作者要复制新生成的 `themes/starter/layouts/pages/search.html` 里整段 `<script>`。
+
+### 12. Windows 移植（已估算，未开工）
+
+2026-11-18 估算约 7–10 个工作日，阻塞项、顺序和验收见开发方案 14 里"M7 之后：Windows 移植估算"。现状：Windows 仍是预览，CI 不阻塞，应用内更新按钮隐藏。先在真机上走一遍完整流程（第 0 项）再定范围。另外，Linux 没有钥匙串时不保存 token 和密钥，要覆盖这类用户需要另做"应用主密码"，约 2–3 天，没有排期。
