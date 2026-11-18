@@ -14,7 +14,7 @@ jobs:
   probe:
     name: windows-latest / probe
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 80
     defaults:
       run:
         shell: bash
@@ -47,12 +47,55 @@ jobs:
         if: steps.package.outcome == 'success'
         continue-on-error: true
         run: pnpm exec playwright test -c e2e/desktop/playwright.config.ts packaged
+      # The full unit tests on Windows, to count what the port has to fix (plan item 5). Real Bukit and ripgrep
+      # as on the other platforms.
+      - name: Fetch Bukit
+        continue-on-error: true
+        run: pnpm --filter @bukitjalil/server exec tsx scripts/fetch-bukit.ts "$RUNNER_TEMP/bukit" --keep-package >> "$GITHUB_ENV"
+      - name: Install ripgrep
+        continue-on-error: true
+        run: choco install ripgrep --no-progress -y
+      - name: Unit tests
+        continue-on-error: true
+        run: pnpm exec vitest run --reporter=default --reporter=json --outputFile.json=vitest-windows.json
+      - name: Web e2e (Chromium)
+        continue-on-error: true
+        run: |
+          pnpm build
+          pnpm exec playwright install chromium
+          pnpm exec playwright test --project=chromium --reporter=list,json
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: playwright-windows.json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: windows-probe
           path: |
             windows-probe-report.json
+            vitest-windows.json
+            playwright-windows.json
             test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # What an ordinary (non-administrator) user can do about the git entry on Bukit's PATH (plan item 2).
+  symlink-user:
+    name: windows-latest / ordinary user links
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Try links as an ordinary user
+        shell: pwsh
+        run: ./packages/server/spikes/windows-user-links.ps1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-user-links
+          path: windows-user-links.json
           if-no-files-found: warn
           retention-days: 14
