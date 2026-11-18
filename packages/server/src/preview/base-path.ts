@@ -36,11 +36,11 @@ export function previewBasePath(baseUrl: unknown): BasePathResult {
   return { ok: true, basePath: `/${segments.join("/")}/` };
 }
 
-/** previewBasePath of the site.yaml in a checkout that is about to be built (the guard passed its commit). */
-export function checkoutBasePath(checkout: string): BasePathResult {
-  const file = path.join(checkout, "site.yaml");
+/** previewBasePath of the site config in a checkout that is about to be built (the guard passed its commit). */
+export function checkoutBasePath(checkout: string, configFile: string): BasePathResult {
+  const file = path.join(checkout, configFile);
   const stat = fs.lstatSync(file, { throwIfNoEntry: false });
-  if (!stat?.isFile() || stat.size > MAX_SITE_YAML) return { ok: false, detail: "site.yaml cannot be read" };
+  if (!stat?.isFile() || stat.size > MAX_SITE_YAML) return { ok: false, detail: `${configFile} cannot be read` };
   const { value } = parseYaml(fs.readFileSync(file, "utf8"));
   const site = isRecord(value) && isRecord(value.site) ? value.site : null;
   return previewBasePath(site?.baseUrl);

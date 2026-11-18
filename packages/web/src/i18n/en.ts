@@ -101,7 +101,7 @@ const en: Messages = {
   },
   importSite: {
     title: "Import site",
-    description: "Pick an existing Bukit site folder (one with site.yaml). Checking it changes nothing.",
+    description: "Pick an existing Bukit site folder (one with a Bukit site config file). Checking it changes nothing.",
     inspect: "Check this folder",
     inspecting: "Checking…",
     git: "A git repository on branch {branch}; it becomes the site's main version.",
@@ -111,11 +111,8 @@ const en: Messages = {
     moreFiles: "Showing the first 500 of {count} files",
     confirmFiles: "I checked these files and they can be committed",
     pickConfig:
-      "This folder has no site.yaml, but the files below have the content of a Bukit site config. Pick the one to use as the site config:",
-    renameNotice:
-      "Import renames {file} to site.yaml{commit}. Anything else that mentions the old name (scripts, README) is yours to update.",
-    renameCommit: " and commits that rename on its own",
-    confirmRename: "I agree to rename this file",
+      "Several files in this folder have the content of a Bukit site config (file names are not used). Pick the one that is this site's config:",
+    configFile: "Site config file: {file} (found by its content, any file name works)",
     name: "Display name (optional, defaults to site.title)",
     import: "Import",
     importing: "Importing and checking…",
@@ -1031,7 +1028,7 @@ const en: Messages = {
     "site.path_overlaps_site": "This location overlaps the site {site}",
     "site.already_registered": "This folder is already a BukitJalil site",
     "site.no_site_yaml":
-      "This folder has no site.yaml, and no YAML file in its root has the content of a Bukit site config (top-level site and theme)",
+      "No YAML file in the folder's root has the content of a Bukit site config (top-level site and theme)",
     "site.bad_config_file": "The chosen file is no longer a Bukit site config; inspect the folder again",
     "site.not_repo_root": "The folder is inside a git repository; choose the repository's top folder",
     "site.git_symlink": "The folder has a .git symbolic link; remove it and import the repository from its real folder",

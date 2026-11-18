@@ -37,25 +37,29 @@ export const CreateSiteRequest = z
   .strict();
 export type CreateSiteRequest = z.infer<typeof CreateSiteRequest>;
 
-/** A file in the folder's root: a plain name, no path parts. */
-const RootFileName = z
-  .string()
-  .min(1)
-  .max(255)
-  .refine((n) => !/[/\\\0]/.test(n) && n !== "." && n !== "..");
+/** The config file a site is built from when nothing else says (what `bukit new` writes). */
+export const DEFAULT_CONFIG_FILE = "site.yaml";
 
-export const InspectImportRequest = z.object({ path: AbsolutePath, configFile: RootFileName.optional() }).strict();
+/**
+ * The site config's file name: a plain root file with a YAML extension, not starting with "-" so it
+ * can never be read as an option. Which file is the config is decided by its content, never its name.
+ */
+export const ConfigFileName = z
+  .string()
+  .min(5)
+  .max(255)
+  .regex(/\.ya?ml$/i)
+  .refine((n) => !n.startsWith("-") && ![...n].some((c) => c === "/" || c === "\\" || c.charCodeAt(0) < 32));
+
+export const InspectImportRequest = z.object({ path: AbsolutePath, configFile: ConfigFileName.optional() }).strict();
 export type InspectImportRequest = z.infer<typeof InspectImportRequest>;
 
 export const ImportSiteRequest = z
   .object({
     path: AbsolutePath,
     name: SiteName.optional(),
-    /**
-     * The folder has no site.yaml: the user picked this root file as the site config and agreed to
-     * rename it to site.yaml (committed in a git repository, before `git init` otherwise).
-     */
-    renameConfig: RootFileName.optional(),
+    /** Which candidate is the site config, when the folder has more than one (from the inspect response). */
+    configFile: ConfigFileName.optional(),
     /**
      * Only for a directory that is not a git repository: the user agreed to `git init` and saw exactly
      * these files (from the inspect response) go into the first commit. A different list is refused.
@@ -70,11 +74,10 @@ export type ImportSiteRequest = z.infer<typeof ImportSiteRequest>;
 
 /** What import would do with a directory; nothing is changed by inspecting. */
 export type ImportInspection =
-  /** No site.yaml, but these root files look like a site config; the user picks one to rename. */
+  /** Several root files have the content of a site config; the user picks which one is it. */
   | { kind: "pick_config"; path: string; candidates: string[] }
-  /** `renameFrom`: the chosen config file that import renames to site.yaml first. */
-  | { kind: "git"; path: string; branch: string; readOnly: SiteReason[] | null; renameFrom?: string }
-  | { kind: "not_git"; path: string; files: string[]; renameFrom?: string };
+  | { kind: "git"; path: string; branch: string; configFile: string; readOnly: SiteReason[] | null }
+  | { kind: "not_git"; path: string; configFile: string; files: string[] };
 
 export const SitePatch = z.object({ name: SiteName.optional(), archived: z.boolean().optional() }).strict();
 export type SitePatch = z.infer<typeof SitePatch>;
@@ -127,6 +130,8 @@ export interface Site {
   configCheck: ConfigCheck | null;
   /** The saved Notion data source whose token main builds use; null: none, so Notion builds fail. */
   notionDataSourceId: string | null;
+  /** The root file Bukit reads as this site's config; found by content when the site was imported. */
+  configFile: string;
 }
 
 export interface FsDirsResponse {

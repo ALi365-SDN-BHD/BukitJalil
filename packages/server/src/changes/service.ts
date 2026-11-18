@@ -262,7 +262,7 @@ export class ChangeService {
       if (site.readOnly) throw new SiteError("site.read_only", 409);
       const { cwd, change, created } = await this.beginUserChange(siteId);
       try {
-        const file = path.join(cwd, "site.yaml");
+        const file = path.join(cwd, site.configFile);
         let raw: string;
         try {
           const stat = fs.lstatSync(file);
@@ -314,7 +314,7 @@ export class ChangeService {
   /** A site bound to a Notion data source whose default branch (at `main`) already uses Notion. */
   private async notionSite(site: Site, main: string): Promise<boolean> {
     if (this.opts.sites.notionDataSourceId(site.id) === null) return false;
-    const guard = await guardCommit(this.opts.git, site.path, main);
+    const guard = await guardCommit(this.opts.git, site.path, main, site.configFile);
     return guard.ok && guard.usesNotion;
   }
 
@@ -604,7 +604,7 @@ export class ChangeService {
       const main = await sites.headOf(site);
       const tree = await this.treeOf(site.path, commit);
       if (tree === (await this.treeOf(site.path, main))) throw new SiteError("change.same_version", 409);
-      const guard = await guardCommit(git, site.path, commit);
+      const guard = await guardCommit(git, site.path, commit, site.configFile);
       const entry = await historyEntry(git, site.path, commit);
 
       if (open) await this.close(open, "rejected");
@@ -657,8 +657,8 @@ export class ChangeService {
     // A Notion source the change adds or points elsewhere is read with the bound token once applied (plan 5.4).
     // A cut list may leave site.yaml out (it is in path order), so then compare the configs anyway.
     const notion =
-      truncated || files.some((f) => f.path === "site.yaml")
-        ? await notionChangesBetween(git, site.path, change.baseCommit, change.snapshotCommit)
+      truncated || files.some((f) => f.path === site.configFile)
+        ? await notionChangesBetween(git, site.path, site.configFile, change.baseCommit, change.snapshotCommit)
         : [];
     return {
       ...info,

@@ -103,7 +103,13 @@ const MAX_SITE_YAML = 1024 * 1024;
 
 const MAX_GITATTRIBUTES = 256 * 1024;
 
-export async function guardCommit(git: GitRunner, repo: string, commit: string): Promise<GuardResult> {
+/** `configFile` is the site's config (found by content at import); the guard never guesses it from names. */
+export async function guardCommit(
+  git: GitRunner,
+  repo: string,
+  commit: string,
+  configFile: string,
+): Promise<GuardResult> {
   const reasons: GuardReason[] = [];
   const entries = await listTree(git, repo, commit, { recursive: true });
 
@@ -126,15 +132,15 @@ export async function guardCommit(git: GitRunner, repo: string, commit: string):
   reasons.push(...(await checkLfs(git, repo, entries)));
 
   // Only the exact name counts; a "Site.yaml" alone is reported missing, and a second spelling next to
-  // "site.yaml" was reported as a case collision above.
-  const site = entries.find((e) => e.path === "site.yaml");
+  // the config file was reported as a case collision above.
+  const site = entries.find((e) => e.path === configFile);
   if (site?.type !== "blob" || site.mode === SYMLINK_MODE) {
-    reasons.push({ code: "missing_site_yaml", where: "site.yaml" });
+    reasons.push({ code: "missing_site_yaml", where: configFile });
     return { ok: false, reasons, usesNotion: false };
   }
   const raw = await readLimited(git, repo, site, MAX_SITE_YAML);
   if (raw === null) {
-    reasons.push({ code: "invalid_site_yaml", where: "site.yaml", detail: `larger than ${MAX_SITE_YAML} bytes` });
+    reasons.push({ code: "invalid_site_yaml", where: configFile, detail: `larger than ${MAX_SITE_YAML} bytes` });
     return { ok: false, reasons, usesNotion: false };
   }
   const result = checkSiteConfig(raw.toString("utf8"));

@@ -46,10 +46,10 @@ export async function commitSiteYaml(opts: {
   await assertCheckoutReady(git, site, codes);
   const checkout = await sites.mainCheckout(site.id, site.path, head);
   try {
-    const file = path.join(checkout, "site.yaml");
+    const file = path.join(checkout, site.configFile);
     const text = await fs.promises.readFile(file, "utf8");
     await fs.promises.writeFile(file, opts.edit(text));
-    await git.run(["add", "--", "site.yaml"], { cwd: checkout });
+    await git.run(["add", "--", site.configFile], { cwd: checkout });
     const tree = (await git.text(["write-tree"], { cwd: checkout })).trim();
     const identity = sites.commitIdentity();
     const commit = (

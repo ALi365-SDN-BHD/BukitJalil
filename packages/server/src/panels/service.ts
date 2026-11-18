@@ -59,6 +59,8 @@ export type FileResult =
 
 interface Version {
   repo: string;
+  /** The site's config file in `repo`. */
+  configFile: string;
   ref: PanelRef;
   commit: string;
 }
@@ -331,7 +333,8 @@ export class PanelService {
     if (!fs.existsSync(path.join(site.path, ".git"))) throw new SiteError("site.not_repo", 409);
     try {
       // The snapshot is pinned by refs/bukitjalil/changes/<id>, so it is always there.
-      if (changeCommit !== null) return await fn({ repo: site.path, ref, commit: changeCommit });
+      if (changeCommit !== null)
+        return await fn({ repo: site.path, configFile: site.configFile, ref, commit: changeCommit });
       let commit: string;
       try {
         commit = await resolveBranch(this.opts.git, site.path, site.defaultBranch);
@@ -345,7 +348,7 @@ export class PanelService {
         }
         throw err;
       }
-      return await fn({ repo: site.path, ref, commit });
+      return await fn({ repo: site.path, configFile: site.configFile, ref, commit });
     } catch (err) {
       if (err instanceof GitError && (err.kind === "unsafe_repo" || err.kind === "dubious_ownership")) {
         throw new SiteError("site.repo_unsafe", 409);
@@ -375,7 +378,7 @@ export class PanelService {
   private async siteConfig(
     v: Version,
   ): Promise<{ raw: string | null; config: Record<string, unknown> | null; error: string | null }> {
-    const raw = await this.readText(v, "site.yaml", MAX_CONFIG_BYTES);
+    const raw = await this.readText(v, v.configFile, MAX_CONFIG_BYTES);
     if (raw === null) return { raw, config: null, error: null };
     const parsed = parseYaml(raw);
     if (parsed.error !== null) return { raw, config: null, error: parsed.error };

@@ -79,6 +79,8 @@ export interface PromptSite {
   name: string;
   /** Where the user keeps the site; the AI works in a copy and never sees this path. */
   path: string;
+  /** The site config's file name in the working copy. */
+  configFile: string;
 }
 
 /** BukitJalil's system prompt (plan 6.4). Pi appends the working directory itself. */
@@ -94,6 +96,11 @@ export function buildSystemPrompt(site: PromptSite): string {
     "- Use only the tools you are given. You cannot run commands: where Bukit's skills say `bukit config",
     "  check` or `bukit doctor`, use bukit_check; for `bukit build`, use bukit_build; for `bukit config",
     "  schema`, use bukit_schema. Previews, the dev server, deploys and plugins are handled by BukitJalil.",
+    ...(site.configFile === "site.yaml"
+      ? []
+      : [
+          `- This site's config file is \`${site.configFile}\`, not site.yaml: wherever the skills say site.yaml, they mean it.`,
+        ]),
     "- Use paths relative to the working directory. Never read or change anything outside it, except",
     "  reading the skill files listed below.",
     "- Do not touch .git, build output (dist, .bukit, .cache) or plugin files.",

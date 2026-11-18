@@ -84,10 +84,10 @@ export function notionConfigChanges(before: unknown, after: unknown): NotionConf
 
 const UNREADABLE = Symbol("unreadable");
 
-/** site.yaml at `commit`, parsed with every value as text; null when missing, UNREADABLE when it can't be read. */
-async function configAt(git: GitRunner, cwd: string, commit: string): Promise<unknown> {
+/** The config file at `commit`, parsed with every value as text; null when missing, UNREADABLE when it can't be read. */
+async function configAt(git: GitRunner, cwd: string, commit: string, configFile: string): Promise<unknown> {
   try {
-    const raw = await readBlobAt(git, cwd, commit, "site.yaml", MAX_SITE_YAML);
+    const raw = await readBlobAt(git, cwd, commit, configFile, MAX_SITE_YAML);
     if (!raw) return null;
     const parsed = parseYaml(raw.toString("utf8"), { asText: true });
     return parsed.error === null ? parsed.value : UNREADABLE;
@@ -105,10 +105,14 @@ async function configAt(git: GitRunner, cwd: string, commit: string): Promise<un
 export async function notionChangesBetween(
   git: GitRunner,
   cwd: string,
+  configFile: string,
   base: string,
   head: string,
 ): Promise<NotionConfigChange[]> {
-  const [before, after] = await Promise.all([configAt(git, cwd, base), configAt(git, cwd, head)]);
-  if (after === UNREADABLE) return [{ source: "site.yaml", change: "unreadable", keys: [] }];
+  const [before, after] = await Promise.all([
+    configAt(git, cwd, base, configFile),
+    configAt(git, cwd, head, configFile),
+  ]);
+  if (after === UNREADABLE) return [{ source: configFile, change: "unreadable", keys: [] }];
   return notionConfigChanges(before === UNREADABLE ? null : before, after);
 }

@@ -117,10 +117,11 @@ export class AiBukit {
     return this.guarded(siteId, cwd, commit, async (runner, { commit, removed }, offline) => {
       const steps: CheckStep[] = [];
       const extra = offline?.checkArgs ?? [];
+      const { configFile } = this.opts.sites.get(siteId);
       const results: BukitRunResult[] = [];
       for (const [command, args] of [
-        ["config check", ["config", "check", "--config", "site.yaml", ...extra]],
-        ["doctor", ["doctor", "--config", "site.yaml", ...extra]],
+        ["config check", ["config", "check", "--config", configFile, ...extra]],
+        ["doctor", ["doctor", "--config", configFile, ...extra]],
       ] as const) {
         const result = await runner.run(command === "doctor" ? "doctor" : "check", args, {
           cwd,
@@ -167,7 +168,8 @@ export class AiBukit {
   build(siteId: string, cwd: string, signal?: AbortSignal): Promise<BuildResult> {
     return this.guarded(siteId, cwd, undefined, async (runner, { commit, removed }, offline) => {
       // Built under the site's own baseUrl, as the preview of the change will be (plan 16 #8).
-      const base = checkoutBasePath(cwd);
+      const { configFile } = this.opts.sites.get(siteId);
+      const base = checkoutBasePath(cwd, configFile);
       if (!base.ok) {
         const msg = `${base.detail}; the preview cannot be served, fix site.baseUrl`;
         return {
@@ -184,7 +186,7 @@ export class AiBukit {
       const name = `ai-${crypto.randomBytes(6).toString("hex")}`;
       const out = path.join(cwd, BUILD_OUTPUT_PARENT, name);
       try {
-        const args = [...buildArgs(name, base.basePath), ...(offline?.buildArgs ?? [])];
+        const args = [...buildArgs(name, base.basePath, configFile), ...(offline?.buildArgs ?? [])];
         const result = await runner.run("build", args, { cwd, signal, redact: this.redact });
         const report = buildReport(result);
         const outcome = buildOutcome(result);
@@ -258,7 +260,7 @@ export class AiBukit {
     if (site.readOnly) throw new AiBukitError("read_only", "The site is read-only, so Bukit cannot run on it.");
     const runner = await this.runner();
     const snapshot = commit ? { commit, removed: [] } : await this.opts.changes.snapshot(siteId, cwd);
-    const guard = await guardCommit(this.opts.git, site.path, snapshot.commit);
+    const guard = await guardCommit(this.opts.git, site.path, snapshot.commit, site.configFile);
     if (!guard.ok) {
       throw new AiBukitError(
         "guard",

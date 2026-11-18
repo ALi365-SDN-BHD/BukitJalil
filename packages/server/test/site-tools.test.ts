@@ -99,6 +99,7 @@ async function setup(opts: { bin?: string | null; files?: Record<string, string>
   const tools = Object.fromEntries(
     createSiteTools({
       siteId: site.id,
+      configFile: site.configFile,
       cwd,
       gate: new PathGate(cwd, [SKILLS]),
       bukit: ai,
@@ -299,7 +300,7 @@ describe("bukit_check and bukit_build", () => {
       const [, dir] = snapshots.recordArgs(site.id) as [string, string];
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, "manifest.json"), '{"format":1}');
-      snapshots.recorded(site.id, git("rev-parse", "HEAD"), cwd);
+      snapshots.recorded(site.id, git("rev-parse", "HEAD"), cwd, "site.yaml");
       const root = path.join(ctx.paths.notionSnapshots, site.id);
       addNotionSource(cwd);
 

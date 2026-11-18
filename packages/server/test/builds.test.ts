@@ -235,7 +235,7 @@ it.skipIf(process.platform === "win32")(
     writeStarter(dir, { title: "notion", language: "en-US" });
     fs.writeFileSync(
       path.join(dir, "site.yaml"),
-      "site:\n  name: notion\n  title: Notion\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n",
+      "site:\n  name: notion\n  title: Notion\n  language: en-US\ntheme:\n  name: starter\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n",
     );
     raw(dir, "init", "-q", "-b", "main");
     commitAll(dir, "notion");
@@ -461,7 +461,7 @@ it.skipIf(process.platform === "win32")(
       const [, dir] = snapshots.recordArgs(s.site.id) as [string, string];
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, "manifest.json"), "{}");
-      snapshots.recorded(s.site.id, "c".repeat(40), s.dir);
+      snapshots.recorded(s.site.id, "c".repeat(40), s.dir, "site.yaml");
       expect(snapshots.get(s.site.id)).toMatchObject({ commit: "c".repeat(40) });
     };
     record();

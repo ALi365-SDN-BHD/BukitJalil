@@ -265,7 +265,7 @@ BukitJalil/
 3. 检查通过后才创建 `worktrees/<siteId>/main/` 检出。不通过时网站仍可导入，标记为"**只读：不满足安全规则**"，界面列出原因（例如使用了外部插件、路径越界、包含符号链接）；这类网站可以浏览文件、配置，但不能构建、不能开 AI 会话，也不会创建任何检出
 4. 然后在 `main/` 检出里执行 `bukit config check`；失败标记"配置有误"，仍可以开 AI 会话让 AI 修复
 
-> **配置文件改名**（2026-11-18）：根目录没有 `site.yaml` 时，只按内容找候选，不看文件名：根目录的 `*.yaml` / `*.yml`（普通文件、不是符号链接、不超过 1 MiB、`failsafe` 解析），顶层有 `site` 映射且有 `theme` 键（`sites/config-candidates.ts`）。没有候选报 `site.no_site_yaml`；有候选时检查结果为 `pick_config`，用户选一个后再检查（`configFile`，服务端重新核对内容，否则 `site.bad_config_file`），勾选同意后导入时改名：git 仓库里文件必须已被跟踪且没有未提交改动，用 `git mv` 加单独一次提交 `Rename <旧名> to site.yaml`（提交失败就改回）；非 git 目录在 `git init` 之前改名，失败改回，确认的文件列表里显示 `site.yaml`。其他引用旧文件名的地方（脚本、README）不自动改。
+> **配置文件不一定叫 `site.yaml`**（2026-11-18）：导入时只按内容找网站配置，不看文件名，也不改名：根目录的 `*.yaml` / `*.yml`（普通文件、不是符号链接、不超过 1 MiB、`failsafe` 解析），顶层有 `site` 映射且有 `theme` 键才算候选（`sites/config-candidates.ts`）。没有候选报 `site.no_site_yaml`；一个候选直接用；多个候选时检查结果为 `pick_config`，用户选一个再检查（`configFile`，服务端重新核对内容，否则 `site.bad_config_file`）。选定的文件名存在 `sites.config_file`（迁移 012，默认 `site.yaml`，`bukit new` 新建的网站就是它），`Site.configFile` 返回给界面。之后所有读写配置的地方都用它：构建前检查（`guardCommit` 的参数）、构建、`config check`、`doctor`、`deploy` 的 `--config`，预览基础路径和语言，面板、媒体、改动集的 Notion 变化和插件开关，部署设置提交，AI 的 `site_info`、`bukit_check`、`bukit_build`，以及 Notion 固定文件。文件名限制为根目录的 `.yaml` / `.yml`、不以 `-` 开头、没有路径分隔符和控制字符（`ConfigFileName`）。AI 的系统提示里，配置文件不叫 `site.yaml` 时会说明技能里的 `site.yaml` 指这个文件。
 
 > 限制：Bukit 的外部插件（如官方的 IndexNow、WechatSync、Import）在 BukitJalil 里不被支持，使用了它们的网站只能以只读方式导入。
 >

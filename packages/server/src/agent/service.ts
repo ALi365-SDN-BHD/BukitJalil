@@ -660,6 +660,7 @@ export class AgentService {
         ...createGatedTools(pi, { cwd, gate, rgReady: this.opts.rgReady }),
         ...createSiteTools({
           siteId: site.id,
+          configFile: site.configFile,
           cwd,
           gate,
           bukit: this.opts.bukit,

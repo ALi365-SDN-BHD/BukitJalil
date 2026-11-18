@@ -105,7 +105,8 @@ const ms: Messages = {
   },
   importSite: {
     title: "Import laman",
-    description: "Pilih folder laman Bukit sedia ada (yang mempunyai site.yaml). Semakan tidak mengubah apa-apa.",
+    description:
+      "Pilih folder laman Bukit sedia ada (yang mempunyai fail konfigurasi laman Bukit). Semakan tidak mengubah apa-apa.",
     inspect: "Semak folder ini",
     inspecting: "Menyemak…",
     git: "Repositori git pada cabang {branch}; ia menjadi versi utama laman.",
@@ -115,11 +116,8 @@ const ms: Messages = {
     moreFiles: "Menunjukkan 500 yang pertama daripada {count} fail",
     confirmFiles: "Saya telah menyemak fail ini dan ia boleh dikomit",
     pickConfig:
-      "Folder ini tiada site.yaml, tetapi kandungan fail di bawah ialah konfigurasi laman Bukit. Pilih fail yang digunakan sebagai konfigurasi laman:",
-    renameNotice:
-      "Import menamakan semula {file} kepada site.yaml{commit}. Tempat lain yang menyebut nama lama (skrip, README) perlu anda kemas kini sendiri.",
-    renameCommit: " dan mengkomit penamaan semula itu secara berasingan",
-    confirmRename: "Saya bersetuju menamakan semula fail ini",
+      "Beberapa fail dalam folder ini berkandungan konfigurasi laman Bukit (nama fail tidak digunakan). Pilih yang menjadi konfigurasi laman ini:",
+    configFile: "Fail konfigurasi laman: {file} (dikenal pasti melalui kandungannya, sebarang nama fail boleh)",
     name: "Nama paparan (pilihan, lalai kepada site.title)",
     import: "Import",
     importing: "Mengimport dan menyemak…",
@@ -1050,7 +1048,7 @@ const ms: Messages = {
     "site.path_overlaps_site": "Lokasi ini bertindih dengan laman {site}",
     "site.already_registered": "Folder ini sudah menjadi laman BukitJalil",
     "site.no_site_yaml":
-      "Folder ini tiada site.yaml dan tiada fail YAML di akarnya yang berkandungan konfigurasi laman Bukit (site dan theme peringkat atas)",
+      "Tiada fail YAML di akar folder yang berkandungan konfigurasi laman Bukit (site dan theme peringkat atas)",
     "site.bad_config_file": "Fail yang dipilih bukan lagi konfigurasi laman Bukit; semak folder sekali lagi",
     "site.not_repo_root": "Folder ini berada di dalam repositori git; pilih folder teratas repositori",
     "site.git_symlink":

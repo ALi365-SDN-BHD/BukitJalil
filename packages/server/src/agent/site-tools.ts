@@ -32,6 +32,8 @@ export const MAX_SUMMARY_CHARS = 2000;
 
 export interface SiteToolOptions {
   siteId: string;
+  /** The site config's file name in the working copy (found by content when the site was imported). */
+  configFile: string;
   /** The working copy (the session's cwd). */
   cwd: string;
   gate: PathGate;
@@ -52,14 +54,14 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
   ({ type: "object", properties, required, additionalProperties: false }) as never;
 
 export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
-  const { cwd, gate } = opts;
+  const { cwd, gate, configFile } = opts;
 
-  /** site.yaml from the working copy, through the gate; parse errors are returned, not thrown. */
+  /** The site config from the working copy, through the gate; parse errors are returned, not thrown. */
   const readConfig = (): { config: Record<string, unknown> | null; error: string | null } => {
-    const real = gate.check(path.join(cwd, "site.yaml"), "read");
+    const real = gate.check(path.join(cwd, configFile), "read");
     const st = fs.statSync(real, { throwIfNoEntry: false });
-    if (!st?.isFile()) return { config: null, error: "site.yaml does not exist" };
-    if (st.size > MAX_CONFIG_BYTES) return { config: null, error: "site.yaml is too large" };
+    if (!st?.isFile()) return { config: null, error: `${configFile} does not exist` };
+    if (st.size > MAX_CONFIG_BYTES) return { config: null, error: `${configFile} is too large` };
     const parsed = parseYaml(fs.readFileSync(real, "utf8"));
     if (parsed.error !== null) return { config: null, error: parsed.error };
     return isRecord(parsed.value) ? { config: parsed.value, error: null } : { config: null, error: "not a mapping" };

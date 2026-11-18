@@ -64,10 +64,10 @@ export const BUILD_OUTPUT_PARENT = ".bukitjalil-build";
  * `bukit build` into BUILD_OUTPUT_PARENT/<name> for a preview served under `basePath` (plan 8.3, 16 #8): the
  * site's own baseUrl, checked by previewBasePath, so a subpath site previews as it publishes.
  */
-export const buildArgs = (name: string, basePath: string) => [
+export const buildArgs = (name: string, basePath: string, configFile: string) => [
   "build",
   "--config",
-  "site.yaml",
+  configFile,
   "--output",
   `${BUILD_OUTPUT_PARENT}/${name}`,
   "--base-url",
@@ -298,7 +298,7 @@ export class BuildService {
       ({ port, url } = await this.opts.previews.open(
         key,
         build.outputDir,
-        await this.entryOf(site.path, build),
+        await this.entryOf(site.path, site.configFile, build),
         build.report?.basePath,
       ));
     } catch (err) {
@@ -308,7 +308,7 @@ export class BuildService {
     // A build that succeeded while the port was being bound (or the entry looked up) could not re-point the
     // slot yet. Re-point only if it is still the newest after the lookup, so an older build never wins.
     for (let newest = this.newestOutput(siteId, ref); newest && newest.id !== build.id; ) {
-      const entry = await this.entryOf(site.path, newest);
+      const entry = await this.entryOf(site.path, site.configFile, newest);
       const now = this.newestOutput(siteId, ref);
       if (now?.id === newest.id) {
         this.opts.previews.repoint(key, newest.outputDir, entry, newest.report?.basePath);
@@ -398,7 +398,7 @@ export class BuildService {
     try {
       // The guard reads the commit's git objects, so it judges exactly what the checkout will hold.
       if (!guarded) {
-        const guard = await guardCommit(this.opts.git, site.path, commit);
+        const guard = await guardCommit(this.opts.git, site.path, commit, site.configFile);
         // The site's state follows what the guard found on the default branch, so the UI stops offering
         // builds; what the AI changed only fails its own build (the review shows why).
         if (target.ref === "main" && (!guard.ok || guard.usesNotion))
@@ -423,14 +423,14 @@ export class BuildService {
       }
 
       const checkout = target.cwd ?? (await this.opts.sites.mainCheckout(site.id, site.path, commit));
-      const base = checkoutBasePath(checkout);
+      const base = checkoutBasePath(checkout, site.configFile);
       if (!base.ok) return finish("failed", "base_url", null, { detail: base.detail });
       const { basePath } = base;
       temp = path.join(checkout, BUILD_OUTPUT_PARENT, id);
       fs.rmSync(temp, { recursive: true, force: true });
       const record = passNotionToken && notionToken !== null;
       const args = [
-        ...buildArgs(id, basePath),
+        ...buildArgs(id, basePath, site.configFile),
         ...(record ? snapshots.recordArgs(site.id) : offline ? offline.buildArgs : []),
       ];
       const result = await runner.run("build", args, {
@@ -452,7 +452,7 @@ export class BuildService {
         // Bukit replaced the snapshot as its last step and said so. Record it even when the run was stopped
         // after that (outcome not ok): otherwise the new data would sit under the old record and media cache.
         try {
-          snapshots.recorded(site.id, commit, checkout);
+          snapshots.recorded(site.id, commit, checkout, site.configFile);
         } catch (err) {
           // A record that names another build than the data, or a media cache that does not go with it, is
           // worse than none: the next formal build records again.
@@ -481,7 +481,7 @@ export class BuildService {
       moveDir(temp, dest);
       temp = null;
       const audit = this.audit(site.id, id, dest);
-      const entry = previewEntry(dest, checkoutLanguage(checkout));
+      const entry = previewEntry(dest, checkoutLanguage(checkout, site.configFile));
       finish(
         "succeeded",
         "ok",
@@ -512,15 +512,19 @@ export class BuildService {
 
   /**
    * Where the preview of `build` opens. Builds from before BuildReport.entry existed work it out from the
-   * site.yaml of the built commit; git is asked only when the output has no root home page, once per build.
+   * config file of the built commit; git is asked only when the output has no root home page, once per build.
    */
-  private async entryOf(repo: string, build: BuildRecord & { outputDir: string }): Promise<string | undefined> {
+  private async entryOf(
+    repo: string,
+    configFile: string,
+    build: BuildRecord & { outputDir: string },
+  ): Promise<string | undefined> {
     if (build.report?.entry) return build.report.entry;
     const homes = homePages(build.outputDir);
     if (homes.length === 0) return undefined;
     let lang = this.languages.get(build.id);
     if (lang === undefined) {
-      lang = await this.languageAt(repo, build.commit);
+      lang = await this.languageAt(repo, build.commit, configFile);
       if (this.languages.size >= MAX_CACHED_LANGUAGES) this.languages.clear();
       this.languages.set(build.id, lang);
     }
@@ -528,9 +532,9 @@ export class BuildService {
   }
 
   /** The default language in site.yaml at `commit`, or null when it cannot be read. */
-  private async languageAt(repo: string, commit: string): Promise<string | null> {
+  private async languageAt(repo: string, commit: string, configFile: string): Promise<string | null> {
     try {
-      const text = await readBlobAt(this.opts.git, repo, commit, "site.yaml", MAX_SITE_YAML);
+      const text = await readBlobAt(this.opts.git, repo, commit, configFile, MAX_SITE_YAML);
       return text ? siteLanguage(text.toString("utf8")) : null;
     } catch {
       return null;
@@ -721,9 +725,9 @@ export function siteLanguage(yaml: string): string | null {
 }
 
 /** The default language of the checkout that was just built. */
-export function checkoutLanguage(checkout: string): string | null {
+export function checkoutLanguage(checkout: string, configFile: string): string | null {
   try {
-    const file = path.join(checkout, "site.yaml");
+    const file = path.join(checkout, configFile);
     const stat = fs.lstatSync(file, { throwIfNoEntry: false });
     if (!stat?.isFile() || stat.size > MAX_SITE_YAML) return null;
     return siteLanguage(fs.readFileSync(file, "utf8"));

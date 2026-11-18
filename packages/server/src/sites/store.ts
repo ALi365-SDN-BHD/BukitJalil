@@ -14,6 +14,7 @@ interface SiteRow {
   checked_commit: string | null;
   config_check: string | null;
   notion_data_source_id: string | null;
+  config_file: string;
 }
 
 function toSite(row: SiteRow): Site {
@@ -37,6 +38,7 @@ function toSite(row: SiteRow): Site {
     checkedCommit: row.checked_commit,
     configCheck: row.config_check as ConfigCheck | null,
     notionDataSourceId: row.notion_data_source_id,
+    configFile: row.config_file,
   };
 }
 
@@ -73,10 +75,11 @@ export class SiteStore {
     path: string;
     defaultBranch: string;
     notionDataSourceId?: string | null;
+    configFile: string;
   }): void {
     this.db
       .prepare(
-        "INSERT INTO sites (id, name, path, default_branch, created_at, notion_data_source_id) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sites (id, name, path, default_branch, created_at, notion_data_source_id, config_file) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         site.id,
@@ -85,6 +88,7 @@ export class SiteStore {
         site.defaultBranch,
         new Date().toISOString(),
         site.notionDataSourceId ?? null,
+        site.configFile,
       );
   }
 

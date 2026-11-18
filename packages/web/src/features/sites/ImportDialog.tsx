@@ -29,7 +29,6 @@ export function ImportDialog({
   // ignored, so Import always acts on the folder shown.
   const [inspected, setInspected] = useState<{ dir: string; result: ImportInspection } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
-  const [confirmedRename, setConfirmedRename] = useState(false);
   const [name, setName] = useState("");
   const current = dir ?? settings.data?.lastParentDir ?? null;
   const inspection = inspected && inspected.dir === current ? inspected.result : null;
@@ -37,16 +36,12 @@ export function ImportDialog({
   const pick = (path: string) => {
     setDir(path);
     setConfirmed(false);
-    setConfirmedRename(false);
     inspect.reset();
   };
 
   const inspect = useMutation({
     mutationFn: ({ path, configFile }: { path: string; configFile?: string }) => api.inspectImport(path, configFile),
-    onSuccess: (result, { path }) => {
-      setConfirmedRename(false);
-      setInspected({ dir: path, result });
-    },
+    onSuccess: (result, { path }) => setInspected({ dir: path, result }),
   });
 
   const run = useMutation({
@@ -55,13 +50,10 @@ export function ImportDialog({
       if (inspection.kind === "pick_config") throw new Error("config not chosen");
       const base = {
         path: inspection.path,
+        configFile: inspection.configFile,
         ...(name.trim() ? { name: name.trim() } : {}),
-        ...(inspection.renameFrom ? { renameConfig: inspection.renameFrom } : {}),
       };
-      if (inspection.kind === "git") {
-        if (inspection.renameFrom) await identity.save();
-        return api.importSite(base);
-      }
+      if (inspection.kind === "git") return api.importSite(base);
       await identity.save();
       return api.importSite({ ...base, initGit: { files: inspection.files } });
     },
@@ -73,13 +65,11 @@ export function ImportDialog({
     },
   });
 
-  const renameOk = inspection?.kind !== "pick_config" && (!inspection?.renameFrom || confirmedRename);
   const canImport =
     inspection !== null &&
     inspection.kind !== "pick_config" &&
-    renameOk &&
     !run.isPending &&
-    (inspection.kind === "git" ? !inspection.renameFrom || identity.ready : confirmed && identity.ready);
+    (inspection.kind === "git" || (confirmed && identity.ready));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -119,27 +109,10 @@ export function ImportDialog({
               ))}
             </div>
           )}
-          {inspection && inspection.kind !== "pick_config" && inspection.renameFrom && (
-            <div className="flex flex-col gap-2 text-sm" data-testid="rename-config">
-              <p>
-                {t(m.importSite.renameNotice, {
-                  file: inspection.renameFrom,
-                  commit: inspection.kind === "git" ? m.importSite.renameCommit : "",
-                })}
-              </p>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  data-testid="import-confirm-rename"
-                  checked={confirmedRename}
-                  onChange={(e) => setConfirmedRename(e.target.checked)}
-                />
-                {m.importSite.confirmRename}
-              </label>
-              {inspection.kind === "git" && identity.missing && (
-                <IdentityFields draft={identity.draft} onChange={identity.setDraft} />
-              )}
-            </div>
+          {inspection && inspection.kind !== "pick_config" && (
+            <p className="text-sm" data-testid="config-file">
+              {t(m.importSite.configFile, { file: inspection.configFile })}
+            </p>
           )}
           {inspection?.kind === "git" && (
             <div className="flex flex-col gap-2 text-sm" data-testid="inspect-result">
