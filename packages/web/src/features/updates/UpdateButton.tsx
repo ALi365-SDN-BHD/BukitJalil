@@ -13,8 +13,7 @@ import { formatSize } from "@/lib/format";
 /** The update entry in the sidebar footer; only the desktop app can open the downloaded installer. */
 export function UpdateButton() {
   const bridge = desktopBridge();
-  // Windows is still a preview: the installer path is not verified there, so do not offer it.
-  if (!bridge || bridge.platform === "win32") return null;
+  if (!bridge) return null;
   return <UpdateControl />;
 }
 

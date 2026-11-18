@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { zipSync } from "fflate";
 import { afterAll, describe, expect, it } from "vitest";
 import { RG_PACKAGES, RG_VERSION, type RgPackage, RgService, rgArchiveLayout } from "../src/agent/rg.ts";
 import { expectMode, makeApp, req } from "./helpers.ts";
@@ -28,7 +29,9 @@ function archive(target: string, rg: string, extra: Buffer[] = []): Buffer {
 
 let n = 0;
 /** An RgService for a fake "test" target, served by a fake fetch that records the URLs it was asked for. */
-function setup(opts: { rg?: string; data?: Buffer; pkg?: Partial<RgPackage>; platform?: string } = {}) {
+function setup(
+  opts: { rg?: string; data?: Buffer; pkg?: Partial<RgPackage>; platform?: string; pkgKey?: string } = {},
+) {
   const rg = opts.rg ?? fakeRg();
   const data = opts.data ?? archive("test-target", rg);
   const pkg: RgPackage = {
@@ -49,7 +52,7 @@ function setup(opts: { rg?: string; data?: Buffer; pkg?: Partial<RgPackage>; pla
     platform: opts.platform ?? "testos",
     arch: "x64",
     fetchImpl,
-    packages: { "testos-x64": pkg },
+    packages: { [opts.pkgKey ?? `${opts.platform ?? "testos"}-x64`]: pkg },
   });
   return { service, urls, piBin, rg };
 }
@@ -61,14 +64,70 @@ async function install(service: RgService) {
 }
 
 describe("pinned packages", () => {
-  it("has full SHA-256 values for macOS and Linux, arm64 and x64", () => {
-    expect(Object.keys(RG_PACKAGES).sort()).toEqual(["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"]);
+  it("has full SHA-256 values for macOS and Linux (arm64 and x64) and Windows x64", () => {
+    expect(Object.keys(RG_PACKAGES).sort()).toEqual([
+      "darwin-arm64",
+      "darwin-x64",
+      "linux-arm64",
+      "linux-x64",
+      "win32-x64",
+    ]);
     for (const pkg of Object.values(RG_PACKAGES)) {
       expect(pkg.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(pkg.rgSha256).toMatch(/^[0-9a-f]{64}$/);
       expect(pkg.sha256).not.toBe(pkg.rgSha256);
       expect(pkg.rgSize).toBeGreaterThan(1_000_000);
     }
+  });
+});
+
+describe("Windows package", () => {
+  it("is a zip holding rg.exe, laid out like the other releases", () => {
+    const pkg = RG_PACKAGES["win32-x64"] as RgPackage;
+    expect(pkg.windows).toBe(true);
+    expect(pkg.target).toBe("x86_64-pc-windows-msvc");
+    const { files } = rgArchiveLayout(pkg);
+    expect(files).toContain(`ripgrep-${RG_VERSION}-x86_64-pc-windows-msvc/rg.exe`);
+    expect(files).not.toContain(`ripgrep-${RG_VERSION}-x86_64-pc-windows-msvc/rg`);
+    expect(files).toHaveLength(rgArchiveLayout(RG_PACKAGES["linux-x64"] as RgPackage).files.length);
+  });
+});
+
+/** A Windows release zip with the real layout, its rg.exe replaced by `rg`. */
+function zipArchive(target: string, rg: string, extra: Record<string, Uint8Array> = {}): Buffer {
+  const { files } = rgArchiveLayout({ target, sha256: "", rgSha256: "", rgSize: 0, windows: true });
+  const entries: Record<string, Uint8Array> = {};
+  for (const f of files) entries[f] = Buffer.from(f.endsWith("/rg.exe") ? rg : `text of ${f}`);
+  return Buffer.from(zipSync({ ...entries, ...extra }));
+}
+
+describe.skipIf(!posix)("RgService on Windows", () => {
+  // The stand-in rg is a shell script, so these run off Windows, with the Windows package rules.
+  const winSetup = (extra: Record<string, Uint8Array> = {}) => {
+    const rg = fakeRg();
+    return setup({
+      rg,
+      data: zipArchive("test-target", rg, extra),
+      pkg: { windows: true },
+      platform: "win32",
+    });
+  };
+
+  it("installs rg.exe from the zip", async () => {
+    const { service, urls, piBin } = winSetup();
+    expect(service.rgPath).toBe(path.join(piBin, "rg.exe"));
+    expect(await install(service)).toEqual({ state: "done" });
+    expect(urls).toEqual([
+      `https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-test-target.zip`,
+    ]);
+    expect(fs.readdirSync(piBin)).toEqual(["rg.exe"]);
+    expect(service.ready()).toBe(true);
+  });
+
+  it("refuses a zip with an entry it does not expect", async () => {
+    const { service, piBin } = winSetup({ "evil.dll": Buffer.from("x") });
+    expect(await install(service)).toMatchObject({ state: "failed", code: "bad_archive" });
+    expect(fs.existsSync(path.join(piBin, "rg.exe"))).toBe(false);
   });
 });
 
@@ -168,7 +227,7 @@ describe.skipIf(!posix)("RgService", () => {
   });
 
   it("has nothing to install on other platforms", async () => {
-    const { service } = setup({ platform: "win32" });
+    const { service } = setup({ platform: "freebsd", pkgKey: "testos-x64" });
     expect(service.status()).toEqual({ state: "missing", version: RG_VERSION, installable: false });
     expect(await install(service)).toMatchObject({ state: "failed", code: "unsupported_platform" });
   });
@@ -205,7 +264,7 @@ describe.skipIf(!posix)("/api/rg", () => {
   });
 
   it("answers 400 where no package is pinned", async () => {
-    const { service } = setup({ platform: "win32" });
+    const { service } = setup({ platform: "freebsd", pkgKey: "testos-x64" });
     const { app, db } = makeApp({ rg: service });
     const res = await app.fetch(post());
     expect(res.status).toBe(400);

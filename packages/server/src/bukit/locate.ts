@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { BukitStatus } from "@bukitjalil/shared";
+import { searchPath, systemEnv, tempEnv } from "../child-env.ts";
 import { versionAtLeast } from "../git/version.ts";
 import { runProbe } from "../probe.ts";
 import { BUKIT_VERSION, MIN_BUKIT_VERSION } from "./install.ts";
@@ -32,9 +33,10 @@ function executableFile(file: string): boolean {
 export async function probeBukitVersion(bukitPath: string, tmpDir: string): Promise<string | null> {
   fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
   const result = await runProbe(bukitPath, ["version"], {
-    PATH: "/usr/bin:/bin",
+    ...systemEnv(),
+    PATH: searchPath([]),
     LANG: "C.UTF-8",
-    TMPDIR: tmpDir,
+    ...tempEnv(tmpDir),
     DOTNET_CLI_TELEMETRY_OPTOUT: "1",
   });
   return result.ok ? parseBukitVersion(result.stdout) : null;

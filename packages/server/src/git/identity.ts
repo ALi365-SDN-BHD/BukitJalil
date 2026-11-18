@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { searchPath, systemEnv } from "../child-env.ts";
 
 export interface GitIdentity {
   name: string | null;
@@ -19,7 +20,8 @@ export async function readGlobalIdentity(gitPath: string, home = os.homedir()): 
       const child = spawn(gitPath, ["config", "--global", "--get", key], {
         cwd: home,
         env: {
-          PATH: [path.dirname(gitPath), "/usr/bin", "/bin"].join(path.delimiter),
+          ...systemEnv(),
+          PATH: searchPath([path.dirname(gitPath)]),
           HOME: home,
           LANG: "C",
           GIT_CONFIG_NOSYSTEM: "1",

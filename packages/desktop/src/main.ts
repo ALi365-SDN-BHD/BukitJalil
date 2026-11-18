@@ -53,8 +53,9 @@ function packageVersion(): string {
 /** Only files the server downloaded into the app's own updates folder may be opened. */
 async function openUpdate(file: string): Promise<string | null> {
   try {
-    const root = fs.realpathSync(updatesDir);
-    const target = fs.realpathSync(file);
+    // The native form: on Windows the JS one can differ in letter case or 8.3 spelling from the same folder.
+    const root = fs.realpathSync.native(updatesDir);
+    const target = fs.realpathSync.native(file);
     if (!target.startsWith(`${root}${path.sep}`) || !fs.statSync(target).isFile()) return "not an update file";
     if (process.platform === "linux" && process.env.APPIMAGE && target.endsWith(".AppImage")) {
       return await replaceAppImage(target, process.env.APPIMAGE, (appImage) => {

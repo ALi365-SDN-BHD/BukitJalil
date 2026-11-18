@@ -1,13 +1,16 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { searchPath, systemEnv, tempEnv } from "../child-env.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { BukitService } from "./locate.ts";
 
 /**
  * Bukit child processes (plan 8.2): argument array, no shell, explicit minimal environment.
  * - PATH is a private directory holding only a `git` link, then /usr/bin:/bin, so Bukit never finds sass /
- *   magick from Homebrew, MacPorts or /usr/local/bin (git's own directory may hold them too)
+ *   magick from Homebrew, MacPorts or /usr/local/bin (git's own directory may hold them too). On Windows
+ *   the link is git.exe and there is no /usr/bin; where an ordinary user may not create symbolic links
+ *   (EPERM without Developer Mode) git's own directory is used instead, a weaker rule that the plan (8.5) names
  * - git hardening reaches the git that Bukit starts itself through GIT_CONFIG_* (plan 7.3)
  * - TMPDIR is the app's own directory (Bukit puts i18n worktrees, leases and locks there)
  * - secrets are only passed when the caller adds them explicitly (plan 8.5), and then on stdin with
@@ -186,17 +189,35 @@ function jsonForms(value: string): string[] {
 const KILL_GRACE_MS = 10_000;
 
 export class BukitRunner {
-  constructor(private readonly opts: { bukitPath: string; git: GitRunner; home: string; tmpDir: string }) {}
+  constructor(
+    private readonly opts: {
+      bukitPath: string;
+      git: GitRunner;
+      home: string;
+      tmpDir: string;
+      /** Tests: another platform's rules for the PATH link. */
+      platform?: string;
+      /** Tests: replaces fs.symlinkSync. */
+      symlink?: (target: string, file: string) => void;
+    },
+  ) {}
 
   /** Directory with a single `git` symlink to the resolved git; first on Bukit's PATH. */
   get binDir(): string {
     return path.join(this.opts.home, "bukit-path");
   }
 
-  /** Create or repair the private PATH directory: exactly one entry, `git` -> the resolved git path. */
-  private ensureBinDir(): void {
+  /**
+   * Create or repair the private PATH directory (exactly one entry, `git` -> the resolved git path) and
+   * return the directory to put on PATH. On Windows a symbolic link needs Developer Mode or an administrator;
+   * without it git's own directory is returned.
+   */
+  private ensureBinDir(): string {
+    const platform = this.opts.platform ?? process.platform;
+    const name = platform === "win32" ? "git.exe" : "git";
     const dir = this.binDir;
-    const link = path.join(dir, "git");
+    const link = path.join(dir, name);
+    const gitPath = this.opts.git.opts.gitPath;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     let current: string | null = null;
     try {
@@ -204,16 +225,23 @@ export class BukitRunner {
     } catch {
       // missing or not a link
     }
-    const stray = fs.readdirSync(dir).filter((n) => n !== "git");
-    if (current === this.opts.git.opts.gitPath && stray.length === 0) return;
-    for (const name of [...stray, "git"]) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
-    fs.symlinkSync(this.opts.git.opts.gitPath, link);
+    const stray = fs.readdirSync(dir).filter((n) => n !== name);
+    if (current === gitPath && stray.length === 0) return dir;
+    for (const n of [...stray, name]) fs.rmSync(path.join(dir, n), { recursive: true, force: true });
+    try {
+      (this.opts.symlink ?? fs.symlinkSync)(gitPath, link);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (platform !== "win32" || (code !== "EPERM" && code !== "EACCES")) throw err;
+      return path.dirname(gitPath);
+    }
+    return dir;
   }
 
   /** The environment of a Bukit process. It never holds a token: those go on stdin (see `secretsInput`). */
   env(deploy?: DeployEnv): Record<string, string> {
     fs.mkdirSync(this.opts.tmpDir, { recursive: true, mode: 0o700 });
-    this.ensureBinDir();
+    const pathDir = this.ensureBinDir();
     const env: Record<string, string> = {};
     const git = this.opts.git.envForChildGit();
     if (deploy) {
@@ -229,10 +257,11 @@ export class BukitRunner {
     }
     return {
       ...env,
-      PATH: [this.binDir, "/usr/bin", "/bin"].join(path.delimiter),
+      ...systemEnv(this.opts.platform),
+      PATH: searchPath([pathDir], this.opts.platform),
       HOME: this.opts.home,
       LANG: "C.UTF-8",
-      TMPDIR: this.opts.tmpDir,
+      ...tempEnv(this.opts.tmpDir, this.opts.platform),
       DOTNET_CLI_TELEMETRY_OPTOUT: "1",
       ...git,
     };
