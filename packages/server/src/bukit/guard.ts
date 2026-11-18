@@ -128,7 +128,7 @@ export async function guardCommit(git: GitRunner, repo: string, commit: string):
   // Only the exact name counts; a "Site.yaml" alone is reported missing, and a second spelling next to
   // "site.yaml" was reported as a case collision above.
   const site = entries.find((e) => e.path === "site.yaml");
-  if (!site || site.type !== "blob" || site.mode === SYMLINK_MODE) {
+  if (site?.type !== "blob" || site.mode === SYMLINK_MODE) {
     reasons.push({ code: "missing_site_yaml", where: "site.yaml" });
     return { ok: false, reasons, usesNotion: false };
   }
@@ -159,8 +159,14 @@ export function checkSiteConfig(text: string): { reasons: GuardReason[]; usesNot
   // .NET bool.TryParse, which also accepts a quoted "false". The failsafe schema keeps every value as text
   // too, so the guard judges the same values Bukit will use.
   const doc = parseDocument(text, { schema: "failsafe", uniqueKeys: true });
-  if (doc.errors.length > 0) {
-    return { reasons: [{ code: "invalid_site_yaml", detail: doc.errors[0]?.message }], usesNotion: false };
+  const error = doc.errors[0];
+  if (error) {
+    // Bukit 2.2.6 also refuses more than one document (BKT-0003), so refuse the file here too, with the fix.
+    const detail =
+      error.code === "MULTIPLE_DOCS"
+        ? 'more than one YAML document: Bukit accepts only one; move the settings above the first "..." or "---" line and remove it'
+        : error.message;
+    return { reasons: [{ code: "invalid_site_yaml", detail }], usesNotion: false };
   }
   const config: unknown = doc.toJS({ maxAliasCount: 100 });
   if (!isRecord(config))

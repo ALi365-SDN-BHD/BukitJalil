@@ -1,4 +1,5 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "../bukit/guard.ts";
 import type { PiModules } from "./pi.ts";
 
 /**
@@ -10,6 +11,7 @@ import type { PiModules } from "./pi.ts";
  *   page, runs bukit_check and summarize_changes; these changes stay in the AI working copy, as a real
  *   model's would
  * - "#auth": tries to read Pi's auth.json outside the working copy
+ * - "#media": reads site_info's uploaded media list and puts the first file's URL into the site header
  * - "#plugin": adds a plugin that is not built in to site.yaml, runs bukit_build, then takes the plugin out
  *   again so later builds are not refused
  * - "#fail-key", "#fail-limit", "#fail-network": fails like a provider would (a refused key, a rate limit,
@@ -113,6 +115,29 @@ function nextCall(request: string, results: readonly Message[]): Call | null {
   if (/#auth\b/i.test(request)) {
     return step === 0 ? { tool: "read", args: { path: AUTH_JSON }, note: "Trying to read that file." } : null;
   }
+  if (/#media\b/i.test(request)) {
+    if (step === 0) return { tool: "site_info", args: {}, note: "Let me find the uploaded files first." };
+    if (step === 1) {
+      const info = parseSiteInfo(textOf(results[0]?.content));
+      const files = isRecord(info?.media) && Array.isArray(info.media.files) ? info.media.files : [];
+      const first = files.find((file) => isRecord(file) && typeof file.url === "string") as { url: string } | undefined;
+      if (!first) return null;
+      return {
+        tool: "edit",
+        args: {
+          path: "themes/starter/layouts/partials/header.html",
+          edits: [
+            {
+              oldText: '<header class="site-header">',
+              newText: `<header class="site-header">\n  <img src="${first.url}" alt="Uploaded image" />`,
+            },
+          ],
+        },
+        note: "Adding the uploaded image to the header.",
+      };
+    }
+    return null;
+  }
   if (/#plugin\b/i.test(request)) {
     const plain = "site:\n  name: ";
     const withPlugin = "site:\n  plugins:\n    fake-plugin: {}\n  name: ";
@@ -154,6 +179,15 @@ function answer(request: string, results: readonly Message[]): string {
 function lastUserIndex(messages: readonly Message[]): number {
   for (let i = messages.length - 1; i >= 0; i--) if (messages[i]?.role === "user") return i;
   return -1;
+}
+
+function parseSiteInfo(text: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function textOf(content: unknown): string {

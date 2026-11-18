@@ -87,7 +87,7 @@ Pi 的工作方式（模型请求、工具执行、会话树、技能、扩展�
 
 ## 🧰 技术栈
 
-全部使用 TypeScript，开发统一用 Node 24 LTS（最低 22.19）、pnpm 12.18.0、TypeScript 7.0.2、Bukit 2.0.15。服务端和界面分开，本地 Web 应用支持 macOS 和 Linux，同一套服务和界面用 Electron 套成 macOS 桌面版。每个依赖的固定版本见[开发方案 · 固定技术栈](docs/development-plan.md#2-固定技术栈)。
+全部使用 TypeScript，开发统一用 Node 24 LTS（最低 22.19）、pnpm 12.18.0、TypeScript 7.0.2、Bukit 2.2.6。服务端和界面分开，本地 Web 应用支持 macOS 和 Linux，同一套服务和界面用 Electron 套成桌面版（macOS 和 Linux 安装包，Windows 仍是预览）。每个依赖的固定版本见[开发方案 · 固定技术栈](docs/development-plan.md#2-固定技术栈)。
 
 | 部分     | 技术                                                                                       | 说明                                                               |
 | -------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
@@ -140,17 +140,18 @@ BukitJalil/
 | M4 审核与版本 ✅ | 工作副本快照、网站操作锁、差异审核、应用 / 拒绝、历史与恢复                               | 6–8 天  |
 | M5 MVP ✅        | 端到端测试、错误处理、首次启动引导、文档、真实模型验收                                    | 4–5 天  |
 | M6 发布 ✅       | GitHub Pages（`bukit deploy`）                                                            | 3–4 天  |
-| M7 桌面版 ✅     | Electron 壳，macOS arm64 安装包                                                           | 4–5 天  |
+| M7 桌面版 ✅     | Electron 壳，macOS、Linux 安装包                                                          | 4–5 天  |
 
 ### 待开发
 
 还没排期的任务，完整说明（现状、要先定的问题、工作量）见 [AGENTS.md](AGENTS.md#待开发任务)。
 
-| 任务                  | 内容                                                                                                                                                    | 估算                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| Cloudflare Pages 发布 | 暂缓：等 Bukit 的 `deploy` 支持 Cloudflare Pages 后再接入；一个网站可以同时配多个发布目标，只用已有的 Pages 项目                                        | Bukit 支持后 2–3 天       |
-| 自有服务器发布        | 暂缓：等 Bukit 支持后接入；rsync over SSH，只用已有的 SSH 密钥，先试运行列出差异、确认后再上传                                                          | Bukit 支持后 2–3 天       |
-| Notion 数据源管理     | 第一步已完成：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 token 和权限报错。之后给 Bukit 加离线快照，让 AI 改动能预览；每个源的页数等 Bukit 输出 | 预览约 4–6 天（含 Bukit） |
+| 任务                  | 内容                                                                                                                                                        | 估算                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Cloudflare Pages 发布 | 暂缓：等 Bukit 的 `deploy` 支持 Cloudflare Pages 后再接入；一个网站可以同时配多个发布目标，只用已有的 Pages 项目                                            | Bukit 支持后 2–3 天       |
+| 自有服务器发布        | 暂缓：等 Bukit 支持后接入；rsync over SSH，只用已有的 SSH 密钥，先试运行列出差异、确认后再上传                                                              | Bukit 支持后 2–3 天       |
+| Notion 数据源管理     | 第一步已完成：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 token 和权限报错。之后给 Bukit 加离线快照，让 AI 改动能预览；每个源的页数等 Bukit 输出     | 预览约 4–6 天（含 Bukit） |
+| 预览里的搜索          | 等内置 Bukit 升级到含 `search.json.js` 回退的版本；那之前预览里搜不出结果（starter 搜索页没有提示，内置片段显示 "Search is unavailable"），发布后的网站正常 | 随 Bukit 升级             |
 
 ## 🛠️ 开发
 
@@ -165,7 +166,7 @@ pnpm check      # Biome + 类型检查
 pnpm test       # 单元测试
 pnpm build && pnpm e2e   # 端到端测试（先 pnpm exec playwright install）
 pnpm desktop        # 桌面版（Electron），从源码运行（先 pnpm --filter @bukitjalil/desktop exec install-electron）
-pnpm package:desktop     # 打包 macOS arm64 的 BukitJalil.app 和 zip，在 packages/desktop/out/
+pnpm package:desktop     # 按本机平台打包安装包（macOS 的 dmg 和 zip 等），在 packages/desktop/out/installers/
 pnpm e2e:desktop    # 桌面版测试；打包过时也测试打包后的应用
 ```
 
@@ -175,9 +176,9 @@ pnpm e2e:desktop    # 桌面版测试；打包过时也测试打包后的应用
 
 ### 现在能做什么（M7）
 
-1. 打开设置（左下角齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）。Bukit 随应用发布（macOS arm64、Linux x64），不用安装；从源码运行时先执行 `pnpm fetch:bukit`。
+1. 打开设置（左下角齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）。Bukit 随应用发布（macOS Apple Silicon 和 Intel、Linux x64 和 arm64），不用安装；从源码运行时先执行 `pnpm fetch:bukit`。
 2. 在设置 → AI 模型里选服务商。支持订阅账号的服务商可以直接登录（Claude Pro/Max、GitHub Copilot、Kimi For Coding、OpenRouter、xAI、Radius、ChatGPT），按浏览器提示授权，无需 API Key；也可以填 API Key（只保存在本机 `~/.bukitjalil/pi/auth.json`，界面只显示末四位，或用服务商的环境变量）。选模型和思考程度，点"测试连接"确认可用，再点"使用这个模型"。完全离线时可以打开"本地部署"，连接 Ollama、LM Studio、vLLM、llama.cpp 或自定义 OpenAI / Anthropic 兼容后端，自行填写模型 ID 和显示名称。
-3. 在设置 → 数据源里保存 Notion 数据源（每个数据源一个 token；先把 Notion 数据库共享给对应 integration）。新建网站：填名称、选默认语言和位置；需要多语言时勾选“多语言网站”，创建后的对话会先询问其他语言；不选数据源时默认使用 Markdown，并自动创建 Markdown 内容文件；选 Notion 时要勾选数据库，并逐个选择用途（文章 / 页面 / 数据）。随后从 starter 模板创建并提交第一个版本，自动构建。
+3. 在设置 → 数据源里保存 Notion 数据源（每个数据源一个 token；先把 Notion 数据库共享给对应 integration）。新建网站：填名称、选默认语言和位置；需要多语言时勾选“多语言网站”，创建后的对话会先询问其他语言；不选数据源时默认使用 Markdown，并自动创建 Markdown 内容文件；选 Notion 时要勾选数据库，并逐个选择用途（文章 / 页面 / 数据）。随后由内置 Bukit 的 `bukit new` 生成网站并提交第一个版本，自动构建。
 4. 导入网站：选一个已有的 Bukit 网站文件夹，先检查再导入；还不是 git 仓库的会先列出要提交的文件，确认后才导入；不满足安全规则的仓库以只读方式导入，界面写明原因。
 5. 在网站主页开始对话：AI 在网站的工作副本里读写文件、运行 Bukit 检查和构建，回复流式显示，每次工具调用是一张可展开的卡片；运行中可以插话、排队或停止；会话会用第一条消息自动命名，也可以在左侧会话行的菜单里重命名、删除，或从任意一条消息分叉，刷新后恢复。AI 的改动先留在工作副本里。
 6. 审核：对话下方的审核卡片列出 AI 的改动说明和改动的文件，"改动"面板逐个文件看差异；预览面板切到"改动中"可以单独构建并预览改动。点"应用"后改动作为一个提交进入网站的默认分支（作者 BukitJalil AI，提交者是你），正式预览自动重新构建；点"拒绝"则网站目录不变。也可以在"改动"面板里按文件、按代码块取消勾选，只应用一部分，其余的留着继续审核。应用前会自动检查，正式版本在审核期间有新提交时会先合并、请你重新审核。

@@ -10,7 +10,7 @@ description: Use when you need the exact Bukit Core command, subcommand, option,
 
 # Bukit CLI Reference
 
-Bukit Core registers exactly twelve static commands. Any other command name (for
+Bukit Core registers exactly thirteen static commands. Any other command name (for
 example `init`, `lint`, or a `--version` flag) is not a Core command and exits 2; use
 `version` for the version. The one exception is external-plugin tooling (Labs, not
 covered here): `plugin`, and commands exposed by plugins in `.bukit/plugins.yaml`.
@@ -25,6 +25,7 @@ covered here): `plugin`, and commands exposed by plugins in `.bukit/plugins.yaml
 | `preview` | — | Serve an existing output directory. No build, no watch. |
 | `dev` | — | Build, serve, watch, and LiveReload. |
 | `clean` | — | Delete a Bukit output directory and the project `.cache`. |
+| `new` | — | Create an initial site. |
 | `version` | — | Print version and runtime. |
 | `completion` | — | Print a shell completion script. |
 | `seo` | `seo audit`, `seo diff`, `seo insights`, `seo question-insights`, `seo generative-insights`, `seo authority-insights` | SEO report gate, regression diff, observation joins. |
@@ -54,17 +55,19 @@ Project selection, shared by most commands:
 - `--site-url <url>`: override `site.url` for this run.
 - `--notion-snapshot <dir>` (`build`): record a Notion offline snapshot outside the site; add
   `--notion-offline` (`build`, `doctor`, `config check`) to read only that snapshot, with no
-  `NOTION_TOKEN` and no network.
+  `NOTION_TOKEN` and no network. `--notion-pin <file>` (offline only) takes the Notion field
+  and filter keys of every source from that file instead of `site.yaml`.
 
 | Command | Options |
 |---|---|
-| `build` | `--config`, `--site`, `--output`, `--base-url`, `--site-url`, `--clean`, `--no-clean`, `--draft`, `--ci`, `--incremental`, `--no-incremental`, `--cache-dir`, `--metrics`, `--jobs`, `--log-format`, `--notion-snapshot`, `--notion-offline`, `--secrets-stdin` |
-| `doctor` | `--config`, `--site`, `--site-url`, `--notion-snapshot`, `--notion-offline`, `--secrets-stdin` |
-| `config check` | `--config`, `--site`, `--site-url`, `--notion-snapshot`, `--notion-offline`, `--secrets-stdin` |
+| `build` | `--config`, `--site`, `--output`, `--base-url`, `--site-url`, `--clean`, `--no-clean`, `--draft`, `--ci`, `--incremental`, `--no-incremental`, `--cache-dir`, `--metrics`, `--jobs`, `--log-format`, `--notion-snapshot`, `--notion-offline`, `--notion-pin`, `--secrets-stdin` |
+| `doctor` | `--config`, `--site`, `--site-url`, `--notion-snapshot`, `--notion-offline`, `--notion-pin`, `--secrets-stdin` |
+| `config check` | `--config`, `--site`, `--site-url`, `--notion-snapshot`, `--notion-offline`, `--notion-pin`, `--secrets-stdin` |
 | `config schema` | `--output` (file; stdout when omitted) |
 | `preview` | `--dir`, `--host`, `--port`, `--strict-port`, `--config`, `--site`, `--allow-lan`, `--public` |
 | `dev` | `--config`, `--site`, `--host`, `--port`, `--output`, `--no-watch`, `--allow-lan`, `--public`, `--secrets-stdin` |
 | `clean` | `--dir`, `--config`, `--site` |
+| `new` | `<dir>` (required), `--title`, `--language` |
 | `version` | none |
 | `completion` | `<shell>`: `bash` (default), `zsh`, `fish` |
 | `seo audit`, `publish audit` | `--dir`, `--report`, `--strict`, `--external` |
@@ -159,7 +162,9 @@ bukit completion fish > ~/.config/fish/completions/bukit.fish
 | 3 | Template render failure (`RenderException`). |
 
 `geo audit` exits 0 whatever the score; it fails only for a missing or invalid report (1)
-or bad usage/missing directory (2).
+or bad usage/missing directory (2). A single-language `build` that fails on a Notion
+snapshot exits 2; a multilingual worker failure exits 1, and its final cli-error keeps
+the worker's `BKT-xxxx` code and reason.
 
 ## Environment variables
 
@@ -167,7 +172,7 @@ or bad usage/missing directory (2).
 |---|---|
 | `BUKIT_<SECTION>__<KEY>...` | Override any `site.yaml` scalar before validation. Segments are snake case mapped to camelCase: `BUKIT_SITE__BASE_URL=/docs/` sets `site.baseUrl`. Applies to every command that loads config. An empty value can fail validation for every command. |
 | `NOTION_TOKEN` | Required for Notion sources when secrets are validated (`build`, `dev`, `config check`, `doctor`, and `deploy` without `--skip-build`/`--dry-run`). A `NOTION_TOKEN` passed with `--secrets-stdin` wins over the variable. |
-| `GITHUB_TOKEN` | Default deploy token; choose another variable with `--token-env NAME` (pass the name, never the value). With `--secrets-stdin`, the same name is looked up in the stdin JSON first. During the push the token still reaches each `git` child through its environment (`BUKIT_GITHUB_TOKEN`, read by a temporary `GIT_ASKPASS` script). |
+| `GITHUB_TOKEN` | Default deploy token; choose another variable with `--token-env NAME` (pass the name, never the value). With `--secrets-stdin`, the same name is looked up in the stdin JSON first. During `deploy`, a token read from stdin is handed to git's credential helper over a private local endpoint and is not placed in the `git` child's environment or command line. A token read from the environment remains in Bukit's environment and is inherited by git children. |
 | `BUKIT_DEPLOY_GIT_TIMEOUT_SECONDS` | Per-git-command deploy timeout, default 300, `0` = no limit. |
 | `BUKIT_BUILD_MODE=release\|profile`, `BUKIT_PROFILE`, `BUKIT_RELEASE` | Make `securityFailMode: auto` strict, like `--ci`. `BUKIT_PROFILE` counts with any non-empty value; `BUKIT_RELEASE` with any non-empty value except `0` or `false`. |
 | `BUKIT_TRACE_ID`, `BUKIT_SPAN_ID` | Added to JSON log lines. |
@@ -181,7 +186,7 @@ Logs go to stderr: `[info] ...` in text mode, one JSON object per line with
 ```json
 {"schema": "https://bukit.dev/schemas/cli-error.v1.json", "version": "1.0",
  "command": "build", "exitCode": 2,
- "errors": [{"code": "ContentCollectionMissing", "message": "...", "showUsage": false}]}
+ "errors": [{"code": "BKT-0504", "message": "...", "showUsage": false}]}
 ```
 
 `usage` appears only for usage errors (`showUsage: true`). Log lines are single-line
@@ -240,5 +245,5 @@ that cannot be loaded (missing, YAML error, unknown key) exits 2; a loaded confi
 fails validation prints `✖ Config error` and exits 1. With a Notion source, doctor
 validates `NOTION_TOKEN` in the config check: without it the first check fails with
 `✖ Config error` / `[BKT-0001] NOTION_TOKEN is required for notion provider ...`
-(exit 1). With the token set it calls the Notion API (`✖ Notion database check
-failed: <status>` or `✖ Notion request failed: ...`, exit 1).
+(exit 1). With the token set it calls the Notion API (`✖ [BKT-0B01] Notion database
+check failed: <status>` or `✖ [BKT-0B07] Notion request failed: ...`, exit 1).

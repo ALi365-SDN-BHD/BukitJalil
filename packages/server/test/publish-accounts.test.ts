@@ -4,7 +4,7 @@ import path from "node:path";
 import type { DeployStatusResponse, PublishAccount } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { pagesSiteAddress } from "../src/deploys/target.ts";
-import { ADMIN, makeApp, req } from "./helpers.ts";
+import { ADMIN, expectMode, makeApp, req } from "./helpers.ts";
 
 // Saved GitHub publishing accounts and the deploy settings form. No request leaves the machine.
 
@@ -43,7 +43,7 @@ describe("/api/publish-accounts", () => {
     expect(created.id).toMatch(/^pub_[0-9a-f]{12}$/);
     expect(JSON.stringify(created)).not.toContain("ghp_example");
     expect(ctx.publishAccounts.token(created.id)).toBe("ghp_exampleexample1234");
-    expect(fs.statSync(ctx.paths.publishAccountTokens).mode & 0o777).toBe(0o600);
+    expectMode(ctx.paths.publishAccountTokens, 0o600);
 
     expect(
       (await call(ctx, "POST", "/api/publish-accounts", { platform: "github", name: "company github", token: "x" }))

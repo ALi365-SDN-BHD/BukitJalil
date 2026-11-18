@@ -24,7 +24,7 @@ const latestFetch = (version = "2.56.1", calls?: { count: number }) =>
   }) as unknown as typeof fetch;
 
 describe("GitService", () => {
-  it("offers an update when Homebrew has a newer Git", async () => {
+  it.skipIf(process.platform === "win32")("offers an update when Homebrew has a newer Git", async () => {
     const service = new GitService({
       fetchImpl: latestFetch(),
       brew: "/opt/homebrew/bin/brew",
@@ -209,7 +209,7 @@ describe("GitService", () => {
     expect(service.install).toEqual({ state: "failed", message: "Error: git failed" });
   });
 
-  it("cannot install without Homebrew", () => {
+  it.skipIf(process.platform === "win32")("cannot install without Homebrew", () => {
     const service = new GitService({ fetchImpl: null, brew: null, resolvePath: () => "/usr/bin/git" });
     expect(service.start()).toBe(false);
   });
@@ -229,7 +229,7 @@ describe("gitGuide", () => {
 });
 
 describe("GET /api/git", () => {
-  it("returns the status and refuses installs without Homebrew", async () => {
+  it.skipIf(process.platform === "win32")("returns the status and refuses installs without Homebrew", async () => {
     const ctx = makeApp({
       gitBrew: null,
       gitFetch: null,

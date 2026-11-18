@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { searchPath, systemEnv } from "../child-env.ts";
 import { findBrew } from "./brew.ts";
 import { checkRepoConfig, type RepoCheck } from "./repo-check.ts";
 
@@ -115,7 +116,8 @@ export class GitRunner {
   env(cwd?: string): Record<string, string> {
     const ceilings = [...(this.opts.ceilingDirs ?? []), ...(cwd ? [path.dirname(path.resolve(cwd))] : [])];
     return {
-      PATH: [path.dirname(this.opts.gitPath), "/usr/bin", "/bin"].join(path.delimiter),
+      ...systemEnv(),
+      PATH: searchPath([path.dirname(this.opts.gitPath)]),
       HOME: this.opts.home,
       LANG: "C",
       LC_ALL: "C",

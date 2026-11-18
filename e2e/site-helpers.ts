@@ -3,10 +3,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { copyStarter } from "../packages/server/src/sites/template.ts";
+import { writeStarter } from "../packages/server/test/fixtures/starter.ts";
 
-const STARTER = path.resolve(import.meta.dirname, "../templates/starter");
 let work: string | null = null;
+let emptyGitConfig: string | null = null;
+
+/** GIT_CONFIG_GLOBAL for fixtures: an empty file, because Git for Windows rejects `os.devNull` (`\\.\nul`). */
+export function noGitConfig(): string {
+  if (process.platform !== "win32") return os.devNull;
+  if (!emptyGitConfig) {
+    emptyGitConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-gitcfg-")), "empty");
+    fs.writeFileSync(emptyGitConfig, "");
+  }
+  return emptyGitConfig;
+}
 let counter = 0;
 const folders = new Map<string, string>();
 
@@ -40,13 +50,13 @@ export async function importSite(
 ): Promise<string> {
   work ??= fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-sites-")));
   const dir = path.join(work, `site${++counter}`);
-  copyStarter(STARTER, dir, { title: `${title} ${counter}`, language });
+  writeStarter(dir, { title: `${title} ${counter}`, language });
   edit?.(dir);
   const git = (...args: string[]) =>
     execFileSync("git", ["-c", "user.name=E2E", "-c", "user.email=e2e@example.com", ...args], {
       cwd: dir,
       stdio: "pipe",
-      env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" },
+      env: { ...process.env, GIT_CONFIG_GLOBAL: noGitConfig(), GIT_CONFIG_NOSYSTEM: "1" },
     });
   git("init", "-q", "-b", "main");
   git("add", "-A");

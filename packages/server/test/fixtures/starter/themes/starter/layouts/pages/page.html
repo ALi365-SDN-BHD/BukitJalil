@@ -1,0 +1,11 @@
+{% layout "layouts/base.html" %}
+
+<article class="article">
+  <header class="article-header">
+    <h1>{{ page.title | html.escape }}</h1>
+    {{ if page.summary }}<p class="article-summary">{{ page.summary | html.escape }}</p>{{ end }}
+  </header>
+  <div class="content">
+    {{ page.content }}
+  </div>
+</article>

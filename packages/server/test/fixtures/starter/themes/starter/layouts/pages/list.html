@@ -1,0 +1,14 @@
+{% layout "layouts/base.html" %}
+
+<header class="page-header">
+  <h1>{{ page.title | html.escape }}</h1>
+  {{ if page.summary }}<p>{{ page.summary | html.escape }}</p>{{ end }}
+</header>
+
+<ul class="card-list">
+{{ for item in items }}
+  {{ include "partials/list-card.html" }}
+{{ end }}
+</ul>
+
+{{ include "partials/pagination-nav.html" }}

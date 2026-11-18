@@ -83,16 +83,14 @@ describe("data directory lock (plan M7)", () => {
 describe("resource folders (plan M7)", () => {
   it("come from the repository unless BUKITJALIL_RESOURCES names the desktop app's", () => {
     expect(resolveResources("/repo", {})).toEqual({
-      skills: "/repo/skills",
-      starter: "/repo/templates/starter",
-      web: "/repo/packages/web/dist",
-      bukit: `/repo/vendor/bukit-${BUKIT_VERSION}`,
+      skills: path.join("/repo", "skills"),
+      web: path.join("/repo", "packages/web/dist"),
+      bukit: path.join("/repo", `vendor/bukit-${BUKIT_VERSION}`),
     });
     expect(resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app" })).toEqual({
-      skills: "/App/Resources/app/skills",
-      starter: "/App/Resources/app/templates/starter",
-      web: "/App/Resources/app/web",
-      bukit: "/App/Resources/app/bukit",
+      skills: path.resolve("/App/Resources/app", "skills"),
+      web: path.resolve("/App/Resources/app", "web"),
+      bukit: path.resolve("/App/Resources/app", "bukit"),
     });
   });
 });
@@ -102,7 +100,11 @@ afterEach(() => {
   for (const c of children.splice(0)) c.kill("SIGKILL");
 });
 
-/** main.ts started as the desktop app starts it, with an IPC channel in place of Electron's parentPort. */
+/**
+ * main.ts started as the desktop app starts it, with an IPC channel in place of Electron's parentPort.
+ * Tests here use ports 46700-46769, apart from the preview pools of the other test files (48810+, 49500+),
+ * which run in parallel.
+ */
 function startDesktop(
   home: string,
   port: number,
@@ -145,18 +147,18 @@ function startDesktop(
 describe("desktop mode (plan M7)", () => {
   it("reports ready, hands out login links on request and shuts down when asked", async () => {
     const home = tmp();
-    const s = startDesktop(home, 49700);
-    expect(await s.next("ready")).toEqual({ type: "ready", port: 49700 });
+    const s = startDesktop(home, 46700);
+    expect(await s.next("ready")).toEqual({ type: "ready", port: 46700 });
     expect(fs.readFileSync(path.join(home, "server.lock"), "utf8")).toBe(`${s.child.pid}\n`);
 
     s.child.send({ type: "login" });
     const login = await s.next("login");
     expect(login).toMatchObject({
       type: "login",
-      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:49700\/\?token=[\w-]{20,}$/),
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:46700\/\?token=[\w-]{20,}$/),
     });
     const res = await fetch((login as { url: string }).url, { redirect: "manual" });
-    expect(res.headers.get("set-cookie")).toMatch(/^bj_session_49700=/);
+    expect(res.headers.get("set-cookie")).toMatch(/^bj_session_46700=/);
     // Nothing is printed: the link only goes to the desktop app.
     expect(s.stdout()).not.toContain("token=");
 
@@ -167,13 +169,13 @@ describe("desktop mode (plan M7)", () => {
 
   it("asks for the secret key and starts without saving when there is none", async () => {
     const home = tmp();
-    const s = startDesktop(home, 49750, { key: null, reason: "no_keyring" });
-    await s.next("ready");
+    const s = startDesktop(home, 46750, { key: null, reason: "no_keyring" });
+    expect(await s.next("ready")).toMatchObject({ type: "ready" });
     s.child.send({ type: "login" });
     const login = (await s.next("login")) as { url: string };
     const res = await fetch(login.url, { redirect: "manual" });
     const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
-    const status = await fetch("http://127.0.0.1:49750/api/secrets", { headers: { cookie } });
+    const status = await fetch("http://127.0.0.1:46750/api/secrets", { headers: { cookie } });
     expect(await status.json()).toEqual({ mode: "unavailable", reason: "no_keyring", plainFiles: false });
     s.child.send({ type: "shutdown" });
     expect(await s.exited).toBe(0);
@@ -181,14 +183,14 @@ describe("desktop mode (plan M7)", () => {
 
   it("starts before the key arrives and encrypts once it does", async () => {
     const home = tmp();
-    const s = startDesktop(home, 49760, null);
-    await s.next("ready");
+    const s = startDesktop(home, 46760, null);
+    expect(await s.next("ready")).toMatchObject({ type: "ready" });
     s.child.send({ type: "login" });
     const login = (await s.next("login")) as { url: string };
     const res = await fetch(login.url, { redirect: "manual" });
     const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
     const status = async () =>
-      (await fetch("http://127.0.0.1:49760/api/secrets", { headers: { cookie } })).json() as Promise<unknown>;
+      (await fetch("http://127.0.0.1:46760/api/secrets", { headers: { cookie } })).json() as Promise<unknown>;
     expect(await status()).toEqual({ mode: "unavailable", reason: "pending", plainFiles: false });
     s.child.send({ type: "secrets", key: randomBytes(32).toString("base64"), reason: null });
     await expect.poll(status).toEqual({ mode: "encrypted", reason: null, plainFiles: false });
@@ -198,8 +200,8 @@ describe("desktop mode (plan M7)", () => {
 
   it("shuts down when the desktop app goes away without asking", async () => {
     const home = tmp();
-    const s = startDesktop(home, 49740);
-    await s.next("ready");
+    const s = startDesktop(home, 46740);
+    expect(await s.next("ready")).toMatchObject({ type: "ready" });
     s.child.disconnect();
     expect(await s.exited).toBe(0);
     expect(fs.existsSync(path.join(home, "server.lock"))).toBe(false);
@@ -207,9 +209,9 @@ describe("desktop mode (plan M7)", () => {
 
   it("refuses a data directory another server is using", async () => {
     const home = tmp();
-    const first = startDesktop(home, 49710);
-    await first.next("ready");
-    const second = startDesktop(home, 49720);
+    const first = startDesktop(home, 46710);
+    expect(await first.next("ready")).toMatchObject({ type: "ready" });
+    const second = startDesktop(home, 46720);
     const err = await second.next("ready");
     expect(err).toMatchObject({
       type: "error",
@@ -221,11 +223,11 @@ describe("desktop mode (plan M7)", () => {
   }, 30_000);
 
   it("says when its port is taken, so the desktop app can try another", async () => {
-    const blocker = net.createServer().listen(49730, "127.0.0.1");
+    const blocker = net.createServer().listen(46730, "127.0.0.1");
     await new Promise((r) => blocker.once("listening", r));
     try {
       const home = tmp();
-      const s = startDesktop(home, 49730);
+      const s = startDesktop(home, 46730);
       expect(await s.next("ready")).toMatchObject({ type: "error", code: "port_in_use" });
       expect(await s.exited).toBe(1);
       // The lock does not outlive the failed start.

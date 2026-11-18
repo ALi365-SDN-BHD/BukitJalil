@@ -34,6 +34,7 @@ import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
 import { compareAudits, readAudit, readIssues } from "./audit.ts";
 import { type BuildRecord, BuildStore, newBuildId } from "./store.ts";
+import { findUploadUrlProblems } from "./upload-urls.ts";
 
 export interface BuildServiceOptions {
   db: DatabaseSync;
@@ -470,6 +471,11 @@ export class BuildService {
       const link = findSymlink(temp);
       if (link) return finish("failed", "symlink", result.exitCode, { ...report, detail: link });
 
+      // Old upload prefixes do not fail the build; the preview warns and a publish refuses (design 4.9).
+      for (const problem of findUploadUrlProblems(temp, basePath)) {
+        report.messages.push({ level: "warn", msg: `upload prefix: ${problem.url} in ${problem.page}` });
+      }
+
       const dest = path.join(this.opts.paths.previews, site.id, id);
       fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
       moveDir(temp, dest);
@@ -645,6 +651,7 @@ export function notionOfflineData(offline: OfflineNotion, result: BukitRunResult
   return {
     ...offline.record,
     queryChanged: all.includes("event=notion.snapshot.query_changed"),
+    pinned: all.includes("event=notion.offline.pinned"),
     rendererMismatch: all.includes("event=notion.cache.renderer_mismatch"),
   };
 }
@@ -703,13 +710,13 @@ function pickEntry(homes: string[], lang: string | null): string | undefined {
 
 /**
  * The default language from site.yaml text: site.defaultLanguage, else the first of site.languages (Bukit's
- * default), else site.language of a site not yet migrated (plan 8.7); null when none is a string.
+ * default); null when neither is a string.
  */
 export function siteLanguage(yaml: string): string | null {
   const { value } = parseYaml(yaml);
   const site = isRecord(value) && isRecord(value.site) ? value.site : null;
   const first = Array.isArray(site?.languages) ? site.languages[0] : undefined;
-  for (const lang of [site?.defaultLanguage, first, site?.language]) if (typeof lang === "string") return lang;
+  for (const lang of [site?.defaultLanguage, first]) if (typeof lang === "string") return lang;
   return null;
 }
 

@@ -5,6 +5,7 @@ type Outbound =
   | { type: "ready"; port: number }
   | { type: "secrets"; reset?: boolean }
   | { type: "login"; url: string }
+  | { type: "open-update"; id: number; path: string }
   | { type: "error"; code: string; message: string };
 
 export type StartResult = { ok: true; port: number } | { ok: false; code: string; message: string };
@@ -24,6 +25,8 @@ export interface ServerOptions {
   secretKey: (alive: () => boolean) => Promise<{ key: string | null; reason: string | null }>;
   /** The user reset the keys: forget the key, a new one is made at the next start. */
   resetSecrets: () => void;
+  /** Open a downloaded installer; resolves to a `shell.openPath` error, or null on success. */
+  openUpdate: (file: string) => Promise<string | null>;
 }
 
 const ATTEMPTS = 10;
@@ -116,6 +119,32 @@ export class ServerProcess {
         }
         if (message.type === "login") {
           this.logins.shift()?.(message.url);
+          return;
+        }
+        if (message.type === "open-update") {
+          if (typeof message.path === "string" && typeof message.id === "number") {
+            const id = message.id;
+            void this.opts.openUpdate(message.path).then(
+              (error) => {
+                try {
+                  child.postMessage({ type: "open-update-result", id, error });
+                } catch {
+                  // The server is gone; the app is shutting down anyway.
+                }
+              },
+              (err: unknown) => {
+                try {
+                  child.postMessage({
+                    type: "open-update-result",
+                    id,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                } catch {
+                  // gone
+                }
+              },
+            );
+          }
           return;
         }
         if (settled) return;

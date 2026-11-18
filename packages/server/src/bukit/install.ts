@@ -9,16 +9,17 @@ import { unzipSync } from "fflate";
  * Bukit packages (plan 8.1): Bukit ships inside BukitJalil, like Pi. The packaging script and
  * `pnpm fetch:bukit` download the official package for `BUKIT_VERSION`, check it against the SHA-256 fixed
  * here and unpack it strictly; the app itself never downloads or upgrades Bukit. Raising Bukit means changing
- * `BUKIT_VERSION` and the three checksums, then releasing BukitJalil.
+ * `BUKIT_VERSION` and the five checksums, then releasing BukitJalil.
  */
 
-export const BUKIT_VERSION = "2.2.2";
+export const BUKIT_VERSION = "2.2.6";
 /**
- * The oldest Bukit that works (`--secrets-stdin` and `site.languages` as the only language setting, plan 8.7), for a
+ * The oldest Bukit that works (`--secrets-stdin`, `site.languages` as the only language setting, plan 8.7,
+ * `--notion-pin`, plan 5.5, and the 2.2.5 starter theme with its `theme.params.labels`, plan 5.2), for a
  * development copy picked with BUKITJALIL_BUKIT_DIR. Raise it to the first release with a behaviour
  * BukitJalil starts to rely on, and add a test for that behaviour to test/bukit-behavior.test.ts.
  */
-export const MIN_BUKIT_VERSION = "2.2.2";
+export const MIN_BUKIT_VERSION = "2.2.6";
 
 export interface BukitPackage {
   file: string;
@@ -30,23 +31,35 @@ export interface BukitPackage {
 
 const RELEASE_URL = `https://github.com/ALi365-SDN-BHD/Bukit/releases/download/v${BUKIT_VERSION}`;
 
-/** Official packages by `<platform>-<arch>`: macOS arm64, Linux x64 and Windows x64. */
+/** Official packages by `<platform>-<arch>`: macOS arm64 and x64, Linux x64 and arm64, Windows x64 (plan 8.1). */
 export const PACKAGES: Record<string, BukitPackage> = {
   "darwin-arm64": {
     file: `bukit-${BUKIT_VERSION}-osx-arm64.tar.gz`,
-    sha256: "1d6de3518c4488dc0580864a073fbde5c5b4f57d9905bfd8776dffb26b5fc538",
+    sha256: "50a23432a849fc5b435fc0a43e08cb5bc4e03e01487fa1961a504698befef69a",
+    files: ["bukit", "libSkiaSharp.dylib"],
+    executable: "bukit",
+  },
+  "darwin-x64": {
+    file: `bukit-${BUKIT_VERSION}-osx-x64.tar.gz`,
+    sha256: "c77482e6e998617161987722aeb47ffa8e160fce685e69939f6a8f03533399dc",
     files: ["bukit", "libSkiaSharp.dylib"],
     executable: "bukit",
   },
   "linux-x64": {
     file: `bukit-${BUKIT_VERSION}-linux-x64.tar.gz`,
-    sha256: "804dfbbc4ae1036c3e2128840a6b372515a1561264fd35ae48785f0c2a636ace",
+    sha256: "bf74e8aae6656ef8b954cb0f714fb5f56e281441bdcd27bacec8f97058803af0",
+    files: ["bukit", "libSkiaSharp.so"],
+    executable: "bukit",
+  },
+  "linux-arm64": {
+    file: `bukit-${BUKIT_VERSION}-linux-arm64.tar.gz`,
+    sha256: "aecb88f53926f28447aa8b7ba5cf38d159ddaa3445a3466b5637e6a31e15252a",
     files: ["bukit", "libSkiaSharp.so"],
     executable: "bukit",
   },
   "win32-x64": {
     file: `bukit-${BUKIT_VERSION}-win-x64.zip`,
-    sha256: "739875261387b99ffa1a5182a7c9be173789bc7df5b332c0f7d5b0b363e8b384",
+    sha256: "782a6b8ca1329dcc3578b980675d83ec3e38c334531e05c1a800cf408a9ae479",
     files: ["bukit.exe", "libSkiaSharp.dll"],
     executable: "bukit.exe",
   },

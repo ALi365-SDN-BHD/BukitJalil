@@ -402,7 +402,7 @@ export function summarizeConfig(config: Record<string, unknown>): ConfigSummary 
       description: str(site.description),
       url: str(site.url),
       baseUrl: str(site.baseUrl),
-      language: str(site.defaultLanguage) ?? languages[0] ?? str(site.language),
+      language: str(site.defaultLanguage) ?? languages[0] ?? null,
       languages,
       timezone: str(site.timezone),
     },

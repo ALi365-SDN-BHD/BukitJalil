@@ -2,6 +2,7 @@ import {
   ApiError,
   type ApplyRequest,
   type ApplyResult,
+  AppUpdateResponse,
   type AuditReportResponse,
   type Build,
   type BuildListResponse,
@@ -31,7 +32,8 @@ import {
   type HistoryResponse,
   type ImportInspection,
   type ImportSiteRequest,
-  type LanguageMigrationResponse,
+  type MediaUploadRequest,
+  type MediaUploadResult,
   type ModelsResponse,
   type NotionDatabasesResponse,
   type NotionSourceSchema,
@@ -103,6 +105,11 @@ const query = (params: Record<string, string>) => new URLSearchParams(params).to
 
 export const api = {
   health: () => request("/health", {}, HealthResponse),
+  update: () => request("/update", {}, AppUpdateResponse),
+  checkUpdate: (manual = true) => post<AppUpdateResponse>(`/update/check${manual ? "?manual=1" : ""}`),
+  downloadUpdate: () => post<AppUpdateResponse>("/update/download"),
+  cancelUpdate: () => post<AppUpdateResponse>("/update/cancel"),
+  openUpdate: () => post<AppUpdateResponse>("/update/open"),
   settings: () => request("/settings", {}, Settings),
   updateSettings: (patch: SettingsPatch) =>
     request("/settings", { method: "PUT", body: JSON.stringify(patch) }, Settings),
@@ -163,9 +170,7 @@ export const api = {
 
   sessions: (siteId: string) => request<SessionInfo[]>(`/sites/${siteId}/sessions`),
   createSession: (siteId: string) => post<SessionInfo>(`/sites/${siteId}/sessions`),
-  languageMigration: (siteId: string) => request<LanguageMigrationResponse>(`/sites/${siteId}/language-migration`),
-  applyLanguageMigration: (siteId: string, commit: string) =>
-    post<LanguageMigrationResponse>(`/sites/${siteId}/language-migration`, { commit }),
+  uploadMedia: (siteId: string, req: MediaUploadRequest) => post<MediaUploadResult>(`/sites/${siteId}/media`, req),
   deployStatus: (siteId: string) => request<DeployStatusResponse>(`/sites/${siteId}/deploy`),
   saveDeployConfig: (siteId: string, req: DeployConfigRequest) =>
     request<DeployStatusResponse>(`/sites/${siteId}/deploy`, { method: "PUT", body: JSON.stringify(req) }),
@@ -242,12 +247,12 @@ export function fileUrl(siteId: string, ref: PanelRef, path: string, as: "raw" |
 /** Query keys, so mutations can invalidate exactly what they change. */
 export const keys = {
   settings: ["settings"] as const,
+  update: ["update"] as const,
   skills: ["skills"] as const,
   sites: ["sites"] as const,
   site: (id: string) => ["site", id] as const,
   deploy: (siteId: string) => ["deploy", siteId] as const,
   /** Under "panel": whatever moves the default branch (applying a change, deploy settings) refreshes it too. */
-  languageMigration: (siteId: string) => ["panel", siteId, "language-migration"] as const,
   deploys: (siteId: string) => ["deploys", siteId] as const,
   panel: (id: string, panel: string, ...rest: string[]) => ["panel", id, panel, ...rest] as const,
   builds: (id: string) => ["builds", id] as const,

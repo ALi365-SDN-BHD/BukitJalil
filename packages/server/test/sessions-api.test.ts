@@ -6,10 +6,8 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
-import { copyStarter } from "../src/sites/template.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import { ADMIN, commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
-
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 
 // Pi keeps the directory it saw when it loaded, so this file uses one app home.
 let base: string;
@@ -48,7 +46,7 @@ afterAll(async () => {
 let siteCount = 0;
 async function site() {
   const dir = path.join(base, "home", `site${++siteCount}`);
-  copyStarter(STARTER, dir, { title: `Site ${siteCount}`, language: "en-US" });
+  writeStarter(dir, { title: `Site ${siteCount}`, language: "en-US" });
   rawGit(base, dir, "init", "-q", "-b", "main");
   commitAllAs(base, dir);
   return ctx.sites.import({ path: dir });

@@ -11,7 +11,7 @@ BukitJalil 把每个网站当作一个项目来管理。你用对话告诉 AI �
 | macOS（Apple 芯片）或 Linux x64 | 暂不支持 Windows。桌面版目前只有 macOS（Apple 芯片）。Intel Mac 没有官方 Bukit 包，暂不支持 |
 | Node 22.19 或更新（推荐 24 LTS） | 从源码运行 BukitJalil 时需要；桌面版自带，不用装 |
 | git 2.38 或更新 | 每个网站都是一个 git 仓库，版本、差异、恢复都靠它 |
-| Bukit 2.0.15 | 构建网站。随 BukitJalil 一起发布，不用另外安装，也不能单独升级；新版本的 Bukit 随新版本的 BukitJalil 提供 |
+| Bukit 2.2.6 | 构建网站。随 BukitJalil 一起发布，不用另外安装，也不能单独升级；新版本的 Bukit 随新版本的 BukitJalil 提供 |
 | 一个 AI 模型服务商的 API Key | 例如 Anthropic、OpenAI 等 Pi 支持的服务商 |
 
 ## 2. 安装和启动
@@ -45,6 +45,8 @@ pnpm start
 2. macOS：打开 dmg，把 `BukitJalil.app` 拖进"应用程序"（zip 先解压）
 3. macOS 第一次打开：安装包没有 Apple 开发者签名，macOS 会说"无法验证开发者"或"Apple 无法检查其是否包含恶意软件"。先点"完成"，到"系统设置 → 隐私与安全性"，在下面找到 BukitJalil，点"仍要打开"并确认。之后就能正常双击打开
 
+以后有新版本时，左下角版本号后面的"更新"按钮会出现提示。点开后下载对应平台的安装包：macOS 把新版本拖进"应用程序"，Windows 运行安装程序，Linux AppImage 会替换当前文件并重启，deb 用软件中心安装。没有 Developer ID，macOS 不会自己替换正在运行的 `.app`。
+
 和在终端里运行的区别：
 
 - 窗口自动登录，不需要登录地址
@@ -61,7 +63,7 @@ pnpm start
 第一次打开时，首页会显示"开始使用"清单，按顺序检查五件事，每一步都能直接打开对应的设置：
 
 1. **git**：没有找到或版本太旧时，安装新版 git 并重启 BukitJalil
-2. **Bukit**：不用安装。Bukit 随 BukitJalil 一起发布（现在是 2.0.15），设置 → 环境显示它的版本。BukitJalil 只用应用自带的这一份，不会下载或升级 Bukit；要用新版本的 Bukit，请安装新版本的 BukitJalil。以前版本的 BukitJalil 装在 `~/.bukitjalil/bin/` 里的 Bukit 会在启动时自动删除
+2. **Bukit**：不用安装。Bukit 随 BukitJalil 一起发布（现在是 2.2.6），设置 → 环境显示它的版本。BukitJalil 只用应用自带的这一份，不会下载或升级 Bukit；要用新版本的 Bukit，请安装新版本的 BukitJalil。以前版本的 BukitJalil 装在 `~/.bukitjalil/bin/` 里的 Bukit 会在启动时自动删除
 3. **提交身份**（设置 → 发布）：你应用改动时用的名字和邮箱，默认取全局 git 设置
 4. **AI 模型**：见下一节
 5. **第一个网站**：新建或导入，见第 5 节
@@ -103,12 +105,7 @@ Markdown 是默认数据源，无需在设置里添加。新建网站不选择�
 
 网站主页显示位置、默认分支、状态、最近构建和版本历史，顶部的“开始新对话”可以直接进入 AI 对话，也可以手动构建、重新检查。左侧网站行的“更多”菜单可以归档、恢复或移除网站。移除只删除 BukitJalil 自己的工作副本和记录，不会删除你的网站文件夹。
 
-**更新语言设置**：BukitJalil 自带的 Bukit 2.1 只认 `site.languages`，不再接受 `site.language`；多语言网站的默认语言也改到了网站根目录。旧网站需要更新时，网站主页会出现“更新语言设置”卡片，列出 `site.yaml` 要改的地方，点“应用改动”后才提交到正式分支（网站文件夹要在默认分支上、没有未提交的改动）：
-
-- `language: en-US` 改成 `languages: [ en-US ]`
-- 多语言网站加上 `defaultLanguageInSubdir: true`，所有语言仍在 `/<语言>/` 下，已经发布的网址不变
-- `languages` 只有一种语言的网站（例如 `languages: [en]`），新版会把它放在根目录，原来 `/<语言>/` 下的网址会变，没有设置能保留。需要迁移时卡片会提示；没有别的要改时不会出现卡片。这类网站升级后要重新发布，其他网站指向旧网址的链接也要改
-- 卡片说没法自动迁移时（例如 `defaultLanguage` 不在 `languages` 里），按卡片的说明改，或者让 AI 改
+**语言设置**：`site.yaml` 用 `site.languages` 列出网站的语言（例如 `languages: [zh-CN]`），第一项是默认语言，也可以用 `defaultLanguage` 指定；不能写 `site.language`。多语言网站的默认语言放在网站根目录，其他语言在 `/<语言>/` 下。
 
 ## 6. 和 AI 对话
 
@@ -134,6 +131,23 @@ AI 的改动先留在工作副本里，不会直接进入你的网站。对话�
 - **拒绝**：丢弃 AI 的修改，网站文件夹保持不变
 
 审核绑定你看到的那一份内容：你审核之后 AI 又改了，必须重新审核。正式版本在这期间有了新提交时，改动会先合并上去并请你重新审核；有冲突时改动集关闭，请让 AI 重新修改。
+
+### 添加图片和文件
+
+上传入口有三个：预览面板顶部（“刷新”按钮左侧）的“上传素材”会跳到改动面板并直接打开文件选择框；对话输入框的回形针按钮；改动面板的“上传素材”。也可以把文件拖到改动面板的上传区域。上传的图片和 PDF：
+
+- 支持 PNG、JPEG、GIF、WebP 和 PDF，单个文件不超过 10 MiB；不收 SVG、avif 和其他格式
+- 文件进入 AI 工作副本，和 AI 的修改一样要审核，应用前不会写进网站文件夹
+- 重名时选择“替换”或“跳过”
+- 带位置信息的 JPEG 上传后会显示提示；PNG、WebP、GIF、PDF 和 JPEG 扩展 XMP 不检测。不想公开位置时，先用相册或其他工具去掉位置信息，再上传替换
+
+引用写法：
+
+- 正文和 front matter 用接口/`site_info` 返回的 `url`，例如 `/blog/uploads/logo.png`；它会带上当前的 `site.baseUrl`
+- 主题模板用 `{{ site.base_url }}/uploads/<文件名>`；starter 主题也可以写 `{{ base_url }}/uploads/<文件名>`
+- 不要在正文里直接写 `/uploads/...`（子路径网站会变成坏图），也不要把已经带前缀的 `url` 再拼一次 base URL
+
+素材放在当前主题的 `static/uploads/` 里，所以换主题后旧主题的素材不再发布。改仓库名或自定义域名会改变 `site.baseUrl`，正文里已有的素材网址会失效，需要先批量替换。构建报告的警告会列出对不上的上传网址；发布前还会再检查一次，没改完时不会发布。
 
 ## 8. 版本历史和恢复
 
@@ -173,7 +187,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
      - **Windows**：DPAPI 只挡其他 Windows 用户，以及把文件拷到别的电脑；同一个用户运行的程序仍能解密。
      - **Linux**：钥匙串解锁后，同一个用户运行的程序都能读到。没有钥匙串服务时，BukitJalil 不保存 token 和密钥，设置页最上面会说明怎么处理。
      - **钥匙串里的密钥解不开时**（拒绝了访问、删了钥匙串项目、数据目录拷到了别的电脑），已保存的 token 和密钥暂时不能用；可以重新启动后在提示里点"允许"，或者在设置页最上面点"重置密钥"，再重新输入。
-     - 构建和发布时，token 通过标准输入交给 Bukit，不放进环境变量。只剩一处：发布推送时 Bukit 把 GitHub token 交给 git，git 运行的那段时间（几秒到几分钟，看网站大小）同一用户的程序能读到。所以发布账号最好用只给这个仓库 Contents 权限、设了过期时间的 fine-grained token。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密。
+     - 构建和发布时，token 通过标准输入交给 Bukit，不放进环境变量。发布推送时 GitHub token 也不进 git 的环境变量，由 Bukit 只给自己用的凭据代理直接交给 git。推送时不读你电脑上全局的 git 设置，需要代理时请设置 `HTTPS_PROXY` 环境变量；公司自签证书要装进系统证书库（macOS 是钥匙串）。发布账号仍建议用只给这个仓库 Contents 权限、设了过期时间的 fine-grained token。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密。
      - 用 `pnpm dev` 从源码运行时没有钥匙串，token 和密钥仍是权限 600 的明文文件，设置页会提示"开发模式"。
 4. 在网站主页的"发布"区点"部署设置"：选择发布账号，填写仓库（`owner/name`，例如 `alice/my-blog`），分支默认 `gh-pages`，有自定义域名再填。保存时会检查这个 token 对仓库是否有 Contents 写权限，并把 `deploy` 段、`site.url` 和 `site.baseUrl` 写进 `site.yaml`。没有自定义域名的项目站点，`site.baseUrl` 是 `/<仓库名>/`：之后的预览也会打开在这个路径下，和发布后的网址一致，模板或正文里漏写这个前缀的链接在预览里就会坏掉。`site.baseUrl` 只能用字母、数字和 `. _ ~ -`，以 `/` 分隔，否则预览构建会失败（结果为"site.baseUrl 不是可以用来预览的路径"）
 5. 在 GitHub 仓库的 Settings → Pages 里，把 Build and deployment 设为 Deploy from a branch，分支选 `gh-pages`（或你设置的分支）。第一次发布后这个分支才会出现
@@ -245,7 +259,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 
 ## 14. 目前的限制
 
-- 只支持 macOS（Apple 芯片）和 Linux x64，没有 Windows 版；桌面版只有 macOS（Apple 芯片），没有开发者签名和自动更新
+- 只支持 macOS（Apple 芯片）和 Linux x64，没有 Windows 版；桌面版只有 macOS（Apple 芯片），没有开发者签名，所以不能在应用内自动安装更新。左下角可以检查更新并下载安装包，下载后手动安装
 - 只能发布到 GitHub Pages；Cloudflare Pages 和自己的服务器以后再做
 - 不支持 Bukit 的外部插件，只允许内置插件
 - Notion 数据源需要每个数据源自己的 token，并且要在 Notion 中把数据库共享给对应 integration；不同 Notion 工作区的数据源可以分别配置，但一个网站只能选一个 Notion 数据源

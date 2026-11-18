@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fakeBukit } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { importSite, putSettings, removeImportedSites, siteFolder } from "./site-helpers.ts";
+import { importSite, noGitConfig, putSettings, removeImportedSites, siteFolder } from "./site-helpers.ts";
 
 // M6 (plan 14): the Publish section reads the target from site.yaml, the saved publishing account is picked
 // in the deploy settings, and publishing asks for confirmation before running its steps and keeping a record.
@@ -24,16 +24,19 @@ test.afterAll(async ({ browser, server }) => {
   await putSettings(page, { commitName: null, commitEmail: null });
   await page.close();
   removeImportedSites();
+  // The app's Bukit link points at the stand-in in `work`; the spec files that run next on this server need one.
+  server.resetBukit();
   fs.rmSync(work, { recursive: true, force: true });
 });
 
 const git = (dir: string, ...args: string[]) =>
   execFileSync("git", ["-c", "user.name=E2E", "-c", "user.email=e2e@example.com", ...args], {
     cwd: dir,
-    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" },
+    env: { ...process.env, GIT_CONFIG_GLOBAL: noGitConfig(), GIT_CONFIG_NOSYSTEM: "1" },
   });
 
 test("the deploy settings save the account and repository, then publishing uses them", async ({ page, server }) => {
+  test.skip(process.platform === "win32", "the stand-in Bukit is a shell script");
   await page.goto(await server.loginUrl());
   server.setBukit(bukitBin);
   await page.evaluate(() => fetch("/api/bukit?refresh=1"));

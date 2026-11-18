@@ -2,13 +2,14 @@
 # directly in it, so this note is YAML and no Markdown file may live here.
 bukit:
   source: https://github.com/ALi365-SDN-BHD/Bukit
-  tag: v2.1.0
-  commit: e7651fb184ef5d1ae764cd85a879f29894abd7b1
+  tag: v2.2.6
+  commit: 8268d40ebe1c2088c1b0221a3165bcb182de28f4
   path: guide/skills
   included:
     [using-bukit, bukit-cli-reference, bukit-config, bukit-content, bukit-content-model, bukit-routing,
      bukit-templating, bukit-theme, bukit-i18n, bukit-build, bukit-outputs, bukit-seo, bukit-seo-insights,
      bukit-geo, bukit-analytics, bukit-local-server, bukit-publish-deploy, bukit-troubleshooting]
+  # v2.2.5 -> v2.2.6: guide/skills is byte-identical (same tree), so nothing below changed.
   changes:
     - a note after the front matter of each skill mapping commands to BukitJalil's tools
     - using-bukit - Labs skill wording removed, checks and schema mapped to BukitJalil's tools

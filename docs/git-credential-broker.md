@@ -1,6 +1,6 @@
 # 发布时 GitHub token 不进 git 环境变量：实施方案
 
-> 日期：2026-11-15 · 状态：Q1–Q7 已定（2026-11-15，按建议），Bukit 已开工 · 对应：[开发方案](development-plan.md) 6.7（运行中的进程）、8.5（token 走 stdin）
+> 日期：2026-11-15 · 状态：**已完成**：Bukit 2.2.3 发布了凭据代理（版本号最后用的是 2.2.3，不是 Q6 写的 2.3.0），BukitJalil 已把内置 Bukit 升到 2.2.3，第 5 层的文档已同步（2026-11-15）；Q1–Q7 已定 · 对应：[开发方案](development-plan.md) 6.7（运行中的进程）、8.5（token 走 stdin）
 >
 > 源码按 Bukit `v2.2.2`（`c1f341b1`）和 BukitJalil `pi-harness-ui` 核对。行号会随提交漂移，实施时以符号名为准，文中行号都是"约"。
 >
@@ -100,13 +100,13 @@ Bukit deploy（token 只在内存里）
 ### 3.2 helper 子命令 `__git-credential`
 
 - **形式**：Bukit 新增隐藏子命令 `bukit __git-credential <socket 路径或管道名> <get|store|erase>`，不出现在 `--help` 里。用 Bukit 自己的可执行文件，三个平台写法一致，不依赖 `sh` 或 PowerShell，也兼容 native AOT。
-- **git 怎么调用**：`credential.helper` 的值按 git 的规则解析，开头不是 `!` 的绝对路径会当作命令执行，后面追加 `get` / `store` / `erase`。Bukit 生成的值是：
+- **git 怎么调用**：`credential.helper` 的值按 git 的规则解析：开头是 `!` 的值整段交给 shell；不以 `!` 开头、也不是绝对路径的值会被当成 `git credential-<值>`。带引号的路径不算绝对路径，所以必须用 `!` 形式（实现时实测）。Bukit 生成的值是：
 
   ```
-  "<Environment.ProcessPath>" __git-credential "<socket>"
+  !'<Environment.ProcessPath>' ['<bukit.dll>'] __git-credential '<socket>'
   ```
 
-  路径要按 git 的 shell 引号规则转义（空格、引号、Windows 反斜杠），见 3.6 和风险表。git 的 `credential.c` 用 `use_shell = 1`，命令是 `<值> get`，所以 Unix 上**一定经过 `sh -c`**；但 `/bin/sh` 对最后一条简单命令通常直接 `exec`，不留下独立的 sh 进程（本机实测 `sh -c 'sleep 1'` 后台只有 `sleep`）。所以进程链可能有 sh，也可能没有，3.4 两种都接受。
+  每个路径用 POSIX 单引号包起来，路径里的 `'` 写成 `'\''`；单引号里反斜杠、空格、`$` 都按字面处理，Windows 的 MSYS sh 也一样。见 3.6 和风险表。git 的 `credential.c` 用 `use_shell = 1`，命令是 `<值> get`，所以 Unix 上**一定经过 `sh -c`**；但 `/bin/sh` 对最后一条简单命令通常直接 `exec`，不留下独立的 sh 进程（本机实测 `sh -c 'sleep 1'` 后台只有 `sleep`）。所以进程链可能有 sh，也可能没有，3.4 两种都接受。
 - **dll 运行时**：`Environment.ProcessPath` 可能是 `dotnet`（从 dll 运行）或为 null。helper 命令值相应写成 `"<dotnet>" "<bukit.dll>" __git-credential …`；ProcessPath 为 null 时部署直接报错，不回退到 askpass。3.4 的可执行文件核对此时要同时核对对方是 `dotnet` 且 argv 里的 dll 是同一个 `bukit.dll`（realpath 后比较），不能只认 `dotnet`。
 - **分派位置**：`__git-credential` 在 `Program.Main` 最开头、任何配置加载、日志、遥测、横幅输出之前分派；stdout 只写协议行。
 - **AOT**：`Bukit.Cli` 是 `PublishAot=true`，helper 和 broker 的 JSON 用 source-generated `JsonSerializerContext`，不用反射。
@@ -364,7 +364,7 @@ Unix 上中间可能有一层 sh，也可能没有（3.2）。Windows 上更深�
 
 ### 第 5 层：BukitJalil 升级 Bukit（约 0.5 天）
 
-1. `BUKIT_VERSION` 和 `MIN_BUKIT_VERSION` 都升到 2.3.0，更新三个安装包的 SHA-256（下载安装包前按规则征得用户同意）。
+1. `BUKIT_VERSION` 和 `MIN_BUKIT_VERSION` 都升到 2.3.0，更新五个安装包的 SHA-256（下载安装包前按规则征得用户同意）。
 2. 跑测试 14；同步 Bukit 技能（如有变化）。
 3. 文档：开发方案 6.7"运行中的进程"（现在写的是"继承的管道交给 credential helper"，改成本方案的 socket）、8.5 第 5 条和安全表里的"剩下的缺口"改为已解决；用户手册的安全说明同步；版本号加一条修订记录。
 4. 提交、推送；重新打包客户端。
@@ -389,3 +389,4 @@ Bukit 约 4–5 天（含 Windows、认证测试夹具和审计），BukitJalil 
 | token 出现在 git 的报错输出里 | 泄露到日志和报告 | `SanitizeError` 照旧；集成测试断言报错里没有 token |
 | broker 后台任务没停，进程退出慢 | 部署结束后 Bukit 卡住 | 停止时取消监听并等待最多 1 秒；测试 11 覆盖 |
 | 改动 askpass 后，旧的部署报错文字变了 | BukitJalil 认不出部署失败原因 | 测试 14；只新增错误，不改已有错误的文字 |
+| Windows 取进程身份分两步：用句柄取启动时间，用快照取父 pid；两步之间原进程退出且 pid 被复用 | 拼出混合身份 | 接受（2026-11-15 定）：窗口是微秒级，Windows 不会立即复用 pid，链上每层都要求父进程启动不晚于子进程，混合身份几乎总被拒绝，而且还要冒充 `git-remote-https` 或 bukit 才有用；竞态难以稳定测试，不为它加代码 |

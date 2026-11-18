@@ -69,7 +69,7 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 - 审核卡和改动面板突出 Notion 配置的变化（新增、删除、换 `databaseId`、改了哪些键）。
 - BukitJalil 自己调 Notion 时按 401/403/404/429 翻译报错；构建、发布失败时从 Bukit 输出（含 `doctor`）认出 Notion 报错，在结果里给出处理办法。现在按 Bukit 2.2.0 起的 `BKT-0Bxx` 码认（见下面的错误码）。
 
-**错误码**（已完成，Bukit 2.2.0 起）：Notion 报错和快照报错按 Bukit 的 `BKT-0Bxx` 码识别（`bukit/notion-errors.ts` 的码表），去掉了文字匹配；快照只校验格式版本。方案和码表见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)。内置 Bukit 现在是 2.2.2，升级时要核对码表有没有变化。
+**错误码**（已完成，Bukit 2.2.0 起）：Notion 报错和快照报错按 Bukit 的 `BKT-0Bxx` 码识别（`bukit/notion-errors.ts` 的码表），去掉了文字匹配；快照只校验格式版本。方案和码表见 [docs/notion-error-codes-and-snapshot-version.md](docs/notion-error-codes-and-snapshot-version.md)。内置 Bukit 现在是 2.2.6（2.2.3 起带 `--notion-pin`，码表加了 0B18、0B19；2.2.4–2.2.6 码表没有变化），升级时要核对码表有没有变化。
 
 **Bukit 的限制**（源码 v2.0.15 核对）：
 
@@ -91,4 +91,41 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 - 每个网站只保留最新一份，正式构建成功后才整个替换；预览写明数据来自哪次正式构建。
 - 快照只校验格式版本（`FormatVersion`），不要求 Bukit 版本一致，否则每次升级 BukitJalil 所有快照都失效（2026-11-14 定）。Bukit 的测试里放一份固定的 `format=1` 快照，离线构建结果必须不变；改了快照数据的意思或换了 Notion API 版本就升 `FormatVersion`。
 - 顺便让 Bukit 输出每个源的页数，数据面板再接上。
-- BukitJalil 自带的 Bukit 版本（`BUKIT_VERSION` 和三个安装包的 SHA-256）要跟着升，随新版 BukitJalil 发布；Bukit 不能由用户单独升级。
+- BukitJalil 自带的 Bukit 版本（`BUKIT_VERSION` 和五个安装包的 SHA-256）要跟着升，随新版 BukitJalil 发布；Bukit 不能由用户单独升级。
+
+### 6. 素材上传（已实现）
+
+设计见 [docs/plans/2026-11-12-media-upload-design.md](docs/plans/2026-11-12-media-upload-design.md)（v4.1）。2026-11-16 已实现并合并到 `pi-harness-ui`（`8d7f4f3`），验收见 [docs/acceptance/media-upload.md](docs/acceptance/media-upload.md)。下面三项是 2026-11-16 从中移出的，不随它实施。
+
+### 7. 改动集作者和说明的规则（已完成）
+
+2026-11-16 已完成，规则见开发方案 7.2：
+
+- **作者**：`apply` 和 `applyPartial` 都按 `!aiJoined` 判断用户作者（`ChangeService.authorOf`），对话被删除后 AI 参与过的改动集仍记 AI 作者。
+- **说明**：恢复、插件开关写的说明存在 `user_summary`，和 AI 的说明分开。对话加入后，提交说明第一行仍是用户说明，下面补 AI 的说明；AI 没写时补 `AI changes: …`，列出 AI 改过的文件（快照时记录，插件开关和上传不算 AI 的）。
+
+### 8. 全局请求体上限（不做）
+
+`/api` 没有全局请求体上限。2026-11-16 定：不加。BukitJalil 是本机客户端，`/api` 只监听 127.0.0.1，还有一次性登录链接、精确 Origin 和自定义请求头挡住别的网页，请求只来自用户自己的界面。素材上传路由保留自己的 14 MiB 上限。
+
+### 9. 上传网址的发布前检查（已完成）
+
+改 `site.baseUrl` 后，正文里写死的旧上传网址会失效，构建不报错。2026-11-16 已实现（素材上传设计 v4.2 的 4.9）：
+
+- 构建成功后扫描输出 HTML 的 `src`、`href`、`srcset`；引用必须按路径段带当前 `baseUrl`，去掉后是输出里大小写一致的普通文件，否则在构建报告的警告里列出页面和网址，不阻断预览。
+- 发布在 `publish audit` 之前做同一个检查；有问题时以新的 `DeployOutcome` `upload_prefix` 结束，`detail` 列出页面和网址，不进入 `deploy`。
+- 文件本身不在 `uploads/` 集合里的引用不查；绝对、协议相对、相对和 `data:` 不查。
+
+### 10. 应用更新（已完成，仅手动安装）
+
+2026-11-16 已实现：左下角版本后面有“更新”按钮；检查 GitHub Releases，用户点“下载安装包”后后台下载并校验 SHA-256，完成后打开对应平台的安装程序（macOS dmg、Windows exe、Linux AppImage 或 deb；Linux 按 `APPIMAGE` 选格式）。Linux AppImage 会替换运行中的文件并重启；deb 用系统安装器；Windows 在平台支持前隐藏更新按钮。没有 Developer ID 时 macOS 不能应用内安装，所以没有使用 Squirrel.Mac；以后签名后再换成 `electron-updater`。版本号改为根 `package.json` 唯一来源，发布标签必须和它一致。设计见 [docs/plans/2026-11-16-auto-update-design.md](docs/plans/2026-11-16-auto-update-design.md)。
+
+**阶段和已知风险**（2026-11-16）：开发/测试阶段，只在测试环境使用。更新包和 `SHA256SUMS.txt` 来自同一个 GitHub Release，没有独立签名；发布账号或 CI 的写权限被攻破时，能让客户端下载并打开恶意安装包。对外发布前必须先选一个方案：删掉应用内下载/打开、只打开 Release 页面；或加 Ed25519 签名清单，私钥离线保存。详见设计文档第 10 节。
+
+### 11. 预览里的搜索（已在 Bukit 2.2.6 上验证）
+
+2026-11-16 已在 Bukit 仓库的分支 `codex/add-search-index-script` 提交脚本形式的搜索索引（每个 `search.json` 旁边写 `search.json.js`；内置搜索先 `fetch`，被 CSP 拦下时改用同源 `<script>`），已推送并开了 PR #196，尚未合并发布。2026-11-16 Bukit 2.2.6 发布了这项改动（PR #196），内置版本已升到 2.2.6。升级前预览里的搜索不可用：starter 的搜索页点了没有结果也没有提示，内置 `bukit-search.html` 显示 "Search is unavailable"；发布后的网站正常（没有预览那条 CSP）。2026-11-16 用 Bukit 2.2.6 构建的 `bukit-search.html`，在带预览 CSP（`connect-src 'none'`）的服务里，Chromium、Firefox、WebKit 三种浏览器都能搜到结果、没有页面错误；索引走 `search.json.js` 的 `<script>` 回退。已经生成到主题里的搜索页不会自动获得回退，主题作者要复制新生成的 `themes/starter/layouts/pages/search.html` 里整段 `<script>`。
+
+### 12. Windows 移植（已估算，未开工）
+
+2026-11-18 估算，两轮实测和测试修复后修订为约 4–6 个工作日，阻塞项、实测结果、顺序和验收见开发方案 14 里"M7 之后：Windows 移植估算"。现状：Windows 仍是预览，CI 不阻塞，应用内更新按钮隐藏；打包后的桌面版在 Windows runner 上已通过冒烟测试。第 0 项已完成；最大的单一问题是仓库没有 `.gitattributes`（Windows 检出变 CRLF，占单元测试失败的 206/252），已加上，测试也修好了：Windows 上单元测试 538 通过、132 跳过、0 失败，e2e 43 通过、0 失败（跳过的主要是依赖 shell 脚本替身 Bukit 的用例）。环境变量、Bukit 的 `PATH`、`rg` 的 Windows 包、`O_NOFOLLOW` 的 `lstat` 检查、Windows 上的更新按钮，代码都已写完（2026-11-18），待 Windows 实机验证。还剩：把 Windows CI 改成必须通过，以及补一套用真 Bukit 的测试，见开发方案第 5、10 项。另外，Linux 没有钥匙串时不保存 token 和密钥，要覆盖这类用户需要另做"应用主密码"，约 2–3 天，没有排期。

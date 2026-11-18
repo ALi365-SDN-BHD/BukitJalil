@@ -1,0 +1,31 @@
+{% layout "layouts/base.html" %}
+
+<section class="hero">
+  <h1>{{ site.title | html.escape }}</h1>
+  {{ if site.description }}
+    <p>{{ site.description | html.escape }}</p>
+  {{ end }}
+</section>
+
+{{ if site.modules && site.modules.features }}
+  <section class="home-section">
+    <h2 class="section-heading">{{ site.params.labels.featured | object.default "Featured" | html.escape }}</h2>
+    <ul class="card-list">
+      {{ for feature in site.modules.features }}
+        <li class="card">
+          <h2 class="card-title">{{ feature.title | html.escape }}</h2>
+          {{ if feature.fields && feature.fields.desc }}<p class="summary">{{ feature.fields.desc.value | html.escape }}</p>{{ end }}
+        </li>
+      {{ end }}
+    </ul>
+  </section>
+{{ end }}
+
+<section class="home-section">
+  <h2 class="section-heading">{{ site.params.latest_heading | object.default "Latest posts" | html.escape }}</h2>
+  <ul class="card-list">
+  {{ for item in items }}
+    {{ include "partials/list-card.html" }}
+  {{ end }}
+  </ul>
+</section>

@@ -111,6 +111,15 @@ describe("admin port security (plan 11)", () => {
     expect(body.git).toEqual({ ok: true, version: "2.45.0", problem: null });
   });
 
+  it("GET /api/update reports the current version", async () => {
+    const { app } = makeApp();
+    const res = await app.request(req("/api/update"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { currentVersion: string; state: { phase: string } };
+    expect(body.currentVersion).toBe("0.1.0-beta.4");
+    expect(body.state.phase).toBe("idle");
+  });
+
   describe("non-GET requests (cross-site request defenses)", () => {
     const cases: [string, Record<string, string>, string][] = [
       ["missing Origin", { origin: "" }, "request.bad_origin"],

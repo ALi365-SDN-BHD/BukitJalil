@@ -343,6 +343,10 @@ export function notionNoteText(n: NotionNote): string {
   const parts = [
     `Notion content comes from the formal build at ${n.builtAt} (commit ${n.commit.slice(0, 7)}): no token is used and nothing is fetched, so Notion edits made since then do not show.`,
   ];
+  if (n.pinned)
+    parts.push(
+      "The change edits Notion field or filter settings: they follow the formal version and take effect only after the change is applied and built.",
+    );
   if (n.queryChanged) parts.push("The Notion filter or sort changed: the pages are the ones the formal build queried.");
   if (n.rendererMismatch)
     parts.push("Some page bodies were rendered by an older Bukit; a formal build renders them again.");

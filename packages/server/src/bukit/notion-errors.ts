@@ -18,13 +18,19 @@ const NOTION_CODES: Record<string, NotionProblem> = {
   "BKT-0B08": "request_failed",
 };
 
-/** Snapshot codes by the change the user sees: 0B10/0B14 are stale, 0B11–0B13 are caused by the change. */
+/**
+ * Snapshot codes by the change the user sees: 0B10/0B14 are stale, 0B11–0B13 are caused by the change.
+ * The pin (Bukit 2.3.0): an unreadable pin file (0B18) is recorded again; a Notion source the formal build
+ * did not have (0B19) comes from the change.
+ */
 const SNAPSHOT_CODES: Record<string, NotionSnapshotProblem> = {
   "BKT-0B10": "stale",
   "BKT-0B11": "change",
   "BKT-0B12": "change",
   "BKT-0B13": "change",
   "BKT-0B14": "stale",
+  "BKT-0B18": "stale",
+  "BKT-0B19": "change",
 };
 
 const CODE = /^BKT-0B[0-9A-F]{2}$/;
@@ -56,8 +62,8 @@ export function notionProblemIn(stderr: string, output: string = stderr): Notion
 
 /**
  * An offline build that could not use the Notion snapshot (plan 5.5). 0B10/0B14 are `stale` (record the
- * snapshot again); 0B11–0B13 are `change` (the change needs data the formal build did not read); 0B15–0B17
- * are not classified and stay in Bukit's original error.
+ * snapshot again); 0B11–0B13 and 0B19 are `change` (the change needs data the formal build did not read);
+ * 0B15–0B17 are not classified and stay in Bukit's original error.
  */
 export function notionSnapshotProblemIn(stderr: string, output: string = stderr): NotionSnapshotProblem | null {
   for (const code of codesIn(stderr, output)) {

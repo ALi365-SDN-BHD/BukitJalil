@@ -1,4 +1,5 @@
 import { MIN_GIT_VERSION } from "@bukitjalil/shared";
+import { systemEnv } from "../child-env.ts";
 import { runProbe } from "../probe.ts";
 
 export interface GitHealth {
@@ -30,6 +31,7 @@ export function parseGitVersion(output: string): string | null {
  */
 export async function checkGit(gitPath = "git", envPath = process.env.PATH ?? "/usr/bin:/bin"): Promise<GitHealth> {
   const result = await runProbe(gitPath, ["--version"], {
+    ...systemEnv(),
     PATH: envPath,
     LANG: "C",
     GIT_CONFIG_NOSYSTEM: "1",

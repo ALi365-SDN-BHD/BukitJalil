@@ -31,7 +31,7 @@ import { BukitService, devBukitDir, locateBukit, removeOldAppCopies, versionStat
 import { BukitRunner, buildOutcome, checkPassed, parseBukitVersion, secretsInput } from "../src/bukit/runner.ts";
 import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { ensureAppHome, resolveResources } from "../src/paths.ts";
-import { commitAllAs, installAppBukit, makeApp, rawGit, req, testBukitDir } from "./helpers.ts";
+import { commitAllAs, expectMode, installAppBukit, makeApp, rawGit, req, testBukitDir } from "./helpers.ts";
 import { tarEntry, tgz } from "./tar.ts";
 
 // Optional real-Bukit inputs: BUKIT_TARBALL (the official package for this platform) and BUKIT_BIN.
@@ -195,6 +195,13 @@ taxonomy:
     expect(codes("site: [\n")[0]).toMatch(/^invalid_site_yaml/);
     expect(codes("build: { output: dist }\nbuild: { output: /etc }\n")[0]).toMatch(/^invalid_site_yaml/);
     expect(codes("- a\n")[0]).toMatch(/^invalid_site_yaml/);
+    // Bukit 2.2.6 refuses a second document too; a file that ends with "..." is still one document.
+    expect(checkSiteConfig("site:\n  title: x\n...\n").reasons).toEqual([]);
+    for (const text of ["site:\n  title: x\n...\ndeploy:\n  repo: a/b\n", "site:\n  title: x\n---\nsite: {}\n"]) {
+      expect(checkSiteConfig(text).reasons).toEqual([
+        { code: "invalid_site_yaml", detail: expect.stringContaining("Bukit accepts only one") },
+      ]);
+    }
   });
 
   it("detects Notion sources", () => {
@@ -336,7 +343,7 @@ describe("guardCommit", () => {
 // --- runner ---
 
 describe("BukitRunner", () => {
-  it("runs with a minimal environment and git hardening", async () => {
+  it.skipIf(process.platform === "win32")("runs with a minimal environment and git hardening", async () => {
     process.env.BJ_TEST_SECRET = "leak";
     try {
       const bin = fakeBukit("env-bukit", 'env; echo "args:$*"; echo "stdin:$(cat)"; exit 3');
@@ -365,7 +372,7 @@ describe("BukitRunner", () => {
     }
   });
 
-  it("stops on timeout with SIGINT first", async () => {
+  it.skipIf(process.platform === "win32")("stops on timeout with SIGINT first", async () => {
     const bin = fakeBukit("slow-bukit", "trap 'echo got-int; exit 130' INT\nwhile true; do sleep 0.05; done");
     const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
     // Long enough for the shell to set its trap even on a busy machine (300 ms was not under a full run).
@@ -376,53 +383,61 @@ describe("BukitRunner", () => {
     expect(buildOutcome(result)).toBe("stopped");
   });
 
-  it("puts only git on the private PATH and accepts only known secrets", async () => {
-    const bin = fakeBukit("path-bukit", 'echo "PATH=$PATH"; echo "X=$EVIL"; command -v git; ls "${PATH%%:*}"');
-    const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
-    const fs2 = path.join(runner.binDir, "stray");
-    fs.mkdirSync(runner.binDir, { recursive: true });
-    fs.writeFileSync(fs2, "x");
-    const secrets = { NOTION_TOKEN: "n", PATH: "/opt/evil", EVIL: "1" } as unknown as { NOTION_TOKEN: string };
-    const result = await runner.run("build", [], { cwd: base, env: secrets });
-    const lines = result.stdout.trim().split("\n");
-    expect(lines[0]).toBe(`PATH=${runner.binDir}:/usr/bin:/bin`);
-    expect(lines[1]).toBe("X=");
-    expect(lines[2]).toBe(path.join(runner.binDir, "git"));
-    expect(lines.slice(3)).toEqual(["git"]);
-    expect(fs.readlinkSync(path.join(runner.binDir, "git"))).toBe(gitPath);
-    expect(runner.env().NOTION_TOKEN).toBeUndefined();
-  });
+  it.skipIf(process.platform === "win32")(
+    "puts only git on the private PATH and accepts only known secrets",
+    async () => {
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion
+      const bin = fakeBukit("path-bukit", 'echo "PATH=$PATH"; echo "X=$EVIL"; command -v git; ls "${PATH%%:*}"');
+      const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
+      const fs2 = path.join(runner.binDir, "stray");
+      fs.mkdirSync(runner.binDir, { recursive: true });
+      fs.writeFileSync(fs2, "x");
+      const secrets = { NOTION_TOKEN: "n", PATH: "/opt/evil", EVIL: "1" } as unknown as { NOTION_TOKEN: string };
+      const result = await runner.run("build", [], { cwd: base, env: secrets });
+      const lines = result.stdout.trim().split("\n");
+      expect(lines[0]).toBe(`PATH=${runner.binDir}:/usr/bin:/bin`);
+      expect(lines[1]).toBe("X=");
+      expect(lines[2]).toBe(path.join(runner.binDir, "git"));
+      expect(lines.slice(3)).toEqual(["git"]);
+      expect(fs.readlinkSync(path.join(runner.binDir, "git"))).toBe(gitPath);
+      expect(runner.env().NOTION_TOKEN).toBeUndefined();
+    },
+  );
 
-  it("passes the deploy token on stdin only, and no stdin or flag without secrets", async () => {
-    const bin = fakeBukit("stdin-bukit", 'echo "args:$*"; echo "tok=${BUKIT_DEPLOY_TOKEN:-}"; echo "stdin:$(cat)"');
-    const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
-    const deploy = { token: "gh-token-123456", name: "A", email: "a@example.test" };
-    const pushed = await runner.run("deploy", ["deploy"], {
-      cwd: base,
-      deploy,
-      env: { NOTION_TOKEN: "notion-123456" },
-    });
-    expect(pushed.stdout).toContain("args:deploy --secrets-stdin");
-    expect(pushed.stdout).toContain("tok=\n");
-    // Both values are masked in the captured output.
-    expect(pushed.stdout).toContain('stdin:{"NOTION_TOKEN":"[token]","BUKIT_DEPLOY_TOKEN":"[token]"}');
-    const plain = await runner.run("build", ["build"], { cwd: base, env: { NOTION_TOKEN: "" } });
-    expect(plain.stdout).toBe("args:build\ntok=\nstdin:\n");
-    // The deploy token is only for deploy, and secrets only for the commands that take --secrets-stdin.
-    expect(secretsInput("build", { deploy })).toEqual({});
-    await expect(
-      runner.run("publish", ["publish"], { cwd: base, env: { NOTION_TOKEN: "notion-123456" } }),
-    ).rejects.toThrow("does not take secrets");
-  });
+  it.skipIf(process.platform === "win32")(
+    "passes the deploy token on stdin only, and no stdin or flag without secrets",
+    async () => {
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion
+      const bin = fakeBukit("stdin-bukit", 'echo "args:$*"; echo "tok=${BUKIT_DEPLOY_TOKEN:-}"; echo "stdin:$(cat)"');
+      const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
+      const deploy = { token: "gh-token-123456", name: "A", email: "a@example.test" };
+      const pushed = await runner.run("deploy", ["deploy"], {
+        cwd: base,
+        deploy,
+        env: { NOTION_TOKEN: "notion-123456" },
+      });
+      expect(pushed.stdout).toContain("args:deploy --secrets-stdin");
+      expect(pushed.stdout).toContain("tok=\n");
+      // Both values are masked in the captured output.
+      expect(pushed.stdout).toContain('stdin:{"NOTION_TOKEN":"[token]","BUKIT_DEPLOY_TOKEN":"[token]"}');
+      const plain = await runner.run("build", ["build"], { cwd: base, env: { NOTION_TOKEN: "" } });
+      expect(plain.stdout).toBe("args:build\ntok=\nstdin:\n");
+      // The deploy token is only for deploy, and secrets only for the commands that take --secrets-stdin.
+      expect(secretsInput("build", { deploy })).toEqual({});
+      await expect(
+        runner.run("publish", ["publish"], { cwd: base, env: { NOTION_TOKEN: "notion-123456" } }),
+      ).rejects.toThrow("does not take secrets");
+    },
+  );
 
-  it("keeps multibyte characters split across output chunks", async () => {
+  it.skipIf(process.platform === "win32")("keeps multibyte characters split across output chunks", async () => {
     // "构建" is e6 9e 84 e5 bb ba; the pause splits the first character between two reads.
     const bin = fakeBukit("utf8-bukit", "printf '\\346\\236'; sleep 0.2; printf '\\204\\345\\273\\272\\n' >&1");
     const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
     expect((await runner.run("build", [], { cwd: base })).stdout).toBe("构建\n");
   });
 
-  it("stops on abort", async () => {
+  it.skipIf(process.platform === "win32")("stops on abort", async () => {
     const bin = fakeBukit("abort-bukit", "trap 'exit 130' INT\nwhile true; do sleep 0.05; done");
     const runner = new BukitRunner({ bukitPath: bin, git, home: appHome, tmpDir });
     const ac = new AbortController();
@@ -520,7 +535,7 @@ describe("readStrictTarGz", () => {
     expect(() => readStrictTarGz(zlib.gzipSync(truncated), FILES)).toThrow(InstallError);
   });
 
-  it.skipIf(!REAL_TARBALL)("reads the official package", () => {
+  it.skipIf(!REAL_TARBALL || process.platform === "win32")("reads the official package", () => {
     const data = fs.readFileSync(REAL_TARBALL as string);
     const pkg = packageForPlatform();
     if (!pkg) return;
@@ -542,8 +557,8 @@ describe("install steps", () => {
     fs.writeFileSync(path.join(target, "stale"), "old");
     installFiles(readStrictTarGz(tgz(...good()), FILES), target, "bukit");
     expect(fs.readdirSync(target).sort()).toEqual(FILES);
-    expect(fs.statSync(path.join(target, "bukit")).mode & 0o777).toBe(0o755);
-    expect(fs.statSync(path.join(target, "libSkiaSharp.dylib")).mode & 0o777).toBe(0o644);
+    expectMode(path.join(target, "bukit"), 0o755);
+    expectMode(path.join(target, "libSkiaSharp.dylib"), 0o644);
     expect(fs.readdirSync(path.dirname(target)).filter((n) => n.startsWith(".staging"))).toEqual([]);
   });
 
@@ -606,22 +621,25 @@ describe("fetchBukit (packaging, plan 8.1)", () => {
     );
   const serve = (data: Buffer) => (async () => new Response(data)) as typeof fetch;
 
-  it("installs a checked package readable by everyone and keeps the package when asked", async () => {
-    const dir = path.join(base, "fetch-ok");
-    const data = fakePackage("2.0.15");
-    const { bin, tarball } = await fetchBukit({
-      dir,
-      pkg: pkgOf(data),
-      url: "https://example.invalid/p",
-      version: "2.0.15",
-      keepPackage: true,
-      fetchImpl: serve(data),
-    });
-    expect(bin).toBe(path.join(dir, "bukit-2.0.15", "bukit"));
-    expect(fs.statSync(path.dirname(bin)).mode & 0o777).toBe(0o755);
-    expect(fs.statSync(bin).mode & 0o777).toBe(0o755);
-    expect(tarball && fs.readFileSync(tarball).equals(data)).toBe(true);
-  });
+  it.skipIf(process.platform === "win32")(
+    "installs a checked package readable by everyone and keeps the package when asked",
+    async () => {
+      const dir = path.join(base, "fetch-ok");
+      const data = fakePackage("2.0.15");
+      const { bin, tarball } = await fetchBukit({
+        dir,
+        pkg: pkgOf(data),
+        url: "https://example.invalid/p",
+        version: "2.0.15",
+        keepPackage: true,
+        fetchImpl: serve(data),
+      });
+      expect(bin).toBe(path.join(dir, "bukit-2.0.15", "bukit"));
+      expectMode(path.dirname(bin), 0o755);
+      expectMode(bin, 0o755);
+      expect(tarball && fs.readFileSync(tarball).equals(data)).toBe(true);
+    },
+  );
 
   it("installs nothing when the checksum does not match", async () => {
     const dir = path.join(base, "fetch-sum");
@@ -649,6 +667,13 @@ describe("fetchBukit (packaging, plan 8.1)", () => {
   });
 
   it("pins a SHA-256 for every official package", () => {
+    expect(Object.keys(PACKAGES).sort()).toEqual([
+      "darwin-arm64",
+      "darwin-x64",
+      "linux-arm64",
+      "linux-x64",
+      "win32-x64",
+    ]);
     for (const pkg of Object.values(PACKAGES)) {
       expect(pkg.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(pkg.file).toContain(BUKIT_VERSION);
@@ -715,10 +740,13 @@ describe("locateBukit", () => {
     });
   });
 
-  it("grades the bundled copy's version", async () => {
+  it.skipIf(process.platform === "win32")("grades the bundled copy's version", async () => {
     for (const [ver, state] of [
-      ["2.2.2", "ok"],
-      ["2.2.3", "ok"],
+      ["2.2.6", "ok"],
+      ["2.2.5", "old"],
+      ["2.2.4", "old"],
+      ["2.2.3", "old"],
+      ["2.2.2", "old"],
       ["2.2.1", "old"],
       ["2.2.0", "old"],
       ["2.1.3", "old"],
@@ -740,24 +768,24 @@ describe("locateBukit", () => {
     expect(versionState("2.0.10")).toBe("old");
   });
 
-  it("does not cache a failed lookup", async () => {
+  it.skipIf(process.platform === "win32")("does not cache a failed lookup", async () => {
     const dir = path.join(base, "cachedir");
-    installFakeBukit(dir, 'echo "bukit 2.2.2"');
+    installFakeBukit(dir, 'echo "bukit 2.2.6"');
     const badTmp = path.join(base, "tmp-is-a-file");
     fs.writeFileSync(badTmp, "");
     const service = new BukitService({ dir, tmpDir: badTmp });
     await expect(service.status()).rejects.toThrow();
     fs.rmSync(badTmp);
-    expect(await service.status()).toMatchObject({ state: "ok", version: "2.2.2" });
+    expect(await service.status()).toMatchObject({ state: "ok", version: "2.2.6" });
   });
 
-  it("reports a found but broken bukit", async () => {
+  it.skipIf(process.platform === "win32")("reports a found but broken bukit", async () => {
     const dir = path.join(base, "brokendir");
     installFakeBukit(dir, "exit 2");
     expect(await locateBukit({ dir, tmpDir })).toMatchObject({ state: "broken", version: null });
   });
 
-  it.skipIf(!REAL_BIN)("runs the real bukit version", async () => {
+  it.skipIf(!REAL_BIN || process.platform === "win32")("runs the real bukit version", async () => {
     const home = path.join(base, "real-app-home");
     installAppBukit(home, REAL_BIN as string);
     expect(await locateBukit({ dir: testBukitDir(home), tmpDir })).toMatchObject({
@@ -768,19 +796,22 @@ describe("locateBukit", () => {
 });
 
 describe("bundled Bukit location (plan 8.1)", () => {
-  it("is the resources folder's bukit/ when packaged, vendor/bukit-<version>/ in the repository", () => {
-    expect(resolveResources("/repo", {}).bukit).toBe(path.join("/repo", "vendor", `bukit-${BUKIT_VERSION}`));
-    expect(devBukitDir("/repo")).toBe(path.join("/repo", "vendor", `bukit-${BUKIT_VERSION}`));
-    expect(resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app" }).bukit).toBe(
-      path.join("/App/Resources/app", "bukit"),
-    );
-    // The override is for tests and CI; the packaged app always uses its own copy.
-    expect(resolveResources("/repo", { BUKITJALIL_BUKIT_DIR: "/ci/bukit" }).bukit).toBe(path.resolve("/ci/bukit"));
-    expect(
-      resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app", BUKITJALIL_BUKIT_DIR: "/ci/bukit" })
-        .bukit,
-    ).toBe(path.join("/App/Resources/app", "bukit"));
-  });
+  it.skipIf(process.platform === "win32")(
+    "is the resources folder's bukit/ when packaged, vendor/bukit-<version>/ in the repository",
+    () => {
+      expect(resolveResources("/repo", {}).bukit).toBe(path.join("/repo", "vendor", `bukit-${BUKIT_VERSION}`));
+      expect(devBukitDir("/repo")).toBe(path.join("/repo", "vendor", `bukit-${BUKIT_VERSION}`));
+      expect(resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app" }).bukit).toBe(
+        path.join("/App/Resources/app", "bukit"),
+      );
+      // The override is for tests and CI; the packaged app always uses its own copy.
+      expect(resolveResources("/repo", { BUKITJALIL_BUKIT_DIR: "/ci/bukit" }).bukit).toBe(path.resolve("/ci/bukit"));
+      expect(
+        resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app", BUKITJALIL_BUKIT_DIR: "/ci/bukit" })
+          .bukit,
+      ).toBe(path.join("/App/Resources/app", "bukit"));
+    },
+  );
 
   it("removes only the bukit-* copies earlier versions installed in bin/", () => {
     const home = path.join(base, "old-copies");
@@ -812,21 +843,21 @@ describe("/api/bukit", () => {
     expect(install.status).toBe(404);
   });
 
-  it("re-locates when the refresh query is set", async () => {
+  it.skipIf(process.platform === "win32")("re-locates when the refresh query is set", async () => {
     const dir = path.join(base, "api-refresh");
     const bukit = new BukitService({ dir, tmpDir });
     const { app, db } = makeApp({ bukit });
     expect(await bukit.status()).toMatchObject({ state: "missing" });
 
     // A working copy appears after the first (cached) lookup.
-    installFakeBukit(dir, 'echo "bukit 2.2.2"');
+    installFakeBukit(dir, 'echo "bukit 2.2.6"');
 
     const stale = (await (await app.fetch(req("/api/bukit"))).json()) as { status: { state: string } };
     expect(stale.status.state).toBe("missing");
     const fresh = (await (await app.fetch(req("/api/bukit?refresh=1"))).json()) as {
       status: { state: string; version: string };
     };
-    expect(fresh.status).toMatchObject({ state: "ok", version: "2.2.2" });
+    expect(fresh.status).toMatchObject({ state: "ok", version: "2.2.6" });
     db.close();
   });
 

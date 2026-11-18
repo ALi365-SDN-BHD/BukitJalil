@@ -82,13 +82,13 @@ export function BuildButton({
   );
 }
 
-export function BuildBadge({ build }: { build: Build }) {
+export function BuildBadge({ build, className }: { build: Build; className?: string }) {
   const { m } = useI18n();
   const tone = build.status === "running" ? "busy" : build.status === "succeeded" ? "ok" : "error";
   const label =
     build.status === "failed" && build.outcome ? m.build.outcome[build.outcome] : m.build.status[build.status];
   return (
-    <Badge tone={tone} data-testid="build-status">
+    <Badge tone={tone} data-testid="build-status" className={className}>
       {build.status === "running" && <Loader2 className="size-3 animate-spin" />}
       {label}
     </Badge>
@@ -113,14 +113,16 @@ export function BuildList({ siteId, limit = 5 }: { siteId: string; limit?: numbe
               className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent/60"
               onClick={() => setOpen(b.id)}
             >
-              <BuildBadge build={b} />
+              <BuildBadge build={b} className="min-w-0 shrink" />
               {b.ref === "change" && (
                 <Badge tone="neutral" data-testid="build-ref">
                   {m.build.changeBuild}
                 </Badge>
               )}
-              <span className="text-muted-foreground">{t(m.build.commit, { commit: shortOid(b.commit) })}</span>
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+                {t(m.build.commit, { commit: shortOid(b.commit) })}
+              </span>
+              <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground">
                 {formatTime(b.startedAt, locale)}
                 {b.finishedAt && ` · ${formatDuration(b.startedAt, b.finishedAt, locale)}`}
               </span>
@@ -207,6 +209,7 @@ export function NotionOfflineNote({ data, testId }: { data: NotionOfflineData; t
   return (
     <div className="flex flex-col gap-0.5 text-xs" data-testid={testId}>
       <p>{t(n.offline, { time: formatTime(data.builtAt, locale), commit: shortOid(data.commit) })}</p>
+      {data.pinned && <p data-testid={`${testId}-pinned`}>{n.pinned}</p>}
       {data.queryChanged && <p data-testid={`${testId}-query`}>{n.queryChanged}</p>}
       {data.rendererMismatch && <p data-testid={`${testId}-renderer`}>{n.rendererMismatch}</p>}
     </div>

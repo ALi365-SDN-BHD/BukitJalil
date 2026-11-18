@@ -2,7 +2,16 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { InstallProgress, RgStatus } from "@bukitjalil/shared";
-import { download, InstallError, InstallJob, installFile, readStrictTarGz, verifySha256 } from "../bukit/install.ts";
+import {
+  download,
+  InstallError,
+  InstallJob,
+  installFile,
+  readStrictTarGz,
+  readStrictZip,
+  verifySha256,
+} from "../bukit/install.ts";
+import { searchPath, systemEnv } from "../child-env.ts";
 import { runProbe } from "../probe.ts";
 
 /**
@@ -16,15 +25,17 @@ export const RG_VERSION = "15.2.0";
 export interface RgPackage {
   /** Release target, e.g. aarch64-apple-darwin; also the archive's top directory suffix. */
   target: string;
-  /** SHA-256 of the .tar.gz. */
+  /** SHA-256 of the archive (.tar.gz, or .zip for Windows). */
   sha256: string;
+  /** Windows releases are zip files holding `rg.exe`; the others are .tar.gz files holding `rg`. */
+  windows?: boolean;
   /** SHA-256 of the rg binary inside it, checked again whenever grep asks for it. */
   rgSha256: string;
   /** Size of that binary in bytes, compared before hashing, so a wrong file is never read in full. */
   rgSize: number;
 }
 
-/** Pinned packages by `${process.platform}-${process.arch}`. Windows has no grep in the MVP (plan 1.2). */
+/** Pinned packages by `${process.platform}-${process.arch}`. */
 export const RG_PACKAGES: Record<string, RgPackage> = {
   "darwin-arm64": {
     target: "aarch64-apple-darwin",
@@ -50,6 +61,13 @@ export const RG_PACKAGES: Record<string, RgPackage> = {
     rgSha256: "c14cdb389f34e504d69e386cfc67d5c5d9a730a990de03ca6910b2a15e30386a",
     rgSize: 4_466_000,
   },
+  "win32-x64": {
+    target: "x86_64-pc-windows-msvc",
+    sha256: "71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5",
+    windows: true,
+    rgSha256: "14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680",
+    rgSize: 4_218_880,
+  },
 };
 
 /** Everything in a release archive, under its top directory; anything else fails the install. */
@@ -71,18 +89,20 @@ const ARCHIVE_FILES = [
 const ARCHIVE_DIRS = ["", "complete", "doc"];
 
 export const rgArchiveRoot = (pkg: RgPackage) => `ripgrep-${RG_VERSION}-${pkg.target}`;
+/** The program's file name in the archive and on disk. */
+export const rgBinaryName = (pkg: RgPackage | null) => (pkg?.windows ? "rg.exe" : "rg");
 export const rgArchiveLayout = (pkg: RgPackage) => {
   const root = rgArchiveRoot(pkg);
   return {
-    files: ARCHIVE_FILES.map((f) => `${root}/${f}`),
+    files: ARCHIVE_FILES.map((f) => `${root}/${f === "rg" ? rgBinaryName(pkg) : f}`),
     dirs: ARCHIVE_DIRS.map((d) => (d ? `${root}/${d}` : root)),
   };
 };
 const rgUrl = (pkg: RgPackage) =>
-  `https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${rgArchiveRoot(pkg)}.tar.gz`;
+  `https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${rgArchiveRoot(pkg)}.${pkg.windows ? "zip" : "tar.gz"}`;
 
 export interface RgServiceOptions {
-  /** Pi's bin directory (~/.bukitjalil/pi/bin); rg is installed there as `rg`. */
+  /** Pi's bin directory (~/.bukitjalil/pi/bin); rg is installed there as `rg` (`rg.exe` on Windows). */
   piBin: string;
   platform?: string;
   arch?: string;
@@ -106,7 +126,7 @@ export class RgService {
   constructor(private readonly opts: RgServiceOptions) {
     const packages = opts.packages ?? RG_PACKAGES;
     this.pkg = packages[`${opts.platform ?? process.platform}-${opts.arch ?? process.arch}`] ?? null;
-    this.rgPath = path.join(opts.piBin, "rg");
+    this.rgPath = path.join(opts.piBin, rgBinaryName(this.pkg));
     this.installer = new InstallJob((report) => this.install(report));
   }
 
@@ -132,7 +152,9 @@ export class RgService {
     if (this.cache?.key === key) return this.cache.state;
     let state: RgStatus["state"];
     try {
-      state = (st.mode & 0o111) !== 0 && sha256File(this.rgPath) === this.pkg.rgSha256 ? "ok" : "mismatch";
+      // Windows has no execute bits; a file there is runnable by its .exe name.
+      const runnable = this.pkg.windows || (st.mode & 0o111) !== 0;
+      state = runnable && sha256File(this.rgPath) === this.pkg.rgSha256 ? "ok" : "mismatch";
     } catch {
       state = "mismatch";
     }
@@ -151,11 +173,16 @@ export class RgService {
     report({ state: "verifying" });
     verifySha256(data, pkg.sha256);
     const { files, dirs } = rgArchiveLayout(pkg);
-    const rg = readStrictTarGz(data, files, dirs).get(`${rgArchiveRoot(pkg)}/rg`);
+    const archive = pkg.windows ? readStrictZip(data, files) : readStrictTarGz(data, files, dirs);
+    const rg = archive.get(`${rgArchiveRoot(pkg)}/${rgBinaryName(pkg)}`);
     if (!rg) throw new InstallError("bad_archive", "rg is missing from the archive");
     verifySha256(rg.data, pkg.rgSha256);
     installFile(rg.data, this.rgPath, 0o755);
-    const probe = await runProbe(this.rgPath, ["--version"], { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" });
+    const probe = await runProbe(this.rgPath, ["--version"], {
+      ...systemEnv(),
+      PATH: searchPath([]),
+      LANG: "C.UTF-8",
+    });
     if (!probe.ok) {
       // The binary matches its SHA-256, so it stays; a busy machine can time out a probe. Grep may still
       // fail on a system that cannot run it (e.g. a noexec home), which the message says.

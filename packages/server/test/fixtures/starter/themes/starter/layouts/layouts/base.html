@@ -1,0 +1,23 @@
+{{ base_url = site.base_url }}
+{{ if base_url == "/" }}{{ base_url = "" }}{{ end }}
+{{ asset_base_url = site.asset_base_url }}
+{{ if asset_base_url == "/" }}{{ asset_base_url = "" }}{{ end }}
+<!DOCTYPE html>
+<html lang="{{ site.language | html.escape }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ if page.seo }}{{ if page.seo.document_title && page.seo.document_title != "" }}{{ page.seo.document_title | html.escape }}{{ else }}{{ page.seo.title | html.escape }}{{ end }}{{ else }}{{ page.title | html.escape }}{{ end }}</title>
+  <link rel="alternate" type="application/rss+xml" href="{{ base_url }}/rss.xml" />
+  <link rel="sitemap" type="application/xml" href="{{ base_url }}/sitemap.xml" />
+  <link rel="stylesheet" href="{{ asset_base_url }}/assets/style.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">{{ site.params.labels.skip | object.default "Skip to content" | html.escape }}</a>
+  {{ include "partials/header.html" }}
+  <main id="main" class="container">
+    {{ content }}
+  </main>
+  {{ include "partials/footer.html" }}
+</body>
+</html>

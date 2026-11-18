@@ -4,16 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { BUKIT_VERSION } from "../packages/server/src/bukit/install.ts";
-import { copyStarter } from "../packages/server/src/sites/template.ts";
+import { writeStarter } from "../packages/server/test/fixtures/starter.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { importSite, putSettings } from "./site-helpers.ts";
+import { noGitConfig, putSettings } from "./site-helpers.ts";
 
 // M2 end to end (plan 12): new site, import, read-only import, builds and the preview, the read-only panels,
 // archive and remove, settings. Builds use a stand-in Bukit unless BUKIT_BIN names a real one.
 
 const REAL_BUKIT = process.env.BUKIT_BIN;
-const STARTER = path.resolve(import.meta.dirname, "../templates/starter");
 
 // Creating a site runs its first build, and the first test also walks all the panels: give builds on a slow
 // runner (or a real Bukit) room beyond the default 30 s.
@@ -50,7 +49,7 @@ function git(cwd: string, ...args: string[]) {
   execFileSync("git", ["-c", "user.name=E2E", "-c", "user.email=e2e@example.com", ...args], {
     cwd,
     stdio: "pipe",
-    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" },
+    env: { ...process.env, GIT_CONFIG_GLOBAL: noGitConfig(), GIT_CONFIG_NOSYSTEM: "1" },
   });
 }
 
@@ -106,7 +105,7 @@ test("a new site builds once, shows its preview and the read-only panels", async
   const tree = page.getByTestId("file-tree");
   await tree.getByRole("button", { name: "site.yaml" }).click();
   await expect(page.getByTestId("file-path")).toHaveText("site.yaml");
-  await expect(page.getByTestId("code-view")).toContainText(`title: ${name}`);
+  await expect(page.getByTestId("code-view")).toContainText(`title: "${name}"`);
   await tree.getByRole("button", { name: "content" }).click();
   await tree.getByRole("button", { name: "posts" }).click();
   await tree.getByRole("button", { name: "welcome.md" }).click();
@@ -226,7 +225,7 @@ test("a folder that is not a git repository yet is imported after confirming its
   await login(page, server);
   const { name, parent } = fresh("Import");
   const dir = path.join(parent, "existing");
-  copyStarter(STARTER, dir, { title: "Imported Original", language: "en-US" });
+  writeStarter(dir, { title: "Imported Original", language: "en-US" });
 
   await page.getByTestId("import-site").click();
   await goToFolder(page, dir);
@@ -248,7 +247,7 @@ test("a site with a plugin folder is imported read-only and cannot build", async
   await login(page, server);
   const { name, parent } = fresh("ReadOnly");
   const dir = path.join(parent, "plugged");
-  copyStarter(STARTER, dir, { title: "Plugged", language: "en-US" });
+  writeStarter(dir, { title: "Plugged", language: "en-US" });
   fs.mkdirSync(path.join(dir, "plugins/x"), { recursive: true });
   fs.writeFileSync(path.join(dir, "plugins/x/plugin.yaml"), "name: x\n");
   git(dir, "init", "-q", "-b", "main");
@@ -317,13 +316,14 @@ test("a site can be archived, restored and removed", async ({ page, server }) =>
 });
 
 test("settings show Bukit and the identity; the new-site dialog starts empty each time", async ({ page, server }) => {
+  test.skip(process.platform === "win32", "the stand-in Bukit is a shell script");
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  // The stand-in prints 2.2.2, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
+  // The stand-in prints 2.2.6, a real Bukit the current version. Bukit ships with the app (plan 8.1): no
   // latest release, no install button.
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.2");
-  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.2.2"}`);
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.6");
+  await expect(page.getByTestId("bukit-state")).toContainText(`Bukit ${REAL_BUKIT ? BUKIT_VERSION : "2.2.6"}`);
   await expect(page.getByTestId("bukit-latest")).toHaveCount(0);
   await expect(page.getByTestId("bukit-install")).toHaveCount(0);
   // A fresh app home has no rg yet: the page shows it as not installed and asks before downloading.
@@ -344,7 +344,7 @@ test("settings show Bukit and the identity; the new-site dialog starts empty eac
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("git-guide")).toBeHidden();
   await page.getByTestId("check-updates").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.2");
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.6");
   await page.getByTestId("rg-install").click();
   await expect(page.getByTestId("rg-install-confirm")).toContainText("15.2.0");
 
@@ -549,10 +549,11 @@ test("the settings search filters the sections", async ({ page, server }) => {
 });
 
 test("reopening settings looks at the bundled Bukit again", async ({ page, server }) => {
+  test.skip(process.platform === "win32", "the stand-in Bukit is a shell script");
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
-  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.2");
+  await expect(page.getByTestId("bukit-version")).toHaveText(REAL_BUKIT ? BUKIT_VERSION : "2.2.6");
 
   // The bundled copy changes between visits; opening settings asks the server for a fresh look.
   const updated = path.join(work, "bukit-2.1.4");
@@ -567,24 +568,4 @@ test("reopening settings looks at the bundled Bukit again", async ({ page, serve
   await expect(page.getByTestId("bukit-version")).toHaveText("2.1.4");
   await expect(page.getByTestId("bukit-state")).toContainText("Bukit 2.1.4");
   await expect(page.getByTestId("bukit-install")).toHaveCount(0);
-});
-
-test("a site still using site.language is migrated from its card", async ({ page, server }) => {
-  await login(page, server);
-  // A site made before Bukit 2.1: site.language instead of site.languages (plan 8.7).
-  const siteId = await importSite(page, "Old language", "en-US", (dir) => {
-    const file = path.join(dir, "site.yaml");
-    fs.writeFileSync(
-      file,
-      fs.readFileSync(file, "utf8").replace(/ {2}languages: \[ ?en-US ?\]\n/, "  language: en-US\n"),
-    );
-  });
-  await page.goto(`/sites/${siteId}`);
-  const card = page.getByTestId("language-migration");
-  await expect(card).toBeVisible();
-  await expect(card.getByTestId("diff-patch")).toContainText("-  language: en-US");
-  await expect(card.getByTestId("diff-patch")).toContainText("+  languages: [ en-US ]");
-  await expect(card.getByTestId("language-migration-moves")).toHaveCount(0);
-  await card.getByTestId("language-migration-apply").click();
-  await expect(card).toHaveCount(0);
 });

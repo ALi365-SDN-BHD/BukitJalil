@@ -11,12 +11,10 @@ import { type AgentEvent, AgentService } from "../src/agent/service.ts";
 import { agentEventTranslator } from "../src/events/bridge.ts";
 import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
-import { copyStarter } from "../src/sites/template.ts";
-import { commitAllAs, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
+import { writeStarter } from "./fixtures/starter.ts";
+import { commitAllAs, expectMode, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
 
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
-
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 
 // Pi keeps the directory it saw when it loaded, so this file uses one app home (vitest runs each test
 // file in its own module graph).
@@ -45,7 +43,7 @@ let siteCount = 0;
 /** A committed starter site, imported (no Bukit, so no first build); `files` are committed with it. */
 async function site(files: Record<string, string> = {}) {
   const dir = path.join(base, "home", `site${++siteCount}`);
-  copyStarter(STARTER, dir, { title: `Site ${siteCount}`, language: "en-US" });
+  writeStarter(dir, { title: `Site ${siteCount}`, language: "en-US" });
   for (const [name, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
     fs.writeFileSync(path.join(dir, name), content);
@@ -133,7 +131,7 @@ describe("Pi environment", () => {
   });
 
   it("keeps the app's Pi directory private", () => {
-    expect(fs.statSync(ctx.paths.pi).mode & 0o777).toBe(0o700);
+    expectMode(ctx.paths.pi, 0o700);
     expect(fs.existsSync(ctx.paths.piBin)).toBe(true);
   });
 });
@@ -250,7 +248,9 @@ describe("AgentService", () => {
     const system = systemOf(seen);
     expect(system.preamble).toContain("BukitJalil site assistant");
     expect(system.preamble).toContain(`"Site ${siteCount}"`);
-    expect(system.cwd).toContain(path.join(ctx.paths.worktrees, s.id, "ai"));
+    expect(system.cwd.replaceAll("\\", "/")).toContain(
+      path.join(ctx.paths.worktrees, s.id, "ai").replaceAll("\\", "/"),
+    );
     expect(system.preamble).toContain("bukit_check");
     expect(system.skills).toContain(path.join(fs.realpathSync(SKILLS), "bukitjalil", "site-editing", "SKILL.md"));
     expect(JSON.stringify(seen)).toContain("Hi");
@@ -263,7 +263,7 @@ describe("AgentService", () => {
     // Pi writes only into the app's Pi directory: keys, and its cache of model lists.
     for (const name of fs.readdirSync(ctx.paths.pi)) expect(["auth.json", "bin", "models-store.json"]).toContain(name);
     const auth = path.join(ctx.paths.pi, "auth.json");
-    if (fs.existsSync(auth)) expect(fs.statSync(auth).mode & 0o777).toBe(0o600);
+    if (fs.existsSync(auth)) expectMode(auth, 0o600);
   });
 
   it("cannot read a disabled skill in a new conversation, and re-enabling restores it", async () => {

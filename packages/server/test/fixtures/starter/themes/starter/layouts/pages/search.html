@@ -1,0 +1,103 @@
+{% layout "layouts/base.html" %}
+
+<header class="page-header">
+  <h1>{{ page.title | html.escape }}</h1>
+</header>
+
+<div class="search-form">
+  <input id="search-query" type="search" placeholder="{{ site.params.labels.search_placeholder | object.default "Search posts and pages" | html.escape }}" aria-label="{{ site.params.labels.search | object.default "Search" | html.escape }}" />
+  <button id="search-button" type="button">{{ site.params.labels.search | object.default "Search" | html.escape }}</button>
+</div>
+<ul id="search-results" class="card-list"></ul>
+
+<script>
+const queryInput = document.getElementById('search-query');
+const searchButton = document.getElementById('search-button');
+const resultsElement = document.getElementById('search-results');
+const untitledLabel = "{{ site.params.labels.untitled | object.default "Untitled" | string.escape | string.replace '<' '\\u003C' }}";
+const noResultsLabel = "{{ site.params.labels.no_results | object.default "No results" | string.escape | string.replace '<' '\\u003C' }}";
+const siteLanguage = "{{ site.language | string.escape | string.replace '<' '\\u003C' }}".toLowerCase();
+
+// The root merged index holds every language; keep the records of this page's
+// language. Records marked "und" (no language) always match.
+function matchesSiteLanguage(item) {
+  const language = (item.language || 'und').toLowerCase();
+  return siteLanguage === '' || language === 'und' || language === siteLanguage;
+}
+
+function appendResult(item) {
+  const li = document.createElement('li');
+  li.className = 'card';
+  const title = document.createElement('h2');
+  title.className = 'card-title';
+  const link = document.createElement('a');
+  link.href = item.url || '#';
+  link.textContent = item.title || untitledLabel;
+  title.appendChild(link);
+  li.appendChild(title);
+  const summary = item.snippet || item.summary;
+  if (summary) {
+    const p = document.createElement('p');
+    p.className = 'summary';
+    p.textContent = summary;
+    li.appendChild(p);
+  }
+  resultsElement.appendChild(li);
+}
+
+{{ base_url = site.base_url }}
+{{ if base_url == "/" }}{{ base_url = "" }}{{ end }}
+const searchUrl = '{{ base_url }}/search.json';
+let searchItems = null;
+
+// Pages whose Content Security Policy blocks connect-src (such as a sandboxed
+// preview) cannot fetch the index; Bukit writes it as search.json.js as well.
+function loadScriptIndex() {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = searchUrl + '.js';
+    script.onload = () => Array.isArray(self.bukitSearchIndex)
+      ? resolve(self.bukitSearchIndex)
+      : reject(new Error('Not a search index'));
+    script.onerror = () => reject(new Error('Search index unavailable'));
+    document.head.appendChild(script);
+  });
+}
+
+async function loadIndex() {
+  try {
+    const response = await fetch(searchUrl);
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const items = await response.json();
+    if (!Array.isArray(items)) throw new Error('Not a search index');
+    return items;
+  } catch {
+    return loadScriptIndex();
+  }
+}
+
+async function runSearch() {
+  const keyword = (queryInput.value || '').trim().toLowerCase();
+  if (!searchItems) searchItems = await loadIndex();
+  const items = searchItems;
+  resultsElement.innerHTML = '';
+  const matches = items
+    .filter(matchesSiteLanguage)
+    .filter(item => keyword === '' ||
+      (item.title || '').toLowerCase().includes(keyword) ||
+      (item.summary || '').toLowerCase().includes(keyword) ||
+      (item.snippet || '').toLowerCase().includes(keyword));
+  matches.forEach(appendResult);
+  if (matches.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'search-empty';
+    empty.textContent = noResultsLabel;
+    resultsElement.appendChild(empty);
+  }
+}
+
+searchButton.addEventListener('click', runSearch);
+queryInput.addEventListener('keydown', event => {
+  if (event.key === 'Enter') runSearch();
+});
+</script>

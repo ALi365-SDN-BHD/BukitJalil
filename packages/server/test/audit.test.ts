@@ -205,13 +205,11 @@ describe("previewEntry", () => {
   });
 
   it("reads the default language from site.yaml text", () => {
-    expect(siteLanguage("site:\n  language: en-US\n  defaultLanguage: zh-CN\n")).toBe("zh-CN");
-    expect(siteLanguage("site:\n  language: zh-CN\n")).toBe("zh-CN");
-    expect(siteLanguage("site:\n  language: 3\n")).toBeNull();
-    // Bukit 2.1 (plan 8.7): the first of site.languages is the default unless defaultLanguage says otherwise.
+    // The first of site.languages is the default unless defaultLanguage says otherwise; site.language is gone.
     expect(siteLanguage("site:\n  languages: [en, de]\n")).toBe("en");
     expect(siteLanguage("site:\n  languages: [en, de]\n  defaultLanguage: de\n")).toBe("de");
-    expect(siteLanguage("site:\n  languages: [en]\n  language: fr\n")).toBe("en");
+    expect(siteLanguage("site:\n  languages: [3]\n")).toBeNull();
+    expect(siteLanguage("site:\n  language: zh-CN\n")).toBeNull();
     expect(siteLanguage("site: [\n")).toBeNull();
     expect(siteLanguage("")).toBeNull();
   });

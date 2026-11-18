@@ -23,8 +23,8 @@ import { listHistory } from "../src/changes/history.ts";
 import { applyHunks, parseHunks } from "../src/changes/partial.ts";
 import { changeRef, commitText, diffSummary } from "../src/changes/service.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
-import { copyStarter } from "../src/sites/template.ts";
 import { SettingsStore } from "../src/store/settings.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import {
   ADMIN,
   commitAllAs,
@@ -41,8 +41,6 @@ import {
 // works in the ai/ checkout, and its result is snapshotted into the change set; the site folder only
 // changes when a change set is applied.
 
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
-
 let base: string;
 let ctx: ReturnType<typeof makeApp>;
 let pi: PiModules;
@@ -56,7 +54,7 @@ let settings: SettingsStore;
  */
 const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
-  version) echo "bukit 2.2.2+fake"; exit 0;;
+  version) echo "bukit 2.2.6+fake"; exit 0;;
   config) echo "config ok"; exit 0;;
   doctor) if [ -f fake-doctor ]; then echo "doctor: template missing"; exit 1; fi; echo "doctor ok"; exit 0;;
   build)
@@ -100,7 +98,7 @@ afterAll(async () => {
 
 async function site() {
   const dir = path.join(base, "home", `site${++n}`);
-  copyStarter(STARTER, dir, { title: `Site ${n}`, language: "en-US" });
+  writeStarter(dir, { title: `Site ${n}`, language: "en-US" });
   rawGit(base, dir, "init", "-q", "-b", "main");
   commitAllAs(base, dir);
   const s = await ctx.sites.import({ path: dir });
@@ -200,7 +198,7 @@ describe("a run", () => {
     const session = ctx.agent.create(s.id);
     faux.setResponses([
       toolCall("write", { path: "content/pages/faq.md", content: "---\ntitle: FAQ\n---\n\nHello\n" }),
-      toolCall("edit", { path: "site.yaml", edits: [{ oldText: `title: Site ${n}`, newText: "title: Renamed" }] }),
+      toolCall("edit", { path: "site.yaml", edits: [{ oldText: `title: "Site ${n}"`, newText: "title: Renamed" }] }),
       toolCall("summarize_changes", { summary: "Added an FAQ page and renamed the site." }),
       pi.ai.fauxAssistantMessage("Done."),
     ]);
@@ -306,23 +304,26 @@ describe("a run", () => {
 });
 
 describe("diffs", () => {
-  it("lists the first files of a very large change, and still diffs the ones past the cap", async () => {
-    const s = await site();
-    const session = ctx.agent.create(s.id);
-    const { cwd, change } = await ctx.changes.begin(s.id, session.id);
-    fs.mkdirSync(path.join(cwd, "many"));
-    for (let i = 0; i < MAX_FILES + 5; i++) {
-      fs.writeFileSync(path.join(cwd, "many", `f${String(i).padStart(5, "0")}.md`), `${i}\n`);
-    }
-    await ctx.changes.snapshot(s.id, cwd);
-    const view = await ctx.changes.current(s.id, false);
-    expect(view?.files).toHaveLength(MAX_FILES);
-    expect(view?.filesTruncated).toBe(true);
-    const last = `many/f${String(MAX_FILES + 4).padStart(5, "0")}.md`;
-    expect((await ctx.changes.diff(change.id, last)).patch).toContain(`+${MAX_FILES + 4}`);
-    // A directory is not a file of the change, though the literal path matches files under it.
-    await expect(ctx.changes.diff(change.id, "many")).rejects.toMatchObject({ code: "change.file_not_found" });
-  });
+  it.skipIf(process.platform === "win32")(
+    "lists the first files of a very large change, and still diffs the ones past the cap",
+    async () => {
+      const s = await site();
+      const session = ctx.agent.create(s.id);
+      const { cwd, change } = await ctx.changes.begin(s.id, session.id);
+      fs.mkdirSync(path.join(cwd, "many"));
+      for (let i = 0; i < MAX_FILES + 5; i++) {
+        fs.writeFileSync(path.join(cwd, "many", `f${String(i).padStart(5, "0")}.md`), `${i}\n`);
+      }
+      await ctx.changes.snapshot(s.id, cwd);
+      const view = await ctx.changes.current(s.id, false);
+      expect(view?.files).toHaveLength(MAX_FILES);
+      expect(view?.filesTruncated).toBe(true);
+      const last = `many/f${String(MAX_FILES + 4).padStart(5, "0")}.md`;
+      expect((await ctx.changes.diff(change.id, last)).patch).toContain(`+${MAX_FILES + 4}`);
+      // A directory is not a file of the change, though the literal path matches files under it.
+      await expect(ctx.changes.diff(change.id, "many")).rejects.toMatchObject({ code: "change.file_not_found" });
+    },
+  );
 
   it("shows one file at a time, flags binary and very large files, and only for files in the change", async () => {
     const s = await site();
@@ -384,76 +385,93 @@ describe("applying and rejecting", () => {
     return { s, session, cwd, change, view };
   }
 
-  it("commits the reviewed tree on the default branch and fast-forwards the site folder", async () => {
-    const { s, session, view } = await reviewed();
-    const head = s.git("rev-parse", "HEAD");
-    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
-    expect(result.outcome).toBe("applied");
-    expect(result.check).toMatchObject({ passed: true, problemCode: null, problem: null });
-    expect(result.change).toMatchObject({ status: "applied", resultCommit: s.git("rev-parse", "HEAD") });
+  it.skipIf(process.platform === "win32")(
+    "commits the reviewed tree on the default branch and fast-forwards the site folder",
+    async () => {
+      const { s, session, view } = await reviewed();
+      const head = s.git("rev-parse", "HEAD");
+      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(result.outcome).toBe("applied");
+      expect(result.check).toMatchObject({ passed: true, problemCode: null, problem: null });
+      expect(result.change).toMatchObject({ status: "applied", resultCommit: s.git("rev-parse", "HEAD") });
 
-    // One commit on main, whose tree is exactly what was reviewed.
-    expect(s.git("rev-parse", "HEAD^")).toBe(head);
-    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
-    expect(s.git("log", "-1", "--format=%an <%ae>|%cn <%ce>")).toBe(
-      "BukitJalil AI <ai@bukitjalil.local>|Site Owner <owner@example.com>",
-    );
-    expect(s.git("log", "-1", "--format=%B")).toBe(`Added an FAQ page.\n\nBukitJalil-Sessions: ${session.id}`);
-    expect(fs.existsSync(path.join(s.dir, "content/pages/faq.md"))).toBe(true);
-    expect(s.git("status", "--porcelain")).toBe("");
-    // The ref stays (history), at the reviewed snapshot.
-    expect(s.git("rev-parse", changeRef(view.id))).toBe(view.snapshotCommit);
-    expect(ctx.changes.store.open(s.id)).toBeNull();
+      // One commit on main, whose tree is exactly what was reviewed.
+      expect(s.git("rev-parse", "HEAD^")).toBe(head);
+      expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
+      expect(s.git("log", "-1", "--format=%an <%ae>|%cn <%ce>")).toBe(
+        "BukitJalil AI <ai@bukitjalil.local>|Site Owner <owner@example.com>",
+      );
+      expect(s.git("log", "-1", "--format=%B")).toBe(`Added an FAQ page.\n\nBukitJalil-Sessions: ${session.id}`);
+      expect(fs.existsSync(path.join(s.dir, "content/pages/faq.md"))).toBe(true);
+      expect(s.git("status", "--porcelain")).toBe("");
+      // The ref stays (history), at the reviewed snapshot.
+      expect(s.git("rev-parse", changeRef(view.id))).toBe(view.snapshotCommit);
+      expect(ctx.changes.store.open(s.id)).toBeNull();
 
-    // The next change set starts from the applied commit.
-    const next = await ctx.changes.begin(s.id, session.id);
-    expect(next.change.baseCommit).toBe(s.git("rev-parse", "HEAD"));
-  });
+      // The next change set starts from the applied commit.
+      const next = await ctx.changes.begin(s.id, session.id);
+      expect(next.change.baseCommit).toBe(s.git("rev-parse", "HEAD"));
+    },
+  );
 
-  it("refuses a changed fingerprint, a closed change set, an empty one, no identity and a busy site", async () => {
-    const { s, view, cwd } = await reviewed();
-    await expect(ctx.changes.apply(view.id, { treeHash: "0".repeat(40) })).rejects.toMatchObject({
-      code: "change.fingerprint_mismatch",
-    });
-    // Edited after the review (outside a run): the snapshot taken while applying no longer matches.
-    fs.writeFileSync(path.join(cwd, "late.md"), "late\n");
-    await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
-      code: "change.fingerprint_mismatch",
-    });
+  it.skipIf(process.platform === "win32")(
+    "keeps the AI as author after its conversation was deleted (AGENTS.md item 7)",
+    async () => {
+      const { s, session, view } = await reviewed();
+      await ctx.agent.delete(session.id);
+      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(result.outcome).toBe("applied");
+      expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
+    },
+  );
 
-    const release = ctx.locks.acquire(s.id, "build");
-    await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
-      code: "site.busy",
-    });
-    await expect(ctx.changes.reject(view.id)).rejects.toMatchObject({ code: "site.busy" });
-    release();
+  it.skipIf(process.platform === "win32")(
+    "refuses a changed fingerprint, a closed change set, an empty one, no identity and a busy site",
+    async () => {
+      const { s, view, cwd } = await reviewed();
+      await expect(ctx.changes.apply(view.id, { treeHash: "0".repeat(40) })).rejects.toMatchObject({
+        code: "change.fingerprint_mismatch",
+      });
+      // Edited after the review (outside a run): the snapshot taken while applying no longer matches.
+      fs.writeFileSync(path.join(cwd, "late.md"), "late\n");
+      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+        code: "change.fingerprint_mismatch",
+      });
 
-    settings.update({ commitName: null });
-    const now = await ctx.changes.current(s.id, false);
-    await expect(ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" })).rejects.toMatchObject({
-      code: "site.identity_required",
-    });
-    settings.update({ commitName: "Site Owner" });
+      const release = ctx.locks.acquire(s.id, "build");
+      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+        code: "site.busy",
+      });
+      await expect(ctx.changes.reject(view.id)).rejects.toMatchObject({ code: "site.busy" });
+      release();
 
-    const head = s.git("rev-parse", "HEAD");
-    const rejected = await ctx.changes.reject(view.id);
-    expect(rejected).toMatchObject({ status: "rejected", resultCommit: null });
-    expect(s.git("rev-parse", "HEAD")).toBe(head);
-    // A rejected snapshot is not part of the review history; its ref goes so Git can collect it.
-    expect(s.git("for-each-ref", changeRef(view.id))).toBe("");
-    await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
-      code: "change.not_open",
-      params: { status: "rejected" },
-    });
-    await expect(ctx.changes.reject(view.id)).rejects.toMatchObject({ code: "change.not_open" });
+      settings.update({ commitName: null });
+      const now = await ctx.changes.current(s.id, false);
+      await expect(ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" })).rejects.toMatchObject({
+        code: "site.identity_required",
+      });
+      settings.update({ commitName: "Site Owner" });
 
-    const session = ctx.agent.create(s.id);
-    const empty = await ctx.changes.begin(s.id, session.id);
-    const emptyView = await ctx.changes.current(s.id, false);
-    await expect(ctx.changes.apply(empty.change.id, { treeHash: emptyView?.treeHash ?? "" })).rejects.toMatchObject({
-      code: "change.no_changes",
-    });
-  });
+      const head = s.git("rev-parse", "HEAD");
+      const rejected = await ctx.changes.reject(view.id);
+      expect(rejected).toMatchObject({ status: "rejected", resultCommit: null });
+      expect(s.git("rev-parse", "HEAD")).toBe(head);
+      // A rejected snapshot is not part of the review history; its ref goes so Git can collect it.
+      expect(s.git("for-each-ref", changeRef(view.id))).toBe("");
+      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+        code: "change.not_open",
+        params: { status: "rejected" },
+      });
+      await expect(ctx.changes.reject(view.id)).rejects.toMatchObject({ code: "change.not_open" });
+
+      const session = ctx.agent.create(s.id);
+      const empty = await ctx.changes.begin(s.id, session.id);
+      const emptyView = await ctx.changes.current(s.id, false);
+      await expect(ctx.changes.apply(empty.change.id, { treeHash: emptyView?.treeHash ?? "" })).rejects.toMatchObject({
+        code: "change.no_changes",
+      });
+    },
+  );
 
   it("refuses when the site folder leaves the default branch while the check runs", async () => {
     const { s, view } = await reviewed();
@@ -499,23 +517,26 @@ describe("applying and rejecting", () => {
     }
   });
 
-  it("refuses when the site folder is on another branch or has uncommitted changes", async () => {
-    const { s, view } = await reviewed();
-    s.git("switch", "-q", "-c", "other");
-    await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
-      code: "change.wrong_branch",
-      params: { branch: "main" },
-    });
-    s.git("switch", "-q", "main");
-    fs.appendFileSync(path.join(s.dir, "content/posts/welcome.md"), "\nlocal edit\n");
-    await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
-      code: "change.site_dirty",
-    });
-    s.git("checkout", "--", ".");
-    expect((await ctx.changes.apply(view.id, { treeHash: view.treeHash })).outcome).toBe("applied");
-  });
+  it.skipIf(process.platform === "win32")(
+    "refuses when the site folder is on another branch or has uncommitted changes",
+    async () => {
+      const { s, view } = await reviewed();
+      s.git("switch", "-q", "-c", "other");
+      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+        code: "change.wrong_branch",
+        params: { branch: "main" },
+      });
+      s.git("switch", "-q", "main");
+      fs.appendFileSync(path.join(s.dir, "content/posts/welcome.md"), "\nlocal edit\n");
+      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+        code: "change.site_dirty",
+      });
+      s.git("checkout", "--", ".");
+      expect((await ctx.changes.apply(view.id, { treeHash: view.treeHash })).outcome).toBe("applied");
+    },
+  );
 
-  it("never overwrites an ignored local file in the site folder", async () => {
+  it.skipIf(process.platform === "win32")("never overwrites an ignored local file in the site folder", async () => {
     const { s, cwd } = await reviewed((dir, git) => {
       fs.appendFileSync(path.join(dir, ".gitignore"), "\nlocal.txt\n");
       git("add", "-A");
@@ -538,7 +559,7 @@ describe("applying and rejecting", () => {
     expect(ctx.changes.store.open(s.id)?.id).toBe(view?.id);
   });
 
-  it("reports a failed check and applies only when told to", async () => {
+  it.skipIf(process.platform === "win32")("reports a failed check and applies only when told to", async () => {
     const { s, cwd } = await reviewed();
     fs.writeFileSync(path.join(cwd, "fake-doctor"), "x");
     await ctx.changes.snapshot(s.id, cwd);
@@ -559,32 +580,35 @@ describe("applying and rejecting", () => {
     expect(s.git("rev-parse", "HEAD^")).toBe(head);
   });
 
-  it("merges onto a default branch that moved, asks for another review, then applies both", async () => {
-    const { s, view, cwd } = await reviewed();
-    fs.writeFileSync(path.join(s.dir, "content/pages/contact.md"), "---\ntitle: Contact\n---\n");
-    s.git("add", "-A");
-    s.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "outside BukitJalil");
-    const main = s.git("rev-parse", "HEAD");
+  it.skipIf(process.platform === "win32")(
+    "merges onto a default branch that moved, asks for another review, then applies both",
+    async () => {
+      const { s, view, cwd } = await reviewed();
+      fs.writeFileSync(path.join(s.dir, "content/pages/contact.md"), "---\ntitle: Contact\n---\n");
+      s.git("add", "-A");
+      s.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "outside BukitJalil");
+      const main = s.git("rev-parse", "HEAD");
 
-    const rebased = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
-    expect(rebased.outcome).toBe("rebased");
-    expect(rebased.change).toMatchObject({ status: "open", baseCommit: main });
-    expect(rebased.change.treeHash).not.toBe(view.treeHash);
-    expect(s.git("rev-parse", "HEAD")).toBe(main);
-    // The AI checkout now holds the merge result; the review shows only the AI's own files.
-    expect(rawGit(base, cwd, "rev-parse", "HEAD").trim()).toBe(rebased.change.snapshotCommit);
-    expect(fs.existsSync(path.join(cwd, "content/pages/contact.md"))).toBe(true);
-    const again = await ctx.changes.current(s.id, false);
-    expect(again?.files.map((f) => f.path)).toEqual(["content/pages/faq.md", "site.yaml"]);
-    await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
-      code: "change.fingerprint_mismatch",
-    });
+      const rebased = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(rebased.outcome).toBe("rebased");
+      expect(rebased.change).toMatchObject({ status: "open", baseCommit: main });
+      expect(rebased.change.treeHash).not.toBe(view.treeHash);
+      expect(s.git("rev-parse", "HEAD")).toBe(main);
+      // The AI checkout now holds the merge result; the review shows only the AI's own files.
+      expect(rawGit(base, cwd, "rev-parse", "HEAD").trim()).toBe(rebased.change.snapshotCommit);
+      expect(fs.existsSync(path.join(cwd, "content/pages/contact.md"))).toBe(true);
+      const again = await ctx.changes.current(s.id, false);
+      expect(again?.files.map((f) => f.path)).toEqual(["content/pages/faq.md", "site.yaml"]);
+      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+        code: "change.fingerprint_mismatch",
+      });
 
-    expect((await ctx.changes.apply(view.id, { treeHash: rebased.change.treeHash })).outcome).toBe("applied");
-    expect(s.git("rev-parse", "HEAD^")).toBe(main);
-    expect(fs.existsSync(path.join(s.dir, "content/pages/faq.md"))).toBe(true);
-    expect(fs.existsSync(path.join(s.dir, "content/pages/contact.md"))).toBe(true);
-  });
+      expect((await ctx.changes.apply(view.id, { treeHash: rebased.change.treeHash })).outcome).toBe("applied");
+      expect(s.git("rev-parse", "HEAD^")).toBe(main);
+      expect(fs.existsSync(path.join(s.dir, "content/pages/faq.md"))).toBe(true);
+      expect(fs.existsSync(path.join(s.dir, "content/pages/contact.md"))).toBe(true);
+    },
+  );
 
   it("closes the change set as stale when the moved default branch conflicts with it", async () => {
     const { s, view, session } = await reviewed();
@@ -625,13 +649,16 @@ describe("applying and rejecting", () => {
     });
   });
 
-  it("writes a one-line message from the diff when the AI gave no summary", async () => {
-    const { s, view } = await reviewed();
-    ctx.changes.setSummary(s.id, "");
-    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
-    expect(result.outcome).toBe("applied");
-    expect(s.git("log", "-1", "--format=%s")).toBe("Update 1 file, add 1 file: content/pages/faq.md, site.yaml");
-  });
+  it.skipIf(process.platform === "win32")(
+    "writes a one-line message from the diff when the AI gave no summary",
+    async () => {
+      const { s, view } = await reviewed();
+      ctx.changes.setSummary(s.id, "");
+      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(result.outcome).toBe("applied");
+      expect(s.git("log", "-1", "--format=%s")).toBe("Update 1 file, add 1 file: content/pages/faq.md, site.yaml");
+    },
+  );
 
   it("tells a session joining a newer change set how its last one ended", async () => {
     const s = await site();
@@ -648,52 +675,61 @@ describe("applying and rejecting", () => {
     expect((await ctx.changes.begin(s.id, ctx.agent.create(s.id).id)).previous).toBeNull();
   });
 
-  it("says why the check could not run, and applies only when told to", async () => {
-    const { s, view, cwd } = await reviewed();
-    // A plugins/ folder makes the pre-build guard refuse the snapshot.
-    fs.mkdirSync(path.join(cwd, "plugins"));
-    fs.writeFileSync(path.join(cwd, "plugins/x.js"), "export {};\n");
-    await ctx.changes.snapshot(s.id, cwd);
-    const now = await ctx.changes.current(s.id, false);
-    const failed = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" });
-    expect(failed.outcome).toBe("check_failed");
-    expect(failed.check).toMatchObject({ passed: false, problemCode: "guard", steps: [] });
-    expect(failed.check?.problem).toContain("plugin");
-    const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
-    expect(forced.outcome).toBe("applied");
-  });
+  it.skipIf(process.platform === "win32")(
+    "says why the check could not run, and applies only when told to",
+    async () => {
+      const { s, view, cwd } = await reviewed();
+      // A plugins/ folder makes the pre-build guard refuse the snapshot.
+      fs.mkdirSync(path.join(cwd, "plugins"));
+      fs.writeFileSync(path.join(cwd, "plugins/x.js"), "export {};\n");
+      await ctx.changes.snapshot(s.id, cwd);
+      const now = await ctx.changes.current(s.id, false);
+      const failed = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" });
+      expect(failed.outcome).toBe("check_failed");
+      expect(failed.check).toMatchObject({ passed: false, problemCode: "guard", steps: [] });
+      expect(failed.check?.problem).toContain("plugin");
+      const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
+      expect(forced.outcome).toBe("applied");
+    },
+  );
 
   const NOTION_SITE_YAML =
     "site:\n  name: n\n  title: N\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n";
 
-  it("applies a bound Notion site's change without force: it cannot be checked, which is not a failure", async () => {
-    const { s, view } = await reviewed((dir, git) => {
-      fs.writeFileSync(path.join(dir, "site.yaml"), NOTION_SITE_YAML);
-      git("add", "-A");
-      // An explicit identity: CI machines have no global git user.
-      git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "notion");
-    });
-    const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_apply_token" });
-    await ctx.sites.bindNotionSource(s.id, source.id);
-    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
-    expect(result.outcome).toBe("applied");
-    expect(result.check).toMatchObject({ passed: false, problemCode: "notion", steps: [] });
-    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
-  });
+  it.skipIf(process.platform === "win32")(
+    "applies a bound Notion site's change without force: it cannot be checked, which is not a failure",
+    async () => {
+      const { s, view } = await reviewed((dir, git) => {
+        fs.writeFileSync(path.join(dir, "site.yaml"), NOTION_SITE_YAML);
+        git("add", "-A");
+        // An explicit identity: CI machines have no global git user.
+        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "notion");
+      });
+      const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_apply_token" });
+      await ctx.sites.bindNotionSource(s.id, source.id);
+      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(result.outcome).toBe("applied");
+      expect(result.check).toMatchObject({ passed: false, problemCode: "notion", steps: [] });
+      expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
+    },
+  );
 
-  it("still asks for force when the change itself adds a Notion source", async () => {
-    const { s, view, cwd } = await reviewed();
-    const source = ctx.dataSources.create({ platform: "notion", name: "Notion two", token: "ntn_apply_token2" });
-    await ctx.sites.bindNotionSource(s.id, source.id);
-    fs.writeFileSync(path.join(cwd, "site.yaml"), NOTION_SITE_YAML);
-    await ctx.changes.snapshot(s.id, cwd);
-    const now = await ctx.changes.current(s.id, false);
-    const failed = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" });
-    expect(failed.outcome).toBe("check_failed");
-    expect(failed.check).toMatchObject({ problemCode: "notion" });
-    const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
-    expect(forced.outcome).toBe("applied");
-  });
+  it.skipIf(process.platform === "win32")(
+    "still asks for force when the change itself adds a Notion source",
+    async () => {
+      const { s, view, cwd } = await reviewed();
+      const source = ctx.dataSources.create({ platform: "notion", name: "Notion two", token: "ntn_apply_token2" });
+      await ctx.sites.bindNotionSource(s.id, source.id);
+      fs.writeFileSync(path.join(cwd, "site.yaml"), NOTION_SITE_YAML);
+      await ctx.changes.snapshot(s.id, cwd);
+      const now = await ctx.changes.current(s.id, false);
+      const failed = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" });
+      expect(failed.outcome).toBe("check_failed");
+      expect(failed.check).toMatchObject({ problemCode: "notion" });
+      const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
+      expect(forced.outcome).toBe("applied");
+    },
+  );
 });
 
 describe("partial apply (plan 7.5)", () => {
@@ -712,76 +748,99 @@ describe("partial apply (plan 7.5)", () => {
     return { s, session, cwd, view };
   }
 
-  it("applies only the selected files and keeps the rest open for review", async () => {
-    const { s, session, cwd, view } = await threeChanges();
-    const head = s.git("rev-parse", "HEAD");
-    const result = await ctx.changes.apply(view.id, {
-      treeHash: view.treeHash,
-      baseCommit: view.baseCommit,
-      selection: [{ path: "content/pages/faq.md" }, { path: "content/pages/about.md" }],
-    });
-    expect(result.outcome).toBe("partial");
-    expect(result.check).toMatchObject({ passed: true });
-
-    // One commit on main with just those two files; the site folder follows.
-    expect(s.git("rev-parse", "HEAD^")).toBe(head);
-    expect(s.git("diff", "--name-status", "HEAD^", "HEAD")).toBe("D\tcontent/pages/about.md\nA\tcontent/pages/faq.md");
-    expect(s.git("log", "-1", "--format=%an|%B")).toBe(
-      `BukitJalil AI|Add 1 file, delete 1 file: content/pages/about.md, content/pages/faq.md\n\nPart of: Added an FAQ page.\n\nBukitJalil-Sessions: ${session.id}`,
-    );
-    expect(fs.existsSync(path.join(s.dir, "content/pages/faq.md"))).toBe(true);
-    expect(fs.readFileSync(path.join(s.dir, "site.yaml"), "utf8")).not.toContain("# reviewed");
-    expect(s.git("status", "--porcelain")).toBe("");
-
-    // The change set stays open on top of the result, with the same snapshot tree: only site.yaml is left.
-    const rest = await ctx.changes.current(s.id, false);
-    expect(rest).toMatchObject({ id: view.id, status: "open", baseCommit: s.git("rev-parse", "HEAD") });
-    expect(rest?.treeHash).toBe(view.treeHash);
-    expect(rest?.files.map((f) => f.path)).toEqual(["site.yaml"]);
-    expect(s.git("rev-parse", changeRef(view.id))).toBe(rest?.snapshotCommit);
-    expect(s.git("rev-parse", `${rest?.snapshotCommit}^`)).toBe(s.git("rev-parse", "HEAD"));
-    // The AI's working copy is as it was, and still clean against the new snapshot.
-    expect(fs.readFileSync(path.join(cwd, "site.yaml"), "utf8")).toContain("# reviewed");
-    expect(rawGit(base, cwd, "status", "--porcelain").trim()).toBe("");
-    expect(rawGit(base, cwd, "rev-parse", "HEAD").trim()).toBe(rest?.snapshotCommit);
-
-    // Applying the rest brings main to exactly what was reviewed in the first place.
-    const all = await ctx.changes.apply(view.id, { treeHash: rest?.treeHash ?? "" });
-    expect(all.outcome).toBe("applied");
-    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
-    expect(s.git("log", "-1", "--format=%s")).toBe("Rest of: Added an FAQ page.");
-  });
-
-  it("refuses to take one side of a file replaced by a folder of the same name", async () => {
-    const s = await site();
-    const session = ctx.agent.create(s.id);
-    const { cwd } = await ctx.changes.begin(s.id, session.id);
-    fs.rmSync(path.join(cwd, "content/pages/about.md"));
-    fs.mkdirSync(path.join(cwd, "content/pages/about.md"));
-    fs.writeFileSync(path.join(cwd, "content/pages/about.md/index.md"), "# About\n");
-    await ctx.changes.snapshot(s.id, cwd);
-    const view = await ctx.changes.current(s.id, false);
-    if (!view) throw new Error("no change set");
-    expect(view.files.map((f) => `${f.status} ${f.path}`)).toEqual([
-      "deleted content/pages/about.md",
-      "added content/pages/about.md/index.md",
-    ]);
-    await expect(
-      ctx.changes.apply(view.id, {
+  it.skipIf(process.platform === "win32")(
+    "keeps the AI as author of a partial apply after its conversation was deleted (AGENTS.md item 7)",
+    async () => {
+      const { s, session, view } = await threeChanges();
+      await ctx.agent.delete(session.id);
+      const result = await ctx.changes.apply(view.id, {
         treeHash: view.treeHash,
         baseCommit: view.baseCommit,
-        selection: [{ path: "content/pages/about.md/index.md" }],
-      }),
-    ).rejects.toMatchObject({ code: "change.partial_unsupported" });
-    const both = await ctx.changes.apply(view.id, {
-      treeHash: view.treeHash,
-      baseCommit: view.baseCommit,
-      selection: view.files.map((f) => ({ path: f.path })),
-    });
-    expect(both.outcome).toBe("applied");
-  });
+        selection: [{ path: "content/pages/faq.md" }],
+      });
+      expect(result.outcome).toBe("partial");
+      expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
+    },
+  );
 
-  it("applies only the selected hunks of a file, byte for byte", async () => {
+  it.skipIf(process.platform === "win32")(
+    "applies only the selected files and keeps the rest open for review",
+    async () => {
+      const { s, session, cwd, view } = await threeChanges();
+      const head = s.git("rev-parse", "HEAD");
+      const result = await ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "content/pages/faq.md" }, { path: "content/pages/about.md" }],
+      });
+      expect(result.outcome).toBe("partial");
+      expect(result.check).toMatchObject({ passed: true });
+
+      // One commit on main with just those two files; the site folder follows.
+      expect(s.git("rev-parse", "HEAD^")).toBe(head);
+      expect(s.git("diff", "--name-status", "HEAD^", "HEAD")).toBe(
+        "D\tcontent/pages/about.md\nA\tcontent/pages/faq.md",
+      );
+      expect(s.git("log", "-1", "--format=%an|%B")).toBe(
+        `BukitJalil AI|Add 1 file, delete 1 file: content/pages/about.md, content/pages/faq.md\n\nPart of: Added an FAQ page.\n\nBukitJalil-Sessions: ${session.id}`,
+      );
+      expect(fs.existsSync(path.join(s.dir, "content/pages/faq.md"))).toBe(true);
+      expect(fs.readFileSync(path.join(s.dir, "site.yaml"), "utf8")).not.toContain("# reviewed");
+      expect(s.git("status", "--porcelain")).toBe("");
+
+      // The change set stays open on top of the result, with the same snapshot tree: only site.yaml is left.
+      const rest = await ctx.changes.current(s.id, false);
+      expect(rest).toMatchObject({ id: view.id, status: "open", baseCommit: s.git("rev-parse", "HEAD") });
+      expect(rest?.treeHash).toBe(view.treeHash);
+      expect(rest?.files.map((f) => f.path)).toEqual(["site.yaml"]);
+      expect(s.git("rev-parse", changeRef(view.id))).toBe(rest?.snapshotCommit);
+      expect(s.git("rev-parse", `${rest?.snapshotCommit}^`)).toBe(s.git("rev-parse", "HEAD"));
+      // The AI's working copy is as it was, and still clean against the new snapshot.
+      expect(fs.readFileSync(path.join(cwd, "site.yaml"), "utf8")).toContain("# reviewed");
+      expect(rawGit(base, cwd, "status", "--porcelain").trim()).toBe("");
+      expect(rawGit(base, cwd, "rev-parse", "HEAD").trim()).toBe(rest?.snapshotCommit);
+
+      // Applying the rest brings main to exactly what was reviewed in the first place.
+      const all = await ctx.changes.apply(view.id, { treeHash: rest?.treeHash ?? "" });
+      expect(all.outcome).toBe("applied");
+      expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
+      expect(s.git("log", "-1", "--format=%s")).toBe("Rest of: Added an FAQ page.");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "refuses to take one side of a file replaced by a folder of the same name",
+    async () => {
+      const s = await site();
+      const session = ctx.agent.create(s.id);
+      const { cwd } = await ctx.changes.begin(s.id, session.id);
+      fs.rmSync(path.join(cwd, "content/pages/about.md"));
+      fs.mkdirSync(path.join(cwd, "content/pages/about.md"));
+      fs.writeFileSync(path.join(cwd, "content/pages/about.md/index.md"), "# About\n");
+      await ctx.changes.snapshot(s.id, cwd);
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      expect(view.files.map((f) => `${f.status} ${f.path}`)).toEqual([
+        "deleted content/pages/about.md",
+        "added content/pages/about.md/index.md",
+      ]);
+      await expect(
+        ctx.changes.apply(view.id, {
+          treeHash: view.treeHash,
+          baseCommit: view.baseCommit,
+          selection: [{ path: "content/pages/about.md/index.md" }],
+        }),
+      ).rejects.toMatchObject({ code: "change.partial_unsupported" });
+      const both = await ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: view.files.map((f) => ({ path: f.path })),
+      });
+      expect(both.outcome).toBe("applied");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")("applies only the selected hunks of a file, byte for byte", async () => {
     const s = await site();
     const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
     // No final newline, and a byte that is not UTF-8, both kept exactly.
@@ -848,34 +907,37 @@ describe("partial apply (plan 7.5)", () => {
     expect(fs.readFileSync(path.join(s.dir, "notes.txt"))).toEqual(after);
   });
 
-  it("takes only whole new files, deleted files and files whose mode changed", async () => {
-    const { s, cwd } = await threeChanges();
-    fs.chmodSync(path.join(cwd, "content/posts/welcome.md"), 0o755);
-    fs.appendFileSync(path.join(cwd, "content/posts/welcome.md"), "more\n");
-    await ctx.changes.snapshot(s.id, cwd);
-    const view = await ctx.changes.current(s.id, false);
-    if (!view) throw new Error("no change set");
-    for (const p of ["content/pages/faq.md", "content/pages/about.md", "content/posts/welcome.md"]) {
-      await expect(
-        ctx.changes.apply(view.id, {
-          treeHash: view.treeHash,
-          baseCommit: view.baseCommit,
-          selection: [{ path: p, hunks: [0] }],
-        }),
-      ).rejects.toMatchObject({ code: "change.partial_unsupported" });
-    }
-    expect((await ctx.changes.diff(view.id, "content/pages/faq.md")).splittable).toBe(false);
-    expect((await ctx.changes.diff(view.id, "content/posts/welcome.md")).splittable).toBe(false);
-    expect((await ctx.changes.diff(view.id, "site.yaml")).splittable).toBe(true);
-    const ok = await ctx.changes.apply(view.id, {
-      treeHash: view.treeHash,
-      baseCommit: view.baseCommit,
-      selection: [{ path: "site.yaml", hunks: [0] }],
-    });
-    expect(ok.outcome).toBe("partial");
-  });
+  it.skipIf(process.platform === "win32")(
+    "takes only whole new files, deleted files and files whose mode changed",
+    async () => {
+      const { s, cwd } = await threeChanges();
+      fs.chmodSync(path.join(cwd, "content/posts/welcome.md"), 0o755);
+      fs.appendFileSync(path.join(cwd, "content/posts/welcome.md"), "more\n");
+      await ctx.changes.snapshot(s.id, cwd);
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      for (const p of ["content/pages/faq.md", "content/pages/about.md", "content/posts/welcome.md"]) {
+        await expect(
+          ctx.changes.apply(view.id, {
+            treeHash: view.treeHash,
+            baseCommit: view.baseCommit,
+            selection: [{ path: p, hunks: [0] }],
+          }),
+        ).rejects.toMatchObject({ code: "change.partial_unsupported" });
+      }
+      expect((await ctx.changes.diff(view.id, "content/pages/faq.md")).splittable).toBe(false);
+      expect((await ctx.changes.diff(view.id, "content/posts/welcome.md")).splittable).toBe(false);
+      expect((await ctx.changes.diff(view.id, "site.yaml")).splittable).toBe(true);
+      const ok = await ctx.changes.apply(view.id, {
+        treeHash: view.treeHash,
+        baseCommit: view.baseCommit,
+        selection: [{ path: "site.yaml", hunks: [0] }],
+      });
+      expect(ok.outcome).toBe("partial");
+    },
+  );
 
-  it("applies the whole change set when everything is selected", async () => {
+  it.skipIf(process.platform === "win32")("applies the whole change set when everything is selected", async () => {
     const { s, view } = await threeChanges();
     const result = await ctx.changes.apply(view.id, {
       treeHash: view.treeHash,
@@ -887,7 +949,7 @@ describe("partial apply (plan 7.5)", () => {
     expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
   });
 
-  it("checks the selected result, not the whole snapshot", async () => {
+  it.skipIf(process.platform === "win32")("checks the selected result, not the whole snapshot", async () => {
     const { s, cwd } = await threeChanges();
     // fake-doctor makes the stand-in Bukit's doctor fail.
     fs.writeFileSync(path.join(cwd, "fake-doctor"), "x");
@@ -1055,7 +1117,7 @@ describe("the change set API and events", () => {
       yaml,
       text.replace(
         /^ {2}sources:\n/m,
-        "  sources:\n    - type: Notion\n      name: stolen\n      collection: post\n      notion:\n        databaseId: 12345678901234567890123456789012\n",
+        "  sources:\n  - type: Notion\n    name: stolen\n    collection: post\n    notion:\n      databaseId: 12345678901234567890123456789012\n",
       ),
     );
     await ctx.changes.snapshot(s.id, cwd);
@@ -1076,65 +1138,68 @@ describe("the change set API and events", () => {
     ]);
   });
 
-  it("applies with the fingerprint, rebuilds the main preview, and rejects", async () => {
-    const s = await site();
-    const session = ctx.agent.create(s.id);
-    const { cwd } = await ctx.changes.begin(s.id, session.id);
-    fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
-    await ctx.changes.snapshot(s.id, cwd);
-    const change = (await ctx.changes.current(s.id, false)) as ChangeSet;
-    const events = changeEvents(s.id);
+  it.skipIf(process.platform === "win32")(
+    "applies with the fingerprint, rebuilds the main preview, and rejects",
+    async () => {
+      const s = await site();
+      const session = ctx.agent.create(s.id);
+      const { cwd } = await ctx.changes.begin(s.id, session.id);
+      fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+      await ctx.changes.snapshot(s.id, cwd);
+      const change = (await ctx.changes.current(s.id, false)) as ChangeSet;
+      const events = changeEvents(s.id);
 
-    for (const bad of [
-      {},
-      { treeHash: "abc" },
-      { treeHash: change.treeHash, extra: 1 },
-      { treeHash: change.treeHash, force: "yes" },
-      { treeHash: change.treeHash, selection: [] },
-      { treeHash: change.treeHash, selection: [{ path: "a.md" }, { path: "a.md" }] },
-      { treeHash: change.treeHash, selection: [{ path: "../a.md" }] },
-      { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [] }] },
-      { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [1, 1] }] },
-      { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [-1] }] },
-      { treeHash: change.treeHash, selection: [{ path: "a.md" }] },
-    ]) {
-      expect((await call("POST", `/api/changes/${change.id}/apply`, bad)).json).toEqual({
-        code: "request.invalid_body",
+      for (const bad of [
+        {},
+        { treeHash: "abc" },
+        { treeHash: change.treeHash, extra: 1 },
+        { treeHash: change.treeHash, force: "yes" },
+        { treeHash: change.treeHash, selection: [] },
+        { treeHash: change.treeHash, selection: [{ path: "a.md" }, { path: "a.md" }] },
+        { treeHash: change.treeHash, selection: [{ path: "../a.md" }] },
+        { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [] }] },
+        { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [1, 1] }] },
+        { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [-1] }] },
+        { treeHash: change.treeHash, selection: [{ path: "a.md" }] },
+      ]) {
+        expect((await call("POST", `/api/changes/${change.id}/apply`, bad)).json).toEqual({
+          code: "request.invalid_body",
+        });
+      }
+      expect((await call("POST", `/api/changes/${change.id}/apply`, { treeHash: "0".repeat(40) })).json).toEqual({
+        code: "change.fingerprint_mismatch",
       });
-    }
-    expect((await call("POST", `/api/changes/${change.id}/apply`, { treeHash: "0".repeat(40) })).json).toEqual({
-      code: "change.fingerprint_mismatch",
-    });
 
-    // A running or queued conversation is about to change what was reviewed.
-    const busy = vi.spyOn(ctx.agent, "busy").mockReturnValue(true);
-    try {
-      expect(await call("POST", `/api/changes/${change.id}/apply`, { treeHash: change.treeHash })).toMatchObject({
-        status: 409,
-        json: { code: "site.busy" },
+      // A running or queued conversation is about to change what was reviewed.
+      const busy = vi.spyOn(ctx.agent, "busy").mockReturnValue(true);
+      try {
+        expect(await call("POST", `/api/changes/${change.id}/apply`, { treeHash: change.treeHash })).toMatchObject({
+          status: 409,
+          json: { code: "site.busy" },
+        });
+      } finally {
+        busy.mockRestore();
+      }
+
+      const buildsBefore = ctx.builds.list(s.id).length;
+      const applied = await call<ApplyResult>("POST", `/api/changes/${change.id}/apply`, { treeHash: change.treeHash });
+      expect(applied.status).toBe(200);
+      expect(applied.json).toMatchObject({ outcome: "applied", change: { status: "applied" } });
+      await until(() => ctx.builds.list(s.id).length > buildsBefore);
+      await ctx.builds.settled();
+      expect(ctx.builds.list(s.id)[0]).toMatchObject({ ref: "main", commit: applied.json.change.resultCommit });
+      // Once nothing is open, the stream says so.
+      await until(() => events.got.at(-1) === null);
+      events.close();
+
+      const next = await ctx.changes.begin(s.id, session.id);
+      expect((await call("POST", `/api/changes/${next.change.id}/reject`)).json).toMatchObject({ status: "rejected" });
+      expect((await call("POST", `/api/changes/${next.change.id}/reject`)).json).toEqual({
+        code: "change.not_open",
+        params: { status: "rejected" },
       });
-    } finally {
-      busy.mockRestore();
-    }
-
-    const buildsBefore = ctx.builds.list(s.id).length;
-    const applied = await call<ApplyResult>("POST", `/api/changes/${change.id}/apply`, { treeHash: change.treeHash });
-    expect(applied.status).toBe(200);
-    expect(applied.json).toMatchObject({ outcome: "applied", change: { status: "applied" } });
-    await until(() => ctx.builds.list(s.id).length > buildsBefore);
-    await ctx.builds.settled();
-    expect(ctx.builds.list(s.id)[0]).toMatchObject({ ref: "main", commit: applied.json.change.resultCommit });
-    // Once nothing is open, the stream says so.
-    await until(() => events.got.at(-1) === null);
-    events.close();
-
-    const next = await ctx.changes.begin(s.id, session.id);
-    expect((await call("POST", `/api/changes/${next.change.id}/reject`)).json).toMatchObject({ status: "rejected" });
-    expect((await call("POST", `/api/changes/${next.change.id}/reject`)).json).toEqual({
-      code: "change.not_open",
-      params: { status: "rejected" },
-    });
-  });
+    },
+  );
 });
 
 describe("change set previews", () => {
@@ -1144,45 +1209,48 @@ describe("change set previews", () => {
     return ctx.builds.get(siteId, started.id);
   }
 
-  it("builds the open change set in the AI checkout and previews only that change set", async () => {
-    const s = await site();
-    await expect(ctx.builds.start(s.id, "change")).rejects.toMatchObject({ code: "change.not_found" });
-    await expect(ctx.builds.openPreview(s.id, "change")).rejects.toMatchObject({ code: "change.not_found" });
+  it.skipIf(process.platform === "win32")(
+    "builds the open change set in the AI checkout and previews only that change set",
+    async () => {
+      const s = await site();
+      await expect(ctx.builds.start(s.id, "change")).rejects.toMatchObject({ code: "change.not_found" });
+      await expect(ctx.builds.openPreview(s.id, "change")).rejects.toMatchObject({ code: "change.not_found" });
 
-    const session = ctx.agent.create(s.id);
-    const { cwd, change } = await ctx.changes.begin(s.id, session.id);
-    await expect(ctx.builds.openPreview(s.id, "change")).rejects.toMatchObject({ code: "preview.not_built" });
-    // Edited outside a run: the build snapshots the checkout first and builds exactly that commit.
-    fs.writeFileSync(path.join(cwd, "marker"), "from-the-ai");
-    const b = await build(s.id, "change");
-    const snapshot = ctx.changes.store.get(change.id)?.snapshotCommit;
-    expect(b).toMatchObject({ ref: "change", status: "succeeded", hasOutput: true, commit: snapshot });
-    expect(snapshot).not.toBe(change.baseCommit);
-    // Nothing was written in the site folder, and the build directory left the checkout.
-    expect(fs.existsSync(path.join(s.dir, "marker"))).toBe(false);
-    expect(s.git("status", "--porcelain")).toBe("");
-    expect(fs.existsSync(path.join(cwd, ".bukitjalil-build", b.id))).toBe(false);
+      const session = ctx.agent.create(s.id);
+      const { cwd, change } = await ctx.changes.begin(s.id, session.id);
+      await expect(ctx.builds.openPreview(s.id, "change")).rejects.toMatchObject({ code: "preview.not_built" });
+      // Edited outside a run: the build snapshots the checkout first and builds exactly that commit.
+      fs.writeFileSync(path.join(cwd, "marker"), "from-the-ai");
+      const b = await build(s.id, "change");
+      const snapshot = ctx.changes.store.get(change.id)?.snapshotCommit;
+      expect(b).toMatchObject({ ref: "change", status: "succeeded", hasOutput: true, commit: snapshot });
+      expect(snapshot).not.toBe(change.baseCommit);
+      // Nothing was written in the site folder, and the build directory left the checkout.
+      expect(fs.existsSync(path.join(s.dir, "marker"))).toBe(false);
+      expect(s.git("status", "--porcelain")).toBe("");
+      expect(fs.existsSync(path.join(cwd, ".bukitjalil-build", b.id))).toBe(false);
 
-    const opened = (await ctx.builds.openPreview(s.id, "change")) as PreviewResponse;
-    expect(opened).toMatchObject({ ref: "change", buildId: b.id, commit: snapshot });
-    expect((await httpGet(opened.port)).body).toContain("from-the-ai");
-    // The main preview is its own build of the default branch.
-    const mainPreview = await ctx.builds.openPreview(s.id, "main");
-    expect(mainPreview.port).not.toBe(opened.port);
-    expect((await httpGet(mainPreview.port)).body).not.toContain("from-the-ai");
+      const opened = (await ctx.builds.openPreview(s.id, "change")) as PreviewResponse;
+      expect(opened).toMatchObject({ ref: "change", buildId: b.id, commit: snapshot });
+      expect((await httpGet(opened.port)).body).toContain("from-the-ai");
+      // The main preview is its own build of the default branch.
+      const mainPreview = await ctx.builds.openPreview(s.id, "main");
+      expect(mainPreview.port).not.toBe(opened.port);
+      expect((await httpGet(mainPreview.port)).body).not.toContain("from-the-ai");
 
-    // Once the change set is closed, its preview port goes and its builds are not offered again.
-    await ctx.changes.reject(change.id);
-    for (let i = 0; i < 100 && ctx.previews.rootOf(PreviewPool.key(s.id, "change")) !== null; i++) {
-      await new Promise((r) => setTimeout(r, 10));
-    }
-    expect(ctx.previews.rootOf(PreviewPool.key(s.id, "change"))).toBeNull();
-    const next = await ctx.changes.begin(s.id, session.id);
-    expect(next.change.id).not.toBe(change.id);
-    await expect(ctx.builds.openPreview(s.id, "change")).rejects.toMatchObject({ code: "preview.not_built" });
-  });
+      // Once the change set is closed, its preview port goes and its builds are not offered again.
+      await ctx.changes.reject(change.id);
+      for (let i = 0; i < 100 && ctx.previews.rootOf(PreviewPool.key(s.id, "change")) !== null; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(ctx.previews.rootOf(PreviewPool.key(s.id, "change"))).toBeNull();
+      const next = await ctx.changes.begin(s.id, session.id);
+      expect(next.change.id).not.toBe(change.id);
+      await expect(ctx.builds.openPreview(s.id, "change")).rejects.toMatchObject({ code: "preview.not_built" });
+    },
+  );
 
-  it("refuses an unsafe change without marking the site read-only", async () => {
+  it.skipIf(process.platform === "win32")("refuses an unsafe change without marking the site read-only", async () => {
     const s = await site();
     const session = ctx.agent.create(s.id);
     const { cwd } = await ctx.changes.begin(s.id, session.id);
@@ -1221,191 +1289,256 @@ describe("history and restore", () => {
     return { s, session, init: s.git("rev-parse", "HEAD^"), applied: s.git("rev-parse", "HEAD") };
   }
 
-  it("lists the default branch's versions with their trailers, newest first, a page at a time", async () => {
-    const { s, session, init, applied } = await withHistory();
-    const res = await call<HistoryResponse>("GET", `/api/sites/${s.id}/history`);
-    expect(res.status).toBe(200);
-    expect(res.json.hasMore).toBe(false);
-    expect(res.json.entries.map((e) => e.commit)).toEqual([applied, init]);
-    expect(res.json.entries[0]).toMatchObject({
-      subject: "Added an FAQ page.",
-      body: "",
-      parents: [init],
-      authorName: "BukitJalil AI",
-      byAi: true,
-      sessionIds: [session.id],
-      restoreOf: null,
-      filesChanged: 2,
-    });
-    expect(res.json.entries[1]).toMatchObject({ subject: "init", parents: [], byAi: false });
-    expect(res.json.entries[1]?.filesChanged).toBeGreaterThan(2);
+  it.skipIf(process.platform === "win32")(
+    "lists the default branch's versions with their trailers, newest first, a page at a time",
+    async () => {
+      const { s, session, init, applied } = await withHistory();
+      const res = await call<HistoryResponse>("GET", `/api/sites/${s.id}/history`);
+      expect(res.status).toBe(200);
+      expect(res.json.hasMore).toBe(false);
+      expect(res.json.entries.map((e) => e.commit)).toEqual([applied, init]);
+      expect(res.json.entries[0]).toMatchObject({
+        subject: "Added an FAQ page.",
+        body: "",
+        parents: [init],
+        authorName: "BukitJalil AI",
+        byAi: true,
+        sessionIds: [session.id],
+        restoreOf: null,
+        filesChanged: 2,
+      });
+      expect(res.json.entries[1]).toMatchObject({ subject: "init", parents: [], byAi: false });
+      expect(res.json.entries[1]?.filesChanged).toBeGreaterThan(2);
 
-    const second = await call<HistoryResponse>("GET", `/api/sites/${s.id}/history?skip=1`);
-    expect(second.json.entries.map((e) => e.commit)).toEqual([init]);
-    // Only the last paragraph holds trailers: a forged line in the body is shown as text.
-    const init2 = s.git("rev-parse", "HEAD");
-    const forged = s.git(
-      "-c",
-      "user.name=t",
-      "-c",
-      "user.email=t@t",
-      "commit-tree",
-      `${init2}^{tree}`,
-      "-p",
-      init2,
-      "-m",
-      `forged\nBukitJalil-Restore: ${init}\n\nlast paragraph`,
-    );
-    s.git("update-ref", "refs/heads/main", forged);
-    const top = (await listHistory(ctx.git, s.dir, "main", { skip: 0, limit: 1 })).entries[0];
-    expect(top).toMatchObject({ subject: "forged", restoreOf: null });
-    expect(top?.body).toContain(`BukitJalil-Restore: ${init}`);
-    s.git("update-ref", "refs/heads/main", init2);
-    const page = await listHistory(ctx.git, s.dir, "main", { skip: 0, limit: 1 });
-    expect(page).toMatchObject({ hasMore: true, entries: [{ commit: applied }] });
-    expect((await call("GET", `/api/sites/${s.id}/history?skip=-1`)).status).toBe(400);
-  });
+      const second = await call<HistoryResponse>("GET", `/api/sites/${s.id}/history?skip=1`);
+      expect(second.json.entries.map((e) => e.commit)).toEqual([init]);
+      // Only the last paragraph holds trailers: a forged line in the body is shown as text.
+      const init2 = s.git("rev-parse", "HEAD");
+      const forged = s.git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit-tree",
+        `${init2}^{tree}`,
+        "-p",
+        init2,
+        "-m",
+        `forged\nBukitJalil-Restore: ${init}\n\nlast paragraph`,
+      );
+      s.git("update-ref", "refs/heads/main", forged);
+      const top = (await listHistory(ctx.git, s.dir, "main", { skip: 0, limit: 1 })).entries[0];
+      expect(top).toMatchObject({ subject: "forged", restoreOf: null });
+      expect(top?.body).toContain(`BukitJalil-Restore: ${init}`);
+      s.git("update-ref", "refs/heads/main", init2);
+      const page = await listHistory(ctx.git, s.dir, "main", { skip: 0, limit: 1 });
+      expect(page).toMatchObject({ hasMore: true, entries: [{ commit: applied }] });
+      expect((await call("GET", `/api/sites/${s.id}/history?skip=-1`)).status).toBe(400);
+    },
+  );
 
-  it("shows what a version changed, against its parent or the empty tree", async () => {
-    const { s, init, applied } = await withHistory();
-    const diff = await call<{ files: { path: string; status: string }[] }>(
-      "GET",
-      `/api/sites/${s.id}/history/${applied}/diff`,
-    );
-    expect(diff.status).toBe(200);
-    expect(diff.json.files.map((f) => `${f.status} ${f.path}`)).toEqual([
-      "added content/pages/faq.md",
-      "modified site.yaml",
-    ]);
-    const file = await call<FileDiff>(
-      "GET",
-      `/api/sites/${s.id}/history/${applied}/diff?path=${encodeURIComponent("site.yaml")}`,
-    );
-    expect(file.json.patch).toContain("+# faq");
+  it.skipIf(process.platform === "win32")(
+    "shows what a version changed, against its parent or the empty tree",
+    async () => {
+      const { s, init, applied } = await withHistory();
+      const diff = await call<{ files: { path: string; status: string }[] }>(
+        "GET",
+        `/api/sites/${s.id}/history/${applied}/diff`,
+      );
+      expect(diff.status).toBe(200);
+      expect(diff.json.files.map((f) => `${f.status} ${f.path}`)).toEqual([
+        "added content/pages/faq.md",
+        "modified site.yaml",
+      ]);
+      const file = await call<FileDiff>(
+        "GET",
+        `/api/sites/${s.id}/history/${applied}/diff?path=${encodeURIComponent("site.yaml")}`,
+      );
+      expect(file.json.patch).toContain("+# faq");
 
-    // The first version: every file is new.
-    const first = await call<{ files: { status: string }[] }>("GET", `/api/sites/${s.id}/history/${init}/diff`);
-    expect(first.json.files.length).toBeGreaterThan(2);
-    expect(new Set(first.json.files.map((f) => f.status))).toEqual(new Set(["added"]));
+      // The first version: every file is new.
+      const first = await call<{ files: { status: string }[] }>("GET", `/api/sites/${s.id}/history/${init}/diff`);
+      expect(first.json.files.length).toBeGreaterThan(2);
+      expect(new Set(first.json.files.map((f) => f.status))).toEqual(new Set(["added"]));
 
-    // Not a version of this site: a commit off the branch, an unknown object, a malformed id.
-    const loose = s.git("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", "HEAD^{tree}", "-m", "loose");
-    expect((await call("GET", `/api/sites/${s.id}/history/${loose}/diff`)).json.code).toBe("history.not_found");
-    expect((await call("GET", `/api/sites/${s.id}/history/${"a".repeat(40)}/diff`)).status).toBe(404);
-    expect((await call("GET", `/api/sites/${s.id}/history/HEAD/diff`)).status).toBe(400);
-    const missing = await call("GET", `/api/sites/${s.id}/history/${applied}/diff?path=nope.md`);
-    expect(missing.json.code).toBe("change.file_not_found");
-  });
+      // Not a version of this site: a commit off the branch, an unknown object, a malformed id.
+      const loose = s.git("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", "HEAD^{tree}", "-m", "loose");
+      expect((await call("GET", `/api/sites/${s.id}/history/${loose}/diff`)).json.code).toBe("history.not_found");
+      expect((await call("GET", `/api/sites/${s.id}/history/${"a".repeat(40)}/diff`)).status).toBe(404);
+      expect((await call("GET", `/api/sites/${s.id}/history/HEAD/diff`)).status).toBe(400);
+      const missing = await call("GET", `/api/sites/${s.id}/history/${applied}/diff?path=nope.md`);
+      expect(missing.json.code).toBe("change.file_not_found");
+    },
+  );
 
-  it("restores a version as a change set that the user applies as its author", async () => {
-    const { s, session, init, applied } = await withHistory();
-    // A conversation that changed nothing leaves an empty change set, which gives way to the restore.
-    const empty = await ctx.changes.begin(s.id, session.id);
-    const restored = await call<RestoreResult>("POST", `/api/sites/${s.id}/history/${init}/restore`);
-    expect(ctx.changes.get(empty.change.id).status).toBe("rejected");
-    expect(restored.status).toBe(200);
-    expect(restored.json.guard).toEqual({ ok: true, reasons: [] });
-    expect(restored.json.change).toMatchObject({
-      status: "open",
-      baseCommit: applied,
-      restoreOf: init,
-      summary: `Restore to ${init.slice(0, 7)}: init`,
-    });
-    // The site folder is untouched until it is applied; the AI checkout holds the old version.
-    expect(s.git("rev-parse", "HEAD")).toBe(applied);
-    const view = await ctx.changes.current(s.id, false);
-    if (!view) throw new Error("no change set");
-    expect(view.treeHash).toBe(s.git("rev-parse", `${init}^{tree}`));
-    expect(view.files.map((f) => `${f.status} ${f.path}`)).toEqual([
-      "deleted content/pages/faq.md",
-      "modified site.yaml",
-    ]);
-    expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "content/pages/faq.md"))).toBe(false);
+  it.skipIf(process.platform === "win32")(
+    "restores a version as a change set that the user applies as its author",
+    async () => {
+      const { s, session, init, applied } = await withHistory();
+      // A conversation that changed nothing leaves an empty change set, which gives way to the restore.
+      const empty = await ctx.changes.begin(s.id, session.id);
+      const restored = await call<RestoreResult>("POST", `/api/sites/${s.id}/history/${init}/restore`);
+      expect(ctx.changes.get(empty.change.id).status).toBe("rejected");
+      expect(restored.status).toBe(200);
+      expect(restored.json.guard).toEqual({ ok: true, reasons: [] });
+      expect(restored.json.change).toMatchObject({
+        status: "open",
+        baseCommit: applied,
+        restoreOf: init,
+        summary: `Restore to ${init.slice(0, 7)}: init`,
+      });
+      // The site folder is untouched until it is applied; the AI checkout holds the old version.
+      expect(s.git("rev-parse", "HEAD")).toBe(applied);
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      expect(view.treeHash).toBe(s.git("rev-parse", `${init}^{tree}`));
+      expect(view.files.map((f) => `${f.status} ${f.path}`)).toEqual([
+        "deleted content/pages/faq.md",
+        "modified site.yaml",
+      ]);
+      expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "content/pages/faq.md"))).toBe(false);
 
-    // Only one change set at a time, and nothing to restore to the current version.
-    const again = await call("POST", `/api/sites/${s.id}/history/${init}/restore`);
-    expect([again.status, again.json.code]).toEqual([409, "change.open_exists"]);
+      // Only one change set at a time, and nothing to restore to the current version.
+      const again = await call("POST", `/api/sites/${s.id}/history/${init}/restore`);
+      expect([again.status, again.json.code]).toEqual([409, "change.open_exists"]);
 
-    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
-    expect(result.outcome).toBe("applied");
-    expect(s.git("rev-parse", "HEAD^")).toBe(applied);
-    expect(s.git("rev-parse", "HEAD^{tree}")).toBe(s.git("rev-parse", `${init}^{tree}`));
-    expect(s.git("log", "-1", "--format=%an <%ae>|%cn <%ce>")).toBe(
-      "Site Owner <owner@example.com>|Site Owner <owner@example.com>",
-    );
-    expect(s.git("log", "-1", "--format=%B")).toBe(
-      `Restore to ${init.slice(0, 7)}: init\n\nBukitJalil-Restore: ${init}`,
-    );
-    const history = await ctx.changes.history(s.id, 0);
-    expect(history.entries[0]).toMatchObject({ restoreOf: init, byAi: false, sessionIds: [] });
+      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(result.outcome).toBe("applied");
+      expect(s.git("rev-parse", "HEAD^")).toBe(applied);
+      expect(s.git("rev-parse", "HEAD^{tree}")).toBe(s.git("rev-parse", `${init}^{tree}`));
+      expect(s.git("log", "-1", "--format=%an <%ae>|%cn <%ce>")).toBe(
+        "Site Owner <owner@example.com>|Site Owner <owner@example.com>",
+      );
+      expect(s.git("log", "-1", "--format=%B")).toBe(
+        `Restore to ${init.slice(0, 7)}: init\n\nBukitJalil-Restore: ${init}`,
+      );
+      const history = await ctx.changes.history(s.id, 0);
+      expect(history.entries[0]).toMatchObject({ restoreOf: init, byAi: false, sessionIds: [] });
 
-    const same = await call("POST", `/api/sites/${s.id}/history/${init}/restore`);
-    expect([same.status, same.json.code]).toEqual([409, "change.same_version"]);
-    const loose = s.git("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", `${applied}^{tree}`, "-m", "loose");
-    const off = await call("POST", `/api/sites/${s.id}/history/${loose}/restore`);
-    expect([off.status, off.json.code]).toEqual([404, "history.not_found"]);
-  });
+      const same = await call("POST", `/api/sites/${s.id}/history/${init}/restore`);
+      expect([same.status, same.json.code]).toEqual([409, "change.same_version"]);
+      const loose = s.git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit-tree",
+        `${applied}^{tree}`,
+        "-m",
+        "loose",
+      );
+      const off = await call("POST", `/api/sites/${s.id}/history/${loose}/restore`);
+      expect([off.status, off.json.code]).toEqual([404, "history.not_found"]);
+    },
+  );
 
-  it("refuses a restore on a read-only site, while a conversation is busy and while the site is locked", async () => {
-    const { s, init } = await withHistory();
-    const url = `/api/sites/${s.id}/history/${init}/restore`;
-    const busy = vi.spyOn(ctx.agent, "busy").mockReturnValue(true);
-    try {
+  it.skipIf(process.platform === "win32")(
+    "refuses a restore on a read-only site, while a conversation is busy and while the site is locked",
+    async () => {
+      const { s, init } = await withHistory();
+      const url = `/api/sites/${s.id}/history/${init}/restore`;
+      const busy = vi.spyOn(ctx.agent, "busy").mockReturnValue(true);
+      try {
+        expect(await call("POST", url)).toMatchObject({ status: 409, json: { code: "site.busy" } });
+      } finally {
+        busy.mockRestore();
+      }
+      const release = ctx.locks.acquire(s.id, "build");
       expect(await call("POST", url)).toMatchObject({ status: 409, json: { code: "site.busy" } });
-    } finally {
-      busy.mockRestore();
-    }
-    const release = ctx.locks.acquire(s.id, "build");
-    expect(await call("POST", url)).toMatchObject({ status: 409, json: { code: "site.busy" } });
-    release();
-    ctx.sites.store.setState(s.id, { readOnly: [{ code: "plugin_files" }], checkedCommit: null, configCheck: null });
-    expect(await call("POST", url)).toMatchObject({ status: 409, json: { code: "site.read_only" } });
-    expect(ctx.changes.store.open(s.id)).toBeNull();
-  });
+      release();
+      ctx.sites.store.setState(s.id, { readOnly: [{ code: "plugin_files" }], checkedCommit: null, configCheck: null });
+      expect(await call("POST", url)).toMatchObject({ status: 409, json: { code: "site.read_only" } });
+      expect(ctx.changes.store.open(s.id)).toBeNull();
+    },
+  );
 
-  it("keeps the AI as author once a conversation has added to a restore", async () => {
+  it.skipIf(process.platform === "win32")(
+    "keeps the AI as author once a conversation has added to a restore",
+    async () => {
+      const { s, session, init } = await withHistory();
+      await ctx.changes.restore(s.id, init);
+      const { cwd } = await ctx.changes.begin(s.id, session.id);
+      fs.writeFileSync(path.join(cwd, "extra.md"), "extra\n");
+      await ctx.changes.snapshot(s.id, cwd);
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      expect(view.restoreOf).toBe(init);
+      await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
+      // The user's line stays first; what the AI added is noted below it (AGENTS.md item 7).
+      expect(s.git("log", "-1", "--format=%B")).toBe(
+        `Restore to ${init.slice(0, 7)}: init\n\nAI changes: Add 1 file: extra.md\n\nBukitJalil-Sessions: ${session.id}\nBukitJalil-Restore: ${init}`,
+      );
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "puts the AI's summary under the restore line, and the review shows both",
+    async () => {
+      const { s, session, init } = await withHistory();
+      await ctx.changes.restore(s.id, init);
+      const { cwd } = await ctx.changes.begin(s.id, session.id);
+      fs.writeFileSync(path.join(cwd, "extra.md"), "extra\n");
+      await ctx.changes.snapshot(s.id, cwd);
+      ctx.changes.setSummary(s.id, "Added an extra page.");
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      expect(view.summary).toBe(`Restore to ${init.slice(0, 7)}: init\n\nAdded an extra page.`);
+      await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(s.git("log", "-1", "--format=%B")).toBe(
+        `Restore to ${init.slice(0, 7)}: init\n\nAdded an extra page.\n\nBukitJalil-Sessions: ${session.id}\nBukitJalil-Restore: ${init}`,
+      );
+    },
+  );
+
+  it.skipIf(process.platform === "win32")("does not count a user action's files as the AI's", async () => {
     const { s, session, init } = await withHistory();
     await ctx.changes.restore(s.id, init);
     const { cwd } = await ctx.changes.begin(s.id, session.id);
+    // An upload after the conversation joined is the user's, not the AI's.
+    fs.writeFileSync(path.join(cwd, "upload.md"), "upload\n");
+    await ctx.changes.snapshot(s.id, cwd, { byUser: true });
     fs.writeFileSync(path.join(cwd, "extra.md"), "extra\n");
     await ctx.changes.snapshot(s.id, cwd);
     const view = await ctx.changes.current(s.id, false);
     if (!view) throw new Error("no change set");
-    expect(view.restoreOf).toBe(init);
     await ctx.changes.apply(view.id, { treeHash: view.treeHash });
-    expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
-    expect(s.git("log", "-1", "--format=%B")).toBe(
-      `Restore to ${init.slice(0, 7)}: init\n\nBukitJalil-Sessions: ${session.id}\nBukitJalil-Restore: ${init}`,
-    );
+    expect(s.git("log", "-1", "--format=%b")).toContain("AI changes: Add 1 file: extra.md");
   });
 
-  it("keeps the AI as author of its edits on a restore after the conversation was deleted", async () => {
-    const { s, session, init } = await withHistory();
-    await ctx.changes.restore(s.id, init);
-    const { cwd } = await ctx.changes.begin(s.id, session.id);
-    fs.writeFileSync(path.join(cwd, "extra.md"), "extra\n");
-    await ctx.changes.snapshot(s.id, cwd);
-    await ctx.agent.delete(session.id);
-    const view = await ctx.changes.current(s.id, false);
-    if (!view) throw new Error("no change set");
-    await ctx.changes.apply(view.id, { treeHash: view.treeHash });
-    expect(s.git("log", "-1", "--format=%an")).toBe("BukitJalil AI");
-  });
+  it.skipIf(process.platform === "win32")(
+    "keeps the AI as author of its edits on a restore after the conversation was deleted",
+    async () => {
+      const { s, session, init } = await withHistory();
+      await ctx.changes.restore(s.id, init);
+      const { cwd } = await ctx.changes.begin(s.id, session.id);
+      fs.writeFileSync(path.join(cwd, "extra.md"), "extra\n");
+      await ctx.changes.snapshot(s.id, cwd);
+      await ctx.agent.delete(session.id);
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(s.git("log", "-1", "--format=%an")).toBe("BukitJalil AI");
+    },
+  );
 
-  it("keeps the user as author of a restore that was merged onto a default branch that moved", async () => {
-    const { s, init } = await withHistory();
-    const restored = await ctx.changes.restore(s.id, init);
-    fs.writeFileSync(path.join(s.dir, "outside.md"), "outside\n");
-    s.git("add", "-A");
-    s.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "outside BukitJalil");
-    const view = await ctx.changes.current(s.id, false);
-    if (!view) throw new Error("no change set");
-    const rebased = await ctx.changes.apply(restored.change.id, { treeHash: view.treeHash });
-    expect(rebased.outcome).toBe("rebased");
-    const applied = await ctx.changes.apply(restored.change.id, { treeHash: rebased.change.treeHash });
-    expect(applied.outcome).toBe("applied");
-    expect(s.git("log", "-1", "--format=%an|%cn")).toBe("Site Owner|Site Owner");
-  });
+  it.skipIf(process.platform === "win32")(
+    "keeps the user as author of a restore that was merged onto a default branch that moved",
+    async () => {
+      const { s, init } = await withHistory();
+      const restored = await ctx.changes.restore(s.id, init);
+      fs.writeFileSync(path.join(s.dir, "outside.md"), "outside\n");
+      s.git("add", "-A");
+      s.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "outside BukitJalil");
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      const rebased = await ctx.changes.apply(restored.change.id, { treeHash: view.treeHash });
+      expect(rebased.outcome).toBe("rebased");
+      const applied = await ctx.changes.apply(restored.change.id, { treeHash: rebased.change.treeHash });
+      expect(applied.outcome).toBe("applied");
+      expect(s.git("log", "-1", "--format=%an|%cn")).toBe("Site Owner|Site Owner");
+    },
+  );
 
   it("reports the pre-build guard's verdict on the restored version", async () => {
     const s = await site();
@@ -1437,7 +1570,7 @@ describe("built-in plugin switches (Settings → site Config)", () => {
     expect(ctx.changes.store.open(s.id)).toBeNull();
   });
 
-  it("applies as the user and keeps a site.plugins entry", async () => {
+  it.skipIf(process.platform === "win32")("applies as the user and keeps a site.plugins entry", async () => {
     const s = await site();
     const change = (await ctx.changes.setPlugin(s.id, "related-content", false)).change;
     const applied = await ctx.changes.apply(change?.id ?? "", { treeHash: change?.treeHash ?? "" });
@@ -1446,6 +1579,25 @@ describe("built-in plugin switches (Settings → site Config)", () => {
     expect(s.git("log", "-1", "--format=%an|%cn")).toBe("Site Owner|Site Owner");
     expect(s.git("log", "-1", "--format=%s")).toBe("Plugin settings: related-content off");
   });
+
+  it.skipIf(process.platform === "win32")(
+    "keeps the plugin line and names the files a conversation changed afterwards",
+    async () => {
+      const s = await site();
+      await ctx.changes.setPlugin(s.id, "related-content", false);
+      const session = ctx.agent.create(s.id);
+      const { cwd } = await ctx.changes.begin(s.id, session.id);
+      fs.writeFileSync(path.join(cwd, "content/pages/faq.md"), "---\ntitle: FAQ\n---\n");
+      await ctx.changes.snapshot(s.id, cwd);
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      expect(view.summary).toBe("Plugin settings: related-content off");
+      await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      expect(s.git("log", "-1", "--format=%an|%B")).toBe(
+        `BukitJalil AI|Plugin settings: related-content off\n\nAI changes: Add 1 file: content/pages/faq.md\n\nBukitJalil-Sessions: ${session.id}`,
+      );
+    },
+  );
 
   it("exposes the toggle through the API", async () => {
     const s = await site();

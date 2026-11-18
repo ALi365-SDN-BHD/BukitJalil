@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, RotateCw } from "lucide-react";
+import { ExternalLink, RotateCw, Upload } from "lucide-react";
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { BuildButton, NotionOfflineNote, useBuilds } from "@/features/builds/builds";
 import { useCurrentChange, usePanelRef } from "@/features/changes/hooks";
@@ -49,6 +50,19 @@ function PreviewBody({ siteId, refName, readOnly }: { siteId: string; refName: "
   // Bumped by the reload button; the iframe is keyed on it so it loads again.
   const [nonce, setNonce] = useState(0);
   const isChange = refName === "change";
+  const [, setParams] = useSearchParams();
+  // Uploads have one queue and one file list, both in the changes panel; this button hands over to it and
+  // its effect opens the picker on arrival (upload=1).
+  const goUpload = () =>
+    setParams(
+      (p) => {
+        p.set("panel", "changes");
+        p.delete("file");
+        p.set("upload", "1");
+        return p;
+      },
+      { replace: true },
+    );
 
   if (preview.isPending) return <PanelLoading />;
   if (preview.error) {
@@ -81,6 +95,9 @@ function PreviewBody({ siteId, refName, readOnly }: { siteId: string; refName: "
         <span className="min-w-0 flex-1 truncate text-muted-foreground" data-testid="preview-info">
           {t(m.preview.showing, { build: p.buildId.slice(0, 7), commit: shortOid(p.commit) })}
         </span>
+        <Button size="xs" variant="ghost" data-testid="preview-upload" title={m.media.uploadHint} onClick={goUpload}>
+          <Upload /> {m.media.upload}
+        </Button>
         <Button
           size="xs"
           variant="ghost"

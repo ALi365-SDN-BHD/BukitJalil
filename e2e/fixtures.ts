@@ -13,6 +13,8 @@ interface Server {
   bukitPath: string;
   /** Replace the app's Bukit copy with `source`; refresh the cached status from the page afterwards. */
   setBukit(source: string): void;
+  /** Point the app's Bukit back at the worker's default (BUKIT_BIN or the stand-in) before deleting another one. */
+  resetBukit(): void;
 }
 
 const URL_RE = /http:\/\/127\.0\.0\.1:\d+\/\?token=[\w-]+/g;
@@ -30,13 +32,14 @@ export const test = base.extend<object, { server: Server }>({
       // The server only uses the Bukit that ships with it (plan 8.1); BUKITJALIL_BUKIT_DIR points it at a
       // folder holding the stand-in (or BUKIT_BIN).
       const bukitDir = path.join(home, "bundled-bukit");
-      const bukitLink = path.join(bukitDir, "bukit");
+      const bukitLink = path.join(bukitDir, process.platform === "win32" ? "bukit.exe" : "bukit");
       const setBukit = (source: string) => {
         fs.mkdirSync(path.dirname(bukitLink), { recursive: true, mode: 0o700 });
         fs.rmSync(bukitLink, { force: true });
         fs.symlinkSync(path.resolve(source), bukitLink);
       };
-      setBukit(bukitForTests(home));
+      const defaultBukit = bukitForTests(home);
+      setBukit(defaultBukit);
       const child: ChildProcess = spawn(
         process.execPath,
         [
@@ -102,6 +105,7 @@ export const test = base.extend<object, { server: Server }>({
         },
         bukitPath: bukitLink,
         setBukit,
+        resetBukit: () => setBukit(defaultBukit),
       });
 
       child.kill("SIGTERM");

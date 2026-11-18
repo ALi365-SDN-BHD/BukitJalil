@@ -15,6 +15,7 @@ import type {
 import { parseDocument } from "yaml";
 import { readPublishAudit } from "../builds/audit.ts";
 import { buildReport, checkoutLanguage, findSymlink, previewEntry } from "../builds/service.ts";
+import { findUploadUrlProblems } from "../builds/upload-urls.ts";
 import { guardCommit, isRecord } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
 import {
@@ -31,6 +32,7 @@ import type { Logger } from "../log.ts";
 import type { PanelService } from "../panels/service.ts";
 import { parseYaml } from "../panels/yaml.ts";
 import type { AppPaths } from "../paths.ts";
+import { checkoutBasePath } from "../preview/base-path.ts";
 import type { PublishAccountService } from "../publish/accounts.ts";
 import { type ConfigCommitCodes, commitSiteYaml } from "../sites/config-commit.ts";
 import { SiteError } from "../sites/location.ts";
@@ -442,6 +444,15 @@ export class DeployService {
       }
       const link = findSymlink(output);
       if (link) return finish("symlink", { detail: link });
+
+      // The build passed, but old upload prefixes would 404 once published (design 4.9).
+      const base = checkoutBasePath(checkout);
+      if (base.ok) {
+        const problems = findUploadUrlProblems(output, base.basePath);
+        if (problems.length > 0) {
+          return finish("upload_prefix", { detail: problems.map((p) => `${p.page}: ${p.url}`).join("\n") });
+        }
+      }
 
       const audit = await run("audit", "publish", ["publish", "audit", "--dir", rel]);
       const summary = readPublishAudit(output);

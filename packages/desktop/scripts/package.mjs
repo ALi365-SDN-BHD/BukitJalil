@@ -1,6 +1,6 @@
 // Builds the desktop app for the platform it runs on (plan M7) into packages/desktop/out/, then its installers
-// into out/installers/: a dmg and a zip on macOS (arm64), an NSIS setup on Windows (x64), an AppImage and a deb
-// on Linux (x64). Electron cannot be packaged for another platform reliably (npm packages with native code),
+// into out/installers/: a dmg and a zip on macOS (arm64 or x64), an NSIS setup on Windows (x64), an AppImage
+// and a deb on Linux (x64 or arm64). Electron cannot be packaged for another platform reliably (npm packages with native code),
 // so the release workflow runs this once per platform. Run `pnpm build` (the web UI) first;
 // `pnpm package:desktop` does both. BUKITJALIL_VERSION sets the version (the release tag without its "v").
 //
@@ -9,7 +9,7 @@
 //   server.mjs, migrations/            BukitJalil's server code, bundled; npm packages stay outside the
 //                                      bundle because Pi SDK reads files next to its own modules
 //   node_modules/                      the server's production dependencies (pnpm deploy, lockfile versions)
-//   skills/, templates/starter/, web/  read through BUKITJALIL_RESOURCES
+//   skills/, web/  read through BUKITJALIL_RESOURCES
 //   bukit/                             the pinned Bukit (plan 8.1), checked against the SHA-256 in the
 //                                      server's bukit/install.ts; the app never installs another
 import { execFileSync } from "node:child_process";
@@ -34,14 +34,18 @@ const run = (cmd, args, cwd = repo) => {
 };
 
 const TARGETS = {
-  darwin: { arch: "arm64", builder: Platform.MAC, formats: ["dmg", "zip"] },
-  win32: { arch: "x64", builder: Platform.WINDOWS, formats: ["nsis"] },
-  linux: { arch: "x64", builder: Platform.LINUX, formats: ["AppImage", "deb"] },
+  "darwin-arm64": { arch: "arm64", builder: Platform.MAC, formats: ["dmg", "zip"] },
+  "darwin-x64": { arch: "x64", builder: Platform.MAC, formats: ["dmg", "zip"] },
+  "win32-x64": { arch: "x64", builder: Platform.WINDOWS, formats: ["nsis"] },
+  "linux-x64": { arch: "x64", builder: Platform.LINUX, formats: ["AppImage", "deb"] },
+  "linux-arm64": { arch: "arm64", builder: Platform.LINUX, formats: ["AppImage", "deb"] },
 };
-const target = TARGETS[process.platform];
-// Bukit's official builds (plan 8.1) are the same three; elsewhere the app could not build any site.
-if (!target || process.arch !== target.arch) {
-  throw new Error(`Packaging runs on macOS arm64, Windows x64 or Linux x64, not ${process.platform} ${process.arch}`);
+const target = TARGETS[`${process.platform}-${process.arch}`];
+// Bukit's official builds (plan 8.1) are the same five; elsewhere the app could not build any site.
+if (!target) {
+  throw new Error(
+    `Packaging runs on macOS arm64 or x64, Windows x64 or Linux x64 or arm64, not ${process.platform} ${process.arch}`,
+  );
 }
 const version =
   process.env.BUKITJALIL_VERSION ||
@@ -118,7 +122,6 @@ try {
 } finally {
   fs.rmSync(fetched, { recursive: true, force: true });
 }
-fs.cpSync(path.join(repo, "templates/starter"), path.join(stage, "templates/starter"), { recursive: true });
 fs.cpSync(web, path.join(stage, "web"), { recursive: true });
 // The window icon on Windows and Linux, read next to main.cjs.
 const assets = path.join(desktop, "assets");
@@ -148,7 +151,7 @@ const [appDir] = await packager({
   // The app and its executable: an .icns on macOS, an .ico on Windows (Linux takes the installers' icon).
   ...(process.platform === "darwin" ? { icon: path.join(assets, "icon.icns") } : {}),
   ...(process.platform === "win32" ? { icon: path.join(assets, "icon.ico") } : {}),
-  // The server runs git and copies templates from these folders, so they stay plain files.
+  // The server runs git and Bukit and reads skills from these folders, so they stay plain files.
   asar: false,
   // The stage holds production dependencies only.
   prune: false,

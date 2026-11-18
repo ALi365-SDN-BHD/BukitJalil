@@ -3,6 +3,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { assertNotLink, O_NOFOLLOW } from "../safe-open.ts";
 import { BUILD_DIRS } from "../sites/exclude.ts";
 import { GateError, type PathGate, segmentKey, writeChecked } from "./gate.ts";
 import type { PiModules } from "./pi.ts";
@@ -208,7 +209,8 @@ export function createGatedTools({ pi }: PiModules, opts: ToolOptions): ToolDefi
  * part is opened without following a symlink, so it cannot be swapped for one after the check.
  */
 async function* readChunks(file: string, signal?: AbortSignal): AsyncGenerator<Buffer> {
-  const handle = await fsp.open(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  assertNotLink(file);
+  const handle = await fsp.open(file, fs.constants.O_RDONLY | O_NOFOLLOW);
   try {
     const stats = await handle.stat();
     const end = stats.isFile() && stats.size > 0 ? stats.size - 1 : undefined;

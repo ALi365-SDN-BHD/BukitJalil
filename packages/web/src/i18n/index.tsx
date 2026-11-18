@@ -2,11 +2,12 @@ import { DEFAULT_LOCALE, type ErrorCode, type Locale, SUPPORTED_LOCALES } from "
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import { ApiRequestError } from "@/lib/api";
 import en from "./en.ts";
+import ms from "./ms.ts";
 import zhCN, { type Messages } from "./zh-CN.ts";
 
-export const catalogs: Record<Locale, Messages> = { "zh-CN": zhCN, en };
+export const catalogs: Record<Locale, Messages> = { "zh-CN": zhCN, en, ms };
 
-export const localeNames: Record<Locale, string> = { "zh-CN": "简体中文", en: "English" };
+export const localeNames: Record<Locale, string> = { "zh-CN": "简体中文", en: "English", ms: "Bahasa Melayu" };
 
 /** First supported locale in the browser's list; zh-CN when nothing matches (plan 10.1). */
 export function detectLocale(languages: readonly string[]): Locale {

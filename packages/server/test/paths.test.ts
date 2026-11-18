@@ -2,10 +2,27 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ensureAppHome } from "../src/paths.ts";
+import { ensureAppHome, readPackageVersion } from "../src/paths.ts";
 import { openDatabase } from "../src/store/db.ts";
 
 const mode = (p: string) => fs.statSync(p).mode & 0o777;
+
+describe("app version", () => {
+  it("reads one explicit package.json named bukitjalil", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bj-version-"));
+    const file = path.join(root, "package.json");
+    fs.writeFileSync(file, JSON.stringify({ name: "bukitjalil", version: "0.1.0-beta.5" }));
+    expect(readPackageVersion(file)).toBe("0.1.0-beta.5");
+  });
+
+  it("returns null for a different package or a missing file", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "bj-version-"));
+    const file = path.join(root, "package.json");
+    fs.writeFileSync(file, JSON.stringify({ name: "@bukitjalil/server", version: "9.9.9" }));
+    expect(readPackageVersion(file)).toBeNull();
+    expect(readPackageVersion(path.join(root, "missing.json"))).toBeNull();
+  });
+});
 
 describe.skipIf(process.platform === "win32")("app data directory (plan 4.1)", () => {
   it("is private even when it already existed with looser permissions", () => {

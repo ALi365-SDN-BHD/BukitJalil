@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { foldName } from "../names.ts";
+import { assertNotLink, O_NOFOLLOW } from "../safe-open.ts";
 import { BUILD_DIRS } from "../sites/exclude.ts";
 
 /** A refused file operation; Pi returns the message to the model as the tool's error. */
@@ -137,7 +138,8 @@ export class PathGate {
 
 /** Write a file the gate has checked, without following a symlink in its last segment (where supported). */
 export async function writeChecked(real: string, content: string): Promise<void> {
-  const { O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW = 0 } = fs.constants;
+  const { O_WRONLY, O_CREAT, O_TRUNC } = fs.constants;
+  assertNotLink(real);
   const handle = await fs.promises.open(real, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o644);
   try {
     await handle.writeFile(content, "utf8");

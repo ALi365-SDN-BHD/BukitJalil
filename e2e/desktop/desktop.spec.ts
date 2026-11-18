@@ -23,14 +23,24 @@ const MOCK_KEYCHAIN = process.platform === "darwin" ? ["--use-mock-keychain"] : 
 function environment(home: string, profile: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
+    // The development app finds Bukit in vendor/ (pnpm fetch:bukit); CI fetches it elsewhere and sets BUKIT_BIN.
+    ...(process.env.BUKIT_BIN && !process.env.BUKITJALIL_BUKIT_DIR
+      ? { BUKITJALIL_BUKIT_DIR: path.dirname(process.env.BUKIT_BIN) }
+      : {}),
     BUKITJALIL_HOME: home,
     BUKITJALIL_DESKTOP_PROFILE: profile,
     BUKITJALIL_DESKTOP_PORT: String(PORT),
   };
 }
 
-async function launch(home = fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-home-"))): Promise<Run> {
-  const env = environment(home, fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-profile-")));
+async function launch(
+  home = fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-home-")),
+  extraEnv: Record<string, string> = {},
+): Promise<Run> {
+  const env = {
+    ...environment(home, fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-profile-"))),
+    ...extraEnv,
+  };
   const app = await _electron.launch({
     executablePath: electronBin,
     // Chromium's stand-in keychain: tests never touch the user's real one (plan 6.7).
@@ -50,6 +60,7 @@ test.afterEach(() => {
 test("opens the app signed in, with only the desktop bridge exposed", async () => {
   const { app, page, home } = await launch();
   await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("app-update")).toBeVisible();
   expect(new URL(page.url()).origin).toBe(`http://127.0.0.1:${PORT}`);
   expect(await page.evaluate(() => [typeof (window as { require?: unknown }).require, typeof process])).toEqual([
     "undefined",
@@ -57,7 +68,7 @@ test("opens the app signed in, with only the desktop bridge exposed", async () =
   ]);
   expect(
     await page.evaluate(() => Object.keys((window as unknown as { bukitjalil: object }).bukitjalil).sort()),
-  ).toEqual(["desktop", "pickFolder", "restart", "setLocale"]);
+  ).toEqual(["desktop", "pickFolder", "platform", "restart", "setLocale"]);
   // The server holds the data directory while the app runs and gives it back on quit.
   const pid = Number(fs.readFileSync(lockFile(home), "utf8"));
   expect(pid).toBeGreaterThan(0);
@@ -173,6 +184,67 @@ test("says when another BukitJalil holds the data directory", async () => {
   await page.getByRole("button", { name: /Start again|重新启动/ }).click();
   await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
   await app.close();
+});
+
+test("uploads a dropped file and previews it in the desktop app", async () => {
+  test.setTimeout(120_000);
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-media-"));
+  const { app, page } = await launch(home, {
+    HOME: home,
+    USERPROFILE: home,
+    BUKITJALIL_HOME: path.join(home, ".bukitjalil"),
+  });
+  try {
+    await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+    const site = await page.evaluate(
+      async ({ dir }) => {
+        const headers = { "content-type": "application/json", "x-bukitjalil": "1" };
+        await fetch("/api/settings", {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ commitName: "Desk Media", commitEmail: "desk-media@example.com" }),
+        });
+        const res = await fetch("/api/sites", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ name: "Desktop media", path: dir, language: "en-US" }),
+        });
+        return { status: res.status, body: await res.json() };
+      },
+      { dir: path.join(home, "media-site") },
+    );
+    expect(site.status, JSON.stringify(site.body)).toBe(201);
+    const siteId = (site.body as { id: string }).id;
+    await page.goto(new URL(`/sites/${siteId}`, page.url()).toString());
+    await expect(page.getByTestId("build-status").first()).toHaveText(/成功|Succeeded/, { timeout: 60_000 });
+
+    // A real drag event reaches the shared uploader, not just the hidden file input. The preview toolbar's
+    // button hands over to the changes panel, which is where the drop area lives now.
+    await page.getByTestId("preview-upload").click();
+    await expect(page.getByTestId("tab-changes")).toHaveAttribute("aria-selected", "true");
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    ).toString("base64");
+    await page.getByTestId("media-upload-area").evaluate((el, data) => {
+      const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], "desktop.png", { type: "image/png" }));
+      el.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }, png);
+    await expect(page.getByTestId("media-queue")).toContainText("desktop.png");
+    await expect(page.getByTestId("media-queue")).toContainText(/已上传|Uploaded/);
+    await page.getByTestId("tab-changes").click();
+    await page
+      .getByTestId("changes-panel")
+      .getByTestId("changed-files")
+      .getByText("themes/starter/static/uploads/desktop.png", { exact: true })
+      .click();
+    await expect(page.getByTestId("media-preview")).toBeVisible();
+  } finally {
+    await app.close();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("chooses folders with the system dialog, opened where the field points", async () => {

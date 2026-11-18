@@ -1,0 +1,23 @@
+{{ page_num = 1 }}
+{{ page_total = 1 }}
+{{ prev_url = "" }}
+{{ next_url = "" }}
+{{ nav_base_url = site.base_url }}
+{{ if nav_base_url == "/" }}{{ nav_base_url = "" }}{{ end }}
+{{ if pagination }}
+  {{ page_num = pagination.page }}
+  {{ page_total = pagination.total_pages }}
+  {{ if pagination.prev_url }}
+    {{ prev_url = nav_base_url + pagination.prev_url }}
+  {{ end }}
+  {{ if pagination.next_url }}
+    {{ next_url = nav_base_url + pagination.next_url }}
+  {{ end }}
+{{ end }}
+{{ if page_total > 1 }}
+<nav class="pagination" aria-label="{{ site.params.labels.pagination | object.default "Pagination" | html.escape }}">
+  <span>{{ if prev_url != "" }}<a href="{{ prev_url }}" rel="prev">{{ site.params.labels.previous | object.default "Previous" | html.escape }}</a>{{ end }}</span>
+  <span>{{ page_num }} / {{ page_total }}</span>
+  <span>{{ if next_url != "" }}<a href="{{ next_url }}" rel="next">{{ site.params.labels.next | object.default "Next" | html.escape }}</a>{{ end }}</span>
+</nav>
+{{ end }}

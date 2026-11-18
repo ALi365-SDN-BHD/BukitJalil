@@ -48,6 +48,10 @@ const AI_AUTHOR = { "author.name": AI_AUTHOR_NAME, "author.email": AI_AUTHOR_EMA
 const DEFAULT_MESSAGE = "Changes made with BukitJalil AI";
 /** Put before the summary of what is left after a partial apply (plan 7.5). */
 const REST_PREFIX = "Rest of: ";
+const withoutRest = (summary: string | null) => {
+  const text = summary?.trim();
+  return text?.startsWith(REST_PREFIX) ? text.slice(REST_PREFIX.length) : text;
+};
 const MAX_SUBJECT = 72;
 /** site.yaml is small; a larger file is not one BukitJalil wrote and is refused rather than truncated. */
 const MAX_SITE_YAML_BYTES = 1024 * 1024;
@@ -170,9 +174,15 @@ export class ChangeService {
     return { cwd, change, previous };
   }
 
-  /** Open the site's change set for a Settings edit, without a conversation. */
-  private async beginUserChange(siteId: string): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
+  /** Open the site's change set for a user write (Settings, upload), without a conversation. */
+  async beginUserChange(siteId: string): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
     return this.openChangeSet(siteId, null);
+  }
+
+  /** Close a change set this request created, after a later step failed. The caller holds the site lock. */
+  async discard(id: string): Promise<void> {
+    const change = this.get(id);
+    if (change.status === "open") await this.close(change, "rejected");
   }
 
   private async openChangeSet(
@@ -200,13 +210,29 @@ export class ChangeService {
    * Snapshot the checkout (site lock held): after every run and before every Bukit call. When it belongs
    * to the site's open change set, that change set and its ref move to the new commit.
    */
-  async snapshot(siteId: string, cwd: string): Promise<Snapshot> {
+  /**
+   * Snapshot the AI checkout into the site's open change set. `byUser` marks a user action (a plugin switch,
+   * an upload) that wrote the checkout and snapshots at once; any other change between snapshots is the AI's.
+   * Once a conversation joins a change set a user action started, the files it changes are recorded, so the
+   * commit message can name them under the user's line (plan 7.2).
+   */
+  async snapshot(siteId: string, cwd: string, opts: { byUser?: boolean } = {}): Promise<Snapshot> {
     const snap = await snapshotCheckout(this.opts.git, cwd);
     const change = this.store.open(siteId);
     if (change && change.snapshotCommit !== snap.commit) {
       const site = this.opts.sites.get(siteId);
       await this.opts.git.run(["update-ref", changeRef(change.id), snap.commit], { cwd: site.path });
       this.store.setSnapshot(change.id, snap.commit);
+      if (!opts.byUser && change.aiJoined && change.userSummary !== null) {
+        // Only the commit message depends on it: a failed diff must not fail the snapshot.
+        try {
+          const { files } = await changedFiles(this.opts.git, site.path, change.snapshotCommit, snap.commit);
+          const paths = new Set([...change.aiPaths, ...files.map((f) => f.path)]);
+          if (paths.size > change.aiPaths.length) this.store.setAiPaths(change.id, [...paths]);
+        } catch (err) {
+          this.opts.logger.log("warn", "changes.ai_paths_failed", { changeId: change.id, error: String(err) });
+        }
+      }
       this.emit(siteId);
     }
     return snap;
@@ -269,9 +295,11 @@ export class ChangeService {
         } catch (err) {
           throw new SiteError(storageErrorCode(err) ?? "config.write_failed", 409);
         }
-        await this.snapshot(siteId, cwd);
-        if (this.store.sessions(change.id).length === 0) {
-          this.store.setSummary(change.id, `Plugin settings: ${pluginId} ${enabled ? "on" : "off"}`);
+        await this.snapshot(siteId, cwd, { byUser: true });
+        // The user's line only for a change set no conversation has joined (an AI change set keeps its
+        // summary) and that is not a restore (its line says which version it brings back).
+        if (!change.aiJoined && change.restoreCommit === null) {
+          this.store.setUserSummary(change.id, `Plugin settings: ${pluginId} ${enabled ? "on" : "off"}`);
         }
         this.emit(siteId);
         return { change: await this.current(siteId, false) };
@@ -372,20 +400,9 @@ export class ChangeService {
       if (!check.passed && !req.force && !unchecked)
         return { outcome: "check_failed", change: await this.toChangeSet(change), check };
 
-      // A restore is the user's own act, so they are its author too (plan 7.4); once a conversation has taken
-      // part, the AI wrote part of it. The flag outlives a deleted conversation and a rebase onto a newer main.
-      // A change set with no conversation at all is a Settings edit, also the user's own act.
       const sessions = this.store.sessions(change.id);
-      const pureRestore = change.restoreCommit !== null && !change.aiJoined;
-      const userAuthored = change.restoreCommit === null && sessions.length === 0;
-      const author =
-        pureRestore || userAuthored
-          ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
-          : AI_AUTHOR;
-      // Without a summary from the AI (summarize_changes), the message says what changed (plan 6.3).
-      const text =
-        change.summary?.trim() ||
-        diffSummary(await changedFiles(git, site.path, change.baseCommit, change.snapshotCommit));
+      const author = this.authorOf(change, identity);
+      const text = await this.applyText(change, site);
       const result = (
         await git.text(["commit-tree", tree, "-p", main, "-m", this.message(change, sessions, text)], {
           cwd: site.path,
@@ -416,6 +433,35 @@ export class ChangeService {
   }
 
   /**
+   * The message text of a whole apply (plan 7.2). Without a user action's line: the AI's summary
+   * (summarize_changes), else what changed (plan 6.3). With one: that line first; once a conversation has
+   * joined, the AI's summary below it, else the files the AI changed that are still in the change set.
+   */
+  private async applyText(change: ChangeRecord, site: Site): Promise<string> {
+    const all = () => changedFiles(this.opts.git, site.path, change.baseCommit, change.snapshotCommit);
+    const ai = change.summary?.trim() || null;
+    const user = change.userSummary?.trim() || null;
+    if (user === null) return ai ?? diffSummary(await all());
+    if (!change.aiJoined) return user;
+    if (ai !== null) return `${user}\n\n${ai}`;
+    if (change.aiPaths.length === 0) return user;
+    const paths = new Set(change.aiPaths);
+    const files = (await all()).files.filter((f) => paths.has(f.path));
+    return files.length > 0 ? `${user}\n\nAI changes: ${diffSummary({ files, truncated: false })}` : user;
+  }
+
+  /**
+   * The author of an applied commit (plan 7.2): the AI once a conversation has taken part, else the user (a
+   * restore, a Settings edit or an upload). `aiJoined` outlives a deleted conversation and a rebase onto a
+   * newer main, so deleting the conversation does not make the user the author of what the AI wrote.
+   */
+  private authorOf(change: ChangeRecord, identity: { "user.name": string; "user.email": string }) {
+    return change.aiJoined
+      ? AI_AUTHOR
+      : { "author.name": identity["user.name"], "author.email": identity["user.email"] };
+  }
+
+  /**
    * Apply the `selected` tree (plan 7.5), with the site lock held and the default branch still at the
    * change set's base: commit it on the default branch, check that commit in the main checkout (the AI
    * checkout is not touched, since checking it would snapshot it), fast-forward the site folder, then move
@@ -432,14 +478,9 @@ export class ChangeService {
     const { git, sites } = this.opts;
     const identity = sites.commitIdentity();
     const sessions = this.store.sessions(change.id);
-    // Restores never get here, so the author is the AI once a conversation took part, else the user.
-    const author =
-      sessions.length === 0
-        ? { "author.name": identity["user.name"], "author.email": identity["user.email"] }
-        : AI_AUTHOR;
+    const author = this.authorOf(change, identity);
     const subject = diffSummary(await changedFiles(git, site.path, change.baseCommit, selected));
-    const summary = change.summary?.trim();
-    const whole = summary?.startsWith(REST_PREFIX) ? summary.slice(REST_PREFIX.length) : summary;
+    const whole = withoutRest(change.summary) || withoutRest(change.userSummary);
     const text = whole ? `${subject}\n\nPart of: ${whole}` : subject;
     const result = (
       await git.text(["commit-tree", selected, "-p", main, "-m", this.message(change, sessions, text)], {
@@ -490,7 +531,10 @@ export class ChangeService {
 
     this.store.rebase(change.id, result, rest);
     // A later whole apply of the rest must not describe the part applied now as well.
+    const summary = change.summary?.trim();
     if (summary && !summary.startsWith(REST_PREFIX)) this.store.setSummary(change.id, `${REST_PREFIX}${summary}`);
+    const user = change.userSummary?.trim();
+    if (user && !user.startsWith(REST_PREFIX)) this.store.setUserSummary(change.id, `${REST_PREFIX}${user}`);
     // The default branch has moved and the change set says so; the ref and the checkout's HEAD follow. If
     // either fails, the snapshot still points at the same tree, and the next snapshot moves them.
     try {
@@ -581,7 +625,7 @@ export class ChangeService {
         baseCommit: main,
         snapshotCommit: snapshot,
         restoreCommit: commit,
-        summary: `Restore to ${commit.slice(0, 7)}${entry.subject ? `: ${entry.subject}` : ""}`,
+        userSummary: `Restore to ${commit.slice(0, 7)}${entry.subject ? `: ${entry.subject}` : ""}`,
       });
       this.emit(siteId);
       return { change: await this.toChangeSet(change), guard: { ok: guard.ok, reasons: guard.reasons } };
@@ -653,7 +697,8 @@ export class ChangeService {
       baseCommit: change.baseCommit,
       snapshotCommit: change.snapshotCommit,
       treeHash: await this.treeOf(site.path, change.snapshotCommit),
-      summary: change.summary,
+      // The user's line and the AI's summary, as the commit message will have them.
+      summary: [change.userSummary?.trim(), change.summary?.trim()].filter(Boolean).join("\n\n") || null,
       sessionIds: this.store.sessions(change.id),
       createdAt: change.createdAt,
       resolvedAt: change.resolvedAt,

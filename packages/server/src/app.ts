@@ -23,6 +23,7 @@ import { dataSourceRoutes } from "./api/data-sources.ts";
 import { deployRoutes } from "./api/deploys.ts";
 import { type EventStreamOptions, eventRoutes } from "./api/events.ts";
 import { gitRoutes } from "./api/git.ts";
+import { mediaRoutes } from "./api/media.ts";
 import { modelRoutes } from "./api/models.ts";
 import { panelRoutes } from "./api/panels.ts";
 import { pluginRoutes } from "./api/plugins.ts";
@@ -30,6 +31,7 @@ import { publishAccountRoutes } from "./api/publish-accounts.ts";
 import { sessionRoutes } from "./api/sessions.ts";
 import { siteRoutes } from "./api/sites.ts";
 import { skillRoutes } from "./api/skills.ts";
+import { updateRoutes } from "./api/updates.ts";
 import type { BuildService } from "./builds/service.ts";
 import type { BukitService } from "./bukit/locate.ts";
 import type { ChangeService } from "./changes/service.ts";
@@ -40,6 +42,7 @@ import type { GitIdentity } from "./git/identity.ts";
 import type { GitService } from "./git/service.ts";
 import type { GitHealth } from "./git/version.ts";
 import type { Logger } from "./log.ts";
+import type { MediaService } from "./media/service.ts";
 import type { PanelService } from "./panels/service.ts";
 import type { PublishAccountService } from "./publish/accounts.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
@@ -53,6 +56,7 @@ import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
 import { storageErrorCode } from "./storage-errors.ts";
 import { SettingsStore } from "./store/settings.ts";
+import type { UpdateService } from "./updates/service.ts";
 
 export interface AdminAppOptions {
   port: number;
@@ -70,6 +74,7 @@ export interface AdminAppOptions {
   rg: RgService;
   sites: SiteService;
   panels: PanelService;
+  media: MediaService;
   builds: BuildService;
   agent: AgentService;
   gitStatus: GitService;
@@ -89,6 +94,7 @@ export interface AdminAppOptions {
   /** Overrides the home directory used by the directory picker (tests). */
   userHome?: string;
   version: string;
+  updates: UpdateService;
   /** How tokens and model keys are kept (plan 6.7); plain files when absent (tests). */
   secrets?: { status(): SecretsStatus; reset(): void };
   logger: Logger;
@@ -225,12 +231,14 @@ export function createAdminApp(opts: AdminAppOptions) {
     userHome: opts.userHome,
   });
   panelRoutes(api, opts.panels);
+  mediaRoutes(api, { media: opts.media, agent: opts.agent });
   pluginRoutes(api, { changes: opts.changes, agent: opts.agent });
   buildRoutes(api, opts.builds);
   dataSourceRoutes(api, opts.dataSources);
   publishAccountRoutes(api, opts.publishAccounts);
   deployRoutes(api, opts.deploys);
   gitRoutes(api, opts.gitStatus);
+  updateRoutes(api, opts.updates);
   sessionRoutes(api, opts.agent);
   skillRoutes(api, opts.agent);
   changeRoutes(api, { changes: opts.changes, agent: opts.agent, builds: opts.builds, logger: opts.logger });

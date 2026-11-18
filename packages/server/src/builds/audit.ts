@@ -11,6 +11,7 @@ import {
   type BuildAudit,
 } from "@bukitjalil/shared";
 import { z } from "zod";
+import { assertNotLink, O_NOFOLLOW } from "../safe-open.ts";
 
 /**
  * SEO / GEO summary of a build (plan 8.3, M4 layer 7). Bukit writes `.bukit/seo-report.json` and
@@ -63,8 +64,9 @@ const GeoReport = z.object({
 function readJson(file: string, max: number): unknown {
   let fd: number;
   try {
-    // O_NOFOLLOW: a link in place of the report is refused rather than followed.
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    // A link in place of the report is refused rather than followed: by O_NOFOLLOW, and by lstat on Windows.
+    assertNotLink(file);
+    fd = fs.openSync(file, fs.constants.O_RDONLY | O_NOFOLLOW);
   } catch {
     return null;
   }

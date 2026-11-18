@@ -16,6 +16,10 @@ export interface ChangeRecord {
   restoreCommit: string | null;
   /** A conversation took part at some point (kept when it is deleted or the change is rebased). */
   aiJoined: boolean;
+  /** The line a user action wrote (a restore, a plugin switch); `summary` is the AI's (plan 7.2). */
+  userSummary: string | null;
+  /** Files the AI changed after joining a change set that has a `userSummary`. */
+  aiPaths: string[];
 }
 
 interface ChangeRow {
@@ -31,6 +35,8 @@ interface ChangeRow {
   result_commit: string | null;
   restore_commit: string | null;
   ai_joined: number;
+  user_summary: string | null;
+  ai_paths: string | null;
 }
 
 const toRecord = (row: ChangeRow): ChangeRecord => ({
@@ -46,7 +52,19 @@ const toRecord = (row: ChangeRow): ChangeRecord => ({
   resultCommit: row.result_commit,
   restoreCommit: row.restore_commit,
   aiJoined: row.ai_joined !== 0,
+  userSummary: row.user_summary,
+  aiPaths: parsePaths(row.ai_paths),
 });
+
+function parsePaths(raw: string | null): string[] {
+  if (raw === null) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) ? value.filter((p): p is string => typeof p === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 /** Change set ids are ref names (refs/bukitjalil/changes/<id>) and URL segments. */
 export const newChangeId = () => crypto.randomBytes(8).toString("hex");
@@ -76,13 +94,13 @@ export class ChangeStore {
     /** Defaults to the base (nothing changed yet). */
     snapshotCommit?: string;
     restoreCommit?: string | null;
-    summary?: string | null;
+    userSummary?: string | null;
   }): ChangeRecord {
     const now = new Date().toISOString();
     this.db
       .prepare(
         `INSERT INTO change_sets (id, site_id, created_by_session_id, base_commit, snapshot_commit, status, created_at,
-           restore_commit, summary) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
+           restore_commit, user_summary) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
       )
       .run(
         change.id,
@@ -92,7 +110,7 @@ export class ChangeStore {
         change.snapshotCommit ?? change.baseCommit,
         now,
         change.restoreCommit ?? null,
-        change.summary ?? null,
+        change.userSummary ?? null,
       );
     return this.get(change.id) as ChangeRecord;
   }
@@ -103,6 +121,14 @@ export class ChangeStore {
 
   setSummary(id: string, summary: string): void {
     this.db.prepare("UPDATE change_sets SET summary = ? WHERE id = ?").run(summary, id);
+  }
+
+  setUserSummary(id: string, summary: string): void {
+    this.db.prepare("UPDATE change_sets SET user_summary = ? WHERE id = ?").run(summary, id);
+  }
+
+  setAiPaths(id: string, paths: readonly string[]): void {
+    this.db.prepare("UPDATE change_sets SET ai_paths = ? WHERE id = ?").run(JSON.stringify(paths), id);
   }
 
   /** Close the change set: applied (with the commit it became), rejected or stale. */

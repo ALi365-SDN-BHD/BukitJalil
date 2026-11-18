@@ -16,11 +16,12 @@ import { BukitService } from "../src/bukit/locate.ts";
 import { resolveGitPath } from "../src/git/run.ts";
 import { silentLogger } from "../src/log.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
-import { copyStarter } from "../src/sites/template.ts";
 import { openDatabase } from "../src/store/db.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 import {
   ADMIN,
   commitAllAs,
+  expectMode,
   httpGet,
   installAppBukit,
   jsonPut,
@@ -30,7 +31,6 @@ import {
   testBukitDir,
 } from "./helpers.ts";
 
-const STARTER = path.resolve(import.meta.dirname, "../../../templates/starter");
 const REAL_BIN = process.env.BUKIT_BIN;
 const _gitPath = resolveGitPath() as string;
 
@@ -48,7 +48,7 @@ case " $* " in *" --secrets-stdin "*)
   BUKIT_DEPLOY_TOKEN=$(printf '%s' "$secrets" | sed -n 's/.*"BUKIT_DEPLOY_TOKEN":"\\([^"]*\\)".*/\\1/p');;
 esac
 case "$1" in
-  version) echo "bukit 2.2.2+fake"; exit 0;;
+  version) echo "bukit 2.2.6+fake"; exit 0;;
   config) exit 0;;
   build)
     out=""; snap=""; cache=""; offline=""; prev=""
@@ -110,6 +110,9 @@ JSON
       full) echo "write index.html: no space left on device" >&2; exit 1;;
       fulljson) echo '{"ts":"t","level":"error","msg":"event=output.failed error=no space left on device"}'; exit 3;;
       symlink) mkdir -p "$out"; echo hi > "$out/index.html"; ln -s /etc/hosts "$out/leak";;
+      upload)
+        mkdir -p "$out/uploads"; echo png > "$out/uploads/a.png"
+        echo '<img src="/uploads/a.png"><img src="/blog/uploads/a.png">' > "$out/index.html";;
       audit)
         # Like Bukit 2.0.x: the JSON log on stderr, the SEO / GEO reports in .bukit/.
         mkdir -p "$out/.bukit"; echo "<h1>a</h1>" > "$out/index.html"
@@ -182,7 +185,7 @@ async function setup(name: string, opts: { mode?: string; bin?: string | null } 
   });
   contexts.push(ctx);
   const dir = path.join(userHome, name);
-  copyStarter(STARTER, dir, { title: name, language: "en-US" });
+  writeStarter(dir, { title: name, language: "en-US" });
   fs.writeFileSync(path.join(dir, "marker"), "v1");
   raw(dir, "init", "-q", "-b", "main");
   commitAll(dir, "init");
@@ -218,282 +221,322 @@ async function setup(name: string, opts: { mode?: string; bin?: string | null } 
 
 const fetchPreview = (port: number) => httpGet(port);
 
-it("passes the Notion token of the site's data source to a main build but never to a change build", async () => {
-  const ctx = makeApp({
-    userHome,
-    appHome: fs.mkdtempSync(path.join(base, "app-notion-")),
-    bukit: bukitFor(fakeBin),
-    previewBase: nextPreviewBase(),
-  });
-  contexts.push(ctx);
-  const dir = path.join(userHome, "notion");
-  copyStarter(STARTER, dir, { title: "notion", language: "en-US" });
-  fs.writeFileSync(
-    path.join(dir, "site.yaml"),
-    "site:\n  name: notion\n  title: Notion\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n",
-  );
-  raw(dir, "init", "-q", "-b", "main");
-  commitAll(dir, "notion");
-  const site = await ctx.sites.import({ path: dir });
-  await ctx.builds.settled();
-  expect(site.configCheck).toBe("notion");
-  const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_main_only" });
-  expect(ctx.dataSources.token(source.id)).toBe("ntn_main_only");
-
-  const tokenFile = path.join(testBukitDir(path.join(base, "bk")), "bukit.notion");
-  const bind = async (dataSourceId: string | null) =>
-    ctx.app.fetch(req(`/api/sites/${site.id}/notion-source`, jsonPut({ dataSourceId })));
-
-  // An imported site gets no token until the user binds one, even when only one source is saved: its
-  // site.yaml could name any database that token reads.
-  fs.rmSync(tokenFile, { force: true });
-  await ctx.builds.start(site.id, "main");
-  await ctx.builds.settled();
-  expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "failed", outcome: "notion" });
-  expect(fs.existsSync(tokenFile)).toBe(false);
-
-  expect((await bind("missing")).status).toBe(404);
-  const otherSite = await ctx.app.fetch(
-    req("/api/sites/0000000000000000/notion-source", jsonPut({ dataSourceId: source.id })),
-  );
-  expect(otherSite.status).toBe(404);
-  const bound = await bind(source.id);
-  expect(bound.status).toBe(200);
-  // Binding rechecks the site, whose config check now runs with the token.
-  expect((await bound.json()) as Site).toMatchObject({ notionDataSourceId: source.id, configCheck: "ok" });
-  await ctx.builds.start(site.id, "main");
-  await ctx.builds.settled();
-  expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "succeeded", outcome: "ok" });
-  expect(fs.readFileSync(tokenFile, "utf8")).toBe("ntn_main_only");
-
-  // The main build recorded the Notion offline snapshot outside the checkout, with the media cache (plan 5.5).
-  const bk = testBukitDir(path.join(base, "bk"));
-  const snapshotRoot = path.join(ctx.paths.home, "notion-snapshots", site.id);
-  expect(fs.readFileSync(path.join(bk, "bukit.args"), "utf8")).toContain(
-    `--notion-snapshot ${path.join(snapshotRoot, "snapshot")}`,
-  );
-  const record = ctx.sites.notionSnapshots.get(site.id);
-  expect(record).toMatchObject({ commit: rawGit(base, dir, "rev-parse", "HEAD").trim() });
-  expect(fs.readFileSync(path.join(snapshotRoot, "cache", "media", "img.txt"), "utf8")).toBe("image \n");
-  expect(fs.readFileSync(path.join(snapshotRoot, "cache", "media", "sub", "b.txt"), "utf8")).toBe("deep\n");
-  // Links are not copied; everything is private.
-  expect(fs.existsSync(path.join(snapshotRoot, "cache", "media", "link"))).toBe(false);
-  expect(fs.statSync(path.join(snapshotRoot, "cache", "media", "img.txt")).mode & 0o777).toBe(0o600);
-  expect(fs.statSync(path.join(snapshotRoot, "cache", "media", "sub")).mode & 0o777).toBe(0o700);
-  expect(fs.statSync(snapshotRoot).mode & 0o777).toBe(0o700);
-  // No token anywhere in what was kept.
-  const kept = (dir: string): string[] =>
-    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-      const p = path.join(dir, e.name);
-      return e.isDirectory() ? kept(p) : e.isFile() ? [fs.readFileSync(p, "utf8")] : [];
+it.skipIf(process.platform === "win32")(
+  "passes the Notion token of the site's data source to a main build but never to a change build",
+  async () => {
+    const ctx = makeApp({
+      userHome,
+      appHome: fs.mkdtempSync(path.join(base, "app-notion-")),
+      bukit: bukitFor(fakeBin),
+      previewBase: nextPreviewBase(),
     });
-  expect(kept(snapshotRoot).join("\n")).not.toContain("ntn_main_only");
-  const mainBuild = ctx.builds.get(site.id, ctx.builds.list(site.id)[0]?.id as string);
-  expect(mainBuild.report?.sources).toEqual([{ name: "posts", count: 3 }]);
-  expect(mainBuild.report?.notionOffline).toBeUndefined();
+    contexts.push(ctx);
+    const dir = path.join(userHome, "notion");
+    writeStarter(dir, { title: "notion", language: "en-US" });
+    fs.writeFileSync(
+      path.join(dir, "site.yaml"),
+      "site:\n  name: notion\n  title: Notion\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n",
+    );
+    raw(dir, "init", "-q", "-b", "main");
+    commitAll(dir, "notion");
+    const site = await ctx.sites.import({ path: dir });
+    await ctx.builds.settled();
+    expect(site.configCheck).toBe("notion");
+    const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_main_only" });
+    expect(ctx.dataSources.token(source.id)).toBe("ntn_main_only");
 
-  // A change build is unreviewed: it never gets the token and builds offline from the snapshot.
-  const session = ctx.agent.create(site.id);
-  const { cwd } = await ctx.changes.begin(site.id, session.id);
-  fs.writeFileSync(path.join(cwd, "content", "pages", "new.md"), "---\ntitle: New\n---\n");
-  await ctx.changes.snapshot(site.id, cwd);
-  fs.rmSync(tokenFile, { force: true });
-  await ctx.builds.start(site.id, "change");
-  await ctx.builds.settled();
-  const changeBuild = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
-  expect(changeBuild).toMatchObject({ status: "succeeded", outcome: "ok" });
-  expect(fs.existsSync(tokenFile)).toBe(false);
-  expect(fs.readFileSync(path.join(bk, "bukit.env"), "utf8")).not.toMatch(/NOTION_TOKEN|ntn_main_only/);
-  const offlineArgs = fs.readFileSync(path.join(bk, "bukit.args"), "utf8");
-  expect(offlineArgs).toContain(
-    `--notion-snapshot ${path.join(snapshotRoot, "snapshot")} --notion-offline --cache-dir ${path.join(snapshotRoot, "cache")}`,
-  );
-  expect(offlineArgs).not.toContain("--secrets-stdin");
-  const offlineReport = ctx.builds.get(site.id, changeBuild.id).report;
-  expect(offlineReport?.notionOffline).toEqual({ ...record, queryChanged: false, rendererMismatch: false });
-  const preview = await ctx.builds.openPreview(site.id, "change");
-  expect(preview.notionOffline).toEqual(offlineReport?.notionOffline);
-  // The image came from the copied media cache.
-  expect((await fetchPreview(preview.port)).body).toContain("image");
-  // The data panel shows the entries per source, and which formal build the snapshot is from.
-  const data = await ctx.panels.data(site.id, "main");
-  expect(data.counts?.sources).toEqual([{ name: "posts", count: 3 }]);
-  expect(data.notionSnapshot).toEqual(record);
+    const tokenFile = path.join(testBukitDir(path.join(base, "bk")), "bukit.notion");
+    const bind = async (dataSourceId: string | null) =>
+      ctx.app.fetch(req(`/api/sites/${site.id}/notion-source`, jsonPut({ dataSourceId })));
 
-  // A changed filter is said; a database the snapshot lacks fails with what to do; nothing leaks the path.
-  fs.writeFileSync(path.join(cwd, "fake-mode"), "query");
-  await ctx.builds.start(site.id, "change");
-  await ctx.builds.settled();
-  const queried = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
-  expect(ctx.builds.get(site.id, queried.id).report?.notionOffline?.queryChanged).toBe(true);
-  fs.writeFileSync(path.join(cwd, "fake-mode"), "newdb");
-  await ctx.builds.start(site.id, "change");
-  await ctx.builds.settled();
-  const newdb = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
-  const newdbReport = ctx.builds.get(site.id, newdb.id).report;
-  expect(newdb).toMatchObject({ status: "failed", outcome: "config_or_content_error" });
-  expect(newdbReport?.notionSnapshotProblem).toBe("change");
-  expect(JSON.stringify(newdbReport)).not.toContain(ctx.paths.notionSnapshots);
-  expect(JSON.stringify(newdbReport)).toContain("[notion-snapshot]");
-
-  // Bukit saved the snapshot, then the run failed: the record follows the new data anyway.
-  fs.writeFileSync(path.join(dir, "fake-mode"), "savedfail");
-  commitAll(dir, "saved then failed");
-  const savedCommit = raw(dir, "rev-parse", "HEAD").trim();
-  await ctx.builds.start(site.id, "main");
-  await ctx.builds.settled();
-  expect(ctx.builds.list(site.id)[0]).toMatchObject({ ref: "main", status: "failed" });
-  expect(ctx.sites.notionSnapshots.get(site.id)?.commit).toBe(savedCommit);
-
-  // Copying the media cache fails: the record goes, so nothing names a build the data does not come from.
-  const mainDir = path.join(ctx.paths.worktrees, site.id, "main");
-  fs.writeFileSync(path.join(dir, "fake-mode"), "lockmedia");
-  commitAll(dir, "lock media");
-  await ctx.builds.start(site.id, "main");
-  await ctx.builds.settled();
-  fs.chmodSync(path.join(mainDir, ".cache", "media", "locked"), 0o700);
-  expect(ctx.builds.list(site.id)[0]).toMatchObject({ ref: "main", status: "succeeded" });
-  expect(ctx.sites.notionSnapshots.get(site.id)).toBeNull();
-  expect(fs.existsSync(snapshotRoot)).toBe(false);
-  fs.rmSync(path.join(dir, "fake-mode"));
-  commitAll(dir, "unlock media");
-  const recordAgain = async () => {
+    // An imported site gets no token until the user binds one, even when only one source is saved: its
+    // site.yaml could name any database that token reads.
+    fs.rmSync(tokenFile, { force: true });
     await ctx.builds.start(site.id, "main");
     await ctx.builds.settled();
-    expect(ctx.sites.notionSnapshots.get(site.id)).not.toBeNull();
-  };
-  await recordAgain();
-  // Another token for the same source may read another workspace: the snapshot goes once the site is free.
-  ctx.dataSources.update(source.id, { platform: "notion", name: "Notion", token: "ntn_other_workspace" });
-  await expect.poll(() => fs.existsSync(snapshotRoot)).toBe(false);
-  expect(ctx.sites.notionSnapshots.get(site.id)).toBeNull();
-  await recordAgain();
-  // So does binding another source.
-  const other = ctx.dataSources.create({ platform: "notion", name: "Other", token: "ntn_second_source" });
-  await bind(other.id);
-  expect(fs.existsSync(snapshotRoot)).toBe(false);
-  await bind(source.id);
-  await recordAgain();
-  fs.rmSync(tokenFile, { force: true });
+    expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "failed", outcome: "notion" });
+    expect(fs.existsSync(tokenFile)).toBe(false);
 
-  // Unbinding takes the token away again and deletes the snapshot; the site state says a source must be bound.
-  const unbound = await bind(null);
-  expect(fs.existsSync(snapshotRoot)).toBe(false);
-  expect(ctx.sites.notionSnapshots.get(site.id)).toBeNull();
-  fs.writeFileSync(path.join(cwd, "fake-mode"), "");
-  await ctx.builds.start(site.id, "change");
-  await ctx.builds.settled();
-  const missing = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
-  expect(missing).toMatchObject({ status: "failed", outcome: "notion" });
-  expect(ctx.builds.get(site.id, missing.id).report?.notionSnapshotProblem).toBe("missing");
-  expect((await unbound.json()) as Site).toMatchObject({ notionDataSourceId: null, configCheck: "notion" });
-  await ctx.builds.start(site.id, "main");
-  await ctx.builds.settled();
-  expect(ctx.builds.list(site.id).find((b) => b.ref === "main")).toMatchObject({ status: "failed", outcome: "notion" });
-  expect(fs.existsSync(tokenFile)).toBe(false);
+    expect((await bind("missing")).status).toBe(404);
+    const otherSite = await ctx.app.fetch(
+      req("/api/sites/0000000000000000/notion-source", jsonPut({ dataSourceId: source.id })),
+    );
+    expect(otherSite.status).toBe(404);
+    const bound = await bind(source.id);
+    expect(bound.status).toBe(200);
+    // Binding rechecks the site, whose config check now runs with the token.
+    expect((await bound.json()) as Site).toMatchObject({ notionDataSourceId: source.id, configCheck: "ok" });
+    await ctx.builds.start(site.id, "main");
+    await ctx.builds.settled();
+    expect(ctx.builds.list(site.id)[0]).toMatchObject({ status: "succeeded", outcome: "ok" });
+    expect(fs.readFileSync(tokenFile, "utf8")).toBe("ntn_main_only");
 
-  // An unreadable token file fails the config check but leaves the site usable.
-  await bind(source.id);
-  const tokens = path.join(ctx.paths.home, "data-source-tokens.json");
-  fs.chmodSync(tokens, 0o000);
-  try {
-    expect(await ctx.sites.recheck(site.id)).toMatchObject({ readOnly: null, configCheck: "failed" });
-  } finally {
-    fs.chmodSync(tokens, 0o600);
-  }
-});
+    // The main build recorded the Notion offline snapshot outside the checkout, with the media cache (plan 5.5).
+    const bk = testBukitDir(path.join(base, "bk"));
+    const snapshotRoot = path.join(ctx.paths.home, "notion-snapshots", site.id);
+    expect(fs.readFileSync(path.join(bk, "bukit.args"), "utf8")).toContain(
+      `--notion-snapshot ${path.join(snapshotRoot, "snapshot")}`,
+    );
+    const record = ctx.sites.notionSnapshots.get(site.id);
+    expect(record).toMatchObject({ commit: rawGit(base, dir, "rev-parse", "HEAD").trim() });
+    expect(fs.readFileSync(path.join(snapshotRoot, "cache", "media", "img.txt"), "utf8")).toBe("image \n");
+    expect(fs.readFileSync(path.join(snapshotRoot, "cache", "media", "sub", "b.txt"), "utf8")).toBe("deep\n");
+    // Links are not copied; everything is private.
+    expect(fs.existsSync(path.join(snapshotRoot, "cache", "media", "link"))).toBe(false);
+    expectMode(path.join(snapshotRoot, "cache", "media", "img.txt"), 0o600);
+    expectMode(path.join(snapshotRoot, "cache", "media", "sub"), 0o700);
+    expectMode(snapshotRoot, 0o700);
+    // No token anywhere in what was kept.
+    const kept = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const p = path.join(dir, e.name);
+        return e.isDirectory() ? kept(p) : e.isFile() ? [fs.readFileSync(p, "utf8")] : [];
+      });
+    expect(kept(snapshotRoot).join("\n")).not.toContain("ntn_main_only");
+    const mainBuild = ctx.builds.get(site.id, ctx.builds.list(site.id)[0]?.id as string);
+    expect(mainBuild.report?.sources).toEqual([{ name: "posts", count: 3 }]);
+    expect(mainBuild.report?.notionOffline).toBeUndefined();
 
-it("checks and builds a new Notion site with its bound token right after creating it", async () => {
-  const ctx = makeApp({
-    userHome,
-    appHome: fs.mkdtempSync(path.join(base, "app-notion-new-")),
-    bukit: bukitFor(fakeBin),
-    previewBase: nextPreviewBase(),
-  });
-  contexts.push(ctx);
-  ctx.db
-    .prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('commitName', ?), ('commitEmail', ?)")
-    .run(JSON.stringify("Site Owner"), JSON.stringify("owner@example.com"));
-  const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_new_site_token" });
-  const tokenFile = path.join(testBukitDir(path.join(base, "bk")), "bukit.notion");
-  fs.rmSync(tokenFile, { force: true });
-  const site = await ctx.sites.create({
-    name: "New Notion",
-    path: path.join(userHome, "new-notion"),
-    language: "en-US",
-    dataSourceIds: [source.id],
-    notionDatabases: [{ databaseId: "db_posts", title: "Posts", use: "post" }],
-  });
-  expect(site).toMatchObject({ readOnly: null, configCheck: "ok", notionDataSourceId: source.id });
-  await ctx.builds.settled();
-  expect(ctx.builds.list(site.id)).toMatchObject([{ ref: "main", status: "succeeded", outcome: "ok" }]);
-  expect(fs.readFileSync(tokenFile, "utf8")).toBe("ntn_new_site_token");
-});
+    // A change build is unreviewed: it never gets the token and builds offline from the snapshot.
+    const session = ctx.agent.create(site.id);
+    const { cwd } = await ctx.changes.begin(site.id, session.id);
+    fs.writeFileSync(path.join(cwd, "content", "pages", "new.md"), "---\ntitle: New\n---\n");
+    await ctx.changes.snapshot(site.id, cwd);
+    fs.rmSync(tokenFile, { force: true });
+    await ctx.builds.start(site.id, "change");
+    await ctx.builds.settled();
+    const changeBuild = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
+    expect(changeBuild).toMatchObject({ status: "succeeded", outcome: "ok" });
+    expect(fs.existsSync(tokenFile)).toBe(false);
+    expect(fs.readFileSync(path.join(bk, "bukit.env"), "utf8")).not.toMatch(/NOTION_TOKEN|ntn_main_only/);
+    const offlineArgs = fs.readFileSync(path.join(bk, "bukit.args"), "utf8");
+    // The pin holds the formal build's Notion keys, privately (plan 5.5).
+    const pinFile = path.join(snapshotRoot, "pin.json");
+    expectMode(pinFile, 0o600);
+    expect(Object.keys(JSON.parse(fs.readFileSync(pinFile, "utf8")).sources)).toEqual(["posts"]);
+    expect(offlineArgs).toContain(
+      `--notion-snapshot ${path.join(snapshotRoot, "snapshot")} --notion-offline --notion-pin ${path.join(snapshotRoot, "pin.json")} --cache-dir ${path.join(snapshotRoot, "cache")}`,
+    );
+    expect(offlineArgs).not.toContain("--secrets-stdin");
+    const offlineReport = ctx.builds.get(site.id, changeBuild.id).report;
+    expect(offlineReport?.notionOffline).toEqual({
+      ...record,
+      queryChanged: false,
+      pinned: false,
+      rendererMismatch: false,
+    });
+    const preview = await ctx.builds.openPreview(site.id, "change");
+    expect(preview.notionOffline).toEqual(offlineReport?.notionOffline);
+    // The image came from the copied media cache.
+    expect((await fetchPreview(preview.port)).body).toContain("image");
+    // The data panel shows the entries per source, and which formal build the snapshot is from.
+    const data = await ctx.panels.data(site.id, "main");
+    expect(data.counts?.sources).toEqual([{ name: "posts", count: 3 }]);
+    expect(data.notionSnapshot).toEqual(record);
 
-it("deletes the Notion offline snapshot once the default branch has no Notion source, or the site goes", async () => {
-  const s = await setup("snapshot-gone");
-  const snapshots = s.sites.notionSnapshots;
-  const root = path.join(s.paths.notionSnapshots, s.site.id);
-  const record = () => {
-    const [, dir] = snapshots.recordArgs(s.site.id) as [string, string];
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "manifest.json"), "{}");
-    snapshots.recorded(s.site.id, "c".repeat(40), s.dir);
-    expect(snapshots.get(s.site.id)).toMatchObject({ commit: "c".repeat(40) });
-  };
-  record();
-  expect(await s.build()).toMatchObject({ status: "succeeded" });
-  expect(fs.existsSync(root)).toBe(false);
-  expect(snapshots.get(s.site.id)).toBeNull();
-  record();
-  // Deleted from outside: forgotten, so the UI asks for a formal build again.
-  fs.rmSync(path.join(root, "snapshot"), { recursive: true });
-  expect(snapshots.offline(s.site.id)).toBeNull();
-  expect(snapshots.get(s.site.id)).toBeNull();
-  record();
-  await s.sites.remove(s.site.id);
-  expect(fs.existsSync(root)).toBe(false);
-});
+    // A changed filter is said; a database the snapshot lacks fails with what to do; nothing leaks the path.
+    fs.writeFileSync(path.join(cwd, "fake-mode"), "query");
+    await ctx.builds.start(site.id, "change");
+    await ctx.builds.settled();
+    const queried = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
+    expect(ctx.builds.get(site.id, queried.id).report?.notionOffline?.queryChanged).toBe(true);
+    fs.writeFileSync(path.join(cwd, "fake-mode"), "newdb");
+    await ctx.builds.start(site.id, "change");
+    await ctx.builds.settled();
+    const newdb = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
+    const newdbReport = ctx.builds.get(site.id, newdb.id).report;
+    expect(newdb).toMatchObject({ status: "failed", outcome: "config_or_content_error" });
+    expect(newdbReport?.notionSnapshotProblem).toBe("change");
+    expect(JSON.stringify(newdbReport)).not.toContain(ctx.paths.notionSnapshots);
+    expect(JSON.stringify(newdbReport)).toContain("[notion-snapshot]");
+
+    // Bukit saved the snapshot, then the run failed: the record follows the new data anyway.
+    fs.writeFileSync(path.join(dir, "fake-mode"), "savedfail");
+    commitAll(dir, "saved then failed");
+    const savedCommit = raw(dir, "rev-parse", "HEAD").trim();
+    await ctx.builds.start(site.id, "main");
+    await ctx.builds.settled();
+    expect(ctx.builds.list(site.id)[0]).toMatchObject({ ref: "main", status: "failed" });
+    expect(ctx.sites.notionSnapshots.get(site.id)?.commit).toBe(savedCommit);
+
+    // Copying the media cache fails: the record goes, so nothing names a build the data does not come from.
+    const mainDir = path.join(ctx.paths.worktrees, site.id, "main");
+    fs.writeFileSync(path.join(dir, "fake-mode"), "lockmedia");
+    commitAll(dir, "lock media");
+    await ctx.builds.start(site.id, "main");
+    await ctx.builds.settled();
+    fs.chmodSync(path.join(mainDir, ".cache", "media", "locked"), 0o700);
+    expect(ctx.builds.list(site.id)[0]).toMatchObject({ ref: "main", status: "succeeded" });
+    expect(ctx.sites.notionSnapshots.get(site.id)).toBeNull();
+    expect(fs.existsSync(snapshotRoot)).toBe(false);
+    fs.rmSync(path.join(dir, "fake-mode"));
+    commitAll(dir, "unlock media");
+    const recordAgain = async () => {
+      await ctx.builds.start(site.id, "main");
+      await ctx.builds.settled();
+      expect(ctx.sites.notionSnapshots.get(site.id)).not.toBeNull();
+    };
+    await recordAgain();
+    // Another token for the same source may read another workspace: the snapshot goes once the site is free.
+    ctx.dataSources.update(source.id, { platform: "notion", name: "Notion", token: "ntn_other_workspace" });
+    await expect.poll(() => fs.existsSync(snapshotRoot)).toBe(false);
+    expect(ctx.sites.notionSnapshots.get(site.id)).toBeNull();
+    await recordAgain();
+    // So does binding another source.
+    const other = ctx.dataSources.create({ platform: "notion", name: "Other", token: "ntn_second_source" });
+    await bind(other.id);
+    expect(fs.existsSync(snapshotRoot)).toBe(false);
+    await bind(source.id);
+    await recordAgain();
+    fs.rmSync(tokenFile, { force: true });
+
+    // Unbinding takes the token away again and deletes the snapshot; the site state says a source must be bound.
+    const unbound = await bind(null);
+    expect(fs.existsSync(snapshotRoot)).toBe(false);
+    expect(ctx.sites.notionSnapshots.get(site.id)).toBeNull();
+    fs.writeFileSync(path.join(cwd, "fake-mode"), "");
+    await ctx.builds.start(site.id, "change");
+    await ctx.builds.settled();
+    const missing = ctx.builds.list(site.id).find((b) => b.ref === "change") as Build;
+    expect(missing).toMatchObject({ status: "failed", outcome: "notion" });
+    expect(ctx.builds.get(site.id, missing.id).report?.notionSnapshotProblem).toBe("missing");
+    expect((await unbound.json()) as Site).toMatchObject({ notionDataSourceId: null, configCheck: "notion" });
+    await ctx.builds.start(site.id, "main");
+    await ctx.builds.settled();
+    expect(ctx.builds.list(site.id).find((b) => b.ref === "main")).toMatchObject({
+      status: "failed",
+      outcome: "notion",
+    });
+    expect(fs.existsSync(tokenFile)).toBe(false);
+
+    // An unreadable token file fails the config check but leaves the site usable.
+    await bind(source.id);
+    const tokens = path.join(ctx.paths.home, "data-source-tokens.json");
+    fs.chmodSync(tokens, 0o000);
+    try {
+      expect(await ctx.sites.recheck(site.id)).toMatchObject({ readOnly: null, configCheck: "failed" });
+    } finally {
+      fs.chmodSync(tokens, 0o600);
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "checks and builds a new Notion site with its bound token right after creating it",
+  async () => {
+    const ctx = makeApp({
+      userHome,
+      appHome: fs.mkdtempSync(path.join(base, "app-notion-new-")),
+      bukit: bukitFor(fakeBin),
+      previewBase: nextPreviewBase(),
+    });
+    contexts.push(ctx);
+    ctx.db
+      .prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('commitName', ?), ('commitEmail', ?)")
+      .run(JSON.stringify("Site Owner"), JSON.stringify("owner@example.com"));
+    const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_new_site_token" });
+    const tokenFile = path.join(testBukitDir(path.join(base, "bk")), "bukit.notion");
+    fs.rmSync(tokenFile, { force: true });
+    const site = await ctx.sites.create({
+      name: "New Notion",
+      path: path.join(userHome, "new-notion"),
+      language: "en-US",
+      dataSourceIds: [source.id],
+      notionDatabases: [{ databaseId: "db_posts", title: "Posts", use: "post" }],
+    });
+    expect(site).toMatchObject({ readOnly: null, configCheck: "ok", notionDataSourceId: source.id });
+    await ctx.builds.settled();
+    expect(ctx.builds.list(site.id)).toMatchObject([{ ref: "main", status: "succeeded", outcome: "ok" }]);
+    expect(fs.readFileSync(tokenFile, "utf8")).toBe("ntn_new_site_token");
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "deletes the Notion offline snapshot once the default branch has no Notion source, or the site goes",
+  async () => {
+    const s = await setup("snapshot-gone");
+    const snapshots = s.sites.notionSnapshots;
+    const root = path.join(s.paths.notionSnapshots, s.site.id);
+    const record = () => {
+      const [, dir] = snapshots.recordArgs(s.site.id) as [string, string];
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "manifest.json"), "{}");
+      snapshots.recorded(s.site.id, "c".repeat(40), s.dir);
+      expect(snapshots.get(s.site.id)).toMatchObject({ commit: "c".repeat(40) });
+    };
+    record();
+    expect(await s.build()).toMatchObject({ status: "succeeded" });
+    expect(fs.existsSync(root)).toBe(false);
+    expect(snapshots.get(s.site.id)).toBeNull();
+    record();
+    // Deleted from outside: forgotten, so the UI asks for a formal build again.
+    fs.rmSync(path.join(root, "snapshot"), { recursive: true });
+    expect(snapshots.offline(s.site.id)).toBeNull();
+    expect(snapshots.get(s.site.id)).toBeNull();
+    record();
+    await s.sites.remove(s.site.id);
+    expect(fs.existsSync(root)).toBe(false);
+  },
+);
 
 describe("main builds (plan 8.3, 8.4)", () => {
-  it("builds and previews a subpath site under its own baseUrl; a bad baseUrl fails the build", async () => {
-    const s = await setup("subpath");
+  it.skipIf(process.platform === "win32")(
+    "builds and previews a subpath site under its own baseUrl; a bad baseUrl fails the build",
+    async () => {
+      const s = await setup("subpath");
+      const yaml = path.join(s.dir, "site.yaml");
+      fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog"));
+      commitAll(s.dir, "subpath");
+      const b = await s.build();
+      expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
+      expect(b.report?.basePath).toBe("/blog/");
+      const args = fs.readFileSync(path.join(testBukitDir(path.join(base, "bk")), "bukit.args"), "utf8");
+      expect(args).toContain("--base-url /blog/ ");
+      const opened = (await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" })).json;
+      expect(opened.url).toBe(`http://127.0.0.1:${opened.port}/blog/`);
+      expect((await httpGet(opened.port, { path: "/blog/" })).body).toContain("v1");
+      expect((await httpGet(opened.port, { path: "/" })).headers.location).toBe("/blog/");
+
+      fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /blog", "baseUrl: /a b/"));
+      commitAll(s.dir, "bad base");
+      const bad = await s.build();
+      expect(bad).toMatchObject({ status: "failed", outcome: "base_url" });
+      expect(bad.report?.detail).toContain("site.baseUrl");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "builds in the main checkout and keeps the output under previews/",
+    async () => {
+      const s = await setup("ok");
+      expect(s.site).toMatchObject({ readOnly: null, configCheck: "ok" });
+      const b = await s.build();
+      expect(b).toMatchObject({ status: "succeeded", outcome: "ok", exitCode: 0, hasOutput: true, ref: "main" });
+      expect(b.commit).toBe(raw(s.dir, "rev-parse", "main").trim());
+      expect(b.report?.messages).toEqual([{ level: "warn", msg: "event=theme.warning x=1" }]);
+      expect(b).not.toHaveProperty("outputDir");
+      const out = path.join(s.paths.previews, s.site.id, b.id);
+      expect(fs.readFileSync(path.join(out, "index.html"), "utf8")).toContain("v1");
+      // Nothing is written into the site directory, and the temporary output is gone.
+      expect(fs.existsSync(path.join(s.dir, ".bukitjalil-build"))).toBe(false);
+      expect(fs.readdirSync(path.join(s.paths.worktrees, s.site.id, "main", ".bukitjalil-build"))).toEqual([]);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")("warns about upload links that do not use the current baseUrl", async () => {
+    const s = await setup("upload-warning", { mode: "upload" });
     const yaml = path.join(s.dir, "site.yaml");
-    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog"));
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog/"));
     commitAll(s.dir, "subpath");
     const b = await s.build();
     expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
-    expect(b.report?.basePath).toBe("/blog/");
-    const args = fs.readFileSync(path.join(testBukitDir(path.join(base, "bk")), "bukit.args"), "utf8");
-    expect(args).toContain("--base-url /blog/ ");
-    const opened = (await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" })).json;
-    expect(opened.url).toBe(`http://127.0.0.1:${opened.port}/blog/`);
-    expect((await httpGet(opened.port, { path: "/blog/" })).body).toContain("v1");
-    expect((await httpGet(opened.port, { path: "/" })).headers.location).toBe("/blog/");
-
-    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /blog", "baseUrl: /a b/"));
-    commitAll(s.dir, "bad base");
-    const bad = await s.build();
-    expect(bad).toMatchObject({ status: "failed", outcome: "base_url" });
-    expect(bad.report?.detail).toContain("site.baseUrl");
+    expect(b.report?.messages).toContainEqual({
+      level: "warn",
+      msg: "upload prefix: /uploads/a.png in index.html",
+    });
   });
 
-  it("builds in the main checkout and keeps the output under previews/", async () => {
-    const s = await setup("ok");
-    expect(s.site).toMatchObject({ readOnly: null, configCheck: "ok" });
-    const b = await s.build();
-    expect(b).toMatchObject({ status: "succeeded", outcome: "ok", exitCode: 0, hasOutput: true, ref: "main" });
-    expect(b.commit).toBe(raw(s.dir, "rev-parse", "main").trim());
-    expect(b.report?.messages).toEqual([{ level: "warn", msg: "event=theme.warning x=1" }]);
-    expect(b).not.toHaveProperty("outputDir");
-    const out = path.join(s.paths.previews, s.site.id, b.id);
-    expect(fs.readFileSync(path.join(out, "index.html"), "utf8")).toContain("v1");
-    // Nothing is written into the site directory, and the temporary output is gone.
-    expect(fs.existsSync(path.join(s.dir, ".bukitjalil-build"))).toBe(false);
-    expect(fs.readdirSync(path.join(s.paths.worktrees, s.site.id, "main", ".bukitjalil-build"))).toEqual([]);
-  });
-
-  it("publishes build.start and build.end on the event stream", async () => {
+  it.skipIf(process.platform === "win32")("publishes build.start and build.end on the event stream", async () => {
     const s = await setup("events");
     const got: ServerEvent[] = [];
     const sub = s.events.subscribe(
@@ -516,27 +559,30 @@ describe("main builds (plan 8.3, 8.4)", () => {
     }
   });
 
-  it("serves the newest build on its own preview port and switches when a new one succeeds", async () => {
-    const s = await setup("preview");
-    const first = await s.build();
-    const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" });
-    expect(opened.json).toMatchObject({ ref: "main", buildId: first.id, commit: first.commit });
-    expect(opened.json.url).toBe(`http://127.0.0.1:${opened.json.port}/`);
-    const page = await fetchPreview(opened.json.port);
-    expect(page.body).toContain("v1");
-    expect(page.headers["content-security-policy"]).toMatch(/^sandbox allow-scripts allow-popups/);
-    expect(page.headers["cache-control"]).toBe("no-store");
+  it.skipIf(process.platform === "win32")(
+    "serves the newest build on its own preview port and switches when a new one succeeds",
+    async () => {
+      const s = await setup("preview");
+      const first = await s.build();
+      const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" });
+      expect(opened.json).toMatchObject({ ref: "main", buildId: first.id, commit: first.commit });
+      expect(opened.json.url).toBe(`http://127.0.0.1:${opened.json.port}/`);
+      const page = await fetchPreview(opened.json.port);
+      expect(page.body).toContain("v1");
+      expect(page.headers["content-security-policy"]).toMatch(/^sandbox allow-scripts allow-popups/);
+      expect(page.headers["cache-control"]).toBe("no-store");
 
-    fs.writeFileSync(path.join(s.dir, "marker"), "v2");
-    commitAll(s.dir, "v2");
-    const second = await s.build();
-    expect(second.status).toBe("succeeded");
-    expect((await fetchPreview(opened.json.port)).body).toContain("v2");
-    const again = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
-    expect(again.json).toMatchObject({ port: opened.json.port, buildId: second.id });
-  });
+      fs.writeFileSync(path.join(s.dir, "marker"), "v2");
+      commitAll(s.dir, "v2");
+      const second = await s.build();
+      expect(second.status).toBe("succeeded");
+      expect((await fetchPreview(opened.json.port)).body).toContain("v2");
+      const again = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
+      expect(again.json).toMatchObject({ port: opened.json.port, buildId: second.id });
+    },
+  );
 
-  it("records a failed build with Bukit's errors and keeps nothing", async () => {
+  it.skipIf(process.platform === "win32")("records a failed build with Bukit's errors and keeps nothing", async () => {
     const s = await setup("fail", { mode: "fail" });
     const b = await s.build();
     expect(b).toMatchObject({ status: "failed", outcome: "config_or_content_error", exitCode: 2, hasOutput: false });
@@ -546,7 +592,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect(fs.existsSync(path.join(s.paths.previews, s.site.id, b.id))).toBe(false);
   });
 
-  it("names a full disk behind a failed build", async () => {
+  it.skipIf(process.platform === "win32")("names a full disk behind a failed build", async () => {
     const s = await setup("full", { mode: "full" });
     const b = await s.build();
     expect(b).toMatchObject({ status: "failed", outcome: "failed", exitCode: 1 });
@@ -557,138 +603,144 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect(plain.report?.problem).toBeUndefined();
   });
 
-  it("summarizes the SEO / GEO reports and reads the JSON log from stderr (M4 layer 7)", async () => {
-    const b = await (await setup("audit", { mode: "audit" })).build();
-    expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
-    expect(b.report?.audit).toEqual({
-      seo: {
-        routes: 2,
-        errors: 1,
-        warnings: 2,
-        siteUrlMissing: true,
-        siteUrlWarnings: 1,
-        groups: [
-          {
-            code: "seo.title_missing",
-            severity: "error",
-            count: 1,
-            message: "Title is missing.",
-            routes: ["/b/"],
-            moreRoutes: false,
-          },
-          {
-            code: "seo.description_missing",
-            severity: "warning",
-            count: 1,
-            message: "SEO description is missing.",
-            routes: ["/a/"],
-            moreRoutes: false,
-          },
-        ],
-        groupsTruncated: false,
-      },
-      geo: { score: 25, llmsTxt: true, llmsFullTxt: false, enhancedRoutes: 0 },
-    });
-    // Warnings come from stderr; the per-issue audit lines are left to the summary.
-    expect(b.report?.messages.map((m) => m.msg)).toEqual(["event=content.slow file=a.md", "event=theme.warning x=1"]);
-    expect(b.report?.output).not.toContain('"level"');
-    // A build without reports has no audit.
-    expect((await (await setup("noaudit")).build()).report?.audit).toBeUndefined();
-  });
+  it.skipIf(process.platform === "win32")(
+    "summarizes the SEO / GEO reports and reads the JSON log from stderr (M4 layer 7)",
+    async () => {
+      const b = await (await setup("audit", { mode: "audit" })).build();
+      expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
+      expect(b.report?.audit).toEqual({
+        seo: {
+          routes: 2,
+          errors: 1,
+          warnings: 2,
+          siteUrlMissing: true,
+          siteUrlWarnings: 1,
+          groups: [
+            {
+              code: "seo.title_missing",
+              severity: "error",
+              count: 1,
+              message: "Title is missing.",
+              routes: ["/b/"],
+              moreRoutes: false,
+            },
+            {
+              code: "seo.description_missing",
+              severity: "warning",
+              count: 1,
+              message: "SEO description is missing.",
+              routes: ["/a/"],
+              moreRoutes: false,
+            },
+          ],
+          groupsTruncated: false,
+        },
+        geo: { score: 25, llmsTxt: true, llmsFullTxt: false, enhancedRoutes: 0 },
+      });
+      // Warnings come from stderr; the per-issue audit lines are left to the summary.
+      expect(b.report?.messages.map((m) => m.msg)).toEqual(["event=content.slow file=a.md", "event=theme.warning x=1"]);
+      expect(b.report?.output).not.toContain('"level"');
+      // A build without reports has no audit.
+      expect((await (await setup("noaudit")).build()).report?.audit).toBeUndefined();
+    },
+  );
 
-  it("serves the full SEO report and compares it with the previous main build (plan 10.4)", async () => {
-    const s = await setup("audit-report", { mode: "audit" });
-    type R = AuditReportResponse & { code?: string };
-    // The import's first build wrote no reports.
-    expect((await s.call<R>("GET", s.api("/audit"))).json.code).toBe("audit.not_built");
-    expect((await s.call<R>("GET", s.api("/audit?ref=nope"))).status).toBe(400);
-    expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("change.not_found");
+  it.skipIf(process.platform === "win32")(
+    "serves the full SEO report and compares it with the previous main build (plan 10.4)",
+    async () => {
+      const s = await setup("audit-report", { mode: "audit" });
+      type R = AuditReportResponse & { code?: string };
+      // The import's first build wrote no reports.
+      expect((await s.call<R>("GET", s.api("/audit"))).json.code).toBe("audit.not_built");
+      expect((await s.call<R>("GET", s.api("/audit?ref=nope"))).status).toBe(400);
+      expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("change.not_found");
 
-    const first = await s.build();
-    let r = await s.call<R>("GET", s.api("/audit"));
-    expect(r.status).toBe(200);
-    expect(r.json).toMatchObject({ ref: "main", build: { buildId: first.id }, previous: null, compare: null });
-    expect(r.json.summary).toEqual(first.report?.audit);
-    // The site.url warning is folded away, as in the summary; errors first.
-    expect(r.json.issues).toEqual([
-      { severity: "error", code: "seo.title_missing", route: "/b/", message: "Title is missing." },
-      { severity: "warning", code: "seo.description_missing", route: "/a/", message: "SEO description is missing." },
-    ]);
+      const first = await s.build();
+      let r = await s.call<R>("GET", s.api("/audit"));
+      expect(r.status).toBe(200);
+      expect(r.json).toMatchObject({ ref: "main", build: { buildId: first.id }, previous: null, compare: null });
+      expect(r.json.summary).toEqual(first.report?.audit);
+      // The site.url warning is folded away, as in the summary; errors first.
+      expect(r.json.issues).toEqual([
+        { severity: "error", code: "seo.title_missing", route: "/b/", message: "Title is missing." },
+        { severity: "warning", code: "seo.description_missing", route: "/a/", message: "SEO description is missing." },
+      ]);
 
-    // Second build: the title error is fixed, the description issue spreads, a new kind appears.
-    const issue = (severity: string, code: string, route: string) => ({ severity, code, route, message: code });
-    fs.writeFileSync(
-      path.join(s.dir, "seo.json"),
-      JSON.stringify({
-        siteUrl: "https://x.test",
-        routes: [{}, {}, {}],
-        issues: [
-          issue("warning", "seo.description_missing", "/a/"),
-          issue("warning", "seo.description_missing", "/c/"),
-          issue("info", "seo.new_kind", ""),
-        ],
-      }),
-    );
-    commitAll(s.dir, "seo");
-    const second = await s.build();
-    r = await s.call<R>("GET", s.api("/audit"));
-    expect(r.json.build.buildId).toBe(second.id);
-    expect(r.json.previous?.buildId).toBe(first.id);
-    expect(r.json.issues).toHaveLength(3);
-    expect(r.json.compare).toMatchObject({ errors: -1, warnings: 0, geoScore: 0, previousTruncated: false });
-    expect(r.json.compare?.groups.map((g) => [g.code, g.change, g.count, g.previous])).toEqual([
-      ["seo.title_missing", "fixed", 0, 1],
-      ["seo.description_missing", "more", 2, 1],
-      ["seo.new_kind", "new", 1, 0],
-    ]);
+      // Second build: the title error is fixed, the description issue spreads, a new kind appears.
+      const issue = (severity: string, code: string, route: string) => ({ severity, code, route, message: code });
+      fs.writeFileSync(
+        path.join(s.dir, "seo.json"),
+        JSON.stringify({
+          siteUrl: "https://x.test",
+          routes: [{}, {}, {}],
+          issues: [
+            issue("warning", "seo.description_missing", "/a/"),
+            issue("warning", "seo.description_missing", "/c/"),
+            issue("info", "seo.new_kind", ""),
+          ],
+        }),
+      );
+      commitAll(s.dir, "seo");
+      const second = await s.build();
+      r = await s.call<R>("GET", s.api("/audit"));
+      expect(r.json.build.buildId).toBe(second.id);
+      expect(r.json.previous?.buildId).toBe(first.id);
+      expect(r.json.issues).toHaveLength(3);
+      expect(r.json.compare).toMatchObject({ errors: -1, warnings: 0, geoScore: 0, previousTruncated: false });
+      expect(r.json.compare?.groups.map((g) => [g.code, g.change, g.count, g.previous])).toEqual([
+        ["seo.title_missing", "fixed", 0, 1],
+        ["seo.description_missing", "more", 2, 1],
+        ["seo.new_kind", "new", 1, 0],
+      ]);
 
-    // The output is gone: the summary is still there, the full list is not.
-    fs.rmSync(path.join(s.paths.previews, s.site.id, second.id), { recursive: true, force: true });
-    r = await s.call<R>("GET", s.api("/audit"));
-    expect(r.json).toMatchObject({ issues: null, issuesTruncated: false, build: { buildId: second.id } });
-    expect(r.json.compare?.groups.find((g) => g.code === "seo.description_missing")?.change).toBe("more");
-    expect(r.json.stale).toBe(false);
+      // The output is gone: the summary is still there, the full list is not.
+      fs.rmSync(path.join(s.paths.previews, s.site.id, second.id), { recursive: true, force: true });
+      r = await s.call<R>("GET", s.api("/audit"));
+      expect(r.json).toMatchObject({ issues: null, issuesTruncated: false, build: { buildId: second.id } });
+      expect(r.json.compare?.groups.find((g) => g.code === "seo.description_missing")?.change).toBe("more");
+      expect(r.json.stale).toBe(false);
 
-    // The change version: its own build, compared with the main version's newest report.
-    const session = s.agent.create(s.site.id);
-    const { cwd } = await s.changes.begin(s.site.id, session.id);
-    fs.writeFileSync(
-      path.join(cwd, "seo.json"),
-      JSON.stringify({ siteUrl: "https://x.test", issues: [issue("warning", "seo.description_missing", "/a/")] }),
-    );
-    await s.changes.snapshot(s.site.id, cwd);
-    expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("audit.not_built");
-    const change = await s.call<Build>("POST", s.api("/builds"), { ref: "change" });
-    await s.builds.settled();
-    r = await s.call<R>("GET", s.api("/audit?ref=change"));
-    expect(r.json).toMatchObject({
-      ref: "change",
-      build: { buildId: change.json.id },
-      previous: { buildId: second.id },
-    });
-    expect(r.json.compare?.groups.map((g) => [g.code, g.change])).toEqual([
-      ["seo.description_missing", "fewer"],
-      ["seo.new_kind", "fixed"],
-    ]);
-    // The main report is still the main build's.
-    expect((await s.call<R>("GET", s.api("/audit"))).json.build.buildId).toBe(second.id);
+      // The change version: its own build, compared with the main version's newest report.
+      const session = s.agent.create(s.site.id);
+      const { cwd } = await s.changes.begin(s.site.id, session.id);
+      fs.writeFileSync(
+        path.join(cwd, "seo.json"),
+        JSON.stringify({ siteUrl: "https://x.test", issues: [issue("warning", "seo.description_missing", "/a/")] }),
+      );
+      await s.changes.snapshot(s.site.id, cwd);
+      expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("audit.not_built");
+      const change = await s.call<Build>("POST", s.api("/builds"), { ref: "change" });
+      await s.builds.settled();
+      r = await s.call<R>("GET", s.api("/audit?ref=change"));
+      expect(r.json).toMatchObject({
+        ref: "change",
+        build: { buildId: change.json.id },
+        previous: { buildId: second.id },
+      });
+      expect(r.json.compare?.groups.map((g) => [g.code, g.change])).toEqual([
+        ["seo.description_missing", "fewer"],
+        ["seo.new_kind", "fixed"],
+      ]);
+      // The main report is still the main build's.
+      expect((await s.call<R>("GET", s.api("/audit"))).json.build.buildId).toBe(second.id);
 
-    // A newer main build fails: the report shown is the last good one, marked out of date.
-    fs.writeFileSync(path.join(s.dir, "fake-mode"), "fail");
-    commitAll(s.dir, "fail");
-    expect((await s.build()).status).toBe("failed");
-    r = await s.call<R>("GET", s.api("/audit"));
-    expect(r.json).toMatchObject({ build: { buildId: second.id }, previous: { buildId: first.id }, stale: true });
-  });
+      // A newer main build fails: the report shown is the last good one, marked out of date.
+      fs.writeFileSync(path.join(s.dir, "fake-mode"), "fail");
+      commitAll(s.dir, "fail");
+      expect((await s.build()).status).toBe("failed");
+      r = await s.call<R>("GET", s.api("/audit"));
+      expect(r.json).toMatchObject({ build: { buildId: second.id }, previous: { buildId: first.id }, stale: true });
+    },
+  );
 
-  it("does not keep an output that contains a symbolic link", async () => {
+  it.skipIf(process.platform === "win32")("does not keep an output that contains a symbolic link", async () => {
     const s = await setup("symlink-out", { mode: "symlink" });
     const b = await s.build();
     expect(b).toMatchObject({ status: "failed", outcome: "symlink", hasOutput: false });
     expect(b.report?.detail).toBe("leak");
   });
 
-  it("re-runs the pre-build guard on the commit it builds", async () => {
+  it.skipIf(process.platform === "win32")("re-runs the pre-build guard on the commit it builds", async () => {
     const s = await setup("guarded");
     fs.symlinkSync("../site.yaml", path.join(s.dir, "content", "link.md"));
     commitAll(s.dir, "add a symlink");
@@ -700,7 +752,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect((await s.call("POST", s.api("/builds"), {})).json).toEqual({ code: "site.read_only" });
   });
 
-  it("holds the site lock while building and stops at shutdown", async () => {
+  it.skipIf(process.platform === "win32")("holds the site lock while building and stops at shutdown", async () => {
     const s = await setup("slow", { mode: "slow" });
     const started = await s.call<Build>("POST", s.api("/builds"), {});
     expect(started.json).toMatchObject({ status: "running", outcome: null });
@@ -713,7 +765,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect((await s.history())[0]).toMatchObject({ status: "failed", outcome: "stopped" });
   });
 
-  it("keeps the newest outputs and drops older ones", async () => {
+  it.skipIf(process.platform === "win32")("keeps the newest outputs and drops older ones", async () => {
     const s = await setup("prune");
     const ids: string[] = [];
     for (let i = 0; i < KEEP_OUTPUTS + 2; i++) ids.push((await s.build()).id);
@@ -745,7 +797,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect((await ro.call("POST", ro.api("/builds"), {})).json).toEqual({ code: "site.read_only" });
   });
 
-  it("falls back to an older output when the newest one is gone", async () => {
+  it.skipIf(process.platform === "win32")("falls back to an older output when the newest one is gone", async () => {
     const s = await setup("fallback");
     const [older] = await s.history();
     const newest = await s.build();
@@ -761,29 +813,32 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect((await s.call("POST", s.api("/builds"), {})).json).toEqual({ code: "server.shutting_down" });
   });
 
-  it("opens an old multilingual build at the default language of its own commit", async () => {
-    const s = await setup("old-entry", { mode: "multi" });
-    const yaml = path.join(s.dir, "site.yaml");
-    const original = fs.readFileSync(yaml, "utf8");
-    fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: zh-CN\n"));
-    commitAll(s.dir, "default zh-CN");
-    const b = await s.build();
-    expect(b.report?.entry).toBe("/zh-CN/");
-    // A build from before BuildReport.entry existed, and a later commit that is not built yet.
-    const row = s.db.prepare("SELECT report_json FROM builds WHERE id = ?").get(b.id) as { report_json: string };
-    const { entry: _entry, ...report } = JSON.parse(row.report_json);
-    s.db.prepare("UPDATE builds SET report_json = ? WHERE id = ?").run(JSON.stringify(report), b.id);
-    fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: en-US\n"));
-    commitAll(s.dir, "default en-US");
+  it.skipIf(process.platform === "win32")(
+    "opens an old multilingual build at the default language of its own commit",
+    async () => {
+      const s = await setup("old-entry", { mode: "multi" });
+      const yaml = path.join(s.dir, "site.yaml");
+      const original = fs.readFileSync(yaml, "utf8");
+      fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: zh-CN\n"));
+      commitAll(s.dir, "default zh-CN");
+      const b = await s.build();
+      expect(b.report?.entry).toBe("/zh-CN/");
+      // A build from before BuildReport.entry existed, and a later commit that is not built yet.
+      const row = s.db.prepare("SELECT report_json FROM builds WHERE id = ?").get(b.id) as { report_json: string };
+      const { entry: _entry, ...report } = JSON.parse(row.report_json);
+      s.db.prepare("UPDATE builds SET report_json = ? WHERE id = ?").run(JSON.stringify(report), b.id);
+      fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: en-US\n"));
+      commitAll(s.dir, "default en-US");
 
-    const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
-    expect(opened.json.buildId).toBe(b.id);
-    const res = await fetchPreview(opened.json.port);
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toBe("/zh-CN/");
-  });
+      const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
+      expect(opened.json.buildId).toBe(b.id);
+      const res = await fetchPreview(opened.json.port);
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe("/zh-CN/");
+    },
+  );
 
-  it("gives back preview ports when the site is removed", async () => {
+  it.skipIf(process.platform === "win32")("gives back preview ports when the site is removed", async () => {
     const s = await setup("removed");
     await s.build();
     await s.call("POST", s.api("/preview"), {});
@@ -794,7 +849,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
 });
 
 describe("first build after adding a site (plan 5.2 step 5)", () => {
-  it("builds a site imported through the API", async () => {
+  it.skipIf(process.platform === "win32")("builds a site imported through the API", async () => {
     const ctx = makeApp({
       userHome,
       appHome: fs.mkdtempSync(path.join(base, "app-")),
@@ -803,7 +858,7 @@ describe("first build after adding a site (plan 5.2 step 5)", () => {
     });
     contexts.push(ctx);
     const dir = path.join(userHome, "auto");
-    copyStarter(STARTER, dir, { title: "Auto", language: "en-US" });
+    writeStarter(dir, { title: "Auto", language: "en-US" });
     raw(dir, "init", "-q", "-b", "main");
     commitAll(dir, "init");
     const res = await ctx.app.fetch(
@@ -862,22 +917,26 @@ describe("preview idle release", () => {
 });
 
 describe.skipIf(!REAL_BIN)("real Bukit", () => {
-  it("builds the starter site and serves it", async () => {
-    const s = await setup("real", { bin: REAL_BIN as string });
-    const b = await s.build();
-    expect(b).toMatchObject({ status: "succeeded", outcome: "ok", exitCode: 0 });
-    // The SEO / GEO summary (M4 layer 7): the starter has no site.url, so most warnings fold into that hint.
-    const report = (await s.call<Build>("GET", s.api(`/builds/${b.id}`))).json.report;
-    expect(report?.audit?.seo).toMatchObject({ errors: 0, siteUrlMissing: true });
-    expect(report?.audit?.seo?.routes).toBeGreaterThan(5);
-    expect(report?.audit?.seo?.siteUrlWarnings).toBeGreaterThan(report?.audit?.seo?.groups.length ?? 0);
-    expect(report?.audit?.geo).toMatchObject({ llmsTxt: true });
-    // Bukit's JSON log (stderr) is parsed, not left in the output; its per-issue audit lines are not messages.
-    expect(report?.output).not.toContain('"level"');
-    expect(report?.messages.some((m) => m.msg.includes(".audit severity="))).toBe(false);
-    const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
-    const page = await fetchPreview(opened.json.port);
-    expect(page.status).toBe(200);
-    expect(page.body).toContain("<html");
-  }, 120_000);
+  it.skipIf(process.platform === "win32")(
+    "builds the starter site and serves it",
+    async () => {
+      const s = await setup("real", { bin: REAL_BIN as string });
+      const b = await s.build();
+      expect(b).toMatchObject({ status: "succeeded", outcome: "ok", exitCode: 0 });
+      // The SEO / GEO summary (M4 layer 7): the starter has no site.url, so most warnings fold into that hint.
+      const report = (await s.call<Build>("GET", s.api(`/builds/${b.id}`))).json.report;
+      expect(report?.audit?.seo).toMatchObject({ errors: 0, siteUrlMissing: true });
+      expect(report?.audit?.seo?.routes).toBeGreaterThan(5);
+      expect(report?.audit?.seo?.siteUrlWarnings).toBeGreaterThan(report?.audit?.seo?.groups.length ?? 0);
+      expect(report?.audit?.geo).toMatchObject({ llmsTxt: true });
+      // Bukit's JSON log (stderr) is parsed, not left in the output; its per-issue audit lines are not messages.
+      expect(report?.output).not.toContain('"level"');
+      expect(report?.messages.some((m) => m.msg.includes(".audit severity="))).toBe(false);
+      const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
+      const page = await fetchPreview(opened.json.port);
+      expect(page.status).toBe(200);
+      expect(page.body).toContain("<html");
+    },
+    120_000,
+  );
 });

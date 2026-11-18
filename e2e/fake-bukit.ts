@@ -3,15 +3,26 @@ import path from "node:path";
 
 // A stand-in Bukit for end-to-end tests (CI has no Bukit); BUKIT_BIN names a real one instead.
 
+const ROOT = path.resolve(import.meta.dirname, "..");
+/** `new` copies the recorded `bukit new` output (packages/server/test/fixtures/starter.ts). */
+const NEW_SITE = [
+  process.execPath,
+  path.join(ROOT, "packages/server/node_modules/tsx/dist/cli.mjs"),
+  path.join(ROOT, "packages/server/test/fixtures/starter.ts"),
+]
+  .map((p) => `'${p.replaceAll("'", "'\\''")}'`)
+  .join(" ");
+
 /**
- * Writes index.html titled with site.title and SEO / GEO / publish reports in .bukit/; a committed `fake-mode` file
+ * `new` writes the recorded starter site. `build` writes index.html titled with site.title and SEO / GEO / publish reports in .bukit/; a committed `fake-mode` file
  * containing "fail" fails the build. `publish audit` passes; `deploy` waits a second and reports a push, without
  * any network.
  */
 export const FAKE_BUKIT = `#!/bin/sh
 case "$1" in
-  version) echo "bukit 2.2.2+e2e"; exit 0;;
+  version) echo "bukit 2.2.6+e2e"; exit 0;;
   config|doctor) exit 0;;
+  new) exec ${NEW_SITE} "$@";;
   build)
     out=""; prev=""
     for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
@@ -26,7 +37,7 @@ case "$1" in
       printf '{\n  "schema": "https://bukit.dev/schemas/cli-error.v1.json",\n  "errors": [{ "code": "cli-error", "message": "Referenced localized media output is missing: assets/images/noneimg-news.jpg" }]\n}\n' >&2
       exit 1
     fi
-    title=$(grep -m1 '^  title:' site.yaml | sed 's/^  title: *//')
+    title=$(grep -m1 '^  title:' site.yaml | sed -e 's/^  title: *//' -e 's/^"//' -e 's/"$//')
     mkdir -p "$out"
     echo "<!doctype html><meta charset=utf-8><title>$title</title><h1>$title</h1>" > "$out/index.html"
     # The SEO / GEO reports real Bukit writes with every build (a site without site.url).

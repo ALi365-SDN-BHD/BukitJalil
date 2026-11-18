@@ -54,6 +54,8 @@ export type DeployOutcome =
   | "step_failed"
   /** The build wrote a symbolic link (plan 8.4). */
   | "symlink"
+  /** Upload references do not match the current site.baseUrl (media upload design 4.9). */
+  | "upload_prefix"
   | "stopped"
   | "interrupted"
   | "error";

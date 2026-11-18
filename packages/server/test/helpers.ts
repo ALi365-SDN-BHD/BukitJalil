@@ -3,6 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { expect } from "vitest";
 import { AiBukit } from "../src/agent/ai-bukit.ts";
 import { CustomModelStore } from "../src/agent/custom-models.ts";
 import { RgService } from "../src/agent/rg.ts";
@@ -20,6 +21,7 @@ import { GitRunner, resolveGitPath } from "../src/git/run.ts";
 import { GitService, type GitServiceOptions } from "../src/git/service.ts";
 import type { GitHealth } from "../src/git/version.ts";
 import { type Logger, silentLogger } from "../src/log.ts";
+import { MediaService } from "../src/media/service.ts";
 import { PanelService } from "../src/panels/service.ts";
 import { ensureAppHome } from "../src/paths.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
@@ -29,6 +31,8 @@ import { SiteLocks } from "../src/sites/locks.ts";
 import { SiteService } from "../src/sites/service.ts";
 import { openDatabase } from "../src/store/db.ts";
 import { SettingsStore } from "../src/store/settings.ts";
+import { UpdateService } from "../src/updates/service.ts";
+import { writeStarter } from "./fixtures/starter.ts";
 
 export const PORT = 47880;
 export const ADMIN = `http://127.0.0.1:${PORT}`;
@@ -135,7 +139,8 @@ export function makeApp(
     bukit,
     locks,
     dataSources,
-    templateDir: path.resolve(import.meta.dirname, "../../../templates/starter"),
+    // No real Bukit in unit tests: a copy of its `bukit new` output (plan 5.2).
+    newSite: async (target, values) => writeStarter(target, values),
     userHome: overrides.userHome,
   });
   const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);
@@ -148,6 +153,7 @@ export function makeApp(
     tmpDir: paths.tmp,
     logger,
   });
+  const media = new MediaService({ git, sites, changes, locks, paths, logger });
   const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
   const customModels = new CustomModelStore(path.join(paths.pi, "custom-models.json"));
   const builds = new BuildService({
@@ -177,6 +183,13 @@ export function makeApp(
     ...overrides.agent,
   });
   const events = new EventHub(overrides.replayBytes);
+  const updates = new UpdateService({
+    currentVersion: "0.1.0-beta.4",
+    dir: path.join(paths.home, "updates"),
+    fetchImpl: null,
+    logger,
+    openInstaller: null,
+  });
   const panels = new PanelService({
     git,
     sites,
@@ -198,6 +211,7 @@ export function makeApp(
     rg,
     sites,
     panels,
+    media,
     builds,
     agent,
     gitStatus,
@@ -212,6 +226,7 @@ export function makeApp(
     readIdentity: async () => ({ name: "Global Name", email: "global@example.com" }),
     userHome: overrides.userHome,
     version: "test",
+    updates,
     logger,
   });
   return {
@@ -220,6 +235,7 @@ export function makeApp(
     loginToken,
     sites,
     panels,
+    media,
     paths,
     git,
     builds,
@@ -231,6 +247,7 @@ export function makeApp(
     agent,
     gitStatus,
     events,
+    updates,
     customModels,
     dataSources,
     publishAccounts,
@@ -252,11 +269,28 @@ export const jsonPut = (body: unknown, extra: Record<string, string> = {}) => ({
   headers: { "content-type": "application/json", "x-bukitjalil": "1", origin: ADMIN, ...extra },
 });
 
+/** Windows keeps no Unix permission bits (files report 0o666), so mode assertions only apply elsewhere. */
+export function expectMode(file: string, expected: number): void {
+  if (process.platform === "win32") return;
+  expect(fs.statSync(file).mode & 0o777).toBe(expected);
+}
+
+/** An empty file for GIT_CONFIG_GLOBAL: Git for Windows rejects `os.devNull` (`\\.\nul`) there. */
+let emptyGitConfig: string | undefined;
+export function noGitConfig(): string {
+  if (process.platform !== "win32") return os.devNull;
+  if (!emptyGitConfig) {
+    emptyGitConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bj-gitcfg-")), "empty");
+    fs.writeFileSync(emptyGitConfig, "");
+  }
+  return emptyGitConfig;
+}
+
 /** The system git with a fixed, minimal environment, for test fixtures (never the code under test). */
 export function rawGit(home: string, cwd: string, ...args: string[]): string {
   return execFileSync(resolveGitPath() as string, args, {
     cwd,
-    env: { PATH: "/usr/bin:/bin", HOME: home, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
+    env: { PATH: "/usr/bin:/bin", HOME: home, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: noGitConfig() },
     encoding: "utf8",
   });
 }

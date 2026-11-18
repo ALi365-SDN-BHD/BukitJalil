@@ -151,7 +151,7 @@ export interface MediaProblem {
 }
 
 export interface BuildReport {
-  /** Warning and error lines from Bukit's JSON log, in order. */
+  /** Warning and error lines from Bukit's JSON log and BukitJalil's own build warnings, in order. */
   messages: BuildMessage[];
   /** End of Bukit's stderr and of any stdout that was not a JSON log line. */
   output: string;
@@ -219,6 +219,8 @@ export interface NotionOfflineData {
   builtAt: string;
   /** The change's Notion filter or sort differs from the formal build; its pages were used. */
   queryChanged: boolean;
+  /** The change edits Notion field or filter keys; Bukit used the formal build's values (`--notion-pin`). */
+  pinned: boolean;
   /** Some bodies were rendered by an older Bukit; a formal build renders them again. */
   rendererMismatch: boolean;
 }
