@@ -1,0 +1,58 @@
+name: Windows probe
+
+# Windows port, item 0 (docs/development-plan.md): what breaks on a real Windows runner. Manual runs, or a push
+# to the windows-probe branch. Nothing here gates a release; it only writes reports.
+on:
+  workflow_dispatch:
+  push:
+    branches: [windows-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: windows-latest / probe
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      # --force: Windows runners ship a global yarn shim that corepack's own would collide with.
+      - name: Enable corepack (pnpm from packageManager)
+        run: |
+          npm install --global --force corepack@0.34.6
+          corepack enable
+          pnpm --version
+      - run: pnpm install --frozen-lockfile
+      - name: Probe the server's Unix assumptions
+        continue-on-error: true
+        env:
+          PROBE_REPORT: ${{ github.workspace }}/windows-probe-report.json
+        run: pnpm --filter @bukitjalil/server exec tsx spikes/windows-probe.ts
+      - name: Install Electron
+        continue-on-error: true
+        run: pnpm --filter @bukitjalil/desktop exec install-electron
+      - name: Package the desktop app
+        id: package
+        continue-on-error: true
+        run: pnpm package:desktop
+      - name: Smoke test the packaged app
+        if: steps.package.outcome == 'success'
+        continue-on-error: true
+        run: pnpm exec playwright test -c e2e/desktop/playwright.config.ts packaged
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-probe
+          path: |
+            windows-probe-report.json
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
