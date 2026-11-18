@@ -1,0 +1,17 @@
+# Text is stored and checked out with LF on every platform. Without this, Windows checkouts turn files into
+# CRLF and tests and fixtures that match "\n" exactly (packages/server/test/fixtures/starter.ts) fail.
+* text=auto eol=lf
+
+# Binary files are never converted.
+*.png binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.gz binary
