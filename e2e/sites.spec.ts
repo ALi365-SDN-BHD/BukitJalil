@@ -7,7 +7,7 @@ import { BUKIT_VERSION } from "../packages/server/src/bukit/install.ts";
 import { writeStarter } from "../packages/server/test/fixtures/starter.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { putSettings } from "./site-helpers.ts";
+import { noGitConfig, putSettings } from "./site-helpers.ts";
 
 // M2 end to end (plan 12): new site, import, read-only import, builds and the preview, the read-only panels,
 // archive and remove, settings. Builds use a stand-in Bukit unless BUKIT_BIN names a real one.
@@ -49,7 +49,7 @@ function git(cwd: string, ...args: string[]) {
   execFileSync("git", ["-c", "user.name=E2E", "-c", "user.email=e2e@example.com", ...args], {
     cwd,
     stdio: "pipe",
-    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" },
+    env: { ...process.env, GIT_CONFIG_GLOBAL: noGitConfig(), GIT_CONFIG_NOSYSTEM: "1" },
   });
 }
 

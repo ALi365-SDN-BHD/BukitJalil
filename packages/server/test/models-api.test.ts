@@ -8,7 +8,7 @@ import { ModelService, redact, settingsModel } from "../src/agent/models.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { SettingsStore } from "../src/store/settings.ts";
 import { writeStarter } from "./fixtures/starter.ts";
-import { ADMIN, commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, expectMode, makeApp, rawGit, req } from "./helpers.ts";
 
 // M3 layer 7 (plan 6.5, 9.1): model settings. No request leaves the machine: connection tests and runs
 // use Pi's faux provider; keys are saved for real providers but never used.
@@ -127,7 +127,7 @@ describe("model catalog and keys", () => {
 
     const auth = path.join(ctx.paths.pi, "auth.json");
     expect(JSON.parse(fs.readFileSync(auth, "utf8")).cerebras).toEqual({ type: "api_key", key: secret });
-    expect(fs.statSync(auth).mode & 0o777).toBe(0o600);
+    expectMode(auth, 0o600);
     const listed = await (await get("/api/models")).text();
     expect(listed).not.toContain(secret);
     expect((await provider("cerebras"))?.key).toMatchObject({ source: "stored", last4: "9f3a" });

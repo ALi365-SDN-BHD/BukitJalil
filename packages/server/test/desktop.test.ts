@@ -83,14 +83,14 @@ describe("data directory lock (plan M7)", () => {
 describe("resource folders (plan M7)", () => {
   it("come from the repository unless BUKITJALIL_RESOURCES names the desktop app's", () => {
     expect(resolveResources("/repo", {})).toEqual({
-      skills: "/repo/skills",
-      web: "/repo/packages/web/dist",
-      bukit: `/repo/vendor/bukit-${BUKIT_VERSION}`,
+      skills: path.join("/repo", "skills"),
+      web: path.join("/repo", "packages/web/dist"),
+      bukit: path.join("/repo", `vendor/bukit-${BUKIT_VERSION}`),
     });
     expect(resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app" })).toEqual({
-      skills: "/App/Resources/app/skills",
-      web: "/App/Resources/app/web",
-      bukit: "/App/Resources/app/bukit",
+      skills: path.join("/App/Resources/app", "skills"),
+      web: path.join("/App/Resources/app", "web"),
+      bukit: path.join("/App/Resources/app", "bukit"),
     });
   });
 });

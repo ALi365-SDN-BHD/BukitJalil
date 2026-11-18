@@ -6,6 +6,7 @@ export default defineConfig({
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "packages/web/src") } },
   test: {
     include: ["packages/*/test/**/*.test.ts", "packages/*/src/**/*.test.ts"],
+    setupFiles: ["packages/server/test/setup-tmp.ts"],
     environment: "node",
     // Many server tests run real git (and Bukit) several times; 5 s is too tight when all files run in parallel.
     testTimeout: 15_000,

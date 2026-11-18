@@ -12,7 +12,7 @@ import { agentEventTranslator } from "../src/events/bridge.ts";
 import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
 import { writeStarter } from "./fixtures/starter.ts";
-import { commitAllAs, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
+import { commitAllAs, expectMode, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
 
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
 
@@ -131,7 +131,7 @@ describe("Pi environment", () => {
   });
 
   it("keeps the app's Pi directory private", () => {
-    expect(fs.statSync(ctx.paths.pi).mode & 0o777).toBe(0o700);
+    expectMode(ctx.paths.pi, 0o700);
     expect(fs.existsSync(ctx.paths.piBin)).toBe(true);
   });
 });
@@ -261,7 +261,7 @@ describe("AgentService", () => {
     // Pi writes only into the app's Pi directory: keys, and its cache of model lists.
     for (const name of fs.readdirSync(ctx.paths.pi)) expect(["auth.json", "bin", "models-store.json"]).toContain(name);
     const auth = path.join(ctx.paths.pi, "auth.json");
-    if (fs.existsSync(auth)) expect(fs.statSync(auth).mode & 0o777).toBe(0o600);
+    if (fs.existsSync(auth)) expectMode(auth, 0o600);
   });
 
   it("cannot read a disabled skill in a new conversation, and re-enabling restores it", async () => {

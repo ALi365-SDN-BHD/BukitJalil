@@ -102,75 +102,81 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
 
   // Sites with a bound data source are checked with its token, others without (plan 8.5): `config check`
   // must only need the token to be there, not reach Notion.
-  it("config check needs NOTION_TOKEN for a Notion source, and only that it is set", async () => {
-    const dir = site("check", true);
-    const args = ["config", "check", "--config", "site.yaml"];
-    const without = await runner.run("check", args, { cwd: dir });
-    expect(checkPassed(without)).toBe(false);
-    expect(output(without)).toContain("NOTION_TOKEN");
-    const withToken = await runner.run("check", args, { cwd: dir, env: { NOTION_TOKEN: PLACEHOLDER } });
-    expect(checkPassed(withToken), output(withToken)).toBe(true);
-  });
+  it.skipIf(process.platform === "win32")(
+    "config check needs NOTION_TOKEN for a Notion source, and only that it is set",
+    async () => {
+      const dir = site("check", true);
+      const args = ["config", "check", "--config", "site.yaml"];
+      const without = await runner.run("check", args, { cwd: dir });
+      expect(checkPassed(without)).toBe(false);
+      expect(output(without)).toContain("NOTION_TOKEN");
+      const withToken = await runner.run("check", args, { cwd: dir, env: { NOTION_TOKEN: PLACEHOLDER } });
+      expect(checkPassed(withToken), output(withToken)).toBe(true);
+    },
+  );
 
   // AI checks, AI builds and change previews of a Notion site read the Notion offline snapshot (plan 5.5):
   // no token, and BukitJalil tells "record it again" from "the change needs new Notion data" by the BKT codes.
-  it("checks and builds a Notion site offline, and says what the snapshot lacks", async () => {
-    const dir = site("offline", true);
-    const snap = path.join(base, "offline-snapshot");
-    const offline = ["--notion-snapshot", snap, "--notion-offline"];
-    const runs = () => [
-      runner.run("check", ["config", "check", "--config", "site.yaml", ...offline], { cwd: dir }),
-      runner.run("doctor", ["doctor", "--config", "site.yaml", ...offline], { cwd: dir }),
-      runner.run(
-        "build",
-        [
+  it.skipIf(process.platform === "win32")(
+    "checks and builds a Notion site offline, and says what the snapshot lacks",
+    async () => {
+      const dir = site("offline", true);
+      const snap = path.join(base, "offline-snapshot");
+      const offline = ["--notion-snapshot", snap, "--notion-offline"];
+      const runs = () => [
+        runner.run("check", ["config", "check", "--config", "site.yaml", ...offline], { cwd: dir }),
+        runner.run("doctor", ["doctor", "--config", "site.yaml", ...offline], { cwd: dir }),
+        runner.run(
           "build",
-          "--config",
-          "site.yaml",
-          "--output",
-          "out",
-          ...offline,
-          "--cache-dir",
-          path.join(base, "offline-cache"),
-          "--log-format",
-          "json",
-        ],
-        { cwd: dir },
-      ),
-    ];
-    const [check, doctor, build] = await Promise.all(runs());
-    if (!check || !doctor || !build) throw new Error("missing run result");
-    for (const result of [check, doctor, build]) {
-      expect(result.exitCode, output(result)).not.toBe(0);
-      expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("stale");
-      expect(output(result)).not.toContain(snap);
-    }
-    expect(build.exitCode).toBe(2);
-    expect(output(build)).toContain('"code": "BKT-0B10"');
-    expect(output(check)).toContain("[BKT-0B10]");
-    expect(output(doctor)).toContain("[BKT-0B10]");
+          [
+            "build",
+            "--config",
+            "site.yaml",
+            "--output",
+            "out",
+            ...offline,
+            "--cache-dir",
+            path.join(base, "offline-cache"),
+            "--log-format",
+            "json",
+          ],
+          { cwd: dir },
+        ),
+      ];
+      const [check, doctor, build] = await Promise.all(runs());
+      if (!check || !doctor || !build) throw new Error("missing run result");
+      for (const result of [check, doctor, build]) {
+        expect(result.exitCode, output(result)).not.toBe(0);
+        expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("stale");
+        expect(output(result)).not.toContain(snap);
+      }
+      expect(build.exitCode).toBe(2);
+      expect(output(build)).toContain('"code": "BKT-0B10"');
+      expect(output(check)).toContain("[BKT-0B10]");
+      expect(output(doctor)).toContain("[BKT-0B10]");
 
-    // A snapshot of this Bukit holding no data for the site's database; the format is read, not the version.
-    fs.mkdirSync(snap);
-    fs.writeFileSync(
-      path.join(snap, "manifest.json"),
-      JSON.stringify({ format: 1, bukitVersion: "2.0.0", createdAt: "2026-11-14T00:00:00Z", databases: [] }),
-    );
-    const [check2, doctor2, build2] = await Promise.all(runs());
-    if (!check2 || !doctor2 || !build2) throw new Error("missing run result");
-    for (const result of [check2, doctor2, build2]) {
-      expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("change");
-      expect(output(result)).not.toContain(snap);
-    }
-    expect(build2.exitCode).toBe(2);
-    expect(output(build2)).toContain('"code": "BKT-0B11"');
-    expect(output(check2)).toContain("[BKT-0B11]");
-    expect(output(doctor2)).toContain("[BKT-0B11]");
-  });
+      // A snapshot of this Bukit holding no data for the site's database; the format is read, not the version.
+      fs.mkdirSync(snap);
+      fs.writeFileSync(
+        path.join(snap, "manifest.json"),
+        JSON.stringify({ format: 1, bukitVersion: "2.0.0", createdAt: "2026-11-14T00:00:00Z", databases: [] }),
+      );
+      const [check2, doctor2, build2] = await Promise.all(runs());
+      if (!check2 || !doctor2 || !build2) throw new Error("missing run result");
+      for (const result of [check2, doctor2, build2]) {
+        expect(notionSnapshotProblemIn(output(result)), output(result)).toBe("change");
+        expect(output(result)).not.toContain(snap);
+      }
+      expect(build2.exitCode).toBe(2);
+      expect(output(build2)).toContain('"code": "BKT-0B11"');
+      expect(output(check2)).toContain("[BKT-0B11]");
+      expect(output(doctor2)).toContain("[BKT-0B11]");
+    },
+  );
 
   // Tokens go on stdin (plan 8.7). The Notion test above already passes its token that way; here Bukit must
   // refuse bad input before doing anything, without echoing it.
-  it("refuses unusable --secrets-stdin input without echoing it", () => {
+  it.skipIf(process.platform === "win32")("refuses unusable --secrets-stdin input without echoing it", () => {
     const dir = site("stdin", true);
     const bad = spawnSync(REAL_BIN as string, ["config", "check", "--config", "site.yaml", "--secrets-stdin"], {
       cwd: dir,
@@ -259,43 +265,48 @@ describe.skipIf(!REAL_BIN)("Bukit behaviour BukitJalil relies on", () => {
 
   // Multilingual builds copy the theme's static/ tree to the root and to each language directory, so a
   // template using site.base_url with a language prefix still finds the file (design 6.1 item 3).
-  it("copies theme static uploads to the root and language directories", async () => {
-    const dir = site("upload-i18n");
-    addUpload(dir);
-    const yaml = path.join(dir, "site.yaml");
-    const text = fs.readFileSync(yaml, "utf8");
-    const languages = "  languages:\n  - en-US\n";
-    if (!text.includes(languages)) throw new Error("starter site.yaml has no languages");
-    fs.writeFileSync(yaml, text.replace(languages, "  languages: [en-US, zh-CN]\n  defaultLanguage: en-US\n"));
-    fs.writeFileSync(path.join(dir, ".gitignore"), "out/\n");
-    rawGit(base, dir, "init", "-q");
-    commitAllAs(base, dir);
+  it.skipIf(process.platform === "win32")(
+    "copies theme static uploads to the root and language directories",
+    async () => {
+      const dir = site("upload-i18n");
+      addUpload(dir);
+      const yaml = path.join(dir, "site.yaml");
+      const text = fs.readFileSync(yaml, "utf8");
+      const languages = "  languages:\n  - en-US\n";
+      if (!text.includes(languages)) throw new Error("starter site.yaml has no languages");
+      fs.writeFileSync(yaml, text.replace(languages, "  languages: [en-US, zh-CN]\n  defaultLanguage: en-US\n"));
+      fs.writeFileSync(path.join(dir, ".gitignore"), "out/\n");
+      rawGit(base, dir, "init", "-q");
+      commitAllAs(base, dir);
 
-    const result = await build(dir, "out");
-    expect(result.exitCode, output(result)).toBe(0);
-    const root = fs.readFileSync(path.join(dir, "out/uploads/a.png"));
-    const zh = fs.readFileSync(path.join(dir, "out/zh-CN/uploads/a.png"));
-    expect(root.equals(PNG)).toBe(true);
-    expect(zh.equals(PNG)).toBe(true);
-  });
+      const result = await build(dir, "out");
+      expect(result.exitCode, output(result)).toBe(0);
+      const root = fs.readFileSync(path.join(dir, "out/uploads/a.png"));
+      const zh = fs.readFileSync(path.join(dir, "out/zh-CN/uploads/a.png"));
+      expect(root.equals(PNG)).toBe(true);
+      expect(zh.equals(PNG)).toBe(true);
+    },
+  );
 
   // Publishing builds with the token, then deploys the audited folder with `deploy --skip-build`, which does
   // not get it (plan 14 M6, deploys/service.ts NOTION_STEPS).
-  it("deploy --skip-build of a Notion site does not need NOTION_TOKEN", async () => {
-    // Built without the Notion source, standing in for the folder an earlier step built with the token;
-    // then the source is added, as in the site.yaml deploy reads.
-    const dir = site("deploy");
-    const build = await runner.run("build", ["build", "--config", "site.yaml", "--output", "out"], { cwd: dir });
-    expect(build.exitCode, output(build)).toBe(0);
-    addNotionSource(dir, "\ndeploy:\n  provider: github-pages\n  repo: someone/someone.github.io\n");
+  it.skipIf(process.platform === "win32")(
+    "deploy --skip-build of a Notion site does not need NOTION_TOKEN",
+    async () => {
+      // Built without the Notion source, standing in for the folder an earlier step built with the token;
+      // then the source is added, as in the site.yaml deploy reads.
+      const dir = site("deploy");
+      const build = await runner.run("build", ["build", "--config", "site.yaml", "--output", "out"], { cwd: dir });
+      expect(build.exitCode, output(build)).toBe(0);
+      addNotionSource(dir, "\ndeploy:\n  provider: github-pages\n  repo: someone/someone.github.io\n");
 
-    const bare = path.join(base, "pages.git");
-    rawGit(base, base, "init", "-q", "--bare", bare);
-    // Bukit checks its remote's address, so only the remote name in ls-remote / fetch / push is swapped.
-    const wrapper = path.join(base, "git-wrapper");
-    fs.writeFileSync(
-      wrapper,
-      `#!/bin/sh
+      const bare = path.join(base, "pages.git");
+      rawGit(base, base, "init", "-q", "--bare", bare);
+      // Bukit checks its remote's address, so only the remote name in ls-remote / fetch / push is swapped.
+      const wrapper = path.join(base, "git-wrapper");
+      fs.writeFileSync(
+        wrapper,
+        `#!/bin/sh
 case " $* " in *" ls-remote "*|*" fetch "*|*" push "*) net=1;; *) net=0;; esac
 n=$#
 for a in "$@"; do
@@ -307,41 +318,42 @@ shift $n
 [ $net = 1 ] && export GIT_ALLOW_PROTOCOL=file
 exec "${gitPath}" "$@"
 `,
-      { mode: 0o755 },
-    );
-    const app = ensureAppHome(path.join(base, "deploy-app"));
-    const deployGit = new GitRunner({
-      gitPath: wrapper,
-      home: app.home,
-      emptyFile: app.emptyGitConfig,
-      hooksDir: app.emptyHooks,
-    });
-    const deployRunner = new BukitRunner({
-      bukitPath: REAL_BIN as string,
-      git: deployGit,
-      home: app.home,
-      tmpDir: app.bukitTmp,
-    });
-    const result = await deployRunner.run(
-      "deploy",
-      [
+        { mode: 0o755 },
+      );
+      const app = ensureAppHome(path.join(base, "deploy-app"));
+      const deployGit = new GitRunner({
+        gitPath: wrapper,
+        home: app.home,
+        emptyFile: app.emptyGitConfig,
+        hooksDir: app.emptyHooks,
+      });
+      const deployRunner = new BukitRunner({
+        bukitPath: REAL_BIN as string,
+        git: deployGit,
+        home: app.home,
+        tmpDir: app.bukitTmp,
+      });
+      const result = await deployRunner.run(
         "deploy",
-        "--config",
-        "site.yaml",
-        "--skip-build",
-        "--output",
-        "out",
-        "--repo",
-        "someone/someone.github.io",
-        "--branch",
-        "gh-pages",
-        "--token-env",
-        DEPLOY_TOKEN_ENV,
-      ],
-      { cwd: dir, deploy: { token: PLACEHOLDER, name: "Site Owner", email: "owner@example.com" } },
-    );
-    expect(result.exitCode, output(result)).toBe(0);
-    const files = rawGit(base, base, "--git-dir", bare, "ls-tree", "-r", "--name-only", "gh-pages").split("\n");
-    expect(files).toContain("index.html");
-  });
+        [
+          "deploy",
+          "--config",
+          "site.yaml",
+          "--skip-build",
+          "--output",
+          "out",
+          "--repo",
+          "someone/someone.github.io",
+          "--branch",
+          "gh-pages",
+          "--token-env",
+          DEPLOY_TOKEN_ENV,
+        ],
+        { cwd: dir, deploy: { token: PLACEHOLDER, name: "Site Owner", email: "owner@example.com" } },
+      );
+      expect(result.exitCode, output(result)).toBe(0);
+      const files = rawGit(base, base, "--git-dir", bare, "ls-tree", "-r", "--name-only", "gh-pages").split("\n");
+      expect(files).toContain("index.html");
+    },
+  );
 });

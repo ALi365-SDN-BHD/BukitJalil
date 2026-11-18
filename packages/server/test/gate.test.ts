@@ -20,6 +20,8 @@ let pi: PiModules;
 
 function systemRg(): string | null {
   try {
+    if (process.platform === "win32")
+      return execFileSync("where", ["rg"], { encoding: "utf8" }).split(/\r?\n/)[0]?.trim() || null;
     return execFileSync("/bin/sh", ["-c", "command -v rg"], { encoding: "utf8" }).trim() || null;
   } catch {
     return null;

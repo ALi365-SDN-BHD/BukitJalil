@@ -14,6 +14,7 @@ import {
 import { SecretBox, SecretBoxError } from "../src/secrets/box.ts";
 import { type SecretFileSpec, SecretStore } from "../src/secrets/store.ts";
 import { JsonFileError } from "../src/store/json-file.ts";
+import { expectMode } from "./helpers.ts";
 
 // Plan 6.7: tokens and model keys encrypted with the desktop app's keychain key.
 
@@ -55,7 +56,7 @@ describe("SecretStore", () => {
     expect(file.read()).toEqual({ a: "ntn_secret" });
     expect(fs.readFileSync(path.join(dir, "tokens.enc.json"), "utf8")).not.toContain("ntn_secret");
     expect(fs.existsSync(path.join(dir, "tokens.json"))).toBe(false);
-    expect(fs.statSync(path.join(dir, "tokens.enc.json")).mode & 0o777).toBe(0o600);
+    expectMode(path.join(dir, "tokens.enc.json"), 0o600);
   });
 
   it("refuses a file encrypted with another key or for another purpose", () => {

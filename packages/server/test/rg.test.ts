@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { RG_PACKAGES, RG_VERSION, type RgPackage, RgService, rgArchiveLayout } from "../src/agent/rg.ts";
-import { makeApp, req } from "./helpers.ts";
+import { expectMode, makeApp, req } from "./helpers.ts";
 import { tarEntry, tgz } from "./tar.ts";
 
 const base = fs.mkdtempSync(path.join(os.tmpdir(), "bj-rg-"));
@@ -83,7 +83,7 @@ describe.skipIf(!posix)("RgService", () => {
       `https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-test-target.tar.gz`,
     ]);
     const rgPath = path.join(piBin, "rg");
-    expect(fs.statSync(rgPath).mode & 0o777).toBe(0o755);
+    expectMode(rgPath, 0o755);
     // Only rg is installed; no staging files are left behind.
     expect(fs.readdirSync(piBin)).toEqual(["rg"]);
     expect(service.status().state).toBe("ok");

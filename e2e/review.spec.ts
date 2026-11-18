@@ -5,7 +5,14 @@ import path from "node:path";
 import type { Page } from "@playwright/test";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { importSite, putSettings, removeImportedSites, siteFolder, startConversationButton } from "./site-helpers.ts";
+import {
+  importSite,
+  noGitConfig,
+  putSettings,
+  removeImportedSites,
+  siteFolder,
+  startConversationButton,
+} from "./site-helpers.ts";
 
 // M4 acceptance (plan M4): conversation → review → change preview → apply → the main preview follows;
 // rejecting leaves the site folder alone; ignored local files survive an apply; restoring an old version
@@ -36,7 +43,7 @@ const git = (dir: string, ...args: string[]) =>
   execFileSync("git", args, {
     cwd: dir,
     encoding: "utf8",
-    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" },
+    env: { ...process.env, GIT_CONFIG_GLOBAL: noGitConfig(), GIT_CONFIG_NOSYSTEM: "1" },
   }).trim();
 
 /** Log in with the scripted model, the test Bukit and an identity; open a conversation on a fresh site. */

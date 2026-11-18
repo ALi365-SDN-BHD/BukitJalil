@@ -70,19 +70,22 @@ describe("starter values", () => {
 });
 
 describe("bukitNewSite", () => {
-  it("runs bukit new with the values as --opt=value, so a title starting with - stays a value", async () => {
-    const { service, argsFile } = fakeBukit("fake-ok");
-    const target = path.join(base, "created");
-    await bukitNewSite(service, runnerOpts())(target, { title: "  --language ", language: "zh-CN" });
-    expect(fs.readFileSync(argsFile, "utf8").split("\n").slice(0, -1)).toEqual([
-      "new",
-      target,
-      "--title=--language",
-      "--language=zh-CN",
-    ]);
-  });
+  it.skipIf(process.platform === "win32")(
+    "runs bukit new with the values as --opt=value, so a title starting with - stays a value",
+    async () => {
+      const { service, argsFile } = fakeBukit("fake-ok");
+      const target = path.join(base, "created");
+      await bukitNewSite(service, runnerOpts())(target, { title: "  --language ", language: "zh-CN" });
+      expect(fs.readFileSync(argsFile, "utf8").split("\n").slice(0, -1)).toEqual([
+        "new",
+        target,
+        "--title=--language",
+        "--language=zh-CN",
+      ]);
+    },
+  );
 
-  it("reports Bukit's own error, a missing Bukit and bad values", async () => {
+  it.skipIf(process.platform === "win32")("reports Bukit's own error, a missing Bukit and bad values", async () => {
     const failing = fakeBukit("fake-fail", true).service;
     await expect(
       bukitNewSite(failing, runnerOpts())(path.join(base, "failed"), { title: "x", language: "en" }),
@@ -142,21 +145,24 @@ describe("the bukit new stand-in (test/fixtures/starter)", () => {
     expect(await guardCommit(git, target, commit)).toEqual({ ok: true, reasons: [], usesNotion: false });
   });
 
-  it.skipIf(!REAL_BIN)("is what the bundled Bukit writes (regenerate it after raising BUKIT_VERSION)", async () => {
-    const service = new BukitService({ dir: path.dirname(REAL_BIN as string), tmpDir: app.bukitTmp });
-    const values = { title: ' Stand-in "site" ', language: "fr-CA" };
-    const real = path.join(base, "real-new");
-    const standIn = path.join(base, "stand-in-new");
-    await bukitNewSite(service, runnerOpts())(real, values);
-    writeStarter(standIn, values);
-    const files = listFiles(real).sort();
-    expect(listFiles(standIn).sort()).toEqual(files);
-    for (const f of files) {
-      expect(fs.readFileSync(path.join(standIn, f), "utf8"), f).toBe(fs.readFileSync(path.join(real, f), "utf8"));
-    }
-    // Bukit 2.2.6: no trailing document end marker, so settings appended to the file stay in its one document.
-    expect(fs.readFileSync(path.join(real, "site.yaml"), "utf8")).not.toMatch(/\n\.\.\.\n$/);
-  });
+  it.skipIf(!REAL_BIN || process.platform === "win32")(
+    "is what the bundled Bukit writes (regenerate it after raising BUKIT_VERSION)",
+    async () => {
+      const service = new BukitService({ dir: path.dirname(REAL_BIN as string), tmpDir: app.bukitTmp });
+      const values = { title: ' Stand-in "site" ', language: "fr-CA" };
+      const real = path.join(base, "real-new");
+      const standIn = path.join(base, "stand-in-new");
+      await bukitNewSite(service, runnerOpts())(real, values);
+      writeStarter(standIn, values);
+      const files = listFiles(real).sort();
+      expect(listFiles(standIn).sort()).toEqual(files);
+      for (const f of files) {
+        expect(fs.readFileSync(path.join(standIn, f), "utf8"), f).toBe(fs.readFileSync(path.join(real, f), "utf8"));
+      }
+      // Bukit 2.2.6: no trailing document end marker, so settings appended to the file stay in its one document.
+      expect(fs.readFileSync(path.join(real, "site.yaml"), "utf8")).not.toMatch(/\n\.\.\.\n$/);
+    },
+  );
 });
 
 describe.skipIf(!REAL_BIN)("a site from the real bukit new", () => {

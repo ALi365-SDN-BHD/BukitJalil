@@ -44,7 +44,8 @@ async function siteWithFiles(name: string) {
   fs.writeFileSync(path.join(dir, "static", "img", "big.png"), Buffer.concat([PNG, Buffer.alloc(2 * 1024 * 1024)]));
   fs.writeFileSync(path.join(dir, "static", "big.bin"), Buffer.alloc(2 * 1024 * 1024));
   fs.writeFileSync(path.join(dir, "static", "it's (1).txt"), "apostrophe\n");
-  fs.writeFileSync(path.join(dir, "static", '名字 "q".txt'), "unicode name\n");
+  // A double quote cannot be in a Windows file name.
+  if (process.platform !== "win32") fs.writeFileSync(path.join(dir, "static", '名字 "q".txt'), "unicode name\n");
   fs.writeFileSync(path.join(dir, "content", "posts", "broken.md"), "---\ntitle: [unclosed\n---\nbody\n");
   fs.symlinkSync("../site.yaml", path.join(dir, "static", "link"));
   raw(dir, "init", "-q", "-b", "main");
@@ -138,7 +139,7 @@ describe("file panel (plan 5.3, 9.1)", () => {
     expect((await s.get(s.api("/file?path=static/link&as=raw"))).body).toEqual({ code: "panel.not_file" });
   });
 
-  it("downloads any file as an attachment", async () => {
+  it.skipIf(process.platform === "win32")("downloads any file as an attachment", async () => {
     const svg = await s.get<Buffer>(s.api("/file?path=static/img/logo.svg&as=download"));
     expect(svg.headers.get("content-type")).toBe("application/octet-stream");
     expect(svg.headers.get("content-disposition")).toBe(`attachment; filename="logo.svg"; filename*=UTF-8''logo.svg`);

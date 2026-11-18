@@ -6,6 +6,17 @@ import type { Page } from "@playwright/test";
 import { writeStarter } from "../packages/server/test/fixtures/starter.ts";
 
 let work: string | null = null;
+let emptyGitConfig: string | null = null;
+
+/** GIT_CONFIG_GLOBAL for fixtures: an empty file, because Git for Windows rejects `os.devNull` (`\\.\nul`). */
+export function noGitConfig(): string {
+  if (process.platform !== "win32") return os.devNull;
+  if (!emptyGitConfig) {
+    emptyGitConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bj-e2e-gitcfg-")), "empty");
+    fs.writeFileSync(emptyGitConfig, "");
+  }
+  return emptyGitConfig;
+}
 let counter = 0;
 const folders = new Map<string, string>();
 
@@ -45,7 +56,7 @@ export async function importSite(
     execFileSync("git", ["-c", "user.name=E2E", "-c", "user.email=e2e@example.com", ...args], {
       cwd: dir,
       stdio: "pipe",
-      env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" },
+      env: { ...process.env, GIT_CONFIG_GLOBAL: noGitConfig(), GIT_CONFIG_NOSYSTEM: "1" },
     });
   git("init", "-q", "-b", "main");
   git("add", "-A");

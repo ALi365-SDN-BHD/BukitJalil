@@ -4,7 +4,7 @@ import path from "node:path";
 import type { NotionDatabasesResponse, NotionSourceSchema, SavedDataSource } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { ADMIN, commitAllAs, makeApp, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, expectMode, makeApp, req } from "./helpers.ts";
 
 // Saved Notion sources (plan 6.5): Markdown is the built-in default, so only Notion tokens are
 // stored here. Nothing calls the real Notion API in these tests.
@@ -113,7 +113,7 @@ describe("/api/data-sources", () => {
     const created = (await (
       await call(ctx, "POST", "/api/data-sources", notion("Work Notion"))
     ).json()) as SavedDataSource;
-    expect(fs.statSync(ctx.paths.dataSourceTokens).mode & 0o777).toBe(0o600);
+    expectMode(ctx.paths.dataSourceTokens, 0o600);
 
     const databases = (await (
       await call(ctx, "GET", `/api/data-sources/${created.id}/notion/databases`)

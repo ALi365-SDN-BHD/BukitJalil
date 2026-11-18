@@ -117,7 +117,7 @@ describe("readAudit", () => {
     expect(readAudit(path.join(base, "missing"))).toBeNull();
   });
 
-  it("does not follow a link in place of a report", () => {
+  it.skipIf(process.platform === "win32")("does not follow a link in place of a report", () => {
     const target = path.join(base, "elsewhere.json");
     fs.writeFileSync(target, JSON.stringify({ geoScore: 99 }));
     const dir = out("linked", {});
@@ -252,7 +252,7 @@ describe("readIssues (plan 10.4)", () => {
     expect(r?.issues[3]?.message).toHaveLength(300);
   });
 
-  it("caps the list and refuses odd reports", () => {
+  it.skipIf(process.platform === "win32")("caps the list and refuses odd reports", () => {
     const many = Array.from({ length: AUDIT_MAX_ISSUES + 2 }, (_, i) => issue("k", `/p${i}/`));
     const r = readIssues(out("many", { siteUrl: "https://x.test", issues: many }));
     expect(r?.issues).toHaveLength(AUDIT_MAX_ISSUES);

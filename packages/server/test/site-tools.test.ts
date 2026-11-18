@@ -180,77 +180,89 @@ describe("snapshot", () => {
 });
 
 describe("bukit_check and bukit_build", () => {
-  it("checks the snapshot in the AI checkout: config check, then doctor", async () => {
-    const { tools, cwd, git } = await setup();
-    fs.writeFileSync(path.join(cwd, "content/pages/new.md"), "---\ntitle: New\n---\n");
-    const r = await call(tools.bukit_check);
-    expect(r.value).toMatchObject({
-      passed: true,
-      steps: [
-        { command: "config check", passed: true, exitCode: 0 },
-        { command: "doctor", passed: true, exitCode: 0 },
-      ],
-    });
-    expect(bukitCalls()).toEqual([`${cwd} config check --config site.yaml`, `${cwd} doctor --config site.yaml`]);
-    expect(git("status", "--porcelain")).toBe("");
+  it.skipIf(process.platform === "win32")(
+    "checks the snapshot in the AI checkout: config check, then doctor",
+    async () => {
+      const { tools, cwd, git } = await setup();
+      fs.writeFileSync(path.join(cwd, "content/pages/new.md"), "---\ntitle: New\n---\n");
+      const r = await call(tools.bukit_check);
+      expect(r.value).toMatchObject({
+        passed: true,
+        steps: [
+          { command: "config check", passed: true, exitCode: 0 },
+          { command: "doctor", passed: true, exitCode: 0 },
+        ],
+      });
+      expect(bukitCalls()).toEqual([`${cwd} config check --config site.yaml`, `${cwd} doctor --config site.yaml`]);
+      expect(git("status", "--porcelain")).toBe("");
 
-    fs.writeFileSync(path.join(cwd, "fake-doctor"), "");
-    const failed = await call(tools.bukit_check);
-    expect(failed.value).toMatchObject({ passed: false, steps: [{ passed: true }, { passed: false, exitCode: 1 }] });
-    expect(failed.text).toContain("template missing");
-  });
+      fs.writeFileSync(path.join(cwd, "fake-doctor"), "");
+      const failed = await call(tools.bukit_check);
+      expect(failed.value).toMatchObject({ passed: false, steps: [{ passed: true }, { passed: false, exitCode: 1 }] });
+      expect(failed.text).toContain("template missing");
+    },
+  );
 
-  it("builds into a temporary folder, counts pages and removes the output", async () => {
-    const { tools, cwd } = await setup();
-    const r = await call(tools.bukit_build);
-    expect(r.value).toMatchObject({
-      succeeded: true,
-      pages: 2,
-      messages: [{ level: "warn", msg: "event=theme.warning x=1" }],
-    });
-    const [line] = bukitCalls();
-    expect(line).toMatch(
-      new RegExp(
-        `^${cwd} build --config site.yaml --output \\.bukitjalil-build/ai-[0-9a-f]{12} --base-url / --no-clean --log-format json$`,
-      ),
-    );
-    expect(fs.readdirSync(path.join(cwd, ".bukitjalil-build"))).toEqual([]);
+  it.skipIf(process.platform === "win32")(
+    "builds into a temporary folder, counts pages and removes the output",
+    async () => {
+      const { tools, cwd } = await setup();
+      const r = await call(tools.bukit_build);
+      expect(r.value).toMatchObject({
+        succeeded: true,
+        pages: 2,
+        messages: [{ level: "warn", msg: "event=theme.warning x=1" }],
+      });
+      const [line] = bukitCalls();
+      expect(line).toMatch(
+        new RegExp(
+          `^${cwd} build --config site.yaml --output \\.bukitjalil-build/ai-[0-9a-f]{12} --base-url / --no-clean --log-format json$`,
+        ),
+      );
+      expect(fs.readdirSync(path.join(cwd, ".bukitjalil-build"))).toEqual([]);
 
-    fs.writeFileSync(path.join(cwd, "fake-build"), "fail");
-    const failed = await call(tools.bukit_build);
-    expect(failed.value).toMatchObject({ succeeded: false, pages: 0, messages: [{ level: "error" }] });
-    expect(failed.text).toContain("configuration or content error");
-  });
+      fs.writeFileSync(path.join(cwd, "fake-build"), "fail");
+      const failed = await call(tools.bukit_build);
+      expect(failed.value).toMatchObject({ succeeded: false, pages: 0, messages: [{ level: "error" }] });
+      expect(failed.text).toContain("configuration or content error");
+    },
+  );
 
-  it("builds under the site's own baseUrl, and does not run Bukit for one a preview cannot use", async () => {
-    const { tools, cwd } = await setup();
-    const yaml = path.join(cwd, "site.yaml");
-    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /docs/v2"));
-    expect((await call(tools.bukit_build)).value).toMatchObject({ succeeded: true });
-    expect(bukitCalls()[0]).toContain(" --base-url /docs/v2/ ");
+  it.skipIf(process.platform === "win32")(
+    "builds under the site's own baseUrl, and does not run Bukit for one a preview cannot use",
+    async () => {
+      const { tools, cwd } = await setup();
+      const yaml = path.join(cwd, "site.yaml");
+      fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /docs/v2"));
+      expect((await call(tools.bukit_build)).value).toMatchObject({ succeeded: true });
+      expect(bukitCalls()[0]).toContain(" --base-url /docs/v2/ ");
 
-    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /docs/v2", "baseUrl: /a b/"));
-    const before = bukitCalls().length;
-    const bad = await call(tools.bukit_build);
-    expect(bad.value).toMatchObject({ succeeded: false, pages: 0, messages: [{ level: "error" }] });
-    expect(bad.text).toContain("site.baseUrl");
-    expect(bukitCalls()).toHaveLength(before);
-  });
+      fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /docs/v2", "baseUrl: /a b/"));
+      const before = bukitCalls().length;
+      const bad = await call(tools.bukit_build);
+      expect(bad.value).toMatchObject({ succeeded: false, pages: 0, messages: [{ level: "error" }] });
+      expect(bad.text).toContain("site.baseUrl");
+      expect(bukitCalls()).toHaveLength(before);
+    },
+  );
 
-  it("does not run Bukit when the pre-build guard refuses the snapshot", async () => {
-    const { tools, cwd } = await setup();
-    const yaml = path.join(cwd, "site.yaml");
-    fs.writeFileSync(
-      yaml,
-      fs.readFileSync(yaml, "utf8").replace("build:\n  output: dist", "build:\n  output: ../outside"),
-    );
-    await expect(call(tools.bukit_build)).rejects.toMatchObject({
-      code: "guard",
-      message: expect.stringContaining("build.output"),
-    });
-    await expect(call(tools.bukit_check)).rejects.toThrow(AiBukitError);
-    expect(bukitCalls()).toEqual([]);
-  });
+  it.skipIf(process.platform === "win32")(
+    "does not run Bukit when the pre-build guard refuses the snapshot",
+    async () => {
+      const { tools, cwd } = await setup();
+      const yaml = path.join(cwd, "site.yaml");
+      fs.writeFileSync(
+        yaml,
+        fs.readFileSync(yaml, "utf8").replace("build:\n  output: dist", "build:\n  output: ../outside"),
+      );
+      await expect(call(tools.bukit_build)).rejects.toMatchObject({
+        code: "guard",
+        message: expect.stringContaining("build.output"),
+      });
+      await expect(call(tools.bukit_check)).rejects.toThrow(AiBukitError);
+      expect(bukitCalls()).toEqual([]);
+    },
+  );
 
   const addNotionSource = (cwd: string) => {
     const yaml = path.join(cwd, "site.yaml");
@@ -265,57 +277,63 @@ describe("bukit_check and bukit_build", () => {
     );
   };
 
-  it("refuses a Notion site with no offline snapshot: unreviewed changes never get its token", async () => {
-    const { tools, cwd } = await setup();
-    addNotionSource(cwd);
-    await expect(call(tools.bukit_check)).rejects.toMatchObject({
-      code: "notion",
-      message: expect.stringContaining("build the site once"),
-    });
-    expect(bukitCalls()).toEqual([]);
-  });
+  it.skipIf(process.platform === "win32")(
+    "refuses a Notion site with no offline snapshot: unreviewed changes never get its token",
+    async () => {
+      const { tools, cwd } = await setup();
+      addNotionSource(cwd);
+      await expect(call(tools.bukit_check)).rejects.toMatchObject({
+        code: "notion",
+        message: expect.stringContaining("build the site once"),
+      });
+      expect(bukitCalls()).toEqual([]);
+    },
+  );
 
-  it("checks and builds a Notion site offline from its snapshot, with no token (plan 5.5)", async () => {
-    const { ctx, site, tools, cwd, ai, git } = await setup();
-    // As a formal build leaves it: Bukit's snapshot, then the record and the copied media cache.
-    const snapshots = ctx.sites.notionSnapshots;
-    const [, dir] = snapshots.recordArgs(site.id) as [string, string];
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "manifest.json"), '{"format":1}');
-    snapshots.recorded(site.id, git("rev-parse", "HEAD"), cwd);
-    const root = path.join(ctx.paths.notionSnapshots, site.id);
-    addNotionSource(cwd);
+  it.skipIf(process.platform === "win32")(
+    "checks and builds a Notion site offline from its snapshot, with no token (plan 5.5)",
+    async () => {
+      const { ctx, site, tools, cwd, ai, git } = await setup();
+      // As a formal build leaves it: Bukit's snapshot, then the record and the copied media cache.
+      const snapshots = ctx.sites.notionSnapshots;
+      const [, dir] = snapshots.recordArgs(site.id) as [string, string];
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "manifest.json"), '{"format":1}');
+      snapshots.recorded(site.id, git("rev-parse", "HEAD"), cwd);
+      const root = path.join(ctx.paths.notionSnapshots, site.id);
+      addNotionSource(cwd);
 
-    const checked = await call(tools.bukit_check);
-    expect(checked.value).toMatchObject({ passed: true });
-    expect(checked.value?.notionData).toContain(`commit ${git("rev-parse", "HEAD~1").slice(0, 7)}`);
-    const offline = `--notion-snapshot ${path.join(root, "snapshot")} --notion-offline --notion-pin ${path.join(root, "pin.json")}`;
-    expect(bukitCalls()).toEqual([
-      `${cwd} config check --config site.yaml ${offline}`,
-      `${cwd} doctor --config site.yaml ${offline}`,
-    ]);
-    fs.rmSync(calls);
-    const built = await call(tools.bukit_build);
-    expect(built.value).toMatchObject({ succeeded: true });
-    expect(built.value?.notionData).toContain("nothing is fetched");
-    expect(bukitCalls()[0]).toContain(`${offline} --cache-dir ${path.join(root, "cache")}`);
-    expect(bukitCalls()[0]).not.toContain("--secrets-stdin");
+      const checked = await call(tools.bukit_check);
+      expect(checked.value).toMatchObject({ passed: true });
+      expect(checked.value?.notionData).toContain(`commit ${git("rev-parse", "HEAD~1").slice(0, 7)}`);
+      const offline = `--notion-snapshot ${path.join(root, "snapshot")} --notion-offline --notion-pin ${path.join(root, "pin.json")}`;
+      expect(bukitCalls()).toEqual([
+        `${cwd} config check --config site.yaml ${offline}`,
+        `${cwd} doctor --config site.yaml ${offline}`,
+      ]);
+      fs.rmSync(calls);
+      const built = await call(tools.bukit_build);
+      expect(built.value).toMatchObject({ succeeded: true });
+      expect(built.value?.notionData).toContain("nothing is fetched");
+      expect(bukitCalls()[0]).toContain(`${offline} --cache-dir ${path.join(root, "cache")}`);
+      expect(bukitCalls()[0]).not.toContain("--secrets-stdin");
 
-    // A database the snapshot lacks: the AI is told what it means, and never sees the snapshot's path.
-    fs.writeFileSync(path.join(cwd, "fake-newdb"), "");
-    const failed = await call(tools.bukit_check);
-    expect(failed.value).toMatchObject({ passed: false });
-    expect(failed.value?.notionData).toContain("applies it and builds the site");
-    expect(failed.text).not.toContain(ctx.paths.notionSnapshots);
-    expect(failed.text).toContain("[notion-snapshot]");
-    // Before applying, that leaves the change unchecked rather than failed.
-    expect(await ai.checkForApply(site.id, cwd)).toMatchObject({ passed: false, problemCode: "notion" });
-    // Unless another step failed for a real reason: that is a failed check.
-    fs.writeFileSync(path.join(cwd, "fake-doctor"), "");
-    expect(await ai.checkForApply(site.id, cwd)).toMatchObject({ passed: false, problemCode: null });
-  });
+      // A database the snapshot lacks: the AI is told what it means, and never sees the snapshot's path.
+      fs.writeFileSync(path.join(cwd, "fake-newdb"), "");
+      const failed = await call(tools.bukit_check);
+      expect(failed.value).toMatchObject({ passed: false });
+      expect(failed.value?.notionData).toContain("applies it and builds the site");
+      expect(failed.text).not.toContain(ctx.paths.notionSnapshots);
+      expect(failed.text).toContain("[notion-snapshot]");
+      // Before applying, that leaves the change unchecked rather than failed.
+      expect(await ai.checkForApply(site.id, cwd)).toMatchObject({ passed: false, problemCode: "notion" });
+      // Unless another step failed for a real reason: that is a failed check.
+      fs.writeFileSync(path.join(cwd, "fake-doctor"), "");
+      expect(await ai.checkForApply(site.id, cwd)).toMatchObject({ passed: false, problemCode: null });
+    },
+  );
 
-  it("tells the AI which ignored files it deleted", async () => {
+  it.skipIf(process.platform === "win32")("tells the AI which ignored files it deleted", async () => {
     const { tools, cwd } = await setup();
     fs.appendFileSync(path.join(cwd, ".gitignore"), "\ndrafts/\n");
     fs.mkdirSync(path.join(cwd, "drafts"));
@@ -325,43 +343,49 @@ describe("bukit_check and bukit_build", () => {
     expect(r.value).not.toHaveProperty("commit");
   });
 
-  it("stops Bukit when the tool call is aborted; settled() waits until it has", async () => {
-    const { tools, cwd, ai, site } = await setup();
-    fs.writeFileSync(path.join(cwd, "fake-build"), "slow");
-    const abort = new AbortController();
-    const running = tools.bukit_build.execute("id", {} as never, abort.signal, undefined, undefined as never);
-    await waitFor(() => bukitCalls().some((l) => l.includes(" build ")));
-    // What a run waits for before it lets go of the site lock.
-    let settled = false;
-    const waiting = ai.settled(site.id).then(() => {
-      settled = true;
-    });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(settled).toBe(false);
-    abort.abort();
-    const result = await running;
-    expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({
-      succeeded: false,
-      result: "The build was stopped.",
-    });
-    await waiting;
-    expect(settled).toBe(true);
-    await expect(ai.settled(site.id)).resolves.toBeUndefined();
-  });
-
-  it("lets the site be removed during an AI build: removal stops the run first", async () => {
-    const { tools, cwd, ctx, site } = await setup();
-    fs.writeFileSync(path.join(cwd, "fake-build"), "slow");
-    const abort = new AbortController();
-    const running = tools.bukit_build.execute("id", {} as never, abort.signal, undefined, undefined as never);
-    await waitFor(() => bukitCalls().some((l) => l.includes(" build ")));
-    // What the agent service does for a removed site: stop its runs and wait for them.
-    ctx.sites.onRemoving(async () => {
+  it.skipIf(process.platform === "win32")(
+    "stops Bukit when the tool call is aborted; settled() waits until it has",
+    async () => {
+      const { tools, cwd, ai, site } = await setup();
+      fs.writeFileSync(path.join(cwd, "fake-build"), "slow");
+      const abort = new AbortController();
+      const running = tools.bukit_build.execute("id", {} as never, abort.signal, undefined, undefined as never);
+      await waitFor(() => bukitCalls().some((l) => l.includes(" build ")));
+      // What a run waits for before it lets go of the site lock.
+      let settled = false;
+      const waiting = ai.settled(site.id).then(() => {
+        settled = true;
+      });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(settled).toBe(false);
       abort.abort();
-      await running.catch(() => {});
-    });
-    await expect(ctx.sites.remove(site.id)).resolves.toMatchObject({ leftovers: [] });
-  });
+      const result = await running;
+      expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({
+        succeeded: false,
+        result: "The build was stopped.",
+      });
+      await waiting;
+      expect(settled).toBe(true);
+      await expect(ai.settled(site.id)).resolves.toBeUndefined();
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "lets the site be removed during an AI build: removal stops the run first",
+    async () => {
+      const { tools, cwd, ctx, site } = await setup();
+      fs.writeFileSync(path.join(cwd, "fake-build"), "slow");
+      const abort = new AbortController();
+      const running = tools.bukit_build.execute("id", {} as never, abort.signal, undefined, undefined as never);
+      await waitFor(() => bukitCalls().some((l) => l.includes(" build ")));
+      // What the agent service does for a removed site: stop its runs and wait for them.
+      ctx.sites.onRemoving(async () => {
+        abort.abort();
+        await running.catch(() => {});
+      });
+      await expect(ctx.sites.remove(site.id)).resolves.toMatchObject({ leftovers: [] });
+    },
+  );
 
   it("says so when Bukit is missing", async () => {
     const { tools } = await setup({ bin: null });
@@ -370,7 +394,7 @@ describe("bukit_check and bukit_build", () => {
 });
 
 describe("bukit_schema", () => {
-  it("returns the schema or one section, asking Bukit once", async () => {
+  it.skipIf(process.platform === "win32")("returns the schema or one section, asking Bukit once", async () => {
     const { tools } = await setup();
     const all = await call(tools.bukit_schema);
     expect(all.value).toMatchObject({ properties: { site: {}, theme: {} } });
@@ -382,18 +406,21 @@ describe("bukit_schema", () => {
     expect(bukitCalls().filter((l) => l.includes("config schema"))).toHaveLength(1);
   });
 
-  it("asks again when Bukit at the same path reports another version", async () => {
-    const { tools, ctx } = await setup();
-    await call(tools.bukit_schema);
-    fs.writeFileSync(versionFile, "bukit 2.2.7+fake\n");
-    try {
-      ctx.bukit.invalidate();
+  it.skipIf(process.platform === "win32")(
+    "asks again when Bukit at the same path reports another version",
+    async () => {
+      const { tools, ctx } = await setup();
       await call(tools.bukit_schema);
-    } finally {
-      fs.rmSync(versionFile);
-    }
-    expect(bukitCalls().filter((l) => l.includes("config schema"))).toHaveLength(2);
-  });
+      fs.writeFileSync(versionFile, "bukit 2.2.7+fake\n");
+      try {
+        ctx.bukit.invalidate();
+        await call(tools.bukit_schema);
+      } finally {
+        fs.rmSync(versionFile);
+      }
+      expect(bukitCalls().filter((l) => l.includes("config schema"))).toHaveLength(2);
+    },
+  );
 
   it("cuts a large schema and names its sections", () => {
     const big = { properties: { a: { description: "x".repeat(70_000) }, b: {} } };
@@ -495,19 +522,23 @@ describe("site_info, list_content, summarize_changes", () => {
 
 const REAL_BIN = process.env.BUKIT_BIN;
 describe.skipIf(!REAL_BIN)("real Bukit", () => {
-  it("checks and builds the starter site in the AI checkout", async () => {
-    const { tools, cwd } = await setup({ bin: REAL_BIN as string });
-    fs.writeFileSync(
-      path.join(cwd, "content/pages/faq.md"),
-      "---\ncollection: page\ntitle: FAQ\nslug: faq\n---\n\n# FAQ\n",
-    );
-    expect((await call(tools.bukit_check)).value).toMatchObject({ passed: true });
-    const build = await call(tools.bukit_build);
-    expect(build.value, build.text).toMatchObject({ succeeded: true });
-    expect(build.value?.pages).toBeGreaterThan(3);
-    // The SEO / GEO summary from Bukit's reports (M4 layer 7).
-    expect(build.value?.seoGeo).toMatch(/^SEO: \d+ pages, 0 errors/);
-    expect(build.value?.seoGeo).toContain("site.url is not set");
-    expect(build.value?.seoGeo).toMatch(/GEO: score \d+\/100/);
-  }, 120_000);
+  it.skipIf(process.platform === "win32")(
+    "checks and builds the starter site in the AI checkout",
+    async () => {
+      const { tools, cwd } = await setup({ bin: REAL_BIN as string });
+      fs.writeFileSync(
+        path.join(cwd, "content/pages/faq.md"),
+        "---\ncollection: page\ntitle: FAQ\nslug: faq\n---\n\n# FAQ\n",
+      );
+      expect((await call(tools.bukit_check)).value).toMatchObject({ passed: true });
+      const build = await call(tools.bukit_build);
+      expect(build.value, build.text).toMatchObject({ succeeded: true });
+      expect(build.value?.pages).toBeGreaterThan(3);
+      // The SEO / GEO summary from Bukit's reports (M4 layer 7).
+      expect(build.value?.seoGeo).toMatch(/^SEO: \d+ pages, 0 errors/);
+      expect(build.value?.seoGeo).toContain("site.url is not set");
+      expect(build.value?.seoGeo).toMatch(/GEO: score \d+\/100/);
+    },
+    120_000,
+  );
 });

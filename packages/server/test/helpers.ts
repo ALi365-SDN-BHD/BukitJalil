@@ -3,6 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { expect } from "vitest";
 import { AiBukit } from "../src/agent/ai-bukit.ts";
 import { CustomModelStore } from "../src/agent/custom-models.ts";
 import { RgService } from "../src/agent/rg.ts";
@@ -268,11 +269,28 @@ export const jsonPut = (body: unknown, extra: Record<string, string> = {}) => ({
   headers: { "content-type": "application/json", "x-bukitjalil": "1", origin: ADMIN, ...extra },
 });
 
+/** Windows keeps no Unix permission bits (files report 0o666), so mode assertions only apply elsewhere. */
+export function expectMode(file: string, expected: number): void {
+  if (process.platform === "win32") return;
+  expect(fs.statSync(file).mode & 0o777).toBe(expected);
+}
+
+/** An empty file for GIT_CONFIG_GLOBAL: Git for Windows rejects `os.devNull` (`\\.\nul`) there. */
+let emptyGitConfig: string | undefined;
+export function noGitConfig(): string {
+  if (process.platform !== "win32") return os.devNull;
+  if (!emptyGitConfig) {
+    emptyGitConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bj-gitcfg-")), "empty");
+    fs.writeFileSync(emptyGitConfig, "");
+  }
+  return emptyGitConfig;
+}
+
 /** The system git with a fixed, minimal environment, for test fixtures (never the code under test). */
 export function rawGit(home: string, cwd: string, ...args: string[]): string {
   return execFileSync(resolveGitPath() as string, args, {
     cwd,
-    env: { PATH: "/usr/bin:/bin", HOME: home, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
+    env: { PATH: "/usr/bin:/bin", HOME: home, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: noGitConfig() },
     encoding: "utf8",
   });
 }

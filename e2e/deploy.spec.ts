@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fakeBukit } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { importSite, putSettings, removeImportedSites, siteFolder } from "./site-helpers.ts";
+import { importSite, noGitConfig, putSettings, removeImportedSites, siteFolder } from "./site-helpers.ts";
 
 // M6 (plan 14): the Publish section reads the target from site.yaml, the saved publishing account is picked
 // in the deploy settings, and publishing asks for confirmation before running its steps and keeping a record.
@@ -32,7 +32,7 @@ test.afterAll(async ({ browser, server }) => {
 const git = (dir: string, ...args: string[]) =>
   execFileSync("git", ["-c", "user.name=E2E", "-c", "user.email=e2e@example.com", ...args], {
     cwd: dir,
-    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" },
+    env: { ...process.env, GIT_CONFIG_GLOBAL: noGitConfig(), GIT_CONFIG_NOSYSTEM: "1" },
   });
 
 test("the deploy settings save the account and repository, then publishing uses them", async ({ page, server }) => {

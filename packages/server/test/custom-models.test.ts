@@ -4,7 +4,7 @@ import path from "node:path";
 import type { CustomModelProvider, CustomModelsResponse, ModelsResponse } from "@bukitjalil/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
-import { ADMIN, makeApp, req } from "./helpers.ts";
+import { ADMIN, expectMode, makeApp, req } from "./helpers.ts";
 
 // Local and self-hosted OpenAI-compatible models (Ollama, LM Studio, vLLM, llama.cpp). Nothing connects
 // to a local server here; the tests check the stored config and Pi's registered catalog.
@@ -53,7 +53,7 @@ describe("/api/custom-models", () => {
       model: { id: "llama3.1:8b", name: "Llama Local", contextWindow: 32_768, maxTokens: 4_096 },
     });
     expect(created.id).toMatch(/^local-ollama-llama3-1-8b/);
-    expect(fs.statSync(path.join(ctx.paths.pi, "custom-models.json")).mode & 0o777).toBe(0o600);
+    expectMode(path.join(ctx.paths.pi, "custom-models.json"), 0o600);
 
     const list = (await (await call(ctx, "GET", "/api/custom-models")).json()) as CustomModelsResponse;
     expect(list).toHaveLength(1);
