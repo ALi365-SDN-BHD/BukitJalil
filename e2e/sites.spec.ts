@@ -316,6 +316,7 @@ test("a site can be archived, restored and removed", async ({ page, server }) =>
 });
 
 test("settings show Bukit and the identity; the new-site dialog starts empty each time", async ({ page, server }) => {
+  test.skip(process.platform === "win32", "the stand-in Bukit is a shell script");
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();
@@ -548,6 +549,7 @@ test("the settings search filters the sections", async ({ page, server }) => {
 });
 
 test("reopening settings looks at the bundled Bukit again", async ({ page, server }) => {
+  test.skip(process.platform === "win32", "the stand-in Bukit is a shell script");
   await login(page, server);
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav-environment").click();

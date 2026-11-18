@@ -247,7 +247,7 @@ describe("hardened git runner (plan 7.3)", () => {
     // Asked for explicitly, discovery still finds it (import tells "inside a repository" apart).
     const top = await git.text(["rev-parse", "--show-toplevel"], { cwd: inner, repoCheck: false, discover: true });
     expect(path.normalize(top.trim())).toBe(outer);
-    expect((await git.text(["rev-parse", "--show-toplevel"], { cwd: outer })).trim()).toBe(outer);
+    expect(path.normalize((await git.text(["rev-parse", "--show-toplevel"], { cwd: outer })).trim())).toBe(outer);
   });
 
   it("clears an index lock left by a killed git command", async () => {

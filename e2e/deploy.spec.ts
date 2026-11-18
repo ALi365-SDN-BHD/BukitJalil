@@ -36,6 +36,7 @@ const git = (dir: string, ...args: string[]) =>
   });
 
 test("the deploy settings save the account and repository, then publishing uses them", async ({ page, server }) => {
+  test.skip(process.platform === "win32", "the stand-in Bukit is a shell script");
   await page.goto(await server.loginUrl());
   server.setBukit(bukitBin);
   await page.evaluate(() => fetch("/api/bukit?refresh=1"));
