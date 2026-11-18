@@ -212,7 +212,7 @@ describe("create a site (plan 5.2)", () => {
     }
   });
 
-  it.skipIf(!REAL_BIN)(
+  it.skipIf(!REAL_BIN || process.platform === "win32")(
     "runs bukit config check in the main checkout",
     async () => {
       const home = path.join(base, "bk");

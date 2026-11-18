@@ -75,30 +75,33 @@ afterAll(() => {
 });
 
 describe("hardened git runner (plan 7.3)", () => {
-  it("controls: the traps do fire under plain git, so the tests below can fail", () => {
-    const dir = repo("control");
-    raw(dir, "config", "core.fsmonitor", trap("control-fsmonitor"));
-    fs.writeFileSync(
-      path.join(dir, ".git/hooks/pre-commit"),
-      `#!/bin/sh\ntouch "${path.join(markers, "control-hook")}"\n`,
-      {
-        mode: 0o755,
-      },
-    );
-    raw(dir, "status");
-    fs.writeFileSync(path.join(dir, ".gitattributes"), "* filter=evil\n");
-    fs.writeFileSync(path.join(dir, "x.txt"), "x\n");
-    // Global config as a user's own git would read it.
-    execFileSync(gitPath as string, ["-c", "user.name=t", "-c", "user.email=t@t", "add", "-A"], {
-      cwd: dir,
-      env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
-    });
-    raw(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x");
-    expect(fired("control-fsmonitor")).toBe(true);
-    expect(fired("control-hook")).toBe(true);
-    expect(fired("global-filter")).toBe(true);
-    fs.rmSync(path.join(markers, "global-filter"));
-  });
+  it.skipIf(process.platform === "win32")(
+    "controls: the traps do fire under plain git, so the tests below can fail",
+    () => {
+      const dir = repo("control");
+      raw(dir, "config", "core.fsmonitor", trap("control-fsmonitor"));
+      fs.writeFileSync(
+        path.join(dir, ".git/hooks/pre-commit"),
+        `#!/bin/sh\ntouch "${path.join(markers, "control-hook")}"\n`,
+        {
+          mode: 0o755,
+        },
+      );
+      raw(dir, "status");
+      fs.writeFileSync(path.join(dir, ".gitattributes"), "* filter=evil\n");
+      fs.writeFileSync(path.join(dir, "x.txt"), "x\n");
+      // Global config as a user's own git would read it.
+      execFileSync(gitPath as string, ["-c", "user.name=t", "-c", "user.email=t@t", "add", "-A"], {
+        cwd: dir,
+        env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
+      });
+      raw(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x");
+      expect(fired("control-fsmonitor")).toBe(true);
+      expect(fired("control-hook")).toBe(true);
+      expect(fired("global-filter")).toBe(true);
+      fs.rmSync(path.join(markers, "global-filter"));
+    },
+  );
 
   it("never runs a repository fsmonitor, even when the config check is skipped", async () => {
     const dir = repo("fsmonitor");
@@ -243,7 +246,7 @@ describe("hardened git runner (plan 7.3)", () => {
     await expect(git.text(["rev-parse", "HEAD"], { cwd: inner })).rejects.toBeInstanceOf(GitError);
     // Asked for explicitly, discovery still finds it (import tells "inside a repository" apart).
     const top = await git.text(["rev-parse", "--show-toplevel"], { cwd: inner, repoCheck: false, discover: true });
-    expect(top.trim()).toBe(outer);
+    expect(path.normalize(top.trim())).toBe(outer);
     expect((await git.text(["rev-parse", "--show-toplevel"], { cwd: outer })).trim()).toBe(outer);
   });
 

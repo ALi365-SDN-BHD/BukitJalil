@@ -248,7 +248,9 @@ describe("AgentService", () => {
     const system = systemOf(seen);
     expect(system.preamble).toContain("BukitJalil site assistant");
     expect(system.preamble).toContain(`"Site ${siteCount}"`);
-    expect(system.cwd).toContain(path.join(ctx.paths.worktrees, s.id, "ai"));
+    expect(system.cwd.replaceAll("\\", "/")).toContain(
+      path.join(ctx.paths.worktrees, s.id, "ai").replaceAll("\\", "/"),
+    );
     expect(system.preamble).toContain("bukit_check");
     expect(system.skills).toContain(path.join(fs.realpathSync(SKILLS), "bukitjalil", "site-editing", "SKILL.md"));
     expect(JSON.stringify(seen)).toContain("Hi");

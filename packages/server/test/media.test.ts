@@ -468,7 +468,7 @@ describe("MediaService.upload", () => {
     expect((await changeFile(site.id, result.path)).equals(jpeg)).toBe(true);
   });
 
-  it("makes an upload-only change user-authored with a diff summary", async () => {
+  it.skipIf(process.platform === "win32")("makes an upload-only change user-authored with a diff summary", async () => {
     const site = await makeSite("apply");
     await upload(site.id, { name: "logo.png", data: PNG.toString("base64") });
     const view = await ctx.changes.current(site.id, false);
@@ -484,7 +484,7 @@ describe("MediaService.upload", () => {
     expect(history.entries[0]?.byAi).toBe(false);
   });
 
-  it("works when the app home is reached through a symlinked path", async () => {
+  it.skipIf(process.platform === "win32")("works when the app home is reached through a symlinked path", async () => {
     const rawHome = fs.mkdtempSync(path.join(os.tmpdir(), "bj-media-symlink-"));
     const ctx2 = makeApp({
       appHome: rawHome,

@@ -1,5 +1,15 @@
+import fs from "node:fs";
+import os from "node:os";
 import { defineConfig, devices } from "@playwright/test";
 import { ADMIN } from "./e2e/ports.ts";
+
+// On Windows os.tmpdir() can be an 8.3 short path (C:\Users\RUNNER~1\...) while the app reports the long one, so
+// expected paths would differ in spelling only. The workers inherit this environment.
+if (process.platform === "win32") {
+  const real = fs.realpathSync.native(os.tmpdir());
+  process.env.TEMP = real;
+  process.env.TMP = real;
+}
 
 // End-to-end tests against the real server and the built UI (`pnpm build` first), in Playwright's own
 // Chromium, Firefox and WebKit (CI installs them; locally `pnpm exec playwright install`).

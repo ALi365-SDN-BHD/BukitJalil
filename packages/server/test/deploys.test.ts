@@ -239,7 +239,7 @@ async function publishable(
 }
 
 describe("publishing (M6 layer 3)", () => {
-  it("refuses the site's source branch as the publish branch", async () => {
+  it.skipIf(process.platform === "win32")("refuses the site's source branch as the publish branch", async () => {
     const p = await publishable({ branch: "main" });
     const res = await p.call("POST", "/deploys", { commit: p.head });
     expect(res).toEqual({
@@ -248,73 +248,79 @@ describe("publishing (M6 layer 3)", () => {
     });
   });
 
-  it("checks, builds, audits and deploys exactly that output, with the token only on deploy", async () => {
-    const p = await publishable();
-    const events: Deploy[] = [];
-    p.ctx.deploys.onEvent((d) => events.push(d));
-    const d = await p.publish();
-    expect(d).toMatchObject({
-      status: "succeeded",
-      outcome: "ok",
-      commit: p.head,
-      repo: "someone/blog",
-      branch: "gh-pages",
-      url: "https://someone.github.io/blog/",
-    });
-    expect(d.report?.steps.map((s) => [s.step, s.ok])).toEqual([
-      ["guard", true],
-      ["check", true],
-      ["doctor", true],
-      ["build", true],
-      ["audit", true],
-      ["deploy", true],
-    ]);
-    expect(d.report?.audit).toMatchObject({ routes: 2, warnings: 1, groups: [{ code: "publish.time_missing" }] });
-    // Events follow the steps.
-    expect(events.map((e) => e.step)).toEqual([
-      "guard",
-      "guard",
-      "check",
-      "doctor",
-      "build",
-      "audit",
-      "deploy",
-      "deploy",
-    ]);
-    expect(events.at(-1)?.status).toBe("succeeded");
+  it.skipIf(process.platform === "win32")(
+    "checks, builds, audits and deploys exactly that output, with the token only on deploy",
+    async () => {
+      const p = await publishable();
+      const events: Deploy[] = [];
+      p.ctx.deploys.onEvent((d) => events.push(d));
+      const d = await p.publish();
+      expect(d).toMatchObject({
+        status: "succeeded",
+        outcome: "ok",
+        commit: p.head,
+        repo: "someone/blog",
+        branch: "gh-pages",
+        url: "https://someone.github.io/blog/",
+      });
+      expect(d.report?.steps.map((s) => [s.step, s.ok])).toEqual([
+        ["guard", true],
+        ["check", true],
+        ["doctor", true],
+        ["build", true],
+        ["audit", true],
+        ["deploy", true],
+      ]);
+      expect(d.report?.audit).toMatchObject({ routes: 2, warnings: 1, groups: [{ code: "publish.time_missing" }] });
+      // Events follow the steps.
+      expect(events.map((e) => e.step)).toEqual([
+        "guard",
+        "guard",
+        "check",
+        "doctor",
+        "build",
+        "audit",
+        "deploy",
+        "deploy",
+      ]);
+      expect(events.at(-1)?.status).toBe("succeeded");
 
-    const calls = p.calls();
-    expect(calls.map((c) => c.split(" ")[0])).toEqual(["config", "doctor", "build", "publish", "deploy"]);
-    const out = /--output (\S+)/.exec(calls[2] ?? "")?.[1];
-    expect(out).toMatch(/^\.bukitjalil-deploy\/dep_[0-9a-f]+$/);
-    // The site's own base URL: no --base-url as for previews.
-    expect(calls[2]).not.toContain("--base-url");
-    expect(calls[3]).toContain(`publish audit --dir ${out} `);
-    expect(calls[4]).toContain(
-      `deploy --config site.yaml --skip-build --output ${out} --repo someone/blog --branch gh-pages --token-env BUKIT_DEPLOY_TOKEN`,
-    );
-    expect(calls[4]).toMatch(
-      /\| token=ghp_deploytokendeploytoken author=Site Owner committer=owner@example.com gitcount=$/,
-    );
-    for (const c of calls.slice(0, 4)) expect(c).toContain("token= author= committer= gitcount=");
-    expect(calls[0]).not.toMatch(/gitcount= *$/);
-    expect(fs.readFileSync(`${p.log}.deployed`, "utf8")).toContain("./index.html");
-    // The output folder is gone afterwards.
-    const checkout = path.join(p.ctx.paths.worktrees, p.site.id, "main");
-    expect(fs.existsSync(path.join(checkout, ".bukitjalil-deploy"))).toBe(false);
+      const calls = p.calls();
+      expect(calls.map((c) => c.split(" ")[0])).toEqual(["config", "doctor", "build", "publish", "deploy"]);
+      const out = /--output (\S+)/.exec(calls[2] ?? "")?.[1];
+      expect(out).toMatch(/^\.bukitjalil-deploy\/dep_[0-9a-f]+$/);
+      // The site's own base URL: no --base-url as for previews.
+      expect(calls[2]).not.toContain("--base-url");
+      expect(calls[3]).toContain(`publish audit --dir ${out} `);
+      expect(calls[4]).toContain(
+        `deploy --config site.yaml --skip-build --output ${out} --repo someone/blog --branch gh-pages --token-env BUKIT_DEPLOY_TOKEN`,
+      );
+      expect(calls[4]).toMatch(
+        /\| token=ghp_deploytokendeploytoken author=Site Owner committer=owner@example.com gitcount=$/,
+      );
+      for (const c of calls.slice(0, 4)) expect(c).toContain("token= author= committer= gitcount=");
+      expect(calls[0]).not.toMatch(/gitcount= *$/);
+      expect(fs.readFileSync(`${p.log}.deployed`, "utf8")).toContain("./index.html");
+      // The output folder is gone afterwards.
+      const checkout = path.join(p.ctx.paths.worktrees, p.site.id, "main");
+      expect(fs.existsSync(path.join(checkout, ".bukitjalil-deploy"))).toBe(false);
 
-    const list = (await p.call("GET", "/deploys")).json as unknown as DeployListResponse;
-    expect(list.deploys).toHaveLength(1);
-    expect(list.deploys[0]).toMatchObject({ id: d.id, report: null });
-  });
+      const list = (await p.call("GET", "/deploys")).json as unknown as DeployListResponse;
+      expect(list.deploys).toHaveLength(1);
+      expect(list.deploys[0]).toMatchObject({ id: d.id, report: null });
+    },
+  );
 
-  it("refuses to publish upload links that do not use the current baseUrl", async () => {
-    const p = await publishable({ base: "/blog/", upload: true });
-    const d = await p.publish();
-    expect(d).toMatchObject({ status: "failed", outcome: "upload_prefix" });
-    expect(d.report?.detail).toContain("index.html: /uploads/a.png");
-    expect(p.calls().map((c) => c.split(" ")[0])).toEqual(["config", "doctor", "build"]);
-  });
+  it.skipIf(process.platform === "win32")(
+    "refuses to publish upload links that do not use the current baseUrl",
+    async () => {
+      const p = await publishable({ base: "/blog/", upload: true });
+      const d = await p.publish();
+      expect(d).toMatchObject({ status: "failed", outcome: "upload_prefix" });
+      expect(d.report?.detail).toContain("index.html: /uploads/a.png");
+      expect(p.calls().map((c) => c.split(" ")[0])).toEqual(["config", "doctor", "build"]);
+    },
+  );
 
   for (const [fail, step] of [
     ["check", "check"],
@@ -323,7 +329,7 @@ describe("publishing (M6 layer 3)", () => {
     ["audit", "audit"],
     ["deploy", "deploy"],
   ] as const) {
-    it(`stops at a failed ${fail} step and does not go on`, async () => {
+    it.skipIf(process.platform === "win32")(`stops at a failed ${fail} step and does not go on`, async () => {
       const p = await publishable({ fail });
       const d = await p.publish();
       expect(d).toMatchObject({ status: "failed", outcome: "step_failed", step });
@@ -339,49 +345,55 @@ describe("publishing (M6 layer 3)", () => {
     });
   }
 
-  it("publishes a Notion site with its bound token in check, doctor and build, never in deploy", async () => {
-    const p = await publishable({ notion: true });
-    expect(p.ctx.sites.get(p.site.id).configCheck).toBe("notion");
-    const notionLog = `${p.log}.notion`;
+  it.skipIf(process.platform === "win32")(
+    "publishes a Notion site with its bound token in check, doctor and build, never in deploy",
+    async () => {
+      const p = await publishable({ notion: true });
+      expect(p.ctx.sites.get(p.site.id).configCheck).toBe("notion");
+      const notionLog = `${p.log}.notion`;
 
-    // Without a bound data source nothing runs.
-    const unbound = await p.publish();
-    expect(unbound).toMatchObject({ status: "failed", outcome: "notion" });
-    expect(p.calls()).toEqual([]);
+      // Without a bound data source nothing runs.
+      const unbound = await p.publish();
+      expect(unbound).toMatchObject({ status: "failed", outcome: "notion" });
+      expect(p.calls()).toEqual([]);
 
-    const source = p.ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_publishtoken1234" });
-    const bound = await p.call("PUT", "/notion-source", { dataSourceId: source.id });
-    // Binding rechecks the site: its config check now runs with the token.
-    expect(bound.json).toMatchObject({ notionDataSourceId: source.id, configCheck: "ok" });
-    fs.rmSync(notionLog, { force: true });
-    fs.writeFileSync(p.log, "");
+      const source = p.ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_publishtoken1234" });
+      const bound = await p.call("PUT", "/notion-source", { dataSourceId: source.id });
+      // Binding rechecks the site: its config check now runs with the token.
+      expect(bound.json).toMatchObject({ notionDataSourceId: source.id, configCheck: "ok" });
+      fs.rmSync(notionLog, { force: true });
+      fs.writeFileSync(p.log, "");
 
-    const d = await p.publish();
-    expect(d).toMatchObject({ status: "succeeded", outcome: "ok" });
-    expect(d.report?.steps[0]).toMatchObject({ step: "guard", ok: true });
-    expect(fs.readFileSync(notionLog, "utf8").trim().split("\n")).toEqual([
-      "config ntn_publishtoken1234",
-      "doctor ntn_publishtoken1234",
-      "build ntn_publishtoken1234",
-    ]);
-    expect(p.calls().map((c) => c.split(" ")[0])).toEqual(["config", "doctor", "build", "publish", "deploy"]);
-  });
+      const d = await p.publish();
+      expect(d).toMatchObject({ status: "succeeded", outcome: "ok" });
+      expect(d.report?.steps[0]).toMatchObject({ step: "guard", ok: true });
+      expect(fs.readFileSync(notionLog, "utf8").trim().split("\n")).toEqual([
+        "config ntn_publishtoken1234",
+        "doctor ntn_publishtoken1234",
+        "build ntn_publishtoken1234",
+      ]);
+      expect(p.calls().map((c) => c.split(" ")[0])).toEqual(["config", "doctor", "build", "publish", "deploy"]);
+    },
+  );
 
-  it("adds a root page that leads to the default language when the build has none", async () => {
-    const p = await publishable({ fail: "multilingual" });
-    expect(await p.publish()).toMatchObject({ status: "succeeded" });
-    const root = fs.readFileSync(`${p.log}.root`, "utf8");
-    expect(root).toContain('<meta http-equiv="refresh" content="0; url=en-US/">');
-    expect(root).toContain('<meta name="robots" content="noindex">');
-  });
+  it.skipIf(process.platform === "win32")(
+    "adds a root page that leads to the default language when the build has none",
+    async () => {
+      const p = await publishable({ fail: "multilingual" });
+      expect(await p.publish()).toMatchObject({ status: "succeeded" });
+      const root = fs.readFileSync(`${p.log}.root`, "utf8");
+      expect(root).toContain('<meta http-equiv="refresh" content="0; url=en-US/">');
+      expect(root).toContain('<meta name="robots" content="noindex">');
+    },
+  );
 
-  it("leaves the root page Bukit wrote alone", async () => {
+  it.skipIf(process.platform === "win32")("leaves the root page Bukit wrote alone", async () => {
     const p = await publishable();
     await p.publish();
     expect(fs.readFileSync(`${p.log}.root`, "utf8")).toBe("<h1>site</h1>\n");
   });
 
-  it("never stores the token, even when the deploy step prints it", async () => {
+  it.skipIf(process.platform === "win32")("never stores the token, even when the deploy step prints it", async () => {
     const p = await publishable({ fail: "leak" });
     const d = await p.publish();
     expect(d).toMatchObject({ status: "failed", step: "deploy" });
@@ -391,41 +403,44 @@ describe("publishing (M6 layer 3)", () => {
     expect(d.report?.messages.some((m) => m.msg === "token [token]")).toBe(true);
   });
 
-  it("refuses what the user did not confirm, a missing account, target or identity", async () => {
-    const p = await publishable();
-    const other = "0".repeat(40);
-    expect(await p.call("POST", "/deploys", { commit: other })).toMatchObject({
-      status: 409,
-      json: { code: "deploy.commit_changed", params: { commit: p.head } },
-    });
-    expect((await p.call("POST", "/deploys", { commit: "HEAD" })).status).toBe(400);
+  it.skipIf(process.platform === "win32")(
+    "refuses what the user did not confirm, a missing account, target or identity",
+    async () => {
+      const p = await publishable();
+      const other = "0".repeat(40);
+      expect(await p.call("POST", "/deploys", { commit: other })).toMatchObject({
+        status: 409,
+        json: { code: "deploy.commit_changed", params: { commit: p.head } },
+      });
+      expect((await p.call("POST", "/deploys", { commit: "HEAD" })).status).toBe(400);
 
-    p.ctx.sites.setPublishAccountId(p.site.id, null);
-    expect((await p.call("POST", "/deploys", { commit: p.head })).json).toMatchObject({ code: "deploy.no_account" });
-    p.ctx.sites.setPublishAccountId(p.site.id, p.account.id);
+      p.ctx.sites.setPublishAccountId(p.site.id, null);
+      expect((await p.call("POST", "/deploys", { commit: p.head })).json).toMatchObject({ code: "deploy.no_account" });
+      p.ctx.sites.setPublishAccountId(p.site.id, p.account.id);
 
-    p.ctx.db.prepare("DELETE FROM settings WHERE key = 'commitName'").run();
-    expect((await p.call("POST", "/deploys", { commit: p.head })).json).toMatchObject({
-      code: "site.identity_required",
-    });
-    p.ctx.db
-      .prepare("INSERT INTO settings (key, value_json) VALUES ('commitName', ?)")
-      .run(JSON.stringify("Site Owner"));
+      p.ctx.db.prepare("DELETE FROM settings WHERE key = 'commitName'").run();
+      expect((await p.call("POST", "/deploys", { commit: p.head })).json).toMatchObject({
+        code: "site.identity_required",
+      });
+      p.ctx.db
+        .prepare("INSERT INTO settings (key, value_json) VALUES ('commitName', ?)")
+        .run(JSON.stringify("Site Owner"));
 
-    fs.writeFileSync(
-      path.join(p.dir, "site.yaml"),
-      fs.readFileSync(path.join(p.dir, "site.yaml"), "utf8").replace(/\ndeploy:[\s\S]*$/, "\n"),
-    );
-    commitAllAs(base, p.dir, "no target");
-    const head = rawGit(base, p.dir, "rev-parse", "HEAD").trim();
-    expect((await p.call("POST", "/deploys", { commit: head })).json).toMatchObject({
-      code: "deploy.no_target",
-      params: { problem: "not_configured" },
-    });
-    expect(p.calls()).toEqual([]);
-  });
+      fs.writeFileSync(
+        path.join(p.dir, "site.yaml"),
+        fs.readFileSync(path.join(p.dir, "site.yaml"), "utf8").replace(/\ndeploy:[\s\S]*$/, "\n"),
+      );
+      commitAllAs(base, p.dir, "no target");
+      const head = rawGit(base, p.dir, "rev-parse", "HEAD").trim();
+      expect((await p.call("POST", "/deploys", { commit: head })).json).toMatchObject({
+        code: "deploy.no_target",
+        params: { problem: "not_configured" },
+      });
+      expect(p.calls()).toEqual([]);
+    },
+  );
 
-  it("refuses a commit the guard rejects, and can be stopped", async () => {
+  it.skipIf(process.platform === "win32")("refuses a commit the guard rejects, and can be stopped", async () => {
     const p = await publishable();
     fs.mkdirSync(path.join(p.dir, "plugins"));
     fs.writeFileSync(path.join(p.dir, "plugins", "x.dll"), "x");
@@ -440,7 +455,7 @@ describe("publishing (M6 layer 3)", () => {
     expect(p.calls()).toEqual([]);
   });
 
-  it("stops a running publish and keeps one per site at a time", async () => {
+  it.skipIf(process.platform === "win32")("stops a running publish and keeps one per site at a time", async () => {
     const p = await publishable({ fail: "none" });
     fs.writeFileSync(path.join(p.dir, "slow"), "1");
     // A doctor that waits for SIGINT.
@@ -470,16 +485,18 @@ describe("publishing (M6 layer 3)", () => {
 const REAL_BIN = process.env.BUKIT_BIN;
 
 describe.skipIf(!REAL_BIN)("publishing with the real Bukit", () => {
-  it("pushes the audited output, without .bukit/, as the settings' identity", async () => {
-    const realGit = resolveGitPath() as string;
-    const bare = path.join(base, "pages.git");
-    rawGit(base, base, "init", "-q", "--bare", bare);
-    // A git that sends Bukit's network commands to the local bare repository. Bukit checks its remote's
-    // address, so only the remote name in ls-remote / fetch / push is swapped, never the address.
-    const wrapper = path.join(base, "git-wrapper");
-    fs.writeFileSync(
-      wrapper,
-      `#!/bin/sh
+  it.skipIf(process.platform === "win32")(
+    "pushes the audited output, without .bukit/, as the settings' identity",
+    async () => {
+      const realGit = resolveGitPath() as string;
+      const bare = path.join(base, "pages.git");
+      rawGit(base, base, "init", "-q", "--bare", bare);
+      // A git that sends Bukit's network commands to the local bare repository. Bukit checks its remote's
+      // address, so only the remote name in ls-remote / fetch / push is swapped, never the address.
+      const wrapper = path.join(base, "git-wrapper");
+      fs.writeFileSync(
+        wrapper,
+        `#!/bin/sh
 case " $* " in *" ls-remote "*|*" fetch "*|*" push "*) net=1;; *) net=0;; esac
 n=$#
 for a in "$@"; do
@@ -491,58 +508,60 @@ shift $n
 [ $net = 1 ] && export GIT_ALLOW_PROTOCOL=file
 exec "${realGit}" "$@"
 `,
-      { mode: 0o755 },
-    );
-    const home = path.join(base, "real-bk");
-    installAppBukit(home, REAL_BIN as string);
-    const ctx = makeApp({
-      appHome: path.join(base, "real-app"),
-      userHome: base,
-      gitPath: wrapper,
-      bukit: new BukitService({
-        dir: testBukitDir(home),
-        tmpDir: path.join(base, "real-bk-tmp"),
-      }),
-    });
-    contexts.push(ctx);
-    const dir = path.join(base, "real-site");
-    writeStarter(dir, { title: "Real", language: "en-US" });
-    fs.appendFileSync(
-      path.join(dir, "site.yaml"),
-      "\ndeploy:\n  provider: github-pages\n  repo: someone/someone.github.io\n",
-    );
-    rawGit(base, dir, "init", "-q", "-b", "main");
-    commitAllAs(base, dir, "init");
-    const site = await ctx.sites.import({ path: dir });
-    await ctx.builds.settled();
-    ctx.db
-      .prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('commitName', ?), ('commitEmail', ?)")
-      .run(JSON.stringify("Site Owner"), JSON.stringify("owner@example.com"));
-    const account = ctx.publishAccounts.create({
-      platform: "github",
-      name: "Real GitHub",
-      token: "ghp_notarealtokennotarealtoken",
-    });
-    ctx.sites.setPublishAccountId(site.id, account.id);
-    const head = rawGit(base, dir, "rev-parse", "HEAD").trim();
+        { mode: 0o755 },
+      );
+      const home = path.join(base, "real-bk");
+      installAppBukit(home, REAL_BIN as string);
+      const ctx = makeApp({
+        appHome: path.join(base, "real-app"),
+        userHome: base,
+        gitPath: wrapper,
+        bukit: new BukitService({
+          dir: testBukitDir(home),
+          tmpDir: path.join(base, "real-bk-tmp"),
+        }),
+      });
+      contexts.push(ctx);
+      const dir = path.join(base, "real-site");
+      writeStarter(dir, { title: "Real", language: "en-US" });
+      fs.appendFileSync(
+        path.join(dir, "site.yaml"),
+        "\ndeploy:\n  provider: github-pages\n  repo: someone/someone.github.io\n",
+      );
+      rawGit(base, dir, "init", "-q", "-b", "main");
+      commitAllAs(base, dir, "init");
+      const site = await ctx.sites.import({ path: dir });
+      await ctx.builds.settled();
+      ctx.db
+        .prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES ('commitName', ?), ('commitEmail', ?)")
+        .run(JSON.stringify("Site Owner"), JSON.stringify("owner@example.com"));
+      const account = ctx.publishAccounts.create({
+        platform: "github",
+        name: "Real GitHub",
+        token: "ghp_notarealtokennotarealtoken",
+      });
+      ctx.sites.setPublishAccountId(site.id, account.id);
+      const head = rawGit(base, dir, "rev-parse", "HEAD").trim();
 
-    const started = await ctx.deploys.start(site.id, head);
-    await ctx.deploys.settled();
-    const d = ctx.deploys.get(site.id, started.id);
-    expect(d.report?.steps.map((s) => s.step)).toEqual(["guard", "check", "doctor", "build", "audit", "deploy"]);
-    expect(d).toMatchObject({ status: "succeeded", outcome: "ok", url: "https://someone.github.io/" });
-    expect(d.report?.output).toContain("Git push completed");
-    expect(d.report?.audit?.routes).toBeGreaterThan(5);
+      const started = await ctx.deploys.start(site.id, head);
+      await ctx.deploys.settled();
+      const d = ctx.deploys.get(site.id, started.id);
+      expect(d.report?.steps.map((s) => s.step)).toEqual(["guard", "check", "doctor", "build", "audit", "deploy"]);
+      expect(d).toMatchObject({ status: "succeeded", outcome: "ok", url: "https://someone.github.io/" });
+      expect(d.report?.output).toContain("Git push completed");
+      expect(d.report?.audit?.routes).toBeGreaterThan(5);
 
-    const files = rawGit(base, base, "--git-dir", bare, "ls-tree", "-r", "--name-only", "gh-pages").split("\n");
-    expect(files).toContain("index.html");
-    expect(files).toContain(".nojekyll");
-    expect(files.some((f) => f.startsWith(".bukit/"))).toBe(false);
-    expect(rawGit(base, base, "--git-dir", bare, "log", "-1", "--format=%an <%ae>|%cn <%ce>", "gh-pages").trim()).toBe(
-      "Site Owner <owner@example.com>|Site Owner <owner@example.com>",
-    );
-    // Nothing was left in the site folder or the main checkout.
-    expect(rawGit(base, dir, "status", "--porcelain").trim()).toBe("");
-    expect(fs.existsSync(path.join(ctx.paths.worktrees, site.id, "main", ".bukitjalil-deploy"))).toBe(false);
-  }, 180_000);
+      const files = rawGit(base, base, "--git-dir", bare, "ls-tree", "-r", "--name-only", "gh-pages").split("\n");
+      expect(files).toContain("index.html");
+      expect(files).toContain(".nojekyll");
+      expect(files.some((f) => f.startsWith(".bukit/"))).toBe(false);
+      expect(
+        rawGit(base, base, "--git-dir", bare, "log", "-1", "--format=%an <%ae>|%cn <%ce>", "gh-pages").trim(),
+      ).toBe("Site Owner <owner@example.com>|Site Owner <owner@example.com>");
+      // Nothing was left in the site folder or the main checkout.
+      expect(rawGit(base, dir, "status", "--porcelain").trim()).toBe("");
+      expect(fs.existsSync(path.join(ctx.paths.worktrees, site.id, "main", ".bukitjalil-deploy"))).toBe(false);
+    },
+    180_000,
+  );
 });

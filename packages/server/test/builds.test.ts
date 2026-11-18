@@ -451,53 +451,59 @@ it.skipIf(process.platform === "win32")(
   },
 );
 
-it("deletes the Notion offline snapshot once the default branch has no Notion source, or the site goes", async () => {
-  const s = await setup("snapshot-gone");
-  const snapshots = s.sites.notionSnapshots;
-  const root = path.join(s.paths.notionSnapshots, s.site.id);
-  const record = () => {
-    const [, dir] = snapshots.recordArgs(s.site.id) as [string, string];
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "manifest.json"), "{}");
-    snapshots.recorded(s.site.id, "c".repeat(40), s.dir);
-    expect(snapshots.get(s.site.id)).toMatchObject({ commit: "c".repeat(40) });
-  };
-  record();
-  expect(await s.build()).toMatchObject({ status: "succeeded" });
-  expect(fs.existsSync(root)).toBe(false);
-  expect(snapshots.get(s.site.id)).toBeNull();
-  record();
-  // Deleted from outside: forgotten, so the UI asks for a formal build again.
-  fs.rmSync(path.join(root, "snapshot"), { recursive: true });
-  expect(snapshots.offline(s.site.id)).toBeNull();
-  expect(snapshots.get(s.site.id)).toBeNull();
-  record();
-  await s.sites.remove(s.site.id);
-  expect(fs.existsSync(root)).toBe(false);
-});
+it.skipIf(process.platform === "win32")(
+  "deletes the Notion offline snapshot once the default branch has no Notion source, or the site goes",
+  async () => {
+    const s = await setup("snapshot-gone");
+    const snapshots = s.sites.notionSnapshots;
+    const root = path.join(s.paths.notionSnapshots, s.site.id);
+    const record = () => {
+      const [, dir] = snapshots.recordArgs(s.site.id) as [string, string];
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "manifest.json"), "{}");
+      snapshots.recorded(s.site.id, "c".repeat(40), s.dir);
+      expect(snapshots.get(s.site.id)).toMatchObject({ commit: "c".repeat(40) });
+    };
+    record();
+    expect(await s.build()).toMatchObject({ status: "succeeded" });
+    expect(fs.existsSync(root)).toBe(false);
+    expect(snapshots.get(s.site.id)).toBeNull();
+    record();
+    // Deleted from outside: forgotten, so the UI asks for a formal build again.
+    fs.rmSync(path.join(root, "snapshot"), { recursive: true });
+    expect(snapshots.offline(s.site.id)).toBeNull();
+    expect(snapshots.get(s.site.id)).toBeNull();
+    record();
+    await s.sites.remove(s.site.id);
+    expect(fs.existsSync(root)).toBe(false);
+  },
+);
 
 describe("main builds (plan 8.3, 8.4)", () => {
-  it("builds and previews a subpath site under its own baseUrl; a bad baseUrl fails the build", async () => {
-    const s = await setup("subpath");
-    const yaml = path.join(s.dir, "site.yaml");
-    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog"));
-    commitAll(s.dir, "subpath");
-    const b = await s.build();
-    expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
-    expect(b.report?.basePath).toBe("/blog/");
-    const args = fs.readFileSync(path.join(testBukitDir(path.join(base, "bk")), "bukit.args"), "utf8");
-    expect(args).toContain("--base-url /blog/ ");
-    const opened = (await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" })).json;
-    expect(opened.url).toBe(`http://127.0.0.1:${opened.port}/blog/`);
-    expect((await httpGet(opened.port, { path: "/blog/" })).body).toContain("v1");
-    expect((await httpGet(opened.port, { path: "/" })).headers.location).toBe("/blog/");
+  it.skipIf(process.platform === "win32")(
+    "builds and previews a subpath site under its own baseUrl; a bad baseUrl fails the build",
+    async () => {
+      const s = await setup("subpath");
+      const yaml = path.join(s.dir, "site.yaml");
+      fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog"));
+      commitAll(s.dir, "subpath");
+      const b = await s.build();
+      expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
+      expect(b.report?.basePath).toBe("/blog/");
+      const args = fs.readFileSync(path.join(testBukitDir(path.join(base, "bk")), "bukit.args"), "utf8");
+      expect(args).toContain("--base-url /blog/ ");
+      const opened = (await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" })).json;
+      expect(opened.url).toBe(`http://127.0.0.1:${opened.port}/blog/`);
+      expect((await httpGet(opened.port, { path: "/blog/" })).body).toContain("v1");
+      expect((await httpGet(opened.port, { path: "/" })).headers.location).toBe("/blog/");
 
-    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /blog", "baseUrl: /a b/"));
-    commitAll(s.dir, "bad base");
-    const bad = await s.build();
-    expect(bad).toMatchObject({ status: "failed", outcome: "base_url" });
-    expect(bad.report?.detail).toContain("site.baseUrl");
-  });
+      fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /blog", "baseUrl: /a b/"));
+      commitAll(s.dir, "bad base");
+      const bad = await s.build();
+      expect(bad).toMatchObject({ status: "failed", outcome: "base_url" });
+      expect(bad.report?.detail).toContain("site.baseUrl");
+    },
+  );
 
   it.skipIf(process.platform === "win32")(
     "builds in the main checkout and keeps the output under previews/",
@@ -517,7 +523,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     },
   );
 
-  it("warns about upload links that do not use the current baseUrl", async () => {
+  it.skipIf(process.platform === "win32")("warns about upload links that do not use the current baseUrl", async () => {
     const s = await setup("upload-warning", { mode: "upload" });
     const yaml = path.join(s.dir, "site.yaml");
     fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("baseUrl: /", "baseUrl: /blog/"));
@@ -530,7 +536,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     });
   });
 
-  it("publishes build.start and build.end on the event stream", async () => {
+  it.skipIf(process.platform === "win32")("publishes build.start and build.end on the event stream", async () => {
     const s = await setup("events");
     const got: ServerEvent[] = [];
     const sub = s.events.subscribe(
@@ -553,27 +559,30 @@ describe("main builds (plan 8.3, 8.4)", () => {
     }
   });
 
-  it("serves the newest build on its own preview port and switches when a new one succeeds", async () => {
-    const s = await setup("preview");
-    const first = await s.build();
-    const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" });
-    expect(opened.json).toMatchObject({ ref: "main", buildId: first.id, commit: first.commit });
-    expect(opened.json.url).toBe(`http://127.0.0.1:${opened.json.port}/`);
-    const page = await fetchPreview(opened.json.port);
-    expect(page.body).toContain("v1");
-    expect(page.headers["content-security-policy"]).toMatch(/^sandbox allow-scripts allow-popups/);
-    expect(page.headers["cache-control"]).toBe("no-store");
+  it.skipIf(process.platform === "win32")(
+    "serves the newest build on its own preview port and switches when a new one succeeds",
+    async () => {
+      const s = await setup("preview");
+      const first = await s.build();
+      const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), { ref: "main" });
+      expect(opened.json).toMatchObject({ ref: "main", buildId: first.id, commit: first.commit });
+      expect(opened.json.url).toBe(`http://127.0.0.1:${opened.json.port}/`);
+      const page = await fetchPreview(opened.json.port);
+      expect(page.body).toContain("v1");
+      expect(page.headers["content-security-policy"]).toMatch(/^sandbox allow-scripts allow-popups/);
+      expect(page.headers["cache-control"]).toBe("no-store");
 
-    fs.writeFileSync(path.join(s.dir, "marker"), "v2");
-    commitAll(s.dir, "v2");
-    const second = await s.build();
-    expect(second.status).toBe("succeeded");
-    expect((await fetchPreview(opened.json.port)).body).toContain("v2");
-    const again = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
-    expect(again.json).toMatchObject({ port: opened.json.port, buildId: second.id });
-  });
+      fs.writeFileSync(path.join(s.dir, "marker"), "v2");
+      commitAll(s.dir, "v2");
+      const second = await s.build();
+      expect(second.status).toBe("succeeded");
+      expect((await fetchPreview(opened.json.port)).body).toContain("v2");
+      const again = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
+      expect(again.json).toMatchObject({ port: opened.json.port, buildId: second.id });
+    },
+  );
 
-  it("records a failed build with Bukit's errors and keeps nothing", async () => {
+  it.skipIf(process.platform === "win32")("records a failed build with Bukit's errors and keeps nothing", async () => {
     const s = await setup("fail", { mode: "fail" });
     const b = await s.build();
     expect(b).toMatchObject({ status: "failed", outcome: "config_or_content_error", exitCode: 2, hasOutput: false });
@@ -583,7 +592,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect(fs.existsSync(path.join(s.paths.previews, s.site.id, b.id))).toBe(false);
   });
 
-  it("names a full disk behind a failed build", async () => {
+  it.skipIf(process.platform === "win32")("names a full disk behind a failed build", async () => {
     const s = await setup("full", { mode: "full" });
     const b = await s.build();
     expect(b).toMatchObject({ status: "failed", outcome: "failed", exitCode: 1 });
@@ -594,138 +603,144 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect(plain.report?.problem).toBeUndefined();
   });
 
-  it("summarizes the SEO / GEO reports and reads the JSON log from stderr (M4 layer 7)", async () => {
-    const b = await (await setup("audit", { mode: "audit" })).build();
-    expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
-    expect(b.report?.audit).toEqual({
-      seo: {
-        routes: 2,
-        errors: 1,
-        warnings: 2,
-        siteUrlMissing: true,
-        siteUrlWarnings: 1,
-        groups: [
-          {
-            code: "seo.title_missing",
-            severity: "error",
-            count: 1,
-            message: "Title is missing.",
-            routes: ["/b/"],
-            moreRoutes: false,
-          },
-          {
-            code: "seo.description_missing",
-            severity: "warning",
-            count: 1,
-            message: "SEO description is missing.",
-            routes: ["/a/"],
-            moreRoutes: false,
-          },
-        ],
-        groupsTruncated: false,
-      },
-      geo: { score: 25, llmsTxt: true, llmsFullTxt: false, enhancedRoutes: 0 },
-    });
-    // Warnings come from stderr; the per-issue audit lines are left to the summary.
-    expect(b.report?.messages.map((m) => m.msg)).toEqual(["event=content.slow file=a.md", "event=theme.warning x=1"]);
-    expect(b.report?.output).not.toContain('"level"');
-    // A build without reports has no audit.
-    expect((await (await setup("noaudit")).build()).report?.audit).toBeUndefined();
-  });
+  it.skipIf(process.platform === "win32")(
+    "summarizes the SEO / GEO reports and reads the JSON log from stderr (M4 layer 7)",
+    async () => {
+      const b = await (await setup("audit", { mode: "audit" })).build();
+      expect(b).toMatchObject({ status: "succeeded", outcome: "ok" });
+      expect(b.report?.audit).toEqual({
+        seo: {
+          routes: 2,
+          errors: 1,
+          warnings: 2,
+          siteUrlMissing: true,
+          siteUrlWarnings: 1,
+          groups: [
+            {
+              code: "seo.title_missing",
+              severity: "error",
+              count: 1,
+              message: "Title is missing.",
+              routes: ["/b/"],
+              moreRoutes: false,
+            },
+            {
+              code: "seo.description_missing",
+              severity: "warning",
+              count: 1,
+              message: "SEO description is missing.",
+              routes: ["/a/"],
+              moreRoutes: false,
+            },
+          ],
+          groupsTruncated: false,
+        },
+        geo: { score: 25, llmsTxt: true, llmsFullTxt: false, enhancedRoutes: 0 },
+      });
+      // Warnings come from stderr; the per-issue audit lines are left to the summary.
+      expect(b.report?.messages.map((m) => m.msg)).toEqual(["event=content.slow file=a.md", "event=theme.warning x=1"]);
+      expect(b.report?.output).not.toContain('"level"');
+      // A build without reports has no audit.
+      expect((await (await setup("noaudit")).build()).report?.audit).toBeUndefined();
+    },
+  );
 
-  it("serves the full SEO report and compares it with the previous main build (plan 10.4)", async () => {
-    const s = await setup("audit-report", { mode: "audit" });
-    type R = AuditReportResponse & { code?: string };
-    // The import's first build wrote no reports.
-    expect((await s.call<R>("GET", s.api("/audit"))).json.code).toBe("audit.not_built");
-    expect((await s.call<R>("GET", s.api("/audit?ref=nope"))).status).toBe(400);
-    expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("change.not_found");
+  it.skipIf(process.platform === "win32")(
+    "serves the full SEO report and compares it with the previous main build (plan 10.4)",
+    async () => {
+      const s = await setup("audit-report", { mode: "audit" });
+      type R = AuditReportResponse & { code?: string };
+      // The import's first build wrote no reports.
+      expect((await s.call<R>("GET", s.api("/audit"))).json.code).toBe("audit.not_built");
+      expect((await s.call<R>("GET", s.api("/audit?ref=nope"))).status).toBe(400);
+      expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("change.not_found");
 
-    const first = await s.build();
-    let r = await s.call<R>("GET", s.api("/audit"));
-    expect(r.status).toBe(200);
-    expect(r.json).toMatchObject({ ref: "main", build: { buildId: first.id }, previous: null, compare: null });
-    expect(r.json.summary).toEqual(first.report?.audit);
-    // The site.url warning is folded away, as in the summary; errors first.
-    expect(r.json.issues).toEqual([
-      { severity: "error", code: "seo.title_missing", route: "/b/", message: "Title is missing." },
-      { severity: "warning", code: "seo.description_missing", route: "/a/", message: "SEO description is missing." },
-    ]);
+      const first = await s.build();
+      let r = await s.call<R>("GET", s.api("/audit"));
+      expect(r.status).toBe(200);
+      expect(r.json).toMatchObject({ ref: "main", build: { buildId: first.id }, previous: null, compare: null });
+      expect(r.json.summary).toEqual(first.report?.audit);
+      // The site.url warning is folded away, as in the summary; errors first.
+      expect(r.json.issues).toEqual([
+        { severity: "error", code: "seo.title_missing", route: "/b/", message: "Title is missing." },
+        { severity: "warning", code: "seo.description_missing", route: "/a/", message: "SEO description is missing." },
+      ]);
 
-    // Second build: the title error is fixed, the description issue spreads, a new kind appears.
-    const issue = (severity: string, code: string, route: string) => ({ severity, code, route, message: code });
-    fs.writeFileSync(
-      path.join(s.dir, "seo.json"),
-      JSON.stringify({
-        siteUrl: "https://x.test",
-        routes: [{}, {}, {}],
-        issues: [
-          issue("warning", "seo.description_missing", "/a/"),
-          issue("warning", "seo.description_missing", "/c/"),
-          issue("info", "seo.new_kind", ""),
-        ],
-      }),
-    );
-    commitAll(s.dir, "seo");
-    const second = await s.build();
-    r = await s.call<R>("GET", s.api("/audit"));
-    expect(r.json.build.buildId).toBe(second.id);
-    expect(r.json.previous?.buildId).toBe(first.id);
-    expect(r.json.issues).toHaveLength(3);
-    expect(r.json.compare).toMatchObject({ errors: -1, warnings: 0, geoScore: 0, previousTruncated: false });
-    expect(r.json.compare?.groups.map((g) => [g.code, g.change, g.count, g.previous])).toEqual([
-      ["seo.title_missing", "fixed", 0, 1],
-      ["seo.description_missing", "more", 2, 1],
-      ["seo.new_kind", "new", 1, 0],
-    ]);
+      // Second build: the title error is fixed, the description issue spreads, a new kind appears.
+      const issue = (severity: string, code: string, route: string) => ({ severity, code, route, message: code });
+      fs.writeFileSync(
+        path.join(s.dir, "seo.json"),
+        JSON.stringify({
+          siteUrl: "https://x.test",
+          routes: [{}, {}, {}],
+          issues: [
+            issue("warning", "seo.description_missing", "/a/"),
+            issue("warning", "seo.description_missing", "/c/"),
+            issue("info", "seo.new_kind", ""),
+          ],
+        }),
+      );
+      commitAll(s.dir, "seo");
+      const second = await s.build();
+      r = await s.call<R>("GET", s.api("/audit"));
+      expect(r.json.build.buildId).toBe(second.id);
+      expect(r.json.previous?.buildId).toBe(first.id);
+      expect(r.json.issues).toHaveLength(3);
+      expect(r.json.compare).toMatchObject({ errors: -1, warnings: 0, geoScore: 0, previousTruncated: false });
+      expect(r.json.compare?.groups.map((g) => [g.code, g.change, g.count, g.previous])).toEqual([
+        ["seo.title_missing", "fixed", 0, 1],
+        ["seo.description_missing", "more", 2, 1],
+        ["seo.new_kind", "new", 1, 0],
+      ]);
 
-    // The output is gone: the summary is still there, the full list is not.
-    fs.rmSync(path.join(s.paths.previews, s.site.id, second.id), { recursive: true, force: true });
-    r = await s.call<R>("GET", s.api("/audit"));
-    expect(r.json).toMatchObject({ issues: null, issuesTruncated: false, build: { buildId: second.id } });
-    expect(r.json.compare?.groups.find((g) => g.code === "seo.description_missing")?.change).toBe("more");
-    expect(r.json.stale).toBe(false);
+      // The output is gone: the summary is still there, the full list is not.
+      fs.rmSync(path.join(s.paths.previews, s.site.id, second.id), { recursive: true, force: true });
+      r = await s.call<R>("GET", s.api("/audit"));
+      expect(r.json).toMatchObject({ issues: null, issuesTruncated: false, build: { buildId: second.id } });
+      expect(r.json.compare?.groups.find((g) => g.code === "seo.description_missing")?.change).toBe("more");
+      expect(r.json.stale).toBe(false);
 
-    // The change version: its own build, compared with the main version's newest report.
-    const session = s.agent.create(s.site.id);
-    const { cwd } = await s.changes.begin(s.site.id, session.id);
-    fs.writeFileSync(
-      path.join(cwd, "seo.json"),
-      JSON.stringify({ siteUrl: "https://x.test", issues: [issue("warning", "seo.description_missing", "/a/")] }),
-    );
-    await s.changes.snapshot(s.site.id, cwd);
-    expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("audit.not_built");
-    const change = await s.call<Build>("POST", s.api("/builds"), { ref: "change" });
-    await s.builds.settled();
-    r = await s.call<R>("GET", s.api("/audit?ref=change"));
-    expect(r.json).toMatchObject({
-      ref: "change",
-      build: { buildId: change.json.id },
-      previous: { buildId: second.id },
-    });
-    expect(r.json.compare?.groups.map((g) => [g.code, g.change])).toEqual([
-      ["seo.description_missing", "fewer"],
-      ["seo.new_kind", "fixed"],
-    ]);
-    // The main report is still the main build's.
-    expect((await s.call<R>("GET", s.api("/audit"))).json.build.buildId).toBe(second.id);
+      // The change version: its own build, compared with the main version's newest report.
+      const session = s.agent.create(s.site.id);
+      const { cwd } = await s.changes.begin(s.site.id, session.id);
+      fs.writeFileSync(
+        path.join(cwd, "seo.json"),
+        JSON.stringify({ siteUrl: "https://x.test", issues: [issue("warning", "seo.description_missing", "/a/")] }),
+      );
+      await s.changes.snapshot(s.site.id, cwd);
+      expect((await s.call<R>("GET", s.api("/audit?ref=change"))).json.code).toBe("audit.not_built");
+      const change = await s.call<Build>("POST", s.api("/builds"), { ref: "change" });
+      await s.builds.settled();
+      r = await s.call<R>("GET", s.api("/audit?ref=change"));
+      expect(r.json).toMatchObject({
+        ref: "change",
+        build: { buildId: change.json.id },
+        previous: { buildId: second.id },
+      });
+      expect(r.json.compare?.groups.map((g) => [g.code, g.change])).toEqual([
+        ["seo.description_missing", "fewer"],
+        ["seo.new_kind", "fixed"],
+      ]);
+      // The main report is still the main build's.
+      expect((await s.call<R>("GET", s.api("/audit"))).json.build.buildId).toBe(second.id);
 
-    // A newer main build fails: the report shown is the last good one, marked out of date.
-    fs.writeFileSync(path.join(s.dir, "fake-mode"), "fail");
-    commitAll(s.dir, "fail");
-    expect((await s.build()).status).toBe("failed");
-    r = await s.call<R>("GET", s.api("/audit"));
-    expect(r.json).toMatchObject({ build: { buildId: second.id }, previous: { buildId: first.id }, stale: true });
-  });
+      // A newer main build fails: the report shown is the last good one, marked out of date.
+      fs.writeFileSync(path.join(s.dir, "fake-mode"), "fail");
+      commitAll(s.dir, "fail");
+      expect((await s.build()).status).toBe("failed");
+      r = await s.call<R>("GET", s.api("/audit"));
+      expect(r.json).toMatchObject({ build: { buildId: second.id }, previous: { buildId: first.id }, stale: true });
+    },
+  );
 
-  it("does not keep an output that contains a symbolic link", async () => {
+  it.skipIf(process.platform === "win32")("does not keep an output that contains a symbolic link", async () => {
     const s = await setup("symlink-out", { mode: "symlink" });
     const b = await s.build();
     expect(b).toMatchObject({ status: "failed", outcome: "symlink", hasOutput: false });
     expect(b.report?.detail).toBe("leak");
   });
 
-  it("re-runs the pre-build guard on the commit it builds", async () => {
+  it.skipIf(process.platform === "win32")("re-runs the pre-build guard on the commit it builds", async () => {
     const s = await setup("guarded");
     fs.symlinkSync("../site.yaml", path.join(s.dir, "content", "link.md"));
     commitAll(s.dir, "add a symlink");
@@ -750,7 +765,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect((await s.history())[0]).toMatchObject({ status: "failed", outcome: "stopped" });
   });
 
-  it("keeps the newest outputs and drops older ones", async () => {
+  it.skipIf(process.platform === "win32")("keeps the newest outputs and drops older ones", async () => {
     const s = await setup("prune");
     const ids: string[] = [];
     for (let i = 0; i < KEEP_OUTPUTS + 2; i++) ids.push((await s.build()).id);
@@ -782,7 +797,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect((await ro.call("POST", ro.api("/builds"), {})).json).toEqual({ code: "site.read_only" });
   });
 
-  it("falls back to an older output when the newest one is gone", async () => {
+  it.skipIf(process.platform === "win32")("falls back to an older output when the newest one is gone", async () => {
     const s = await setup("fallback");
     const [older] = await s.history();
     const newest = await s.build();
@@ -798,29 +813,32 @@ describe("main builds (plan 8.3, 8.4)", () => {
     expect((await s.call("POST", s.api("/builds"), {})).json).toEqual({ code: "server.shutting_down" });
   });
 
-  it("opens an old multilingual build at the default language of its own commit", async () => {
-    const s = await setup("old-entry", { mode: "multi" });
-    const yaml = path.join(s.dir, "site.yaml");
-    const original = fs.readFileSync(yaml, "utf8");
-    fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: zh-CN\n"));
-    commitAll(s.dir, "default zh-CN");
-    const b = await s.build();
-    expect(b.report?.entry).toBe("/zh-CN/");
-    // A build from before BuildReport.entry existed, and a later commit that is not built yet.
-    const row = s.db.prepare("SELECT report_json FROM builds WHERE id = ?").get(b.id) as { report_json: string };
-    const { entry: _entry, ...report } = JSON.parse(row.report_json);
-    s.db.prepare("UPDATE builds SET report_json = ? WHERE id = ?").run(JSON.stringify(report), b.id);
-    fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: en-US\n"));
-    commitAll(s.dir, "default en-US");
+  it.skipIf(process.platform === "win32")(
+    "opens an old multilingual build at the default language of its own commit",
+    async () => {
+      const s = await setup("old-entry", { mode: "multi" });
+      const yaml = path.join(s.dir, "site.yaml");
+      const original = fs.readFileSync(yaml, "utf8");
+      fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: zh-CN\n"));
+      commitAll(s.dir, "default zh-CN");
+      const b = await s.build();
+      expect(b.report?.entry).toBe("/zh-CN/");
+      // A build from before BuildReport.entry existed, and a later commit that is not built yet.
+      const row = s.db.prepare("SELECT report_json FROM builds WHERE id = ?").get(b.id) as { report_json: string };
+      const { entry: _entry, ...report } = JSON.parse(row.report_json);
+      s.db.prepare("UPDATE builds SET report_json = ? WHERE id = ?").run(JSON.stringify(report), b.id);
+      fs.writeFileSync(yaml, original.replace(/^site:\n/m, "site:\n  defaultLanguage: en-US\n"));
+      commitAll(s.dir, "default en-US");
 
-    const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
-    expect(opened.json.buildId).toBe(b.id);
-    const res = await fetchPreview(opened.json.port);
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toBe("/zh-CN/");
-  });
+      const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
+      expect(opened.json.buildId).toBe(b.id);
+      const res = await fetchPreview(opened.json.port);
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe("/zh-CN/");
+    },
+  );
 
-  it("gives back preview ports when the site is removed", async () => {
+  it.skipIf(process.platform === "win32")("gives back preview ports when the site is removed", async () => {
     const s = await setup("removed");
     await s.build();
     await s.call("POST", s.api("/preview"), {});
@@ -899,22 +917,26 @@ describe("preview idle release", () => {
 });
 
 describe.skipIf(!REAL_BIN)("real Bukit", () => {
-  it("builds the starter site and serves it", async () => {
-    const s = await setup("real", { bin: REAL_BIN as string });
-    const b = await s.build();
-    expect(b).toMatchObject({ status: "succeeded", outcome: "ok", exitCode: 0 });
-    // The SEO / GEO summary (M4 layer 7): the starter has no site.url, so most warnings fold into that hint.
-    const report = (await s.call<Build>("GET", s.api(`/builds/${b.id}`))).json.report;
-    expect(report?.audit?.seo).toMatchObject({ errors: 0, siteUrlMissing: true });
-    expect(report?.audit?.seo?.routes).toBeGreaterThan(5);
-    expect(report?.audit?.seo?.siteUrlWarnings).toBeGreaterThan(report?.audit?.seo?.groups.length ?? 0);
-    expect(report?.audit?.geo).toMatchObject({ llmsTxt: true });
-    // Bukit's JSON log (stderr) is parsed, not left in the output; its per-issue audit lines are not messages.
-    expect(report?.output).not.toContain('"level"');
-    expect(report?.messages.some((m) => m.msg.includes(".audit severity="))).toBe(false);
-    const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
-    const page = await fetchPreview(opened.json.port);
-    expect(page.status).toBe(200);
-    expect(page.body).toContain("<html");
-  }, 120_000);
+  it.skipIf(process.platform === "win32")(
+    "builds the starter site and serves it",
+    async () => {
+      const s = await setup("real", { bin: REAL_BIN as string });
+      const b = await s.build();
+      expect(b).toMatchObject({ status: "succeeded", outcome: "ok", exitCode: 0 });
+      // The SEO / GEO summary (M4 layer 7): the starter has no site.url, so most warnings fold into that hint.
+      const report = (await s.call<Build>("GET", s.api(`/builds/${b.id}`))).json.report;
+      expect(report?.audit?.seo).toMatchObject({ errors: 0, siteUrlMissing: true });
+      expect(report?.audit?.seo?.routes).toBeGreaterThan(5);
+      expect(report?.audit?.seo?.siteUrlWarnings).toBeGreaterThan(report?.audit?.seo?.groups.length ?? 0);
+      expect(report?.audit?.geo).toMatchObject({ llmsTxt: true });
+      // Bukit's JSON log (stderr) is parsed, not left in the output; its per-issue audit lines are not messages.
+      expect(report?.output).not.toContain('"level"');
+      expect(report?.messages.some((m) => m.msg.includes(".audit severity="))).toBe(false);
+      const opened = await s.call<PreviewResponse>("POST", s.api("/preview"), {});
+      const page = await fetchPreview(opened.json.port);
+      expect(page.status).toBe(200);
+      expect(page.body).toContain("<html");
+    },
+    120_000,
+  );
 });

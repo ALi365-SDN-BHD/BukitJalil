@@ -32,7 +32,7 @@ export const test = base.extend<object, { server: Server }>({
       // The server only uses the Bukit that ships with it (plan 8.1); BUKITJALIL_BUKIT_DIR points it at a
       // folder holding the stand-in (or BUKIT_BIN).
       const bukitDir = path.join(home, "bundled-bukit");
-      const bukitLink = path.join(bukitDir, "bukit");
+      const bukitLink = path.join(bukitDir, process.platform === "win32" ? "bukit.exe" : "bukit");
       const setBukit = (source: string) => {
         fs.mkdirSync(path.dirname(bukitLink), { recursive: true, mode: 0o700 });
         fs.rmSync(bukitLink, { force: true });

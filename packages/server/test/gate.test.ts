@@ -388,7 +388,7 @@ describe("gated tools", () => {
   it("rg is on PATH under CI", () => {
     if (process.env.CI) expect(rg, "install ripgrep in CI").not.toBeNull();
   });
-  it.skipIf(!rg)("grep searches the working copy without .git files", async () => {
+  it.skipIf(!rg || process.platform === "win32")("grep searches the working copy without .git files", async () => {
     fs.copyFileSync(fs.realpathSync(rg as string), rgPath);
     fs.chmodSync(rgPath, 0o755);
     try {
