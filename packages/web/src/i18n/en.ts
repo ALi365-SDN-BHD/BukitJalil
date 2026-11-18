@@ -110,6 +110,12 @@ const en: Messages = {
       "This folder is not a git repository yet. Importing runs git init and commits these {count} files as the first version:",
     moreFiles: "Showing the first 500 of {count} files",
     confirmFiles: "I checked these files and they can be committed",
+    pickConfig:
+      "This folder has no site.yaml, but the files below have the content of a Bukit site config. Pick the one to use as the site config:",
+    renameNotice:
+      "Import renames {file} to site.yaml{commit}. Anything else that mentions the old name (scripts, README) is yours to update.",
+    renameCommit: " and commits that rename on its own",
+    confirmRename: "I agree to rename this file",
     name: "Display name (optional, defaults to site.title)",
     import: "Import",
     importing: "Importing and checking…",
@@ -1024,7 +1030,9 @@ const en: Messages = {
     "site.path_not_empty": "The folder must be new or empty",
     "site.path_overlaps_site": "This location overlaps the site {site}",
     "site.already_registered": "This folder is already a BukitJalil site",
-    "site.no_site_yaml": "This folder has no site.yaml, so it is not a Bukit site",
+    "site.no_site_yaml":
+      "This folder has no site.yaml, and no YAML file in its root has the content of a Bukit site config (top-level site and theme)",
+    "site.bad_config_file": "The chosen file is no longer a Bukit site config; inspect the folder again",
     "site.not_repo_root": "The folder is inside a git repository; choose the repository's top folder",
     "site.git_symlink": "The folder has a .git symbolic link; remove it and import the repository from its real folder",
     "site.not_git": "This folder is not a git repository yet",

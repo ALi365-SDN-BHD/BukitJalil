@@ -20,6 +20,7 @@ import { resolveBranch } from "../git/objects.ts";
 import { clearIndexLock, GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
 import type { SettingsStore } from "../store/settings.ts";
+import { findConfigCandidates } from "./config-candidates.ts";
 import { EXCLUDE_PATTERNS, IMPORT_INIT_PATTERNS, removeExcludeBlock, writeExcludeBlock } from "./exclude.ts";
 import { assertDirectory, assertEmptyOrMissing, checkSiteLocation, inside, SiteError } from "./location.ts";
 import type { SiteLocks } from "./locks.ts";
@@ -240,19 +241,41 @@ export class SiteService {
   // --- import (plan 5.1) ---
 
   /** Read-only look at a directory: nothing is written and Bukit is not run. */
-  async inspectImport(target: string): Promise<ImportInspection> {
-    return (await this.inspect(target)).inspection;
+  async inspectImport(target: string, configFile?: string): Promise<ImportInspection> {
+    return (await this.inspect(target, configFile)).inspection;
   }
 
-  private async inspect(target: string): Promise<{ inspection: ImportInspection; checked?: Prechecked }> {
+  /**
+   * Without a site.yaml, root YAML files whose content is a site config are offered for renaming. The
+   * choice (`configFile`) is accepted only if its content still qualifies; file names are never used.
+   */
+  private async inspect(
+    target: string,
+    configFile?: string,
+  ): Promise<{ inspection: ImportInspection; checked?: Prechecked }> {
     const real = checkSiteLocation(target, this.rules());
     assertDirectory(real);
     assertNoGitSymlink(real);
     const siteYaml = path.join(real, "site.yaml");
-    if (!fs.existsSync(siteYaml) || !fs.lstatSync(siteYaml).isFile()) throw new SiteError("site.no_site_yaml", 400);
+    const hasSiteYaml = fs.existsSync(siteYaml) && fs.lstatSync(siteYaml).isFile();
+    let renameFrom: string | undefined;
+    if (!hasSiteYaml) {
+      // A symbolic link or a directory under that name must not be written through by the rename.
+      if (fs.lstatSync(siteYaml, { throwIfNoEntry: false })) throw new SiteError("site.no_site_yaml", 400);
+      const candidates = findConfigCandidates(real);
+      if (candidates.length === 0) throw new SiteError("site.no_site_yaml", 400);
+      if (configFile === undefined) return { inspection: { kind: "pick_config", path: real, candidates } };
+      if (!candidates.includes(configFile)) throw new SiteError("site.bad_config_file", 400);
+      renameFrom = configFile;
+    }
 
     const top = await this.toplevel(real);
-    if (top === null) return { inspection: { kind: "not_git", path: real, files: await this.filesForInit(real) } };
+    if (top === null) {
+      const files = await this.filesForInit(real);
+      // The first commit will hold the renamed file, so the list the user confirms shows site.yaml.
+      const shown = renameFrom ? files.map((f) => (f === renameFrom ? "site.yaml" : f)).sort() : files;
+      return { inspection: { kind: "not_git", path: real, files: shown, ...(renameFrom ? { renameFrom } : {}) } };
+    }
     // git does not say where a repository it refuses starts, so require .git right here.
     const isRoot = top === "dubious" ? fs.existsSync(path.join(real, ".git")) : fs.realpathSync.native(top) === real;
     if (!isRoot) throw new SiteError("site.not_repo_root", 400);
@@ -269,6 +292,12 @@ export class SiteService {
     }
     const status = await this.opts.git.text(["status", "--porcelain=v1", "-z", "--untracked-files=no"], { cwd: real });
     if (status.length > 0) throw new SiteError("site.dirty", 409);
+    if (renameFrom) {
+      // The rename is committed, so the file must be tracked; the guard runs on the commit made after it.
+      const tracked = await this.opts.git.text(["ls-files", "-z", "--", renameFrom], { cwd: real });
+      if (!splitZ(tracked).includes(renameFrom)) throw new SiteError("site.dirty", 409);
+      return { inspection: { kind: "git", path: real, branch, readOnly: null, renameFrom } };
+    }
     const guard = await guardCommit(this.opts.git, real, commit);
     return {
       inspection: { kind: "git", path: real, branch, readOnly: guard.ok ? null : guard.reasons },
@@ -279,14 +308,47 @@ export class SiteService {
   async import(req: ImportSiteRequest): Promise<Site> {
     const real = checkSiteLocation(req.path, this.rules());
     const site = await this.reserved(real, async () => {
-      const { inspection, checked } = await this.inspect(real);
-      const name = req.name ?? siteTitle(real) ?? path.basename(real);
-      if (inspection.kind === "git") return this.register(real, name, inspection.branch, checked);
+      const first = await this.inspect(real, req.renameConfig);
+      if (first.inspection.kind === "pick_config") throw new SiteError("site.no_site_yaml", 400);
+      if (first.inspection.kind === "git") {
+        let { checked } = first;
+        if (first.inspection.renameFrom) {
+          await this.renameConfigInGit(real, first.inspection.renameFrom, this.commitIdentity());
+          // The guard and the site's name must see the renamed file.
+          checked = (await this.inspect(real)).checked;
+        }
+        const name = req.name ?? siteTitle(real) ?? path.basename(real);
+        return this.register(real, name, first.inspection.branch, checked);
+      }
       if (!req.initGit) throw new SiteError("site.not_git", 409);
-      await this.initForImport(real, req.initGit.files, this.commitIdentity());
+      const identity = this.commitIdentity();
+      const renamed = first.inspection.renameFrom;
+      if (renamed) fs.renameSync(path.join(real, renamed), path.join(real, "site.yaml"));
+      try {
+        await this.initForImport(real, req.initGit.files, identity);
+      } catch (err) {
+        if (renamed) fs.renameSync(path.join(real, "site.yaml"), path.join(real, renamed));
+        throw err;
+      }
+      const name = req.name ?? siteTitle(real) ?? path.basename(real);
       return this.register(real, name, "main");
     });
     return this.added(site);
+  }
+
+  /** Rename the chosen config file to site.yaml in its own commit; a failure puts everything back. */
+  private async renameConfigInGit(real: string, from: string, identity: Record<string, string>) {
+    const { git } = this.opts;
+    await git.run(["mv", "--", from, "site.yaml"], { cwd: real });
+    try {
+      await git.run(["commit", "-q", "--no-verify", "-m", `Rename ${from} to site.yaml`], {
+        cwd: real,
+        config: identity,
+      });
+    } catch (err) {
+      await git.run(["mv", "--", "site.yaml", from], { cwd: real }).catch(() => undefined);
+      throw err;
+    }
   }
 
   /** `git init` an existing directory after the user confirmed exactly which files go into the first commit. */

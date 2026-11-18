@@ -129,7 +129,8 @@ export const api = {
   sites: () => request<Site[]>("/sites"),
   site: (id: string) => request<Site>(`/sites/${id}`),
   createSite: (req: CreateSiteRequest) => post<Site>("/sites", req),
-  inspectImport: (path: string) => post<ImportInspection>("/sites/import/inspect", { path }),
+  inspectImport: (path: string, configFile?: string) =>
+    post<ImportInspection>("/sites/import/inspect", { path, ...(configFile ? { configFile } : {}) }),
   importSite: (req: ImportSiteRequest) => post<Site>("/sites/import", req),
   patchSite: (id: string, patch: SitePatch) =>
     request<Site>(`/sites/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),

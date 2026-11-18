@@ -278,6 +278,70 @@ describe("import a site (plan 5.1)", () => {
     expect(await code(path.join(userHome, "missing"))).toBe("fs.not_found");
   });
 
+  it("offers root YAML files by content only, and renames the chosen one to site.yaml", async () => {
+    const { call, identity } = setup();
+    await identity();
+    const config = "site:\n  title: Zhang\ntheme:\n  name: starter\n";
+    const make = (name: string, git: boolean) => {
+      const dir = path.join(userHome, name);
+      fs.mkdirSync(dir);
+      // Content decides: a name with "site" in it but no site mapping is no candidate, and a name without is.
+      fs.writeFileSync(path.join(dir, "zhangsan_site.yaml"), "foo: 1\n");
+      fs.writeFileSync(path.join(dir, "kebab.yml"), config);
+      fs.writeFileSync(path.join(dir, "other.yaml"), "site: plain\ntheme: x\n");
+      if (git) {
+        raw(dir, "init", "-q", "-b", "main");
+        commitAll(dir);
+      }
+      return dir;
+    };
+
+    const gitDir = make("imp-rename-git", true);
+    const picked = await call<ImportInspection>("POST", "/api/sites/import/inspect", { path: gitDir });
+    expect(picked.json).toEqual({ kind: "pick_config", path: gitDir, candidates: ["kebab.yml"] });
+    const bad = await call<{ code: string }>("POST", "/api/sites/import/inspect", {
+      path: gitDir,
+      configFile: "zhangsan_site.yaml",
+    });
+    expect(bad.json.code).toBe("site.bad_config_file");
+    const chosen = await call<ImportInspection>("POST", "/api/sites/import/inspect", {
+      path: gitDir,
+      configFile: "kebab.yml",
+    });
+    expect(chosen.json).toMatchObject({ kind: "git", renameFrom: "kebab.yml" });
+    expect(fs.existsSync(path.join(gitDir, "kebab.yml"))).toBe(true);
+
+    const imported = await call<Site>("POST", "/api/sites/import", { path: gitDir, renameConfig: "kebab.yml" });
+    expect(imported.status).toBe(201);
+    expect(fs.existsSync(path.join(gitDir, "site.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(gitDir, "kebab.yml"))).toBe(false);
+    expect(raw(gitDir, "log", "-1", "--format=%s").trim()).toBe("Rename kebab.yml to site.yaml");
+
+    const plain = make("imp-rename-plain", false);
+    const inspected = await call<ImportInspection>("POST", "/api/sites/import/inspect", {
+      path: plain,
+      configFile: "kebab.yml",
+    });
+    expect(inspected.json).toMatchObject({ kind: "not_git", renameFrom: "kebab.yml" });
+    const files = (inspected.json as { files: string[] }).files;
+    expect(files).toContain("site.yaml");
+    expect(files).not.toContain("kebab.yml");
+    expect(fs.existsSync(path.join(plain, "kebab.yml"))).toBe(true);
+    const ok = await call<Site>("POST", "/api/sites/import", {
+      path: plain,
+      renameConfig: "kebab.yml",
+      initGit: { files },
+    });
+    expect(ok.status).toBe(201);
+    expect(fs.existsSync(path.join(plain, "site.yaml"))).toBe(true);
+
+    const none = path.join(userHome, "imp-rename-none");
+    fs.mkdirSync(none);
+    fs.writeFileSync(path.join(none, "a.yaml"), "foo: 1\n");
+    const res = await call<{ code: string }>("POST", "/api/sites/import/inspect", { path: none });
+    expect(res.json.code).toBe("site.no_site_yaml");
+  });
+
   it("imports a repository with unsafe config read-only, without running anything", async () => {
     const { call, paths } = setup();
     const dir = starterRepo("imp-hostile");

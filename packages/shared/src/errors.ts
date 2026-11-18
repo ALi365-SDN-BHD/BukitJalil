@@ -35,6 +35,7 @@ export const errorCodes = [
   "site.path_overlaps_site",
   "site.already_registered",
   "site.no_site_yaml",
+  "site.bad_config_file",
   "site.not_repo_root",
   "site.git_symlink",
   "site.not_git",

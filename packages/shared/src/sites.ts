@@ -37,12 +37,25 @@ export const CreateSiteRequest = z
   .strict();
 export type CreateSiteRequest = z.infer<typeof CreateSiteRequest>;
 
-export const InspectImportRequest = z.object({ path: AbsolutePath }).strict();
+/** A file in the folder's root: a plain name, no path parts. */
+const RootFileName = z
+  .string()
+  .min(1)
+  .max(255)
+  .refine((n) => !/[/\\\0]/.test(n) && n !== "." && n !== "..");
+
+export const InspectImportRequest = z.object({ path: AbsolutePath, configFile: RootFileName.optional() }).strict();
+export type InspectImportRequest = z.infer<typeof InspectImportRequest>;
 
 export const ImportSiteRequest = z
   .object({
     path: AbsolutePath,
     name: SiteName.optional(),
+    /**
+     * The folder has no site.yaml: the user picked this root file as the site config and agreed to
+     * rename it to site.yaml (committed in a git repository, before `git init` otherwise).
+     */
+    renameConfig: RootFileName.optional(),
     /**
      * Only for a directory that is not a git repository: the user agreed to `git init` and saw exactly
      * these files (from the inspect response) go into the first commit. A different list is refused.
@@ -57,8 +70,11 @@ export type ImportSiteRequest = z.infer<typeof ImportSiteRequest>;
 
 /** What import would do with a directory; nothing is changed by inspecting. */
 export type ImportInspection =
-  | { kind: "git"; path: string; branch: string; readOnly: SiteReason[] | null }
-  | { kind: "not_git"; path: string; files: string[] };
+  /** No site.yaml, but these root files look like a site config; the user picks one to rename. */
+  | { kind: "pick_config"; path: string; candidates: string[] }
+  /** `renameFrom`: the chosen config file that import renames to site.yaml first. */
+  | { kind: "git"; path: string; branch: string; readOnly: SiteReason[] | null; renameFrom?: string }
+  | { kind: "not_git"; path: string; files: string[]; renameFrom?: string };
 
 export const SitePatch = z.object({ name: SiteName.optional(), archived: z.boolean().optional() }).strict();
 export type SitePatch = z.infer<typeof SitePatch>;

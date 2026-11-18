@@ -265,6 +265,8 @@ BukitJalil/
 3. 检查通过后才创建 `worktrees/<siteId>/main/` 检出。不通过时网站仍可导入，标记为"**只读：不满足安全规则**"，界面列出原因（例如使用了外部插件、路径越界、包含符号链接）；这类网站可以浏览文件、配置，但不能构建、不能开 AI 会话，也不会创建任何检出
 4. 然后在 `main/` 检出里执行 `bukit config check`；失败标记"配置有误"，仍可以开 AI 会话让 AI 修复
 
+> **配置文件改名**（2026-11-18）：根目录没有 `site.yaml` 时，只按内容找候选，不看文件名：根目录的 `*.yaml` / `*.yml`（普通文件、不是符号链接、不超过 1 MiB、`failsafe` 解析），顶层有 `site` 映射且有 `theme` 键（`sites/config-candidates.ts`）。没有候选报 `site.no_site_yaml`；有候选时检查结果为 `pick_config`，用户选一个后再检查（`configFile`，服务端重新核对内容，否则 `site.bad_config_file`），勾选同意后导入时改名：git 仓库里文件必须已被跟踪且没有未提交改动，用 `git mv` 加单独一次提交 `Rename <旧名> to site.yaml`（提交失败就改回）；非 git 目录在 `git init` 之前改名，失败改回，确认的文件列表里显示 `site.yaml`。其他引用旧文件名的地方（脚本、README）不自动改。
+
 > 限制：Bukit 的外部插件（如官方的 IndexNow、WechatSync、Import）在 BukitJalil 里不被支持，使用了它们的网站只能以只读方式导入。
 >
 > 限制：使用 Notion 数据源的网站，Bukit 的 `config check`、`doctor`、`build` 在没有 `NOTION_TOKEN` 时直接报错（已核对 2.0.8 和 2.0.11 源码 `ProviderValidators.cs`、`DoctorCommand.cs`），而未审核内容的构建按 8.5 不传密钥。所以这类网站的 AI 检查、AI 构建和改动集预览在 MVP 里不可用：`bukit_check` / `bukit_build` 直接返回"此网站使用 Notion 数据源，AI 构建不可用"，不调用 Bukit，避免 AI 反复处理它修不了的错误；正式版本的构建传 token。（M7 之后：token 按 Notion 数据源保存，网站在 `sites.notion_data_source_id` 里选用一个数据源；正式版本的每次构建都会传这个 token，包括用户点"应用"后的自动重建——应用本身是用户操作。见 6.5。）M1 已确认不行：Notion 源有 `cacheMode: readonly`，但 Bukit 在读取缓存模式之前就要求 token（源码 `ContentProviderFactory.cs`），2.0.8 和 2.0.11 实测 `cacheMode: readonly` 且没有 token 时 check / doctor / build 仍分别返回 1 / 1 / 2。
