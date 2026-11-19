@@ -209,6 +209,8 @@ const themes = new ThemeService({
   locks,
   repos,
   otherProjects: () => sites.list(),
+  newSite: bukitNewSite(bukit, { git, home: paths.home, tmpDir: paths.bukitTmp }),
+  themeDemo: resources.themeDemo,
 });
 const projects = new ProjectService(sites, themes, repos);
 
@@ -218,6 +220,10 @@ const rg = new RgService({ piBin: paths.piBin });
 const skillsDir = resources.skills;
 if (!fs.existsSync(path.join(skillsDir, "bukitjalil", "site-editing", "SKILL.md"))) {
   fail(`BukitJalil's AI skills are missing: ${skillsDir}`);
+}
+// New theme projects copy it (theme development design 3.4).
+if (!fs.existsSync(path.join(resources.themeDemo, "content", "posts"))) {
+  fail(`BukitJalil's theme sample content is missing: ${resources.themeDemo}`);
 }
 const changes = new ChangeService({
   db,

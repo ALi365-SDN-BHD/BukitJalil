@@ -324,6 +324,18 @@ export class ProjectRepos {
     return ref;
   }
 
+  /**
+   * Make the repository of a newly written project at `real` (plan 5.2): `main`, the exclude block, and one
+   * commit with every file. -b main because global config (init.defaultBranch) is not read.
+   */
+  async commitNew(real: string, identity: Record<string, string>, message: string): Promise<void> {
+    const { git } = this.opts;
+    await git.run(["init", "-q", "-b", "main"], { cwd: real, repoCheck: false });
+    writeExcludeBlock(await this.commonDir(real));
+    await git.run(["add", "-A"], { cwd: real });
+    await git.run(["commit", "-q", "--no-verify", "-m", message], { cwd: real, config: identity });
+  }
+
   async commonDir(cwd: string): Promise<string> {
     const out = await this.opts.git.text(["rev-parse", "--path-format=absolute", "--git-common-dir"], {
       cwd,

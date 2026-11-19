@@ -21,7 +21,14 @@ import { gitSymlink, type Prechecked, ProjectRepos, type ProjectState } from "..
 import type { SettingsStore } from "../store/settings.ts";
 import { findConfigCandidates } from "./config-candidates.ts";
 import { EXCLUDE_PATTERNS, IMPORT_INIT_PATTERNS, writeExcludeBlock } from "./exclude.ts";
-import { assertDirectory, assertEmptyOrMissing, checkSiteLocation, SiteError } from "./location.ts";
+import {
+  assertDirectory,
+  assertEmptyOrMissing,
+  checkSiteLocation,
+  commitIdentity,
+  removeCreated,
+  SiteError,
+} from "./location.ts";
 import type { SiteLocks } from "./locks.ts";
 import { NotionSnapshots } from "./notion-snapshots.ts";
 import { isSiteId, newSiteId, SiteStore } from "./store.ts";
@@ -164,9 +171,7 @@ export class SiteService {
 
   /** The commit identity from the settings, as git config (400 `site.identity_required` when unset). */
   commitIdentity(): { "user.name": string; "user.email": string } {
-    const { commitName, commitEmail } = this.opts.settings.get();
-    if (!commitName || !commitEmail) throw new SiteError("site.identity_required", 400);
-    return { "user.name": commitName, "user.email": commitEmail };
+    return commitIdentity(this.opts.settings);
   }
 
   // --- create (plan 5.2) ---
@@ -181,12 +186,7 @@ export class SiteService {
       try {
         await this.opts.newSite(real, { title: req.name, language: req.language });
         if (selected) writeSources(real, selected.sources);
-        const { git } = this.opts;
-        // -b main: global config (init.defaultBranch) is not read, so git would pick "master".
-        await git.run(["init", "-q", "-b", "main"], { cwd: real, repoCheck: false });
-        writeExcludeBlock(await this.repos.commonDir(real));
-        await git.run(["add", "-A"], { cwd: real });
-        await git.run(["commit", "-q", "--no-verify", "-m", INITIAL_MESSAGE], { cwd: real, config: identity });
+        await this.repos.commitNew(real, identity, INITIAL_MESSAGE);
       } catch (err) {
         removeCreated(real, existed);
         throw err;
@@ -473,15 +473,6 @@ function siteTitle(dir: string, configFile: string): string | null {
 
 function assertNoGitSymlink(real: string): void {
   if (gitSymlink(real)) throw new SiteError("site.git_symlink", 400);
-}
-
-/** Undo a failed create: remove the directory, or only its contents when it existed (empty) before. */
-function removeCreated(dir: string, existed: boolean): void {
-  if (!existed) {
-    fs.rmSync(dir, { recursive: true, force: true });
-    return;
-  }
-  for (const name of fs.readdirSync(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
 }
 
 // Built-in site.data keys, so a database titled like one of them gets a safe name.

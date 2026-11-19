@@ -29,7 +29,7 @@ if (process.env.BUKITJALIL_DESKTOP_PROFILE)
 
 const packaged = app.isPackaged;
 const repoRoot = path.resolve(__dirname, "../../..");
-// Packaged layout (plan M7 layer 4): Resources/app/{server.mjs, skills, web, bukit}.
+// Packaged layout (plan M7 layer 4): Resources/app/{server.mjs, skills, web, bukit, theme-demo}.
 const resources = packaged ? path.join(process.resourcesPath, "app") : repoRoot;
 const statusPage = path.join(__dirname, "status.html");
 // Window and taskbar icon on Windows and Linux (macOS takes the app's .icns). Next to main.cjs in the

@@ -1,12 +1,29 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { type ProjectKey, projectKey, type SitePatch, type Theme, type ThemeOrigin } from "@bukitjalil/shared";
+import {
+  type CreateThemeRequest,
+  DEFAULT_CONFIG_FILE,
+  type ProjectKey,
+  projectKey,
+  type SitePatch,
+  type Theme,
+  type ThemeOrigin,
+} from "@bukitjalil/shared";
 import type { GuardResult } from "../bukit/guard.ts";
 import type { AppPaths } from "../paths.ts";
 import type { Prechecked, ProjectRepos, ProjectState } from "../projects/repo.ts";
-import { checkSiteLocation, SiteError } from "../sites/location.ts";
+import {
+  assertEmptyOrMissing,
+  checkSiteLocation,
+  commitIdentity,
+  removeCreated,
+  SiteError,
+} from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
+import type { NewSite } from "../sites/template.ts";
 import type { SettingsStore } from "../store/settings.ts";
+import { makeThemeProject } from "./demo.ts";
 import { newThemeId, ThemeStore } from "./store.ts";
 
 export interface ThemeServiceOptions {
@@ -19,15 +36,20 @@ export interface ThemeServiceOptions {
   repos: ProjectRepos;
   /** Directories of the registered sites: a theme project may not overlap them (design 3.1). */
   otherProjects: () => { name: string; path: string }[];
+  /** `bukit new` (plan 5.2): a new theme project starts as Bukit's starter site. */
+  newSite: NewSite;
+  /** The bundled sample content (design 3.4): `<themeDemo>/content/` replaces the starter's. */
+  themeDemo: string;
 }
+
+const INITIAL_MESSAGE = "Initial theme project from BukitJalil starter";
 
 /** The project key of a theme project. */
 export const themeKey = (id: string): ProjectKey => projectKey({ kind: "theme", id });
 
 /**
- * Theme projects (theme development design 3.2): registration, safety state and removal. Like a site, a
- * theme project that fails the repository or pre-build checks is kept but read-only. Making one (new,
- * import, clone) comes with T1–T3.
+ * Theme projects (theme development design 3.2): making, registration, safety state and removal. Like a
+ * site, a theme project that fails the repository or pre-build checks is kept but read-only.
  */
 export class ThemeService {
   readonly store: ThemeStore;
@@ -72,6 +94,34 @@ export class ThemeService {
   }
 
   /**
+   * A new theme project from Bukit's starter (design 4): the starter theme renamed to `themeName`, the bundled
+   * sample content, a git repository with one commit, then the usual checks and first build (plan 5.2).
+   */
+  async create(req: CreateThemeRequest): Promise<Theme> {
+    const identity = commitIdentity(this.opts.settings);
+    const real = this.location(req.path);
+    return this.opts.repos.reserved(real, async () => {
+      assertEmptyOrMissing(real);
+      const existed = fs.existsSync(real);
+      try {
+        await this.opts.newSite(real, { title: req.name, language: req.language });
+        makeThemeProject(real, { name: req.themeName, displayName: req.name }, this.opts.themeDemo);
+        await this.opts.repos.commitNew(real, identity, INITIAL_MESSAGE);
+      } catch (err) {
+        removeCreated(real, existed);
+        throw err;
+      }
+      return this.register(real, {
+        name: req.name,
+        themeName: req.themeName,
+        defaultBranch: "main",
+        configFile: DEFAULT_CONFIG_FILE,
+        origin: "new",
+      });
+    });
+  }
+
+  /**
    * Record a repository the caller made or checked at `real` (T1–T3) and run the safety checks; the
    * caller holds the path with `repos.reserved`. The location rules are checked again here.
    */
@@ -86,7 +136,7 @@ export class ThemeService {
     try {
       this.store.insert({ id, path: real, ...entry });
     } catch (err) {
-      if (/UNIQUE/i.test((err as Error).message)) throw new SiteError("site.already_registered", 409);
+      if (/UNIQUE/i.test((err as Error).message)) throw new SiteError("theme.already_registered", 409);
       throw err;
     }
     this.opts.settings.update({ lastParentDir: path.dirname(real) });

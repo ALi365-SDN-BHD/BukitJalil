@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ErrorCode, FsDirsResponse } from "@bukitjalil/shared";
 import { GitError } from "../git/run.ts";
+import type { SettingsStore } from "../store/settings.ts";
 
 /** An expected failure with an API error code (plan 10.1); the route maps it to a JSON error. */
 export class SiteError extends Error {
@@ -139,4 +140,20 @@ export function listDirs(dir: string | undefined, opts: { hidden?: boolean; user
     .sort((a, b) => a.localeCompare(b));
   const parent = path.dirname(real);
   return { path: real, parent: parent === real ? null : parent, dirs };
+}
+
+/** Undo a failed create: remove the directory, or only its contents when it existed (empty) before. */
+export function removeCreated(dir: string, existed: boolean): void {
+  if (!existed) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    return;
+  }
+  for (const name of fs.readdirSync(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+}
+
+/** The commit identity from the settings, as git config (400 `site.identity_required` when unset). */
+export function commitIdentity(settings: SettingsStore): { "user.name": string; "user.email": string } {
+  const { commitName, commitEmail } = settings.get();
+  if (!commitName || !commitEmail) throw new SiteError("site.identity_required", 400);
+  return { "user.name": commitName, "user.email": commitEmail };
 }

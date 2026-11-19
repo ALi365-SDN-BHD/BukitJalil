@@ -157,6 +157,8 @@ export function makeApp(
     locks,
     repos,
     otherProjects: () => sites.list(),
+    newSite: async (target, values) => writeStarter(target, values),
+    themeDemo: path.join(import.meta.dirname, "..", "assets", "theme-demo"),
   });
   const projects = new ProjectService(sites, themes, repos);
   const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);

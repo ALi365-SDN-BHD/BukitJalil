@@ -1,4 +1,4 @@
-import { SitePatch } from "@bukitjalil/shared";
+import { CreateThemeRequest, SitePatch } from "@bukitjalil/shared";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
 import type { BuildService } from "../builds/service.ts";
@@ -13,10 +13,19 @@ export interface ThemeRouteDeps {
 
 /**
  * Theme projects (theme development design 3.3). Their conversations, change sets, builds, previews and
- * panels are the project routes under /themes/:themeId; making one comes with T1–T3.
+ * panels are the project routes under /themes/:themeId. New ones come from a description (T1); import and
+ * clone come with T2 and T3.
  */
 export function themeRoutes(api: Hono<AppEnv>, { themes, builds }: ThemeRouteDeps) {
   api.get("/themes", (c) => c.json(themes.list()));
+
+  api.post("/themes", (c) =>
+    handle(c, async () => {
+      const req = await body(c, CreateThemeRequest);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      return c.json(await themes.create(req), 201);
+    }),
+  );
 
   api.get("/themes/:themeId", (c) => handle(c, () => c.json(themes.get(c.req.param("themeId")))));
 

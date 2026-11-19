@@ -1,4 +1,5 @@
-import type { ConfigCheck, SiteReason } from "./sites.ts";
+import { z } from "zod";
+import { AbsolutePath, type ConfigCheck, SiteLanguage, SiteName, type SiteReason } from "./sites.ts";
 
 /**
  * Projects (theme development design 3.2, 3.3): a site or a theme project. Both are git repositories that
@@ -61,3 +62,29 @@ export interface Theme {
   configFile: string;
   origin: ThemeOrigin;
 }
+
+/**
+ * A Bukit theme's directory name and `theme.name`: Bukit's characters ([A-Za-z0-9_.-], no "..", not a
+ * Windows device name), starting with a letter or digit so it is never hidden or read as an option.
+ */
+export const ThemeName = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/)
+  .refine((s) => !s.includes(".."), "must not contain ..")
+  .refine((s) => !/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(s), "must not be a Windows device name");
+
+/**
+ * A new theme project from a description (design 4): Bukit's starter with the theme renamed and the bundled
+ * sample content. The description and reference images go into the first conversation, not this request.
+ */
+export const CreateThemeRequest = z
+  .object({
+    /** Display name of the project; also the sample site's title. */
+    name: SiteName,
+    themeName: ThemeName,
+    /** The new project directory itself; it must not exist or be empty. */
+    path: AbsolutePath,
+    language: SiteLanguage,
+  })
+  .strict();
+export type CreateThemeRequest = z.infer<typeof CreateThemeRequest>;

@@ -22,17 +22,19 @@ export function resolveAppHome(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(override && override.length > 0 ? override : path.join(os.homedir(), ".bukitjalil"));
 }
 
-/** Files the server ships with: the AI skills, the built web pages and Bukit. */
+/** Files the server ships with: the AI skills, the built web pages, Bukit and the theme sample content. */
 export interface ResourcePaths {
   skills: string;
   web: string;
   /** The directory holding the bundled Bukit executable (plan 8.1). */
   bukit: string;
+  /** Sample content for theme projects (theme development design 3.4). */
+  themeDemo: string;
 }
 
 /**
  * Where those files are (plan M7, 8.1): BUKITJALIL_RESOURCES names the desktop app's resources folder
- * (skills/, web/, bukit/); without it they are read from the repository, with Bukit in
+ * (skills/, web/, bukit/, theme-demo/); without it they are read from the repository, with Bukit in
  * vendor/bukit-<version>/ from `pnpm fetch:bukit`. BUKITJALIL_BUKIT_DIR picks another Bukit directory, for
  * tests and CI only: the packaged app (BUKITJALIL_RESOURCES set) always uses the copy it ships with.
  */
@@ -44,6 +46,7 @@ export function resolveResources(repoRoot: string, env: NodeJS.ProcessEnv = proc
       skills: path.join(dir, "skills"),
       web: path.join(dir, "web"),
       bukit: path.join(dir, "bukit"),
+      themeDemo: path.join(dir, "theme-demo"),
     };
   }
   const bukitDir = env.BUKITJALIL_BUKIT_DIR;
@@ -52,6 +55,7 @@ export function resolveResources(repoRoot: string, env: NodeJS.ProcessEnv = proc
     skills: path.join(repoRoot, "skills"),
     web: path.join(repoRoot, "packages", "web", "dist"),
     bukit: bukit ?? devBukitDir(repoRoot),
+    themeDemo: path.join(repoRoot, "packages", "server", "assets", "theme-demo"),
   };
 }
 

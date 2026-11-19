@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { CurrentChange, SessionInfo, Theme, TreeResponse } from "@bukitjalil/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SettingsStore } from "../src/store/settings.ts";
 import { themeKey } from "../src/themes/service.ts";
 import { writeStarter } from "./fixtures/starter.ts";
 import { ADMIN, commitAllAs, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
@@ -48,10 +49,10 @@ async function theme(): Promise<Theme> {
 const call = (method: string, url: string, body?: unknown) =>
   ctx.app.fetch(
     req(url, {
-      method,
       ...(body === undefined
         ? { headers: { origin: ADMIN, "x-bukitjalil": "1", "content-type": "application/json" } }
         : jsonPut(body)),
+      method,
     }),
   );
 
@@ -162,5 +163,70 @@ describe("theme projects (T0)", () => {
     // The theme project's folder stays, and so does the site.
     expect(fs.existsSync(path.join(t.path, "site.yaml"))).toBe(true);
     expect((await call("GET", `/api/sites/${s.id}`)).status).toBe(200);
+  });
+});
+
+describe("new theme projects (T1)", () => {
+  const create = (body: unknown) => call("POST", "/api/themes", body);
+  beforeAll(() => {
+    new SettingsStore(ctx.db).update({ commitName: "Theme Owner", commitEmail: "owner@example.com" });
+  });
+
+  it("makes a theme project from the starter with the theme renamed and the sample content", async () => {
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    const res = await create({ name: "Aurora", themeName: "aurora", path: dir, language: "en-US" });
+    expect(res.status).toBe(201);
+    const t = (await res.json()) as Theme;
+    await ctx.builds.settled();
+    expect(t).toMatchObject({ name: "Aurora", themeName: "aurora", origin: "new", defaultBranch: "main" });
+    expect(fs.existsSync(path.join(dir, "themes", "starter"))).toBe(false);
+    const manifest = fs.readFileSync(path.join(dir, "themes", "aurora", "theme.yaml"), "utf8");
+    expect(manifest).toMatch(/^name: aurora$/m);
+    expect(manifest).toMatch(/^display_name: Aurora$/m);
+    expect(fs.readFileSync(path.join(dir, "site.yaml"), "utf8")).toMatch(/^theme:\n {2}name: aurora$/m);
+    // The bundled sample content replaced the starter's: posts for a second list page, and the pages.
+    expect(fs.readdirSync(path.join(dir, "content", "posts"))).toHaveLength(12);
+    expect(fs.readdirSync(path.join(dir, "content", "pages")).sort()).toEqual([
+      "about.md",
+      "contact.md",
+      "style-guide.md",
+    ]);
+    // One commit with everything in it, and a usable project.
+    expect(rawGit(base, dir, "rev-list", "--count", "HEAD").trim()).toBe("1");
+    expect(rawGit(base, dir, "status", "--porcelain").trim()).toBe("");
+    expect(ctx.themes.get(t.id).readOnly).toBeNull();
+  });
+
+  it("keeps the starter directory when the theme is called starter", async () => {
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    const res = await create({ name: "Plain", themeName: "starter", path: dir, language: "en-US" });
+    expect(res.status).toBe(201);
+    await ctx.builds.settled();
+    expect(fs.existsSync(path.join(dir, "themes", "starter", "theme.yaml"))).toBe(true);
+  });
+
+  it("refuses a bad theme name, a used folder and a folder inside a site, and leaves nothing behind", async () => {
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    for (const themeName of ["../x", ".hidden", "-opt", "con", "a/b", "a..b", ""]) {
+      const res = await create({ name: "Bad", themeName, path: dir, language: "en-US" });
+      expect(res.status, themeName).toBe(400);
+    }
+    expect(fs.existsSync(dir)).toBe(false);
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "keep.txt"), "mine");
+    const used = await create({ name: "Used", themeName: "used", path: dir, language: "en-US" });
+    expect(used.status).toBe(409);
+    expect(await used.json()).toMatchObject({ code: "site.path_not_empty" });
+    expect(fs.readdirSync(dir)).toEqual(["keep.txt"]);
+    const s = await ctx.sites.import({ path: repo("site") });
+    await ctx.builds.settled();
+    const inside = await create({
+      name: "Inside",
+      themeName: "inside",
+      path: path.join(s.path, "t"),
+      language: "en-US",
+    });
+    expect(inside.status).toBe(409);
+    expect(await inside.json()).toMatchObject({ code: "site.path_overlaps_site" });
   });
 });
