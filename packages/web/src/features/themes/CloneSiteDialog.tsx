@@ -1,4 +1,4 @@
-import { type Theme, ThemeName } from "@bukitjalil/shared";
+import type { Theme } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Globe } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -8,14 +8,13 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Field, Input } from "@/components/ui/input";
 import { selectedModelReadsImages } from "@/features/chat/attachments";
 import { setComposerDraft, setComposerImages } from "@/features/chat/drafts";
-import { DirPicker, joinPath } from "@/features/sites/DirPicker";
-import { IdentityFields, useIdentity } from "@/features/sites/identity";
-import { folderFromName, LANGUAGES } from "@/features/sites/NewSiteDialog";
+import { useIdentity } from "@/features/sites/identity";
 import { useI18n } from "@/i18n";
 import { api, fileUrl, keys } from "@/lib/api";
 import { type CapturePreflight, type CaptureProgress, type CaptureResult, desktopBridge } from "@/lib/desktop";
 import { fileToBase64 } from "@/lib/files";
 import { themeKey } from "@/lib/project";
+import { ThemeProjectFields, themeTarget } from "./ThemeProjectFields";
 
 /**
  * Clone the user's own site into a theme (theme development design 6): preflight the addresses (same origin,
@@ -46,10 +45,7 @@ export function CloneSiteDialog({ onClose, onCreated }: { onClose: () => void; o
   const [language, setLanguage] = useState({ "zh-CN": "zh-CN", en: "en-US", ms: "ms-MY" }[locale]);
   const [parent, setParent] = useState<string | null>(null);
   const [folder, setFolder] = useState<string | null>(null);
-  const directory = themeName ?? folderFromName(name, "theme");
-  const directoryValid = ThemeName.safeParse(directory).success;
-  const start = parent ?? settings.data?.lastParentDir ?? null;
-  const target = start ? joinPath(start, folder ?? folderFromName(name, "theme")) : null;
+  const target = themeTarget({ name, themeName, folder, parent, lastParentDir: settings.data?.lastParentDir });
   const urls = [homepage, ...more.split("\n")].map((x) => x.trim()).filter(Boolean);
 
   useEffect(() => {
@@ -103,12 +99,12 @@ export function CloneSiteDialog({ onClose, onCreated }: { onClose: () => void; o
 
   const create = useMutation({
     mutationFn: async () => {
-      if (!captured || !target) throw new Error("no capture");
+      if (!captured || !target.target) throw new Error("no capture");
       await identity.save();
       const theme: Theme = await api.createTheme({
         name: name.trim(),
-        themeName: directory,
-        path: target,
+        themeName: target.directory,
+        path: target.target,
         language,
         origin: "clone",
         captureId: captured.captureId,
@@ -188,7 +184,12 @@ export function CloneSiteDialog({ onClose, onCreated }: { onClose: () => void; o
               <fieldset className="flex flex-wrap items-center gap-3 text-sm">
                 <legend className="text-sm font-medium">{n.options}</legend>
                 <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={images} onChange={(e) => setImages(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={images}
+                    data-testid="clone-images"
+                    onChange={(e) => setImages(e.target.checked)}
+                  />
                   {n.images}
                 </label>
                 <label className="flex items-center gap-1.5">
@@ -250,58 +251,20 @@ export function CloneSiteDialog({ onClose, onCreated }: { onClose: () => void; o
               <p className="text-sm" data-testid="clone-result">
                 {t(n.result, { pages: captured.pages.length, files: captured.files })}
               </p>
-              <Field label={m.themes.new.name} htmlFor="clone-name">
-                <Input
-                  id="clone-name"
-                  required
-                  maxLength={200}
-                  value={name}
-                  data-testid="clone-name"
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </Field>
-              <Field label={m.themes.new.themeName} htmlFor="clone-theme-name" hint={m.themes.new.themeNameHint}>
-                <Input
-                  id="clone-theme-name"
-                  required
-                  maxLength={64}
-                  value={directory}
-                  aria-invalid={!directoryValid}
-                  data-testid="clone-theme-name"
-                  onChange={(e) => setThemeName(e.target.value)}
-                />
-              </Field>
-              <Field label={m.newSite.language} htmlFor="clone-language" hint={m.themes.new.languageHint}>
-                <select
-                  id="clone-language"
-                  className="h-9 rounded-md border bg-background px-2 text-sm"
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                >
-                  {LANGUAGES.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={m.newSite.parent} htmlFor="clone-parent">
-                <DirPicker id="clone-parent" value={start} onChange={setParent} />
-              </Field>
-              <Field
-                label={m.newSite.folder}
-                htmlFor="clone-folder"
-                hint={target ? t(m.newSite.folderHint, { path: target }) : undefined}
-              >
-                <Input
-                  id="clone-folder"
-                  required
-                  pattern="[^/\\]+"
-                  value={folder ?? folderFromName(name, "theme")}
-                  onChange={(e) => setFolder(e.target.value)}
-                />
-              </Field>
-              {identity.missing && <IdentityFields draft={identity.draft} onChange={identity.setDraft} />}
+              <ThemeProjectFields
+                name={name}
+                onName={setName}
+                themeName={themeName ?? undefined}
+                onThemeName={setThemeName}
+                language={language}
+                onLanguage={setLanguage}
+                parent={parent}
+                onParent={setParent}
+                folder={folder}
+                onFolder={setFolder}
+                lastParentDir={settings.data?.lastParentDir}
+                identity={identity}
+              />
               {create.error && (
                 <p role="alert" className="text-sm text-destructive">
                   {errorOf(create.error)}
@@ -314,7 +277,9 @@ export function CloneSiteDialog({ onClose, onCreated }: { onClose: () => void; o
                 <Button
                   type="submit"
                   data-testid="clone-create"
-                  disabled={create.isPending || !target || !name.trim() || !directoryValid || !identity.ready}
+                  disabled={
+                    create.isPending || !target.target || !name.trim() || !target.directoryValid || !identity.ready
+                  }
                 >
                   {create.isPending ? n.creating : n.create}
                 </Button>

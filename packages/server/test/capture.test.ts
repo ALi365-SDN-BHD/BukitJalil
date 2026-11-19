@@ -18,6 +18,15 @@ describe("captured SVGs (design 6.2)", () => {
     expect(svg).toContain('href="#shape"');
     expect(() => cleanSvg('<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg/>')).toThrow();
   });
+
+  it("removes unquoted and entity-encoded external links too", () => {
+    const svg = cleanSvg(
+      '<svg><image href=https://evil.example/x.png/><image href="&#104;ttps://evil.example/y.png"/><style>.b{background:url(&#104;ttps://evil.example/z.png)}</style><use href="#ok"/></svg>',
+    );
+    expect(svg).not.toContain("evil.example");
+    expect(svg).not.toContain("&#104;");
+    expect(svg).toContain('href="#ok"');
+  });
 });
 
 describe("capture validation (design 6.2)", () => {
@@ -41,7 +50,6 @@ describe("capture validation (design 6.2)", () => {
           id,
           origin: "https://example.com",
           title: "Example",
-          options: { images: false, fonts: false },
           pages: [
             {
               url: "https://example.com/",
@@ -73,7 +81,6 @@ describe("capture validation (design 6.2)", () => {
         id,
         origin: "https://example.com",
         title: "Example",
-        options: { images: false, fonts: false },
         pages: [
           {
             url: "https://other.example/",

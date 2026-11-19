@@ -142,9 +142,8 @@ export type InspectThemeRequest = z.infer<typeof InspectThemeRequest>;
 export interface ThemeCandidate {
   /** What an import request sends back: the theme's directory inside the source. */
   id: string;
-  /** Where it is written in the new project: `themes/<dir>/`. */
+  /** Where it is written in the new project: `themes/<dir>/`; also the theme's name. */
   dir: string;
-  name: string;
   displayName: string | null;
   /** Every directory copied with it, `extends` parents first. */
   includes: string[];

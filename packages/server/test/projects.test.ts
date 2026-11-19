@@ -416,6 +416,72 @@ describe("new theme projects (T1)", () => {
     expect(new TextDecoder().decode(entries["theme.yaml"])).toMatch(/^name: deliver$/m);
   });
 
+  it("keeps the snapshot and files together when reading the change set back fails", async () => {
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    const t = (await (
+      await create({ name: "Rollback", themeName: "rollback", path: dir, language: "en-US" })
+    ).json()) as Theme;
+    await ctx.builds.settled();
+    const s = await ctx.sites.import({ path: repo("rollback-site") });
+    await ctx.builds.settled();
+
+    const original = ctx.changes.current.bind(ctx.changes);
+    let calls = 0;
+    ctx.changes.current = (async (...args: Parameters<typeof original>) => {
+      calls += 1;
+      if (calls === 2) throw new Error("read failed");
+      return original(...args);
+    }) as typeof ctx.changes.current;
+    let res: Response;
+    try {
+      res = await call("POST", `/api/themes/${t.id}/apply`, { siteId: s.id, overwrite: true });
+    } finally {
+      ctx.changes.current = original;
+    }
+    expect(res.status).toBe(201);
+    // The snapshot is the point of no return: the theme is still in the change set and the checkout.
+    const view = await ctx.changes.current(s.id, false);
+    expect(view?.files.map((f) => f.path)).toEqual(expect.arrayContaining(["themes/rollback/theme.yaml"]));
+    expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "themes", "rollback", "theme.yaml"))).toBe(true);
+  });
+
+  it("refuses a theme directory the site's .gitignore keeps out", async () => {
+    const siteDir = repo("ignored-site");
+    fs.appendFileSync(path.join(siteDir, ".gitignore"), "themes/\n");
+    commitAllAs(base, siteDir);
+    const s = await ctx.sites.import({ path: siteDir });
+    await ctx.builds.settled();
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    const t = (await (
+      await create({ name: "Ignored", themeName: "ignored", path: dir, language: "en-US" })
+    ).json()) as Theme;
+    await ctx.builds.settled();
+
+    const res = await call("POST", `/api/themes/${t.id}/apply`, { siteId: s.id, overwrite: true });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "theme.ignored" });
+    // The empty change set this request opened is closed again.
+    expect(ctx.changes.store.open(s.id)).toBeNull();
+  });
+
+  it("keeps an earlier user summary when a theme is applied", async () => {
+    const s = await ctx.sites.import({ path: repo("summary-site") });
+    await ctx.builds.settled();
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    const t = (await (
+      await create({ name: "Summary", themeName: "summary", path: dir, language: "en-US" })
+    ).json()) as Theme;
+    await ctx.builds.settled();
+    const { change } = await ctx.changes.beginUserChange(s.id);
+    ctx.changes.store.setUserSummary(change.id, "User upload");
+
+    const res = await call("POST", `/api/themes/${t.id}/apply`, { siteId: s.id, setConfig: true });
+    expect(res.status).toBe(201);
+    const view = await ctx.changes.current(s.id, false);
+    expect(view?.summary).toContain("User upload");
+    expect(view?.summary).toContain("Applied theme summary");
+  });
+
   it("keeps the starter directory when the theme is called starter", async () => {
     const dir = path.join(base, "home", `new-theme-${++count}`);
     const res = await create({ name: "Plain", themeName: "starter", path: dir, language: "en-US" });
@@ -479,7 +545,7 @@ describe("importing theme projects (T2)", () => {
     expect(inspected.status).toBe(200);
     expect(await inspected.json()).toMatchObject({
       site: null,
-      themes: [{ id: "aurora", dir: "aurora", name: "aurora", includes: ["aurora"], missingParent: null }],
+      themes: [{ id: "aurora", dir: "aurora", includes: ["aurora"], missingParent: null }],
     });
 
     const target = path.join(base, "home", `imported-${++count}`);
@@ -513,7 +579,7 @@ describe("importing theme projects (T2)", () => {
       ),
     );
     expect(await (await inspect(zipped)).json()).toMatchObject({
-      themes: [{ id: ".", dir: "zip-theme", name: "zip-theme", includes: ["zip-theme"], missingParent: null }],
+      themes: [{ id: ".", dir: "zip-theme", includes: ["zip-theme"], missingParent: null }],
     });
     const zipTarget = path.join(base, "home", `imported-${++count}`);
     const zipRes = await importTheme({
@@ -526,6 +592,40 @@ describe("importing theme projects (T2)", () => {
     expect(zipRes.status).toBe(201);
     await ctx.builds.settled();
     expect(fs.existsSync(path.join(zipTarget, "themes", "zip-theme", "layouts", "index.html"))).toBe(true);
+  });
+
+  it("refuses a manifest larger than 1 MiB before reading it", async () => {
+    const root = path.join(base, "sources", `huge-manifest-${++count}`);
+    const source = themeDir(root, "huge");
+    fs.writeFileSync(path.join(source, "theme.yaml"), "x".repeat(1024 * 1024 + 1));
+    const res = await inspect(source);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "theme.too_large" });
+  });
+
+  it("ignores macOS archive metadata when a zip wraps one theme", async () => {
+    const zipped = path.join(base, "sources", `mac-${++count}.zip`);
+    fs.writeFileSync(
+      zipped,
+      Buffer.from(
+        zipSync({
+          "__MACOSX/._wrapped": strToU8("metadata"),
+          ".DS_Store": strToU8("metadata"),
+          "wrapped/theme.yaml": strToU8("name: mac-theme\ndisplay_name: Mac Theme\n"),
+          "wrapped/layouts/index.html": strToU8("<h1>Mac</h1>"),
+        }),
+      ),
+    );
+    expect(await (await inspect(zipped)).json()).toMatchObject({
+      themes: [{ id: ".", dir: "mac-theme", includes: ["mac-theme"], missingParent: null }],
+    });
+    const target = path.join(base, "home", `imported-${++count}`);
+    const res = await importTheme({ source: zipped, theme: ".", path: target, name: "Mac Theme", language: "en-US" });
+    expect(res.status).toBe(201);
+    await ctx.builds.settled();
+    expect(fs.existsSync(path.join(target, "themes", "mac-theme", "theme.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(target, "themes", "mac-theme", ".DS_Store"))).toBe(false);
+    expect(fs.existsSync(path.join(target, "themes", "mac-theme", "__MACOSX"))).toBe(false);
   });
 
   it("takes a theme from a site folder, brings its parent, and filters .env and node_modules", async () => {
@@ -555,7 +655,7 @@ describe("importing theme projects (T2)", () => {
     const siteDir = repo("import-site");
     expect(await (await inspect(siteDir)).json()).toMatchObject({
       site: { configFile: "site.yaml" },
-      themes: [{ name: "starter" }],
+      themes: [{ dir: "starter" }],
     });
   });
 
@@ -641,7 +741,6 @@ describe("cloning a site from a desktop capture (T3)", () => {
         id,
         origin: "https://example.com",
         title: "Example",
-        options: { images: true, fonts: false },
         pages: [
           {
             url: "https://example.com/",
@@ -687,6 +786,33 @@ describe("cloning a site from a desktop capture (T3)", () => {
     expect(svg).toContain("<rect");
     // The capture is gone after its first commit.
     expect(fs.existsSync(path.join(ctx.paths.captures, captureId))).toBe(false);
+  });
+
+  it("keeps the capture when registration fails", async () => {
+    const captureId = capture();
+    const target = path.join(base, "home", `clone-${++count}`);
+    const original = ctx.themes.register.bind(ctx.themes);
+    ctx.themes.register = (async () => {
+      throw new Error("register failed");
+    }) as typeof ctx.themes.register;
+    let res: Response;
+    try {
+      res = await call("POST", "/api/themes", {
+        name: "Register Fails",
+        themeName: "register-fails",
+        path: target,
+        language: "en-US",
+        origin: "clone",
+        captureId,
+        authorized: true,
+      });
+    } finally {
+      ctx.themes.register = original;
+    }
+    expect(res.status).toBe(500);
+    expect(fs.existsSync(path.join(ctx.paths.captures, captureId))).toBe(true);
+    fs.rmSync(path.join(ctx.paths.captures, captureId), { recursive: true, force: true });
+    fs.rmSync(target, { recursive: true, force: true });
   });
 
   it("refuses an unauthorized clone, a missing capture, a bad manifest and a symlink", async () => {

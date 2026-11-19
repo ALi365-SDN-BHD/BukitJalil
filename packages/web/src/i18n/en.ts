@@ -1240,6 +1240,8 @@ const en: Messages = {
     "theme.capture_missing": "The captured site is gone; capture it again",
     "theme.capture_invalid": "The captured site cannot be used: {detail}",
     "theme.clone_unauthorized": "Confirm that the site is yours or that you may copy it",
+    "theme.ignored": "The site's .gitignore keeps {path} out of the change set; remove that rule first",
+    "theme.too_many_files": "The theme has more than {max} files",
     "image.invalid": "The image cannot be read; it may be damaged",
     "image.too_large": "The image is too large; each can be at most 5 MiB",
     "image.unsupported_type": "Only PNG, JPEG and WebP images are supported",

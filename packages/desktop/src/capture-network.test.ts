@@ -1,11 +1,17 @@
+import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
+import net from "node:net";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   blockedAddress,
   CAPTURE_LIMITS,
+  CaptureBudget,
   CaptureNetwork,
   CaptureNetworkError,
   captureUrl,
+  contentLength,
   isLocalName,
 } from "./capture-network.ts";
 
@@ -133,5 +139,118 @@ describe("capture proxy and fetch", () => {
     } finally {
       network.close();
     }
+  });
+});
+
+describe("capture budget (design 6.2)", () => {
+  it("stops at the request, single-response and total byte limits", () => {
+    const budget = new CaptureBudget({ maxRequests: 2, maxResourceBytes: 6, maxTotalBytes: 10 });
+    expect(budget.addRequest()).toBe(true);
+    expect(budget.addRequest()).toBe(true);
+    expect(budget.addRequest()).toBe(false);
+    expect(budget.error).toContain("2 requests");
+
+    const bytes = new CaptureBudget({ maxRequests: 10, maxResourceBytes: 6, maxTotalBytes: 10 });
+    expect(bytes.addBytes(5)).toBe(true);
+    expect(bytes.addBytes(5)).toBe(true);
+    expect(bytes.addBytes(1)).toBe(false);
+    expect(bytes.error).toContain("10 bytes");
+    expect(bytes.addBytes(7)).toBe(false);
+  });
+
+  it("reads Content-Length regardless of case and ignores bad values", () => {
+    expect(contentLength({ "content-length": ["42"] })).toBe(42);
+    expect(contentLength({ "Content-Length": ["42"] })).toBe(42);
+    expect(contentLength({ "Content-Length": ["-1"] })).toBeNull();
+    expect(contentLength({ "Content-Length": ["12.5"] })).toBeNull();
+    expect(contentLength({})).toBeNull();
+    expect(contentLength(undefined)).toBeNull();
+  });
+});
+
+/** Read from a socket until `marker` appears. */
+function readUntil(socket: net.Socket, marker: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    const onData = (chunk: Buffer) => {
+      data += chunk.toString("utf8");
+      if (data.includes(marker)) {
+        socket.off("data", onData);
+        resolve(data);
+      }
+    };
+    socket.on("data", onData);
+    socket.on("error", reject);
+  });
+}
+
+describe("capture HTTPS tunnels (design 6.2)", () => {
+  const sockets: net.Socket[] = [];
+  afterEach(() => {
+    for (const socket of sockets.splice(0)) socket.destroy();
+  });
+
+  async function echoServer(): Promise<number> {
+    const server = net.createServer((socket) => socket.on("data", (data) => socket.write(data)));
+    servers.push(server as unknown as http.Server);
+    return new Promise((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        const address = server.address();
+        resolve(address && typeof address !== "string" ? address.port : 0);
+      });
+    });
+  }
+
+  it("relays CONNECT to a checked address and refuses it when the test switch is off", async () => {
+    const target = await echoServer();
+    const proxy = new CaptureNetwork(CAPTURE_LIMITS, true);
+    const port = await proxy.listen();
+    try {
+      const socket = net.connect(port, "127.0.0.1");
+      sockets.push(socket);
+      await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+      socket.write(`CONNECT 127.0.0.1:${target} HTTP/1.1\r\nHost: 127.0.0.1:${target}\r\n\r\n`);
+      expect(await readUntil(socket, "\r\n\r\n")).toContain("200 Connection Established");
+      socket.write("ping");
+      expect(await readUntil(socket, "ping")).toContain("ping");
+    } finally {
+      proxy.close();
+    }
+
+    const blocked = new CaptureNetwork(CAPTURE_LIMITS, false);
+    const blockedPort = await blocked.listen();
+    try {
+      const socket = net.connect(blockedPort, "127.0.0.1");
+      sockets.push(socket);
+      await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+      socket.write(`CONNECT 127.0.0.1:${target} HTTP/1.1\r\nHost: 127.0.0.1:${target}\r\n\r\n`);
+      expect(await readUntil(socket, "\r\n\r\n")).toContain("403 Forbidden");
+    } finally {
+      blocked.close();
+    }
+  });
+
+  it("fetches HTTPS with the system trust store, or a test CA for the local fixture", async () => {
+    const cert = fs.readFileSync(path.join(import.meta.dirname, "fixtures", "test-cert.pem"), "utf8");
+    const key = fs.readFileSync(path.join(import.meta.dirname, "fixtures", "test-key.pem"), "utf8");
+    const server = https.createServer({ key, cert }, (_req, res) => res.end("hello tls"));
+    servers.push(server as unknown as http.Server);
+    const port = await new Promise<number>((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        const address = server.address();
+        resolve(address && typeof address !== "string" ? address.port : 0);
+      });
+    });
+    const network = new CaptureNetwork(CAPTURE_LIMITS, true, undefined, cert);
+    try {
+      const res = await network.fetch(new URL(`https://127.0.0.1:${port}/`));
+      expect(res.status).toBe(200);
+      expect(res.body.toString()).toBe("hello tls");
+    } finally {
+      network.close();
+    }
+    const untrusted = new CaptureNetwork(CAPTURE_LIMITS, true);
+    await expect(untrusted.fetch(new URL(`https://127.0.0.1:${port}/`))).rejects.toBeInstanceOf(CaptureNetworkError);
+    untrusted.close();
   });
 });

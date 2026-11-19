@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { ThemeName } from "@bukitjalil/shared";
+import { type ThemeCandidate, type ThemeImportInspection, ThemeName } from "@bukitjalil/shared";
 import { isRecord, pathProblem } from "../bukit/guard.ts";
 import { readZipTree } from "../bukit/install.ts";
 import { parseYaml } from "../panels/yaml.ts";
@@ -11,31 +11,13 @@ import { SiteError } from "../sites/location.ts";
 const MAX_TOTAL = 50 * 1024 * 1024;
 const MAX_FILE = 14 * 1024 * 1024;
 const MAX_FILES = 5000;
+/** A theme manifest is small; a bigger one is not read at all (it cannot be a theme Bukit accepts). */
+const MAX_MANIFEST_FILE = 1024 * 1024;
+/** Archive metadata written by macOS and Windows; never part of a theme. */
+const METADATA = new Set(["__MACOSX", ".DS_Store", "Thumbs.db"]);
 /** A compressed theme archive is read into memory before it is checked; bigger is refused outright. */
 const MAX_ZIP = 100 * 1024 * 1024;
 const MANIFEST = "theme.yaml";
-
-/** What can be imported from one source folder or zip (design 5). */
-export interface ThemeCandidate {
-  /** The theme directory inside the source; what an import asks for. */
-  id: string;
-  /** The directory (and theme.name) it becomes in the new project. */
-  dir: string;
-  name: string;
-  displayName: string | null;
-  /** Every directory copied with it, parents first. */
-  includes: string[];
-  /** A parent that is not in the source; the candidate cannot be imported. */
-  missingParent: string | null;
-}
-
-export interface ThemeImportInspection {
-  /** The source as resolved on disk. */
-  path: string;
-  /** The folder is also a Bukit site (the existing site import can take it). */
-  site: { configFile: string } | null;
-  themes: ThemeCandidate[];
-}
 
 /** The files of one theme, and the directory it is written to. */
 export interface ImportedTheme {
@@ -45,7 +27,7 @@ export interface ImportedTheme {
 
 /** A folder or a zip, seen as a tree of regular files with no symlinks (design 5). */
 interface Tree {
-  read(rel: string): Buffer | null;
+  read(rel: string, maxBytes?: number): Buffer | null;
   list(dir: string): string[];
   scan(dir: string, budget: { total: number; files: number }): Map<string, Buffer>;
 }
@@ -78,15 +60,15 @@ export async function loadTheme(sourcePath: string, id: string): Promise<Importe
   const candidate = candidates(source).find((c) => c.id === id);
   if (!candidate) throw invalid("the theme is not in this folder");
   if (candidate.missingParent !== null)
-    throw new SiteError("theme.parent_missing", 409, { theme: candidate.name, parent: candidate.missingParent });
+    throw new SiteError("theme.parent_missing", 409, { theme: candidate.dir, parent: candidate.missingParent });
   const budget = { total: 0, files: 0 };
   const dirs: { dir: string; files: Map<string, Buffer> }[] = [];
   for (const dir of parentChain(source.tree, candidate.id).reverse()) {
     const files = source.tree.scan(dir, budget);
     if (files.size === 0) throw invalid(`the theme ${dir} has no files`);
-    dirs.push({ dir: dir === "." ? candidate.name : themeDirName(dir), files });
+    dirs.push({ dir: dir === "." ? candidate.dir : themeDirName(dir), files });
   }
-  return { name: candidate.name, dirs };
+  return { name: candidate.dir, dirs };
 }
 
 /** The candidates in a source, parents resolved within it; refused entries are left out. */
@@ -101,7 +83,6 @@ function candidates(source: Source): ThemeCandidate[] {
     out.push({
       id: dir,
       dir: target(dir),
-      name: manifest.name,
       displayName: manifest.displayName,
       includes: chain.map(target).reverse(),
       missingParent: missingParent(source.tree, dir),
@@ -112,7 +93,7 @@ function candidates(source: Source): ThemeCandidate[] {
 
 /** The theme's manifest, or null when it is missing, unreadable, or uses an invalid name. */
 function manifestOf(tree: Tree, dir: string) {
-  const raw = tree.read(join(dir, MANIFEST));
+  const raw = tree.read(join(dir, MANIFEST), MAX_MANIFEST_FILE);
   if (raw === null) return null;
   const parsed = parseYaml(raw.toString("utf8"));
   if (parsed.error !== null || !isRecord(parsed.value)) return null;
@@ -224,7 +205,11 @@ function openSource(sourcePath: string): Source {
   } catch {
     throw invalid("the zip cannot be read safely");
   }
-  const files = new Map([...entries].map(([name, file]) => [name, file.data]));
+  const files = new Map(
+    [...entries]
+      .filter(([name]) => !name.split("/").some((part) => metadata(part)))
+      .map(([name, file]) => [name, file.data]),
+  );
   const stripped = stripWrapper(files);
   return { tree: zipTree(stripped), single: null, rootTheme: stripped.has(MANIFEST), site: null };
 }
@@ -256,7 +241,7 @@ function folderTree(root: string): Tree {
   const scanDir = (dir: string, rel: string, budget: { total: number; files: number }, out: Map<string, Buffer>) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const name = entry.name;
-      if (name === ".git" || name === "node_modules" || name.startsWith(".env")) continue;
+      if (name === ".git" || name === "node_modules" || name.startsWith(".env") || metadata(name)) continue;
       const abs = path.join(dir, name);
       const child = join(rel, name);
       unsafeName(child);
@@ -267,22 +252,25 @@ function folderTree(root: string): Tree {
         continue;
       }
       if (!stat.isFile()) throw unsafe(`not a regular file: ${child}`);
+      if (stat.size > MAX_FILE) throw new SiteError("theme.too_large", 409, { max: String(MAX_FILE) });
       addFile(child, fs.readFileSync(abs), budget, out);
     }
   };
   return {
-    read(rel) {
+    read(rel, maxBytes = MAX_FILE) {
       if (pathProblem(rel) !== null) return null;
       const abs = path.join(root, ...rel.split("/"));
       const stat = fs.lstatSync(abs, { throwIfNoEntry: false });
-      return stat?.isFile() ? fs.readFileSync(abs) : null;
+      if (!stat?.isFile()) return null;
+      if (stat.size > maxBytes) throw new SiteError("theme.too_large", 409, { max: String(maxBytes) });
+      return fs.readFileSync(abs);
     },
     list(dir) {
       if (pathProblem(dir) !== null) return [];
       try {
         return fs
           .readdirSync(path.join(root, ...dir.split("/")), { withFileTypes: true })
-          .filter((e) => e.isDirectory())
+          .filter((e) => e.isDirectory() && !metadata(e.name))
           .map((e) => e.name);
       } catch {
         return [];
@@ -305,9 +293,11 @@ function folderTree(root: string): Tree {
 /** A zip tree: names and sizes are checked by readZipTree; the import's own limits apply here. */
 function zipTree(files: Map<string, Buffer>): Tree {
   return {
-    read(rel) {
+    read(rel, maxBytes = MAX_FILE) {
       const data = files.get(rel);
-      return data ?? null;
+      if (data === undefined) return null;
+      if (data.length > maxBytes) throw new SiteError("theme.too_large", 409, { max: String(maxBytes) });
+      return data;
     },
     list(dir) {
       const prefix = dir === "." ? "" : `${dir}/`;
@@ -318,7 +308,7 @@ function zipTree(files: Map<string, Buffer>): Tree {
         if (!rest.includes("/")) names.add(rest);
         else names.add(rest.split("/")[0] ?? "");
       }
-      return [...names].filter((n) => files.has(join(dir, n, MANIFEST)));
+      return [...names].filter((n) => !metadata(n) && files.has(join(dir, n, MANIFEST)));
     },
     scan(dir, budget) {
       const prefix = dir === "." ? "" : `${dir}/`;
@@ -327,7 +317,7 @@ function zipTree(files: Map<string, Buffer>): Tree {
         if (!name.startsWith(prefix)) continue;
         const rel = name.slice(prefix.length);
         if (rel === "" || rel.split("/").some((part) => part === ".git" || part === "node_modules")) continue;
-        if (rel.split("/").some((part) => part.startsWith(".env"))) continue;
+        if (rel.split("/").some((part) => part.startsWith(".env") || metadata(part))) continue;
         unsafeName(rel);
         addFile(rel, data, budget, out);
       }
@@ -352,7 +342,12 @@ function addFile(rel: string, data: Buffer, budget: { total: number; files: numb
   if (data.length > MAX_FILE) throw new SiteError("theme.too_large", 409, { max: String(MAX_FILE) });
   budget.files += 1;
   budget.total += data.length;
-  if (budget.files > MAX_FILES) throw new SiteError("theme.too_large", 409, { max: String(MAX_TOTAL) });
+  if (budget.files > MAX_FILES) throw new SiteError("theme.too_many_files", 409, { max: String(MAX_FILES) });
   if (budget.total > MAX_TOTAL) throw new SiteError("theme.too_large", 409, { max: String(MAX_TOTAL) });
   out.set(rel, data);
+}
+
+/** macOS/Windows archive metadata that is never copied into a theme. */
+function metadata(name: string): boolean {
+  return METADATA.has(name) || name.startsWith("._");
 }

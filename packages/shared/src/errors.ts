@@ -64,6 +64,8 @@ export const errorCodes = [
   "theme.capture_missing",
   "theme.capture_invalid",
   "theme.clone_unauthorized",
+  "theme.ignored",
+  "theme.too_many_files",
   "image.invalid",
   "image.too_large",
   "image.unsupported_type",

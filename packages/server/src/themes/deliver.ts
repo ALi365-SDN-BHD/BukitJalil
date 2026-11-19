@@ -84,9 +84,15 @@ export class ThemeDeliverService {
       const tmp = path.join(this.opts.paths.worktrees, req.siteId, `.theme-apply-${process.pid}`);
       const staged = path.join(tmp, "new");
       let installed = false;
+      let snapshotted = false;
       let backup: string | null = null;
       let configBackup: { file: string; raw: string } | null = null;
       try {
+        // Ignored paths are deleted by the snapshot, not committed; refusing here keeps the copy visible.
+        if (await this.ignored(cwd, `themes/${theme.themeName}`))
+          throw new SiteError("theme.ignored", 409, { path: `themes/${theme.themeName}` });
+        if (req.setConfig && (await this.ignored(cwd, site.configFile)))
+          throw new SiteError("theme.ignored", 409, { path: site.configFile });
         // A previous run of this process that failed mid-way may have left its staging area.
         fs.rmSync(tmp, { recursive: true, force: true });
         stage(staged, source, files);
@@ -100,32 +106,53 @@ export class ThemeDeliverService {
         installed = true;
         if (req.setConfig) configBackup = setTheme(cwd, site.configFile, theme.themeName);
         await this.opts.changes.snapshot(req.siteId, cwd, { byUser: true });
-        const view = await this.opts.changes.current(req.siteId, false);
+        snapshotted = true;
+        // The snapshot is the point of no return: after it, the change set must match the files. A failure
+        // to read it back or to write the label is only logged; the copied theme stays.
+        let view: Awaited<ReturnType<ChangeService["current"]>> = null;
+        try {
+          view = await this.opts.changes.current(req.siteId, false);
+        } catch (err) {
+          this.opts.logger.log("warn", "theme.current_failed", { siteId: req.siteId, error: String(err) });
+        }
         if (view && !view.reviewable) {
           // Applying the same theme again: do not leave an empty change set behind.
           await this.opts.changes.discard(change.id);
           return { siteId: req.siteId, changeId: null };
         }
         if (!change.aiJoined && change.restoreCommit === null) {
-          this.opts.changes.store.setUserSummary(
-            change.id,
-            `Applied theme ${theme.themeName} from ${theme.name}${req.setConfig ? " and set the site's theme" : ""}`,
-          );
-        }
-        this.opts.changes.notify(req.siteId);
-        return { siteId: req.siteId, changeId: change.id };
-      } catch (err) {
-        if (installed) fs.rmSync(dir, { recursive: true, force: true });
-        if (backup) {
+          const line = `Applied theme ${theme.themeName} from ${theme.name}${req.setConfig ? " and set the site's theme" : ""}`;
+          const summary = change.userSummary?.trim() ? `${change.userSummary.trim()}\n\n${line}` : line;
           try {
-            fs.renameSync(backup, dir);
-          } catch (restoreErr) {
-            this.opts.logger.log("warn", "theme.rollback_failed", { siteId: req.siteId, error: String(restoreErr) });
+            this.opts.changes.store.setUserSummary(change.id, summary);
+          } catch (err) {
+            this.opts.logger.log("warn", "theme.summary_failed", {
+              siteId: req.siteId,
+              changeId: change.id,
+              error: String(err),
+            });
           }
         }
-        if (configBackup) fs.writeFileSync(configBackup.file, configBackup.raw);
-        if (created && this.opts.changes.store.open(req.siteId)?.id === change.id)
-          await this.opts.changes.discard(change.id);
+        try {
+          this.opts.changes.notify(req.siteId);
+        } catch (err) {
+          this.opts.logger.log("warn", "theme.notify_failed", { siteId: req.siteId, error: String(err) });
+        }
+        return { siteId: req.siteId, changeId: change.id };
+      } catch (err) {
+        if (!snapshotted) {
+          if (installed) fs.rmSync(dir, { recursive: true, force: true });
+          if (backup) {
+            try {
+              fs.renameSync(backup, dir);
+            } catch (restoreErr) {
+              this.opts.logger.log("warn", "theme.rollback_failed", { siteId: req.siteId, error: String(restoreErr) });
+            }
+          }
+          if (configBackup) fs.writeFileSync(configBackup.file, configBackup.raw);
+          if (created && this.opts.changes.store.open(req.siteId)?.id === change.id)
+            await this.opts.changes.discard(change.id);
+        }
         throw err;
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
@@ -179,6 +206,12 @@ export class ThemeDeliverService {
     } catch {
       return null;
     }
+  }
+
+  /** A path the site's .gitignore would keep out of the snapshot. */
+  private async ignored(cwd: string, rel: string): Promise<boolean> {
+    const result = await this.opts.git.run(["check-ignore", "-q", "--", rel], { cwd, okCodes: [0, 1] });
+    return result.code === 0;
   }
 
   /** `themes/` in the checkout must be a real directory, not a link. */

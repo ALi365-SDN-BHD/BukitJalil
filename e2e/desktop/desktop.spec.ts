@@ -297,10 +297,10 @@ async function fakeSite(): Promise<{ origin: string; close: () => void }> {
     }
     if (req.url === "/style.css") {
       res.setHeader("content-type", "text/css");
-      res.end("body { background: #fafafa } .card { border: 1px solid #ccc }");
+      res.end("body { background: #fafafa url(/bg.png) } .card { border: 1px solid #ccc }");
       return;
     }
-    if (req.url === "/logo.png") {
+    if (req.url === "/logo.png" || req.url === "/bg.png") {
       res.setHeader("content-type", "image/png");
       res.end(tinyPng());
       return;
@@ -350,6 +350,7 @@ test("clones the user's site into a theme through a locked-down capture", async 
     await page.getByTestId("clone-homepage").fill(`${site.origin}/`);
     await page.getByTestId("clone-pages").fill(`${site.origin}/article/\n${site.origin}/private/secret`);
     await page.getByTestId("clone-authorized").check();
+    await page.getByTestId("clone-images").check();
     await page.getByTestId("clone-check").click();
     await expect(page.getByTestId("clone-preflight")).toContainText("/private/secret");
     await page.getByTestId("clone-start").click();
@@ -360,7 +361,7 @@ test("clones the user's site into a theme through a locked-down capture", async 
     await folder.fill(parent);
     await folder.press("Enter");
     await expect(folder).toHaveValue(fs.realpathSync(parent));
-    await page.getByTestId("clone-name").fill("Cloned Site");
+    await page.getByTestId("clone-site-dialog").locator("#theme-project-name").fill("Cloned Site");
     await page.getByTestId("clone-create").click();
     await expect(page).toHaveURL(/\/themes\/[0-9a-f]+\/sessions\/[0-9a-f]+$/, { timeout: 120_000 });
     await expect(page.getByTestId("composer-input")).toHaveValue(/site-to-theme|_capture/);
@@ -373,6 +374,8 @@ test("clones the user's site into a theme through a locked-down capture", async 
     expect(html).not.toContain("<script");
     expect(html).not.toContain("<iframe");
     expect(fs.readdirSync(path.join(root, "_reference")).length).toBeGreaterThanOrEqual(3);
+    const captured = fs.readdirSync(path.join(root, "_capture", "pages", "1")).filter((f) => f.endsWith(".png"));
+    expect(captured.length).toBeGreaterThanOrEqual(2);
   } finally {
     site.close();
     await app.close();

@@ -104,68 +104,39 @@ export class ThemeService {
    */
   async create(req: CreateThemeRequest): Promise<Theme> {
     if (req.origin === "clone") return this.createFromCapture(req);
-    const identity = commitIdentity(this.opts.settings);
     const real = this.location(req.path);
     // Checked before anything is created: a bad image fails the request, not a half-made project.
     const images = (req.images ?? []).map(cleanReferenceImage);
-    return this.opts.repos.reserved(real, async () => {
-      assertEmptyOrMissing(real);
-      const existed = fs.existsSync(real);
-      try {
-        await this.opts.newSite(real, { title: req.name, language: req.language });
-        makeThemeProject(real, { name: req.themeName, displayName: req.name }, this.opts.themeDemo);
-        writeReferenceImages(real, images);
-        await this.opts.repos.commitNew(real, identity, INITIAL_MESSAGE);
-      } catch (err) {
-        removeCreated(real, existed);
-        throw err;
-      }
-      return this.register(real, {
-        name: req.name,
-        themeName: req.themeName,
-        defaultBranch: "main",
-        configFile: DEFAULT_CONFIG_FILE,
-        origin: "new",
-      });
+    return this.makeProject(real, req, "new", INITIAL_MESSAGE, (target) => {
+      makeThemeProject(target, { name: req.themeName, displayName: req.name }, this.opts.themeDemo);
+      writeReferenceImages(target, images);
     });
   }
 
   /**
    * A theme project from a desktop capture (design 6.2): the capture is validated again, put in `_capture/`
-   * and `_reference/`, and the capture folder is deleted once it is committed. Converting it is the AI's job.
+   * and `_reference/`, and the capture folder is deleted after the project is registered. Converting it is
+   * the AI's job.
    */
   private async createFromCapture(req: CreateThemeRequest): Promise<Theme> {
     if (req.authorized !== true) throw new SiteError("theme.clone_unauthorized", 400);
     if (!req.captureId) throw new SiteError("theme.capture_missing", 409);
     const captureId = req.captureId;
     const capture = loadCapture(this.opts.paths.captures, captureId);
-    const identity = commitIdentity(this.opts.settings);
     const real = this.location(req.path);
-    return this.opts.repos.reserved(real, async () => {
-      assertEmptyOrMissing(real);
-      const existed = fs.existsSync(real);
-      try {
-        await this.opts.newSite(real, { title: req.name, language: req.language });
-        makeThemeProject(real, { name: req.themeName, displayName: req.name }, this.opts.themeDemo);
-        writeCapture(real, capture);
-        await this.opts.repos.commitNew(
-          real,
-          identity,
-          `Initial theme project from captured ${capture.title || "site"}`,
-        );
-        fs.rmSync(path.join(this.opts.paths.captures, captureId), { recursive: true, force: true });
-      } catch (err) {
-        removeCreated(real, existed);
-        throw err;
-      }
-      return this.register(real, {
-        name: req.name,
-        themeName: req.themeName,
-        defaultBranch: "main",
-        configFile: DEFAULT_CONFIG_FILE,
-        origin: "clone",
-      });
-    });
+    const theme = await this.makeProject(
+      real,
+      req,
+      "clone",
+      `Initial theme project from captured ${capture.title || "site"}`,
+      (target) => {
+        makeThemeProject(target, { name: req.themeName, displayName: req.name }, this.opts.themeDemo);
+        writeCapture(target, capture);
+      },
+    );
+    // Only after the project is registered: a failed registration keeps the only copy of the capture.
+    fs.rmSync(path.join(this.opts.paths.captures, captureId), { recursive: true, force: true });
+    return theme;
   }
 
   /**
@@ -178,29 +149,48 @@ export class ThemeService {
   }
 
   async importTheme(req: ImportThemeRequest): Promise<Theme> {
-    const identity = commitIdentity(this.opts.settings);
     const loaded = await loadTheme(req.source, req.theme);
     const real = this.location(req.path);
+    return this.makeProject(
+      real,
+      { name: req.name, themeName: loaded.name, language: req.language },
+      "import",
+      `Imported theme ${loaded.name}`,
+      (target) => {
+        removeStarterTheme(target);
+        for (const theme of loaded.dirs) writeTheme(target, theme);
+        setSiteThemeName(target, loaded.name);
+        replaceSampleContent(target, this.opts.themeDemo);
+      },
+    );
+  }
+
+  /** The one create/commit/register skeleton the three theme origins share. */
+  private async makeProject(
+    real: string,
+    req: { name: string; themeName: string; language: string },
+    origin: ThemeOrigin,
+    message: string,
+    prepare: (target: string) => void,
+  ): Promise<Theme> {
+    const identity = commitIdentity(this.opts.settings);
     return this.opts.repos.reserved(real, async () => {
       assertEmptyOrMissing(real);
       const existed = fs.existsSync(real);
       try {
         await this.opts.newSite(real, { title: req.name, language: req.language });
-        removeStarterTheme(real);
-        for (const theme of loaded.dirs) writeTheme(real, theme);
-        setSiteThemeName(real, loaded.name);
-        replaceSampleContent(real, this.opts.themeDemo);
-        await this.opts.repos.commitNew(real, identity, `Imported theme ${loaded.name}`);
+        prepare(real);
+        await this.opts.repos.commitNew(real, identity, message);
       } catch (err) {
         removeCreated(real, existed);
         throw err;
       }
       return this.register(real, {
         name: req.name,
-        themeName: loaded.name,
+        themeName: req.themeName,
         defaultBranch: "main",
         configFile: DEFAULT_CONFIG_FILE,
-        origin: "import",
+        origin,
       });
     });
   }

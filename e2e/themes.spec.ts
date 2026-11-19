@@ -150,7 +150,7 @@ test("a theme folder is imported, and a site folder is handed to the site import
   await page.getByTestId("theme-import-source").fill(source);
   await page.getByTestId("theme-import-inspect").click();
   await expect(page.getByTestId("theme-import-candidates")).toContainText("Helios");
-  await page.getByTestId("theme-import-name").fill("Helios Imported");
+  await page.getByTestId("import-theme-dialog").locator("#theme-project-name").fill("Helios Imported");
   const folder = page.getByRole("dialog").getByTestId("dir-current");
   await folder.fill(root);
   await folder.press("Enter");

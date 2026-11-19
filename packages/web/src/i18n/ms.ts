@@ -1262,6 +1262,8 @@ const ms: Messages = {
     "theme.capture_missing": "Laman yang ditangkap sudah tiada; tangkap semula",
     "theme.capture_invalid": "Laman yang ditangkap tidak boleh digunakan: {detail}",
     "theme.clone_unauthorized": "Sahkan bahawa laman ini milik anda atau anda dibenarkan menyalinnya",
+    "theme.ignored": ".gitignore laman mengecualikan {path} daripada set perubahan; buang peraturan itu dahulu",
+    "theme.too_many_files": "Tema mempunyai lebih daripada {max} fail",
     "image.invalid": "Imej tidak dapat dibaca; ia mungkin rosak",
     "image.too_large": "Imej terlalu besar; setiap satu paling banyak 5 MiB",
     "image.unsupported_type": "Hanya imej PNG, JPEG dan WebP disokong",

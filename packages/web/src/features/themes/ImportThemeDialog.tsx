@@ -6,12 +6,11 @@ import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/input";
-import { DirPicker, joinPath } from "@/features/sites/DirPicker";
-import { IdentityFields, useIdentity } from "@/features/sites/identity";
-import { folderFromName, LANGUAGES } from "@/features/sites/NewSiteDialog";
+import { useIdentity } from "@/features/sites/identity";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { desktopBridge } from "@/lib/desktop";
+import { ThemeProjectFields, themeTarget } from "./ThemeProjectFields";
 
 /**
  * Import a theme folder or zip (theme development design 5): inspect first (nothing is written), pick one of
@@ -37,14 +36,18 @@ export function ImportThemeDialog({ onClose, onCreated }: { onClose: () => void;
   const themes = inspection?.themes ?? [];
   const chosen = themes.find((x) => x.id === selected) ?? themes.find((x) => x.missingParent === null) ?? null;
   const usable = chosen !== null && chosen.missingParent === null;
-  const start = parent ?? settings.data?.lastParentDir ?? null;
-  const folderName = folder ?? folderFromName(name, "theme");
-  const target = start ? joinPath(start, folderName) : null;
+  const target = themeTarget({
+    name,
+    themeName: chosen?.dir ?? null,
+    folder,
+    parent,
+    lastParentDir: settings.data?.lastParentDir,
+  });
 
   // A picked theme supplies the project's name; the user can still change it before importing.
   // biome-ignore lint/correctness/useExhaustiveDependencies: only a different theme resets the name
   useEffect(() => {
-    if (chosen) setName(chosen.displayName ?? chosen.name);
+    if (chosen) setName(chosen.displayName ?? chosen.dir);
   }, [chosen?.id]);
 
   const inspect = useMutation({
@@ -56,12 +59,12 @@ export function ImportThemeDialog({ onClose, onCreated }: { onClose: () => void;
   });
   const run = useMutation({
     mutationFn: async () => {
-      if (!inspection || !chosen || !target) throw new Error("not inspected");
+      if (!inspection || !chosen || !target.target) throw new Error("not inspected");
       await identity.save();
       return api.importTheme({
         source: inspection.path,
         theme: chosen.id,
-        path: target,
+        path: target.target,
         name: name.trim(),
         language,
       });
@@ -81,7 +84,7 @@ export function ImportThemeDialog({ onClose, onCreated }: { onClose: () => void;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent closeLabel={m.common.close} className="max-w-xl">
+      <DialogContent closeLabel={m.common.close} className="max-w-xl" data-testid="import-theme-dialog">
         <DialogTitle className="flex items-center gap-2">
           <Upload className="size-4" /> {n.title}
         </DialogTitle>
@@ -186,7 +189,7 @@ export function ImportThemeDialog({ onClose, onCreated }: { onClose: () => void;
                     onChange={() => setSelected(x.id)}
                   />
                   <span className="flex min-w-0 flex-col">
-                    <span className="font-medium">{x.displayName ?? x.name}</span>
+                    <span className="font-medium">{x.displayName ?? x.dir}</span>
                     <code className="text-xs text-muted-foreground">themes/{x.dir}</code>
                     {x.includes.length > 1 && (
                       <span className="text-xs text-muted-foreground">+ {x.includes.slice(0, -1).join(", ")}</span>
@@ -205,48 +208,19 @@ export function ImportThemeDialog({ onClose, onCreated }: { onClose: () => void;
             <>
               <div className="flex flex-col gap-3 rounded-md border p-2">
                 <p className="text-sm font-medium">{n.target}</p>
-                <Field label={m.themes.new.name} htmlFor="theme-import-name">
-                  <Input
-                    id="theme-import-name"
-                    required
-                    maxLength={200}
-                    value={name}
-                    data-testid="theme-import-name"
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                </Field>
-                <Field label={m.newSite.language} htmlFor="theme-import-language" hint={m.themes.new.languageHint}>
-                  <select
-                    id="theme-import-language"
-                    className="h-9 rounded-md border bg-background px-2 text-sm"
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                  >
-                    {LANGUAGES.map((l) => (
-                      <option key={l.code} value={l.code}>
-                        {l.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label={m.newSite.parent} htmlFor="theme-import-parent">
-                  <DirPicker id="theme-import-parent" value={start} onChange={setParent} />
-                </Field>
-                <Field
-                  label={m.newSite.folder}
-                  htmlFor="theme-import-folder"
-                  hint={target ? t(m.newSite.folderHint, { path: target }) : undefined}
-                >
-                  <Input
-                    id="theme-import-folder"
-                    required
-                    pattern="[^/\\]+"
-                    value={folderName}
-                    onChange={(e) => setFolder(e.target.value)}
-                  />
-                </Field>
+                <ThemeProjectFields
+                  name={name}
+                  onName={setName}
+                  language={language}
+                  onLanguage={setLanguage}
+                  parent={parent}
+                  onParent={setParent}
+                  folder={folder}
+                  onFolder={setFolder}
+                  lastParentDir={settings.data?.lastParentDir}
+                  identity={identity}
+                />
               </div>
-              {identity.missing && <IdentityFields draft={identity.draft} onChange={identity.setDraft} />}
               {run.error && (
                 <p role="alert" className="text-sm text-destructive">
                   {errorOf(run.error)}
@@ -259,7 +233,7 @@ export function ImportThemeDialog({ onClose, onCreated }: { onClose: () => void;
                 <Button
                   type="submit"
                   data-testid="theme-import-confirm"
-                  disabled={run.isPending || !usable || !target || !name.trim() || !identity.ready}
+                  disabled={run.isPending || !usable || !target.target || !name.trim() || !identity.ready}
                 >
                   {run.isPending ? n.importing : n.import}
                 </Button>

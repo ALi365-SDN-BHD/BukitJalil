@@ -1173,6 +1173,8 @@ const zhCN = {
     "theme.capture_missing": "抓取的网站已经不在了，请重新抓取",
     "theme.capture_invalid": "抓取的网站不能用：{detail}",
     "theme.clone_unauthorized": "请确认网站是你自己的，或你已获授权",
+    "theme.ignored": "网站的 .gitignore 把 {path} 排除在改动集之外，请先去掉这条规则",
+    "theme.too_many_files": "主题文件数超过 {max} 个",
     "image.invalid": "图片无法读取，可能已损坏",
     "image.too_large": "图片太大，单张最多 5 MiB",
     "image.unsupported_type": "只支持 PNG、JPEG 和 WebP 图片",

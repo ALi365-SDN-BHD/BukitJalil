@@ -1945,6 +1945,30 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - 界面：主题列表下拉里多了"克隆网站"（浏览器模式是一条禁用的说明"克隆网站需要桌面版"）。克隆对话框填首页和一页一个的额外地址（最多 5 个、同源）、授权勾选、图片/字体选项；先预检，显示 `http:` 和 robots 警告（只提示，用户可继续）；抓取完成后填项目名、主题名、语言、位置和提交身份，创建后直接开第一个会话，输入框预填"把 `_capture/` 转成主题"的说明；所选模型能读图时同时附上首页截图 `_reference/capture-1-1280.png`，否则只留路径让 AI 用 `read` 看。
 - 已知取舍：`readZipTree` 用于主题导入时先解到 200 MiB 再套 50 MiB 上限（只接本机文件）；抓取页面超过 8000 像素只取顶部；跨源样式用同一个检查网络的二次请求补上，不是代理缓存；没有做原站与预览的并排截图对比（设计里的后续项）。
 
+**主题开发审计修复（2026-11-19）**
+
+对 T1–T3 的审计结论逐项修复，不扩大范围。已定的问题：
+
+- **HTTPS 抓取限额**：`webRequest.onBeforeRequest` 计算 https 请求数（HTTP 仍由代理计数），`onHeadersReceived` 按 `Content-Length` 拒绝单资源超过 14 MiB、总量超过 30 MiB 的响应。没有 `Content-Length` 的分块响应只能靠 30 秒页面超时；这一限制写进方案，不再假装字节限额对它们有效。
+- **应用主题的边界**：快照成功就是不可回滚点，之后失败不再删主题目录或恢复 `site.yaml`；`current()` 或写说明失败只记日志，不把请求变成"失败"。写入前用 `git check-ignore` 拒绝 `.gitignore` 忽略 `themes/<名字>` 或配置文件的情况（和素材上传一致）。已有用户说明时追加"Applied theme …"，不覆盖。
+- **导入**：读文件前先看 `stat.size`；`theme.yaml` 最多 1 MiB；zip 元数据（`__MACOSX`、`.DS_Store`、`Thumbs.db`、`._*`）在识别形状和扫描时都跳过。文件数超限用新的 `theme.too_many_files`，不再说成"太大"。
+- **抓取后处理**：isolated world 内先检查 DOM/CSS 大小，图片、样式表、字体列表在脚本里截断；下载循环遇到 `too_many`/`too_large` 立即停止。`"下载图片"` 同时取 CSS 里用到的图片（资源地址按图片扩展名筛选）。抓取目录在 `register` 成功后才删除。
+- **SVG**：只保留以 `#` 开头的 `href`/`xlink:href`，带引号和不带引号都匹配；`url(...)` 只保留 `#` 或 `data:`，`@import` 删除。测试覆盖无引号和实体编码的外部地址。
+- **测试**：新增 CONNECT 隧道测试和本地 TLS 测试（测试证书只在测试里用，`CaptureNetwork` 多一个测试用 CA 参数）；桌面 e2e 勾选"图片"，验证 `<img>` 和 CSS 背景图都落进 `_capture`。
+- **精简**：三个主题创建路径合成一个 helper；三个对话框的公共字段合成一个组件；删除未使用的 `Manifest.options` 和 `ThemeCandidate.name`。
+
+分层：第 1 层服务端和共享类型（应用边界、导入、SVG、字段、错误码）；第 2 层桌面抓取（限额、后处理、CSS 图片、测试）；第 3 层界面（公共字段组件）和创建路径合并。每层实现 → 审计 → 修复 → 复查 → 提交；最后跑全部单元和 e2e（含桌面），推送。
+
+**审计修复实现说明**（2026-11-19）：
+
+- **限额**：`CaptureBudget` 一个对象同时记请求和字节；HTTP 由代理计数，HTTPS 由窗口的 `onBeforeRequest` 计数；`onHeadersReceived` 用 `Content-Length` 检查单资源 14 MiB 和总量 30 MiB。CONNECT 不再单独计数（窗口已经算了这次 HTTPS 请求）；分块响应仍只受 30 秒页面超时约束。新增 `CaptureBudget`、`contentLength` 单元测试、原始 CONNECT 隧道测试和本地 TLS 测试（测试证书在 `packages/desktop/src/fixtures/`，`CaptureNetwork` 的第四个参数只给测试用）。
+- **应用主题**：`snapshot` 之后标记 `snapshotted`，之后的 `current()`、写说明、事件失败都只记日志，不回滚文件和配置；写入前 `git check-ignore` 拒绝被忽略的 `themes/<名字>` 和配置文件（新的 `theme.ignored`）。已有用户说明时用空行追加 "Applied theme …"。三个新测试：快照后读取失败仍保留主题、忽略目录返回 409、用户说明保留。
+- **导入**：`Tree.read` 和 `scanDir` 先看 `stat.size`，`theme.yaml` 上限 1 MiB；`__MACOSX`、`.DS_Store`、`Thumbs.db`、`._*` 在 zip 识别和扫描时都剔除；文件数超限用 `theme.too_many_files`。测试覆盖 1 MiB 以上的 manifest 和带 macOS 元数据的 zip。
+- **抓取后处理**：isolated world 内 DOM/CSS 超过 14 MiB 直接报错，图片/样式表/字体列表在脚本里截断到 500/1000；下载循环遇到 `too_many`/`too_large` 立即抛出；`"下载图片"` 把 CSS 资源里图片扩展名的地址一起下载。桌面 e2e 的假站点加了 CSS 背景图并勾选图片，断言 `_capture` 里至少两张 PNG。SVG 只保留 `#` 片段和 `data:` URL，带引号和不带引号都匹配，测试覆盖无引号和实体编码。
+- **注册顺序**：抓取目录在 `register` 成功后才删除；测试把 `register` 换成抛错，断言抓取目录还在。
+- **精简**：`ThemeService.makeProject` 合并新建/克隆/导入的骨架；`ThemeProjectFields` 和 `themeTarget` 合并三个对话框的公共字段；删除 `Manifest.options` 和 `ThemeCandidate.name`，`ImportThemeDialog` 的候选名改用 `dir`。
+- **验证**：`pnpm check`、单元测试 721 通过 / 19 跳过、浏览器 e2e 159 通过、桌面 e2e 11 通过。
+
 ### 里程碑总览
 
 ```text

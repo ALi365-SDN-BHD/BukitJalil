@@ -4,10 +4,12 @@ import path from "node:path";
 import { BrowserWindow, session, type WebContents } from "electron";
 import {
   CAPTURE_LIMITS,
+  type CaptureBudget,
   CaptureNetwork,
   CaptureNetworkError,
   captureUrl,
   captureUserAgent,
+  contentLength,
   isLocalName,
 } from "./capture-network.ts";
 import { parseRobots, robotsAllows } from "./robots.ts";
@@ -56,6 +58,10 @@ const WIDTHS = [375, 768, 1280] as const;
 const MAX_SCREENSHOT_HEIGHT = 8000;
 const ROBOTS_MAX_BYTES = 512 * 1024;
 const MAX_URLS = 5;
+/** The largest DOM or CSS text kept from one page; the server refuses more later anyway. */
+const MAX_COLLECT_BYTES = 14 * 1024 * 1024;
+const MAX_COLLECT_ITEMS = 500;
+const MAX_RESOURCES = 1000;
 
 /**
  * The capture half of "clone a site" (theme development design 6): a hidden, locked-down BrowserWindow
@@ -128,8 +134,23 @@ export class CaptureService {
         ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
         ses.setPermissionCheckHandler(() => false);
         ses.on("will-download", (event) => event.preventDefault());
+        const budget = network.budget;
         ses.webRequest.onBeforeRequest((details, callback) => {
-          callback({ cancel: !requestAllowed(details.url) });
+          if (!requestAllowed(details.url)) return callback({ cancel: true });
+          try {
+            // HTTP is counted by the proxy; HTTPS requests are invisible inside its CONNECT tunnel.
+            if (new URL(details.url).protocol === "https:" && !budget.addRequest()) return callback({ cancel: true });
+          } catch {
+            return callback({ cancel: true });
+          }
+          callback({});
+        });
+        ses.webRequest.onHeadersReceived((details, callback) => {
+          const protocol = new URL(details.url).protocol;
+          const length = contentLength(details.responseHeaders);
+          // The proxy checks HTTP bodies; a declared HTTPS body is all the window can see before download.
+          if (protocol === "https:" && length !== null && !budget.addBytes(length)) return callback({ cancel: true });
+          callback({ responseHeaders: details.responseHeaders });
         });
         // Network idle includes finished HTTPS requests, which the HTTP proxy cannot see inside CONNECT.
         ses.webRequest.onCompleted(() => network.touch());
@@ -183,7 +204,7 @@ export class CaptureService {
         let title = "";
         for (const [index, url] of urls.entries()) {
           this.opts.onProgress({ phase: "page", url: url.toString(), index, total: urls.length });
-          await this.load(win, network, url, origin, index);
+          await this.load(win, network, budget, url, origin, index);
           this.opts.onProgress({ phase: "collect", url: url.toString(), index, total: urls.length });
           const collected = await collect(contents);
           if (!title) title = collected.title || url.hostname;
@@ -211,7 +232,7 @@ export class CaptureService {
           }
 
           this.opts.onProgress({ phase: "assets", url: url.toString(), index, total: urls.length });
-          if (req.images) await this.downloadImages(network, pageDir, collected.images, assets);
+          if (req.images) await this.downloadImages(network, pageDir, collected.images, collected.resources, assets);
           if (req.fonts) await this.downloadFonts(network, pageDir, collected.resources, assets);
 
           manifestPages.push({
@@ -229,7 +250,6 @@ export class CaptureService {
           id,
           origin,
           title,
-          options: { images: req.images, fonts: req.fonts },
           pages: manifestPages,
           reference,
           assets,
@@ -266,15 +286,24 @@ export class CaptureService {
   }
 
   /** Load one page and wait for it to settle; a redirect off the origin is refused by the listeners. */
-  private async load(win: BrowserWindow, network: CaptureNetwork, url: URL, origin: string, index: number) {
+  private async load(
+    win: BrowserWindow,
+    network: CaptureNetwork,
+    budget: CaptureBudget,
+    url: URL,
+    origin: string,
+    index: number,
+  ) {
     const started = Date.now();
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`page ${index + 1} took longer than 30 seconds`)), CAPTURE_LIMITS.timeoutMs),
     );
     await Promise.race([win.loadURL(url.toString()), timeout]);
+    if (budget.error) throw new Error(budget.error);
     if (new URL(win.webContents.getURL()).origin !== origin) throw new Error("the page went to another site");
     // Network idle: no new requests for 2 seconds (design 6.2), still bounded by the page timeout.
     for (;;) {
+      if (budget.error) throw new Error(budget.error);
       if (Date.now() - network.lastActivity >= 2000) return;
       if (Date.now() - started > CAPTURE_LIMITS.timeoutMs) throw new Error(`page ${index + 1} did not settle`);
       await sleep(200);
@@ -283,14 +312,15 @@ export class CaptureService {
 
   private async externalCss(network: CaptureNetwork, urls: string[]): Promise<string[]> {
     const out: string[] = [];
-    for (const href of [...new Set(urls)]) {
+    for (const href of [...new Set(urls)].slice(0, MAX_COLLECT_ITEMS)) {
       try {
         const url = captureUrl(href);
         if (!url) continue;
         const response = await network.fetch(url, CAPTURE_LIMITS.maxResourceBytes);
         if (response.status === 200) out.push(response.body.toString("utf8"));
-      } catch {
-        // A stylesheet that cannot be read is simply missing; the pages themselves still import it.
+      } catch (err) {
+        // A stylesheet that cannot be read is simply missing, unless the capture limit itself was hit.
+        limitHit(err);
       }
     }
     return out;
@@ -300,11 +330,16 @@ export class CaptureService {
     network: CaptureNetwork,
     pageDir: string,
     images: { src: string; width: number; height: number }[],
+    resources: { url: string; type: string }[],
     assets: { path: string; source: string }[],
   ): Promise<void> {
-    for (const [index, image] of images.entries()) {
+    const imageResources = resources
+      .filter((r) => /\.(png|jpe?g|webp|gif|svg)(?:[?#]|$)/i.test(r.url))
+      .map((r) => r.url);
+    const urls = [...new Set([...images.map((i) => i.src), ...imageResources])].slice(0, MAX_COLLECT_ITEMS);
+    for (const [index, src] of urls.entries()) {
       try {
-        const url = captureUrl(image.src);
+        const url = captureUrl(src);
         if (!url) continue;
         const response = await network.fetch(url);
         const type = imageType(response.body);
@@ -312,8 +347,9 @@ export class CaptureService {
         const name = `${path.basename(pageDir)}-${index}.${type}`;
         fs.writeFileSync(path.join(pageDir, name), response.body);
         assets.push({ path: `pages/${path.basename(pageDir)}/${name}`, source: url.toString() });
-      } catch {
+      } catch (err) {
         // Skipped: the manifest still has the address and size for a placeholder.
+        limitHit(err);
       }
     }
   }
@@ -324,7 +360,7 @@ export class CaptureService {
     resources: { url: string; type: string }[],
     assets: { path: string; source: string }[],
   ): Promise<void> {
-    const fonts = resources.filter((r) => /\.(woff2?|ttf|otf)(?:[?#]|$)/i.test(r.url));
+    const fonts = resources.filter((r) => /\.(woff2?|ttf|otf)(?:[?#]|$)/i.test(r.url)).slice(0, MAX_COLLECT_ITEMS);
     for (const [index, font] of fonts.entries()) {
       try {
         const url = captureUrl(font.url);
@@ -340,8 +376,9 @@ export class CaptureService {
         const name = `font-${path.basename(pageDir)}-${index}.${ext}`;
         fs.writeFileSync(path.join(pageDir, name), response.body);
         assets.push({ path: `pages/${path.basename(pageDir)}/${name}`, source: url.toString() });
-      } catch {
+      } catch (err) {
         // Skipped: the theme uses a system or open-source font instead.
+        limitHit(err);
       }
     }
   }
@@ -407,18 +444,25 @@ async function collect(contents: WebContents): Promise<Collected> {
         if (sheet.href) sheetUrls.push(sheet.href);
       }
     }
+    const dom = clone.outerHTML;
+    const css = rules.join("\\n");
+    if (dom.length > ${MAX_COLLECT_BYTES} || css.length > ${MAX_COLLECT_BYTES})
+      throw new Error("the page is too large to capture");
     return JSON.stringify({
-      dom: clone.outerHTML,
-      css: rules.join("\\n"),
-      sheetUrls,
+      dom,
+      css,
+      sheetUrls: sheetUrls.slice(0, ${MAX_COLLECT_ITEMS}),
       title: document.title,
       height: document.documentElement.scrollHeight,
-      images: [...document.images].map((img) => ({
+      images: [...document.images].slice(0, ${MAX_COLLECT_ITEMS}).map((img) => ({
         src: img.currentSrc || img.src,
         width: img.naturalWidth,
         height: img.naturalHeight,
       })),
-      resources: performance.getEntriesByType("resource").map((e) => ({ url: e.name, type: e.initiatorType })),
+      resources: performance
+        .getEntriesByType("resource")
+        .slice(0, ${MAX_RESOURCES})
+        .map((e) => ({ url: e.name, type: e.initiatorType })),
     });
   })()`;
   const raw = await contents.executeJavaScriptInIsolatedWorld(1001, [{ code }]);
@@ -426,8 +470,9 @@ async function collect(contents: WebContents): Promise<Collected> {
   return {
     ...parsed,
     height: Number.isFinite(parsed.height) ? parsed.height : 900,
-    images: Array.isArray(parsed.images) ? parsed.images : [],
-    resources: Array.isArray(parsed.resources) ? parsed.resources : [],
+    images: Array.isArray(parsed.images) ? parsed.images.slice(0, MAX_COLLECT_ITEMS) : [],
+    resources: Array.isArray(parsed.resources) ? parsed.resources.slice(0, MAX_RESOURCES) : [],
+    sheetUrls: Array.isArray(parsed.sheetUrls) ? parsed.sheetUrls.slice(0, MAX_COLLECT_ITEMS) : [],
   };
 }
 
@@ -464,9 +509,15 @@ function imageType(data: Buffer): "png" | "jpg" | "webp" | "gif" | "svg" | null 
     data.subarray(8, 12).toString("ascii") === "WEBP"
   )
     return "webp";
-  if (data.length >= 6 && data.subarray(0, 6).toString("ascii") === "GIF89a") return "gif";
-  if (data.subarray(0, 512).toString("utf8").trimStart().startsWith("<svg")) return "svg";
+  const head = data.subarray(0, 1024).toString("utf8").trimStart();
+  if (head.startsWith("GIF87a") || head.startsWith("GIF89a")) return "gif";
+  if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.slice(0, 1024).includes("<svg"))) return "svg";
   return null;
+}
+
+/** Stop the post-load work when the shared budget is exhausted; other misses are skipped. */
+function limitHit(err: unknown): void {
+  if (err instanceof CaptureNetworkError && (err.code === "too_many" || err.code === "too_large")) throw err;
 }
 
 function* walk(dir: string): Generator<string> {

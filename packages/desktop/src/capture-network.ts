@@ -27,6 +27,60 @@ export class CaptureNetworkError extends Error {
 }
 
 /**
+ * One budget for a whole capture: the proxy counts HTTP requests, the desktop window reports HTTPS ones
+ * (the proxy cannot see inside a CONNECT tunnel), and both add the bytes they can see.
+ */
+export class CaptureBudget {
+  requests = 0;
+  bytes = 0;
+  error: string | null = null;
+
+  constructor(
+    private readonly limits: { maxRequests: number; maxTotalBytes: number; maxResourceBytes: number } = CAPTURE_LIMITS,
+  ) {}
+
+  /** False (and an error) when the capture has used up its request budget. */
+  addRequest(): boolean {
+    if (this.error) return false;
+    this.requests += 1;
+    if (this.requests > this.limits.maxRequests) {
+      this.error = `more than ${this.limits.maxRequests} requests`;
+      return false;
+    }
+    return true;
+  }
+
+  /** False (and an error) when the bytes exceed the whole capture or one response. */
+  addBytes(bytes: number): boolean {
+    if (this.error) return false;
+    if (bytes > this.limits.maxResourceBytes) {
+      this.error = `a response is larger than ${this.limits.maxResourceBytes} bytes`;
+      return false;
+    }
+    this.bytes += bytes;
+    if (this.bytes > this.limits.maxTotalBytes) {
+      this.error = `more than ${this.limits.maxTotalBytes} bytes`;
+      return false;
+    }
+    return true;
+  }
+
+  fail(message: string): void {
+    this.error ??= message;
+  }
+}
+
+/** The declared length of a response, when the header is a plain non-negative integer. */
+export function contentLength(headers: Record<string, string[] | undefined> | undefined): number | null {
+  if (!headers) return null;
+  const key = Object.keys(headers).find((name) => name.toLowerCase() === "content-length");
+  const value = key ? headers[key]?.[0] : undefined;
+  if (value === undefined) return null;
+  const length = Number(value);
+  return Number.isSafeInteger(length) && length >= 0 ? length : null;
+}
+
+/**
  * The URLs a capture may visit (design 6.2): http and https, no credentials, no other schemes. The user's
  * pages must share an origin; resources may be elsewhere but still go through the checks below.
  */
@@ -138,8 +192,7 @@ export interface Fetched {
  * redirect the request (DNS rebinding). The same class is the local HTTP proxy Chromium uses.
  */
 export class CaptureNetwork {
-  requests = 0;
-  bytes = 0;
+  readonly budget: CaptureBudget;
   /** When the last proxied or checked request started or finished; the page loader waits for 2 s of quiet. */
   lastActivity = Date.now();
   private server: http.Server | null = null;
@@ -147,7 +200,22 @@ export class CaptureNetwork {
   constructor(
     private readonly limits = CAPTURE_LIMITS,
     private readonly testOrigin = false,
-  ) {}
+    budget?: CaptureBudget,
+    /** A test-only CA for the local TLS fixture; production uses the system store. */
+    private readonly ca?: string,
+  ) {
+    this.budget = budget ?? new CaptureBudget(limits);
+  }
+
+  /** Requests counted for this capture (HTTP here, HTTPS by the desktop window). */
+  get requests(): number {
+    return this.budget.requests;
+  }
+
+  /** Bytes counted for this capture. */
+  get bytes(): number {
+    return this.budget.bytes;
+  }
 
   /** Remember that the page is still talking to the network. */
   touch(): void {
@@ -192,9 +260,9 @@ export class CaptureNetwork {
     throw new CaptureNetworkError("blocked", "too many redirects");
   }
 
-  /** The checked address for a URL, or a CaptureNetworkError. */
-  async target(url: URL): Promise<{ address: string; family: 4 | 6 }> {
-    this.count();
+  /** The checked address for a URL, or a CaptureNetworkError. `count` is false for a CONNECT the window counted. */
+  async target(url: URL, count = true): Promise<{ address: string; family: 4 | 6 }> {
+    if (count) this.count();
     this.touch();
     const host = url.hostname;
     if (isLocalName(host)) throw new CaptureNetworkError("blocked", "localhost and private addresses are not captured");
@@ -219,15 +287,12 @@ export class CaptureNetwork {
   }
 
   private count(): void {
-    this.requests += 1;
-    if (this.requests > this.limits.maxRequests)
-      throw new CaptureNetworkError("too_many", `more than ${this.limits.maxRequests} requests`);
+    if (!this.budget.addRequest())
+      throw new CaptureNetworkError("too_many", this.budget.error ?? "request limit reached");
   }
 
   private addBytes(n: number): void {
-    this.bytes += n;
-    if (this.bytes > this.limits.maxTotalBytes)
-      throw new CaptureNetworkError("too_large", `more than ${this.limits.maxTotalBytes} bytes`);
+    if (!this.budget.addBytes(n)) throw new CaptureNetworkError("too_large", this.budget.error ?? "byte limit reached");
   }
 
   private request(
@@ -237,6 +302,7 @@ export class CaptureNetwork {
   ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
     return new Promise((resolve, reject) => {
       const lib = url.protocol === "https:" ? https : http;
+      const servername = net.isIP(url.hostname) === 0 ? url.hostname : undefined;
       const req = lib.request(
         {
           host: target.address,
@@ -245,7 +311,9 @@ export class CaptureNetwork {
           path: `${url.pathname}${url.search}`,
           method: "GET",
           headers: { host: url.host, "user-agent": captureUserAgent(), accept: "*/*", "accept-encoding": "identity" },
-          ...(url.protocol === "https:" ? { servername: url.hostname, rejectUnauthorized: true } : {}),
+          ...(url.protocol === "https:"
+            ? { ...(servername ? { servername } : {}), rejectUnauthorized: true, ...(this.ca ? { ca: this.ca } : {}) }
+            : {}),
           timeout: this.limits.timeoutMs,
         },
         (res) => {
@@ -284,6 +352,7 @@ export class CaptureNetwork {
       if (!url) throw new CaptureNetworkError("blocked", "not an http(s) URL");
       const target = await this.target(url);
       const lib = url.protocol === "https:" ? https : http;
+      const servername = net.isIP(url.hostname) === 0 ? url.hostname : undefined;
       const upstream = lib.request(
         {
           host: target.address,
@@ -292,7 +361,9 @@ export class CaptureNetwork {
           path: `${url.pathname}${url.search}`,
           method: req.method,
           headers: { ...req.headers, host: url.host },
-          ...(url.protocol === "https:" ? { servername: url.hostname, rejectUnauthorized: true } : {}),
+          ...(url.protocol === "https:"
+            ? { ...(servername ? { servername } : {}), rejectUnauthorized: true, ...(this.ca ? { ca: this.ca } : {}) }
+            : {}),
           timeout: this.limits.timeoutMs,
         },
         (upstreamRes) => {
@@ -341,7 +412,7 @@ export class CaptureNetwork {
       const host = text.startsWith("[") ? text.slice(1, text.indexOf("]")) : text.split(":")[0];
       const port = Number(text.startsWith("[") ? text.slice(text.indexOf("]") + 2) : text.split(":")[1]);
       if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return fail();
-      const target = await this.target(new URL(`https://${net.isIP(host) === 6 ? `[${host}]` : host}/`));
+      const target = await this.target(new URL(`https://${net.isIP(host) === 6 ? `[${host}]` : host}/`), false);
       this.touch();
       const upstream = net.connect({
         host: target.address,

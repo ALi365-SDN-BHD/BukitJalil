@@ -17,7 +17,6 @@ const Manifest = z
     id: z.string().min(1).max(64),
     origin: z.string().min(1),
     title: z.string().max(1000),
-    options: z.object({ images: z.boolean(), fonts: z.boolean() }),
     pages: z
       .array(
         z.object({
@@ -100,7 +99,8 @@ export function loadCapture(capturesDir: string, id: string): LoadedCapture {
     if (stat.size > MAX_FILE) throw new SiteError("theme.too_large", 409, { max: String(MAX_FILE) });
     total += stat.size;
     if (total > MAX_TOTAL) throw new SiteError("theme.too_large", 409, { max: String(MAX_TOTAL) });
-    if (files.size + references.size >= MAX_FILES) throw new SiteError("theme.too_large", 409, { max: "500 files" });
+    if (files.size + references.size >= MAX_FILES)
+      throw new SiteError("theme.too_many_files", 409, { max: String(MAX_FILES) });
     const data = fs.readFileSync(abs);
     checkType(rel, data, kind);
     const ext = path.extname(rel).toLowerCase();
@@ -166,16 +166,23 @@ function checkType(rel: string, data: Buffer, kind: "page" | "asset" | "referenc
 /** A best-effort clean-up for captured SVG: no scripts, no external references (design 6.2). */
 export function cleanSvg(text: string): string {
   if (/<!doctype|<!entity/i.test(text)) throw invalid("the SVG has a document type or entity");
-  return text
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/<foreignObject\b[\s\S]*?<\/foreignObject\s*>/gi, "")
-    .replace(/@import[^;]+;/gi, "")
-    .replace(/url\(\s*(?:"|')?(?:https?:)?\/\/[^)]*\)/gi, "none")
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s(?:xlink:)?href\s*=\s*("([^"]*)"|'([^']*)')/gi, (match, _all: string, dq?: string, sq?: string) => {
-      const value = dq ?? sq ?? "";
-      return value.startsWith("#") ? match : "";
-    });
+  return (
+    text
+      .replace(/<script\b[\s\S]*?<\/script\s*>/gi, "")
+      .replace(/<foreignObject\b[\s\S]*?<\/foreignObject\s*>/gi, "")
+      .replace(/@import[^;]+;/gi, "")
+      // Only fragments stay as links; quoted, unquoted and entity-encoded external values are all removed.
+      .replace(
+        /\s(?:xlink:)?href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+        (match, dq?: string, sq?: string, uq?: string) => ((dq ?? sq ?? uq ?? "").trim().startsWith("#") ? match : ""),
+      )
+      // The same rule for CSS urls: local fragments and data: images only.
+      .replace(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi, (match, dq?: string, sq?: string, uq?: string) => {
+        const value = (dq ?? sq ?? uq ?? "").trim();
+        return value.startsWith("#") || /^data:/i.test(value) ? match : "none";
+      })
+      .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+  );
 }
 
 function png(data: Buffer): boolean {
