@@ -9,6 +9,7 @@ import { sniffMedia } from "../media/sniff.ts";
 import { summarizeConfig } from "../panels/service.ts";
 import { parseFrontMatter, parseYaml } from "../panels/yaml.ts";
 import { SiteError } from "../sites/location.ts";
+import { MAX_COVERAGE_FILE_BYTES, type ThemeFiles, themeCoverage } from "../themes/coverage.ts";
 import { type AiBukit, type BuildResult, type CheckResult, type NotionNote, notionNoteText } from "./ai-bukit.ts";
 import { GateError, type PathGate, segmentKey } from "./gate.ts";
 
@@ -28,21 +29,8 @@ export const SITE_TOOLS = [
 /** Tools only theme projects get (theme development design 4.1). */
 export const THEME_TOOLS = ["theme_coverage"] as const;
 
-/** Page types (theme.yaml `templates` keys) a theme should cover; the sample content has every one. */
-export const PAGE_TYPES = [
-  "home",
-  "post",
-  "page",
-  "list",
-  "pagination",
-  "archive",
-  "taxonomy_index",
-  "taxonomy_term",
-] as const;
-
 const MAX_CONFIG_BYTES = 256 * 1024;
 const MARKDOWN_FILE = /\.(md|markdown)$/i;
-const TEMPLATE_FILE = /\.html$/i;
 const MAX_CONTENT_FILES = 500;
 const MAX_CONTENT_FILE_BYTES = 256 * 1024;
 const MAX_SCHEMA_CHARS = 60_000;
@@ -173,73 +161,30 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       async execute() {
         const { config, error } = readConfig();
         if (!config) return json({ error });
-        return json(themeCoverage(config, themeName, cwd, gate));
+        return json(await themeCoverage(config, themeName, workingCopyFiles(cwd, gate)));
       },
     });
   }
   return tools;
 }
 
-/** theme_coverage (design 4.1): read through the gate; reports problems instead of throwing. */
-export function themeCoverage(config: Record<string, unknown>, themeName: string, cwd: string, gate: PathGate) {
-  const root = path.posix.join("themes", themeName);
-  const theme = isRecord(config.theme) ? config.theme : {};
-  const layouts = typeof theme.layouts === "string" && pathProblem(theme.layouts) === null ? theme.layouts : "layouts";
-  const layoutsDir = path.posix.join(root, layouts);
-  const exists = (rel: string) => {
-    try {
-      return fs.statSync(gate.check(path.join(cwd, rel), "read"), { throwIfNoEntry: false })?.isFile() ?? false;
-    } catch (err) {
-      if (err instanceof GateError) return false;
-      throw err;
-    }
-  };
-  const readText = (rel: string): string | null => {
-    try {
-      const real = gate.check(path.join(cwd, rel), "read");
-      const st = fs.statSync(real, { throwIfNoEntry: false });
-      return st?.isFile() && st.size <= MAX_CONTENT_FILE_BYTES ? fs.readFileSync(real, "utf8") : null;
-    } catch (err) {
-      if (err instanceof GateError) return null;
-      throw err;
-    }
-  };
-
-  const manifestFile = path.posix.join(root, "theme.yaml");
-  const manifestText = readText(manifestFile);
-  const manifest = manifestText === null ? null : parseYaml(manifestText);
-  if (manifest === null || manifest.error !== null || !isRecord(manifest.value)) {
-    return {
-      theme: root,
-      error: `${manifestFile} is missing or not valid YAML${manifest?.error ? `: ${manifest.error}` : ""}`,
-    };
-  }
-  const declared = isRecord(manifest.value.templates) ? manifest.value.templates : {};
-  const templates = Object.entries(declared).map(([pageType, entry]) => {
-    const template = isRecord(entry) && typeof entry.template === "string" ? entry.template : null;
-    const file = template !== null && pathProblem(template) === null ? path.posix.join(layoutsDir, template) : null;
-    return { pageType, template, exists: file !== null && exists(file) };
-  });
-  const missingIncludes: { file: string; include: string }[] = [];
-  for (const file of filesUnder(cwd, layoutsDir, gate, TEMPLATE_FILE)) {
-    const source = readText(file);
-    if (source === null) continue;
-    for (const match of source.matchAll(/\binclude\s+["']([^"']+)["']/g)) {
-      const include = match[1] ?? "";
-      const target = pathProblem(include) === null ? path.posix.join(layoutsDir, include) : null;
-      if (target === null || !exists(target)) missingIncludes.push({ file, include });
-    }
-  }
+/** The AI's working copy as theme_coverage reads it: through the gate, without symlinks (design 4.1). */
+export function workingCopyFiles(cwd: string, gate: PathGate): ThemeFiles {
   return {
-    theme: root,
-    layouts: layoutsDir,
-    templates,
-    missingPageTypes: PAGE_TYPES.filter((type) => !(type in declared)),
-    missingTemplateFiles: templates.filter((t) => !t.exists).map((t) => t.template ?? t.pageType),
-    missingIncludes,
-    tokens: exists(path.posix.join(root, "tokens.yaml")),
-    searchPage: exists(path.posix.join(layoutsDir, "pages", "search.html")),
-    notFoundPage: exists(path.posix.join(root, "static", "404.html")),
+    list: async (dir) => filesUnder(cwd, dir, gate, /./),
+    read: async (paths) => {
+      const out = new Map<string, string>();
+      for (const rel of paths) {
+        try {
+          const real = gate.check(path.join(cwd, rel), "read");
+          const st = fs.statSync(real, { throwIfNoEntry: false });
+          if (st?.isFile() && st.size <= MAX_COVERAGE_FILE_BYTES) out.set(rel, fs.readFileSync(real, "utf8"));
+        } catch (err) {
+          if (!(err instanceof GateError)) throw err;
+        }
+      }
+      return out;
+    },
   };
 }
 

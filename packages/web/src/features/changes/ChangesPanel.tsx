@@ -1,4 +1,4 @@
-import type { ChangeView, ProjectKey } from "@bukitjalil/shared";
+import { type ChangeView, isThemeKey, type ProjectKey } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -73,19 +73,21 @@ export function ChangesPanel({ project, readOnly }: { project: ProjectKey; readO
           >
             {shown ? shown.summary?.trim() || m.changes.noSummary : change ? m.changes.noChanges : m.changes.none}
           </p>
-          <MediaUpload
-            ref={uploader}
-            siteId={project}
-            disabled={readOnly}
-            disabledReason={m.conversation.readOnlyHint}
-            trigger={
-              <>
-                <Upload /> {m.media.upload}
-              </>
-            }
-            ariaLabel={m.media.upload}
-            size="xs"
-          />
+          {!isThemeKey(project) && (
+            <MediaUpload
+              ref={uploader}
+              siteId={project}
+              disabled={readOnly}
+              disabledReason={m.conversation.readOnlyHint}
+              trigger={
+                <>
+                  <Upload /> {m.media.upload}
+                </>
+              }
+              ariaLabel={m.media.upload}
+              size="xs"
+            />
+          )}
         </div>
         {shown && (
           <>

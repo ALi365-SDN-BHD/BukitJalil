@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { CurrentChange, SessionInfo, Theme, TreeResponse } from "@bukitjalil/shared";
+import type { CurrentChange, SessionInfo, Theme, ThemeResponse, TreeResponse } from "@bukitjalil/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PathGate } from "../src/agent/gate.ts";
-import { themeCoverage } from "../src/agent/site-tools.ts";
+import { workingCopyFiles } from "../src/agent/site-tools.ts";
 import { parseYaml } from "../src/panels/yaml.ts";
 import { SettingsStore } from "../src/store/settings.ts";
+import { themeCoverage } from "../src/themes/coverage.ts";
 import { themeKey } from "../src/themes/service.ts";
 import { pngChunk, tinyPng } from "./fixtures/images.ts";
 import { writeStarter } from "./fixtures/starter.ts";
@@ -270,17 +271,58 @@ describe("new theme projects (T1)", () => {
     fs.mkdirSync(path.join(root, "static"), { recursive: true });
     fs.writeFileSync(path.join(root, "static", "404.html"), "<!doctype html><title>Not found</title>");
     const config = parseYaml(fs.readFileSync(path.join(dir, "site.yaml"), "utf8")).value as Record<string, unknown>;
-    const report = themeCoverage(config, "gaps", dir, new PathGate(dir));
+    const files = workingCopyFiles(dir, new PathGate(dir));
+    const report = await themeCoverage(config, "gaps", files);
     expect(report).toMatchObject({
       missingPageTypes: ["archive"],
       missingTemplateFiles: ["pages/pagination.html"],
       notFoundPage: true,
       tokens: false,
     });
-    expect(report.missingIncludes?.map((m) => m.include)).toContain("partials/footer.html");
-    expect(themeCoverage(config, "missing", dir, new PathGate(dir))).toMatchObject({
+    expect("missingIncludes" in report && report.missingIncludes.map((m) => m.include)).toContain(
+      "partials/footer.html",
+    );
+    expect(await themeCoverage(config, "missing", files)).toMatchObject({
       error: expect.stringContaining("themes/missing/theme.yaml"),
     });
+  });
+
+  it("gives a theme project's theme panel the coverage, token colors and sample site's theme section", async () => {
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    const res = await create({ name: "Panel", themeName: "panel", path: dir, language: "en-US" });
+    const t = (await res.json()) as Theme;
+    await ctx.builds.settled();
+    const tokens = [
+      "colors:",
+      "  bg: '#f5efe6'",
+      "  text: rgb(20 20 20)",
+      "  bad: 'red; background: url(x)'",
+      "font:",
+      "  body: Georgia, serif",
+      "",
+    ].join("\n");
+    fs.writeFileSync(path.join(dir, "themes", "panel", "tokens.yaml"), tokens);
+    commitAllAs(base, dir);
+
+    const panel = (await (await call("GET", `/api/themes/${t.id}/theme?ref=main`)).json()) as ThemeResponse;
+    expect(panel.coverage).toMatchObject({
+      theme: "themes/panel",
+      missingPageTypes: [],
+      tokens: true,
+      notFoundPage: false,
+    });
+    // Only values that are plain CSS colors become swatches.
+    expect(panel.colors).toEqual([
+      { name: "bg", value: "#f5efe6" },
+      { name: "text", value: "rgb(20 20 20)" },
+    ]);
+    expect(panel.siteTheme).toMatchObject({ name: "panel" });
+
+    // A site's theme panel has none of them.
+    const s = await ctx.sites.import({ path: repo("site") });
+    await ctx.builds.settled();
+    const site = (await (await call("GET", `/api/sites/${s.id}/theme?ref=main`)).json()) as ThemeResponse;
+    expect(site).toMatchObject({ coverage: null, colors: null, siteTheme: null });
   });
 
   it("keeps the starter directory when the theme is called starter", async () => {

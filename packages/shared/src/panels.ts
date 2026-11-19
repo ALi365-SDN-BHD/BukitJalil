@@ -104,6 +104,39 @@ export interface ConfigSummary {
   otherSections: string[];
 }
 
+/** The page types a theme should have a template for (theme development design 4.1). */
+export const PAGE_TYPES = [
+  "home",
+  "post",
+  "page",
+  "list",
+  "pagination",
+  "archive",
+  "taxonomy_index",
+  "taxonomy_term",
+] as const;
+
+/** What a theme covers (design 4.1): the theme_coverage tool and the theme panel of a theme project. */
+export type ThemeCoverage =
+  | { theme: string; error: string }
+  | {
+      theme: string;
+      layouts: string;
+      templates: { pageType: string; template: string | null; exists: boolean }[];
+      missingPageTypes: string[];
+      missingTemplateFiles: string[];
+      missingIncludes: { file: string; include: string }[];
+      tokens: boolean;
+      searchPage: boolean;
+      notFoundPage: boolean;
+    };
+
+/** A color of a theme's tokens.yaml, for a swatch. */
+export interface ThemeToken {
+  name: string;
+  value: string;
+}
+
 export interface ThemeResponse {
   ref: PanelRef;
   commit: string;
@@ -121,6 +154,10 @@ export interface ThemeResponse {
   /** A list was cut at the limit. */
   truncated: boolean;
   params: unknown;
+  /** Theme projects only (design 2): what the theme covers, its token colors, and the sample site's theme section. */
+  coverage: ThemeCoverage | null;
+  colors: ThemeToken[] | null;
+  siteTheme: unknown;
 }
 
 export interface DataResponse {

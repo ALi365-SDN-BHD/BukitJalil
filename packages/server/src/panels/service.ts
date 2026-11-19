@@ -31,6 +31,7 @@ import {
 import { GitError, type GitRunner } from "../git/run.ts";
 import type { ProjectService } from "../projects/service.ts";
 import { SiteError } from "../sites/location.ts";
+import { MAX_COVERAGE_FILE_BYTES, type ThemeFiles, themeColors, themeCoverage } from "../themes/coverage.ts";
 import { parseFrontMatter, parseYaml } from "./yaml.ts";
 
 /** Text shown inline in the file panel. */
@@ -41,6 +42,8 @@ export const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_CONFIG_BYTES = 1024 * 1024;
 /** Theme file lists, per list. */
 const MAX_THEME_FILES = 2000;
+/** Template and manifest bytes the coverage reads in all. */
+const MAX_COVERAGE_TOTAL_BYTES = 16 * 1024 * 1024;
 /** Markdown files read for the data panel: count and bytes over all sources, and the size of each. */
 const MAX_DATA_FILES = 2000;
 const MAX_DATA_BYTES = 32 * 1024 * 1024;
@@ -180,6 +183,9 @@ export class PanelService {
         static: [],
         truncated: false,
         params: theme.params ?? null,
+        coverage: null,
+        colors: null,
+        siteTheme: null,
       };
       const name = typeof theme.name === "string" && pathProblem(theme.name, true) === null ? theme.name : null;
       if (!name) return empty;
@@ -187,6 +193,16 @@ export class PanelService {
       const dirEntry = await this.entryAt(v, dir);
       if (dirEntry?.type !== "tree") return { ...empty, name };
 
+      // A theme project's deliverable (theme development design 2): what it covers and its token colors.
+      const themeProject = this.opts.projects.get(project).themeName !== null;
+      const extra =
+        themeProject && config
+          ? {
+              coverage: await themeCoverage(config, name, this.versionFiles(v)),
+              colors: themeColors(await this.readTextOrNull(v, `${dir}/tokens.yaml`, MAX_COVERAGE_FILE_BYTES)),
+              siteTheme: config.theme ?? null,
+            }
+          : {};
       const manifestRaw = await this.readText(v, `${dir}/theme.yaml`, MAX_CONFIG_BYTES);
       const manifest = manifestRaw === null ? null : parseYaml(manifestRaw);
       let truncated = false;
@@ -208,6 +224,7 @@ export class PanelService {
         assets: await files("assets"),
         static: await files("static"),
         truncated,
+        ...extra,
       };
     });
   }
@@ -376,6 +393,52 @@ export class PanelService {
     if (dir !== "" && (await this.entryAt(v, dir))?.type !== "tree") return [];
     const all = await listTree(this.opts.git, v.repo, v.commit, { dir, recursive: true });
     return all.filter((e) => e.type === "blob" && e.mode !== SYMLINK_MODE).sort((a, b) => compare(a.path, b.path));
+  }
+
+  /** A version's files for the theme coverage: blobs only (no symlinks), each read up to the coverage limit. */
+  private versionFiles(v: Version): ThemeFiles {
+    const listed = new Map<string, TreeEntry>();
+    return {
+      list: async (dir) => {
+        const entries = await this.blobsUnder(v, dir);
+        for (const e of entries) listed.set(e.path, e);
+        return entries.map((e) => e.path);
+      },
+      read: async (paths) => {
+        // Files past the total limit are left out, like a file over its own limit.
+        let total = 0;
+        const entries: TreeEntry[] = [];
+        for (const p of new Set(paths)) {
+          const e = listed.get(p);
+          const size = e?.size ?? 0;
+          if (!e || size > MAX_COVERAGE_FILE_BYTES || total + size > MAX_COVERAGE_TOTAL_BYTES) continue;
+          total += size;
+          entries.push(e);
+        }
+        const blobs = await readBlobs(
+          this.opts.git,
+          v.repo,
+          entries.map((e) => e.oid),
+          MAX_COVERAGE_TOTAL_BYTES,
+        );
+        const out = new Map<string, string>();
+        for (const e of entries) {
+          const data = blobs.get(e.oid);
+          if (data) out.set(e.path, data.toString("utf8"));
+        }
+        return out;
+      },
+    };
+  }
+
+  /** A file's text, or null when it is missing or larger than `maxBytes`. */
+  private async readTextOrNull(v: Version, p: string, maxBytes: number): Promise<string | null> {
+    try {
+      return await this.readText(v, p, maxBytes);
+    } catch (err) {
+      if (err instanceof GitError && err.kind === "output_too_large") return null;
+      throw err;
+    }
   }
 
   private async readText(v: Version, p: string, maxBytes: number): Promise<string | null> {

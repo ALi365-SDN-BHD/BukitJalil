@@ -10,7 +10,7 @@ import { api, keys } from "@/lib/api";
 import { DirPicker, joinPath } from "./DirPicker";
 import { IdentityFields, useIdentity } from "./identity";
 
-const LANGUAGES = [
+export const LANGUAGES = [
   { code: "zh-CN", label: "简体中文 (zh-CN)" },
   { code: "en-US", label: "English (en-US)" },
   { code: "zh-TW", label: "繁體中文 (zh-TW)" },
@@ -18,15 +18,15 @@ const LANGUAGES = [
   { code: "ja-JP", label: "日本語 (ja-JP)" },
 ];
 
-/** A folder name from the site name: ASCII letters, digits and dashes, or "site" when nothing is left. */
-export function folderFromName(name: string): string {
+/** A folder name from the site name: ASCII letters, digits and dashes, or `fallback` when nothing is left. */
+export function folderFromName(name: string, fallback = "site"): string {
   const slug = name
     .normalize("NFKD")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
-  return slug || "site";
+  return slug || fallback;
 }
 
 /** New site from the starter (plan 5.2). */

@@ -10,6 +10,7 @@ import {
   type ChangeSet,
   type ConfigResponse,
   type CreateSiteRequest,
+  type CreateThemeRequest,
   CSRF_HEADER,
   CSRF_HEADER_VALUE,
   type CurrentChange,
@@ -61,6 +62,7 @@ import {
   type SiteNotionSourceRequest,
   type SitePatch,
   type SkillsResponse,
+  type Theme,
   type ThemeResponse,
   type TreeResponse,
   type VersionDiff,
@@ -144,6 +146,15 @@ export const api = {
   recheck: (id: string) => post<Site>(`/sites/${id}/recheck`),
   openSite: (id: string) => post<null>(`/sites/${id}/open`),
   removeSite: (id: string) => request<{ leftovers: string[] }>(`/sites/${id}`, { method: "DELETE" }),
+
+  themes: () => request<Theme[]>("/themes"),
+  themeProject: (id: string) => request<Theme>(`/themes/${id}`),
+  createTheme: (req: CreateThemeRequest) => post<Theme>("/themes", req),
+  patchTheme: (id: string, patch: SitePatch) =>
+    request<Theme>(`/themes/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  recheckTheme: (id: string) => post<Theme>(`/themes/${id}/recheck`),
+  openTheme: (id: string) => post<null>(`/themes/${id}/open`),
+  removeTheme: (id: string) => request<{ leftovers: string[] }>(`/themes/${id}`, { method: "DELETE" }),
 
   // Project routes (theme development design 3.3): a site's or a theme project's, by project key.
   tree: (project: ProjectKey, ref: PanelRef, path: string) =>
@@ -264,6 +275,8 @@ export const keys = {
   skills: ["skills"] as const,
   sites: ["sites"] as const,
   site: (id: string) => ["site", id] as const,
+  themes: ["themes"] as const,
+  theme: (id: string) => ["theme", id] as const,
   /** The project's own record: `site` for a site, `theme` for a theme project. */
   project: (key: ProjectKey) => {
     const ref = parseProjectKey(key);

@@ -9,13 +9,15 @@ import { useCreateSession } from "@/features/chat/sessions";
 import { DeploySection } from "@/features/deploys/DeploySection";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { type ProjectInfo, siteProject } from "@/lib/project";
 import { ReasonList } from "./ReasonList";
 
 /** "Start a new conversation" (plan 10.2), or why there can be none. */
-function StartConversation({ site }: { site: Site }) {
+export function StartConversation({ project }: { project: ProjectInfo }) {
   const { m, errorOf } = useI18n();
-  const create = useCreateSession(site.id);
-  if (site.readOnly) return <p className="self-center text-xs text-muted-foreground">{m.conversation.readOnlyHint}</p>;
+  const create = useCreateSession(project.key);
+  if (project.readOnly)
+    return <p className="self-center text-xs text-muted-foreground">{m.conversation.readOnlyHint}</p>;
   return (
     <div className="flex flex-col items-start gap-1">
       <Button size="sm" data-testid="start-conversation" disabled={create.isPending} onClick={() => create.mutate()}>
@@ -75,7 +77,7 @@ export function SiteHome({ site }: { site: Site }) {
       <div className="flex flex-col gap-2">
         {!site.readOnly && <p className="text-xs text-muted-foreground">{m.conversation.startHint}</p>}
         <div className="flex flex-wrap items-start gap-2">
-          <StartConversation site={site} />
+          <StartConversation project={siteProject(site)} />
           <BuildButton project={site.id} disabled={site.readOnly !== null} />
           <Button
             size="sm"
@@ -101,7 +103,7 @@ export function SiteHome({ site }: { site: Site }) {
 
       <DeploySection site={site} />
 
-      <HistorySection site={site} />
+      <HistorySection project={siteProject(site)} />
     </div>
   );
 }

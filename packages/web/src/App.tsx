@@ -12,11 +12,14 @@ import { ShortcutsDialog, useShortcutsKey } from "@/features/settings/ShortcutsD
 import { SetupGuide } from "@/features/sites/SetupGuide";
 import { SiteHome } from "@/features/sites/SiteHome";
 import { SiteList } from "@/features/sites/SiteList";
+import { ModeSwitch, useRememberLocation } from "@/features/themes/ModeSwitch";
+import { ThemeHome, ThemeWelcome } from "@/features/themes/ThemeHome";
+import { ThemeList } from "@/features/themes/ThemeList";
 import { detectLocale, I18nProvider, useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { desktopBridge } from "@/lib/desktop";
 import { useConnection } from "@/lib/events";
-import { siteProject } from "@/lib/project";
+import { siteProject, themeProject } from "@/lib/project";
 import { setAppearance } from "@/lib/theme";
 
 export function App() {
@@ -53,6 +56,9 @@ export function App() {
         <Route path="/" element={<Shell />} />
         <Route path="/sites/:siteId" element={<Shell />} />
         <Route path="/sites/:siteId/sessions/:sessionId" element={<Shell />} />
+        <Route path="/themes" element={<Shell />} />
+        <Route path="/themes/:themeId" element={<Shell />} />
+        <Route path="/themes/:themeId/sessions/:sessionId" element={<Shell />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </I18nProvider>
@@ -62,7 +68,8 @@ export function App() {
 function Shell() {
   const { m, errorOf } = useI18n();
   const layout = useDefaultLayout({ id: "bj-main", storage: safeLocalStorage() });
-  const { siteId = null, sessionId = null } = useParams();
+  const { siteId = null, themeId = null, sessionId = null } = useParams();
+  const mode = useRememberLocation();
   const narrow = useMediaQuery(NARROW);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   useShortcutsKey(useCallback(() => setShortcutsOpen(true), []));
@@ -72,8 +79,16 @@ function Shell() {
     enabled: siteId !== null,
     retry: false,
   });
+  const theme = useQuery({
+    queryKey: keys.theme(themeId ?? ""),
+    queryFn: () => api.themeProject(themeId ?? ""),
+    enabled: themeId !== null,
+    retry: false,
+  });
+  const record = themeId !== null ? theme : site;
+  const project = site.data ? siteProject(site.data) : theme.data ? themeProject(theme.data) : null;
 
-  // Record the visit so the sidebar lists recently opened sites first (plan 10.1).
+  // Record the visit so the sidebar lists recently opened projects first (plan 10.1).
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!siteId) return;
@@ -82,30 +97,48 @@ function Shell() {
       () => {},
     );
   }, [siteId, queryClient]);
+  useEffect(() => {
+    if (!themeId) return;
+    api.openTheme(themeId).then(
+      () => queryClient.invalidateQueries({ queryKey: keys.themes }),
+      () => {},
+    );
+  }, [themeId, queryClient]);
 
-  const sitesColumn = <SiteList />;
+  const sitesColumn = (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ModeSwitch />
+      {mode === "theme" ? <ThemeList /> : <SiteList />}
+    </div>
+  );
   const conversationColumn = (
     <>
       <SectionTitle icon={<MessageSquare className="size-4" />} title={m.conversation.title} />
       <div className={`min-h-0 flex-1 ${sessionId ? "overflow-hidden" : "overflow-auto"}`}>
-        {siteId === null ? (
-          <Welcome />
-        ) : site.isPending ? (
+        {siteId === null && themeId === null ? (
+          mode === "theme" ? (
+            <ThemeWelcome />
+          ) : (
+            <Welcome />
+          )
+        ) : record.isPending ? (
           <p className="p-6 text-sm text-muted-foreground">{m.common.loading}</p>
-        ) : site.error ? (
+        ) : record.error ? (
           <p role="alert" className="p-6 text-sm text-destructive">
-            {errorOf(site.error)}
+            {errorOf(record.error)}
           </p>
-        ) : sessionId ? (
-          <ChatView key={sessionId} project={siteProject(site.data)} sessionId={sessionId} />
-        ) : (
+        ) : sessionId && project ? (
+          <ChatView key={sessionId} project={project} sessionId={sessionId} />
+        ) : theme.data ? (
+          <ThemeHome theme={theme.data} />
+        ) : site.data ? (
           <SiteHome site={site.data} />
-        )}
+        ) : null}
       </div>
     </>
   );
   const panelsColumn = (
-    <RightPanel key={siteId ?? ""} project={site.data?.id ?? null} readOnly={!!site.data?.readOnly} />
+    <RightPanel key={project?.key ?? mode} mode={mode} project={project?.key ?? null} readOnly={!!project?.readOnly} />
   );
 
   return (
@@ -113,7 +146,12 @@ function Shell() {
       <TopNotice />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       {narrow ? (
-        <NarrowLayout sites={sitesColumn} conversation={conversationColumn} panels={panelsColumn} />
+        <NarrowLayout
+          sites={sitesColumn}
+          sitesLabel={mode === "theme" ? m.themes.title : m.sidebar.title}
+          conversation={conversationColumn}
+          panels={panelsColumn}
+        />
       ) : (
         <Group
           orientation="horizontal"
@@ -248,29 +286,32 @@ type Column = "sites" | "conversation" | "panels";
  */
 function NarrowLayout({
   sites,
+  sitesLabel,
   conversation,
   panels,
 }: {
   sites: React.ReactNode;
+  sitesLabel: string;
   conversation: React.ReactNode;
   panels: React.ReactNode;
 }) {
   const { m } = useI18n();
-  const { siteId = null, sessionId = null } = useParams();
+  const { siteId = null, themeId = null, sessionId = null } = useParams();
   const location = useLocation();
   const [column, setColumn] = useState<Column>("conversation");
   useEffect(() => {
-    // Runs when the site or conversation changes, not on every render.
+    // Runs when the project or conversation changes, not on every render.
     void siteId;
+    void themeId;
     void sessionId;
     setColumn("conversation");
-  }, [siteId, sessionId]);
+  }, [siteId, themeId, sessionId]);
   // Any navigation that names a panel (also "View diff" while that panel is already in the URL).
   useEffect(() => {
     if (new URLSearchParams(location.search).has("panel")) setColumn("panels");
   }, [location.search]);
   const tabs: { id: Column; label: string; icon: React.ReactNode }[] = [
-    { id: "sites", label: m.sidebar.title, icon: <Server className="size-4" /> },
+    { id: "sites", label: sitesLabel, icon: <Server className="size-4" /> },
     { id: "conversation", label: m.conversation.title, icon: <MessageSquare className="size-4" /> },
     { id: "panels", label: m.panel.title, icon: <PanelRight className="size-4" /> },
   ];

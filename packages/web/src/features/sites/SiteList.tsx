@@ -90,7 +90,7 @@ export function SiteList() {
 }
 
 /** Version and the way into the settings page, pinned to the bottom of the sites column. */
-function SidebarFooter() {
+export function SidebarFooter() {
   const { m } = useI18n();
   const openSettings = useOpenSettings();
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, retry: false });
