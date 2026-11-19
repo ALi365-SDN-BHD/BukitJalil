@@ -1917,6 +1917,16 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - 导出 `GET /api/themes/:themeId/export`：只打包默认分支的 `themes/<主题名>/`（跳过符号链接和子模块，上限 50 MiB，和导入一致），文件名 `<主题名>.zip`。浏览器直接下载；桌面版通过新的 `desktop:save-file` IPC 打开系统保存对话框，主进程检查来源、文件名、大小（64 MiB）后写入用户选的位置。
 - 界面：主题首页的"应用到网站"和"导出 zip"。应用对话框列出未归档的网站（只读的不能选），先加载计划：已有同名主题时显示警告和新增/修改/删除的路径列表，`theme.name` 开关默认在网站不是这个主题时打开；完成后给出到网站改动集的链接。三种语言的文案都补齐。
 
+**T2 第 1 层实现说明**（2026-11-19）：
+
+- 服务端 `themes/import.ts`：目录或 zip 当作不可信内容。目录只收普通文件，符号链接、插件文件（`plugins/`、`plugin.yaml`、`.bukit/plugins.yaml`）拒绝；`.git/`、`node_modules/`、`.env*` 跳过。zip 用 `readZipTree` 检查条目路径、数量和大小，再套用 50 MiB 总量、14 MiB 单文件、5000 个文件的限制；压缩包大于 100 MiB 直接拒绝。`shortcut:` 记下 `readZipTree` 先解到 200 MiB 再套 50 MiB 上限，只接本机用户选的文件。
+- 三种形状按内容识别：根目录有 `theme.yaml` 是单个主题；有 `themes/<名字>/theme.yaml` 是主题集合（完整 Bukit 网站也属于这种，另用 `findConfigCandidates` 判断能否交给网站导入）；zip 里如果只有一个顶层目录（压缩文件夹的常见结果）先去掉这层包装。`theme.yaml` 的 `name` 必须合法并与目录名一致；`display_name` 作为新项目名的默认值。
+- `extends` 在同一个来源里找：集合里是 `themes/<父主题>`，单主题目录是同级目录，zip 根主题是根目录同级。父主题递归带上、环只收一次；父主题不在时检查结果里 `missingParent` 非空，导入报 409 `theme.parent_missing`。
+- `POST /api/themes/import/inspect`（`InspectThemeRequest`）只读，返回 `ThemeImportInspection`：`site`（可作为网站导入时的配置文件名）、`themes`（`id`、目标目录、名称、`includes`、`missingParent`）。`POST /api/themes/import`（`ImportThemeRequest`）重新读一遍来源，按 `theme` 找回候选，整份内容先进内存再建目录，失败不留文件夹。
+- 导入：`bukit new` 的起步网站 → 删掉 `themes/starter` → 写入主题和父主题（`themes/<名字>/**`）→ 换样例内容 → `site.yaml` 的 `theme.name` 指向导入的主题 → 首次提交（`Imported theme <名字>`）→ 登记为 `origin: import` → 照常检查、`config check`、首次构建。构建失败不阻止导入（由 `register` 的现有行为保证）。
+- 界面：主题列表顶部改成下拉（按描述新建 / 导入主题），`ImportThemeDialog` 先检查再选主题；桌面版有选文件夹和选 zip 的按钮，浏览器模式直接填路径。检查结果同时是 Bukit 网站时显示"按网站导入"，把路径交给网站模式（`SiteList` 读取路由 state，`ImportDialog` 用它作为起始目录）。主题名的目录默认值、语言、位置、提交身份和新建主题一致。
+- 没做：主题 `theme.yaml` 的显示名、版本等原样保留；导入的主题目录名以 `name` 为准，不改写 `theme.yaml`。
+
 ### 里程碑总览
 
 ```text

@@ -1,4 +1,11 @@
-import { CreateThemeRequest, isProjectId, SitePatch, ThemeApplyRequest } from "@bukitjalil/shared";
+import {
+  CreateThemeRequest,
+  ImportThemeRequest,
+  InspectThemeRequest,
+  isProjectId,
+  SitePatch,
+  ThemeApplyRequest,
+} from "@bukitjalil/shared";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
 import type { BuildService } from "../builds/service.ts";
@@ -30,6 +37,22 @@ export function themeRoutes(api: Hono<AppEnv>, { themes, builds, deliver }: Them
   );
 
   api.get("/themes/:themeId", (c) => handle(c, () => c.json(themes.get(c.req.param("themeId")))));
+
+  api.post("/themes/import/inspect", (c) =>
+    handle(c, async () => {
+      const req = await body(c, InspectThemeRequest);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      return c.json(await themes.inspectImport(req.path));
+    }),
+  );
+
+  api.post("/themes/import", (c) =>
+    handle(c, async () => {
+      const req = await body(c, ImportThemeRequest);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      return c.json(await themes.importTheme(req), 201);
+    }),
+  );
 
   api.patch("/themes/:themeId", (c) =>
     handle(c, async () => {

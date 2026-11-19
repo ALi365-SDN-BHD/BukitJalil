@@ -56,6 +56,28 @@ const ms: Messages = {
     applyToSite: "Guna pada laman",
     export: "Eksport .zip",
     exportFailed: "Tema tidak dapat dieksport",
+    fromDescription: "Daripada penerangan",
+    importTheme: "Import tema",
+    importDialog: {
+      title: "Import tema",
+      description:
+        "Folder tema, laman Bukit, atau zip salah satunya. Tema yang dipilih dan tema induk extends menjadi projek tema baharu.",
+      source: "Folder atau .zip",
+      sourceHint: "Folder dengan theme.yaml, laman atau folder dengan themes/, atau zip salah satunya.",
+      chooseZip: "Pilih .zip",
+      inspect: "Periksa",
+      inspecting: "Memeriksa…",
+      nothing: "Tiada tema dengan theme.yaml ditemui di sini.",
+      themes: "Tema",
+      site: "Folder ini juga sebuah laman Bukit.",
+      siteHint:
+        "Mengimportnya sebagai laman mengekalkan semuanya (pengimport laman meminta pengesahan); memilih tema di sini mencipta projek tema baharu.",
+      importAsSite: "Import sebagai laman",
+      target: "Projek tema baharu",
+      missingParent: "Tema induk {parent} tiada",
+      import: "Import",
+      importing: "Mengimport…",
+    },
     apply: {
       title: "Guna tema pada laman",
       description:
@@ -1203,6 +1225,9 @@ const ms: Messages = {
     "theme.empty": "Tema {theme} tiada fail untuk dihantar",
     "theme.too_large": "Tema lebih besar daripada {max} bait",
     "theme.target_unsafe": "Folder themes laman tidak boleh menyimpan tema ini dengan selamat",
+    "theme.import_invalid": "Ini bukan tema yang boleh diimport oleh BukitJalil: {detail}",
+    "theme.import_unsafe": "Tema mengandungi sesuatu yang tidak selamat: {detail}",
+    "theme.parent_missing": "Tema induk {parent} bagi {theme} tiada; import bersama-sama",
     "image.invalid": "Imej tidak dapat dibaca; ia mungkin rosak",
     "image.too_large": "Imej terlalu besar; setiap satu paling banyak 5 MiB",
     "image.unsupported_type": "Hanya imej PNG, JPEG dan WebP disokong",

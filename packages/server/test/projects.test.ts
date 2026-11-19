@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CurrentChange, SessionInfo, Theme, ThemeResponse, TreeResponse } from "@bukitjalil/shared";
-import { unzipSync } from "fflate";
+import { strToU8, unzipSync, zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PathGate } from "../src/agent/gate.ts";
 import { workingCopyFiles } from "../src/agent/site-tools.ts";
@@ -447,5 +447,166 @@ describe("new theme projects (T1)", () => {
     });
     expect(inside.status).toBe(409);
     expect(await inside.json()).toMatchObject({ code: "site.path_overlaps_site" });
+  });
+});
+
+describe("importing theme projects (T2)", () => {
+  beforeAll(() => {
+    new SettingsStore(ctx.db).update({ commitName: "Theme Owner", commitEmail: "owner@example.com" });
+  });
+
+  const inspect = (p: string) => call("POST", "/api/themes/import/inspect", { path: p });
+  const importTheme = (body: unknown) => call("POST", "/api/themes/import", body);
+
+  /** A theme directory `root/<name>/` with a valid manifest and one layout; returns its path. */
+  function themeDir(root: string, name: string, extra: Record<string, string> = {}): string {
+    const dir = path.join(root, name);
+    fs.mkdirSync(path.join(dir, "layouts"), { recursive: true });
+    const lines = [
+      `name: ${name}`,
+      `display_name: ${name} Theme`,
+      ...Object.entries(extra).map(([k, v]) => `${k}: ${v}`),
+    ];
+    fs.writeFileSync(path.join(dir, "theme.yaml"), `${lines.join("\n")}\n`);
+    fs.writeFileSync(path.join(dir, "layouts", "index.html"), `<h1>{{ site.title }}</h1>`);
+    return dir;
+  }
+
+  it("imports a single theme folder, then a zip of one, with the sample site and content", async () => {
+    const root = path.join(base, "sources", `single-${++count}`);
+    const source = themeDir(root, "aurora");
+    const inspected = await inspect(source);
+    expect(inspected.status).toBe(200);
+    expect(await inspected.json()).toMatchObject({
+      site: null,
+      themes: [{ id: "aurora", dir: "aurora", name: "aurora", includes: ["aurora"], missingParent: null }],
+    });
+
+    const target = path.join(base, "home", `imported-${++count}`);
+    const res = await importTheme({
+      source,
+      theme: "aurora",
+      path: target,
+      name: "Imported Aurora",
+      language: "en-US",
+    });
+    expect(res.status).toBe(201);
+    const theme = (await res.json()) as Theme;
+    await ctx.builds.settled();
+    expect(theme).toMatchObject({ name: "Imported Aurora", themeName: "aurora", origin: "import", readOnly: null });
+    expect(fs.readFileSync(path.join(target, "themes", "aurora", "theme.yaml"), "utf8")).toMatch(
+      /^display_name: aurora Theme$/m,
+    );
+    expect(fs.readFileSync(path.join(target, "site.yaml"), "utf8")).toMatch(/^theme:\n {2}name: aurora$/m);
+    expect(fs.readdirSync(path.join(target, "content", "posts"))).toHaveLength(12);
+    expect(rawGit(base, target, "rev-list", "--count", "HEAD").trim()).toBe("1");
+
+    // A zip of the folder (a single wrapper directory) is the same theme.
+    const zipped = path.join(base, "sources", `zip-${++count}.zip`);
+    fs.writeFileSync(
+      zipped,
+      Buffer.from(
+        zipSync({
+          "wrapped/theme.yaml": strToU8("name: zip-theme\ndisplay_name: Zip Theme\n"),
+          "wrapped/layouts/index.html": strToU8("<h1>Zip</h1>"),
+        }),
+      ),
+    );
+    expect(await (await inspect(zipped)).json()).toMatchObject({
+      themes: [{ id: ".", dir: "zip-theme", name: "zip-theme", includes: ["zip-theme"], missingParent: null }],
+    });
+    const zipTarget = path.join(base, "home", `imported-${++count}`);
+    const zipRes = await importTheme({
+      source: zipped,
+      theme: ".",
+      path: zipTarget,
+      name: "Zip Theme",
+      language: "en-US",
+    });
+    expect(zipRes.status).toBe(201);
+    await ctx.builds.settled();
+    expect(fs.existsSync(path.join(zipTarget, "themes", "zip-theme", "layouts", "index.html"))).toBe(true);
+  });
+
+  it("takes a theme from a site folder, brings its parent, and filters .env and node_modules", async () => {
+    const root = path.join(base, "sources", `chain-${++count}`);
+    themeDir(root, "base");
+    const child = themeDir(root, "child", { extends: "base" });
+    fs.writeFileSync(path.join(child, ".env"), "SECRET=1");
+    fs.mkdirSync(path.join(child, "node_modules", "x"), { recursive: true });
+    fs.writeFileSync(path.join(child, "node_modules", "x", "y.js"), "x");
+
+    const inspected = (await (await inspect(child)).json()) as {
+      themes: { includes: string[]; missingParent: string | null }[];
+    };
+    expect(inspected.themes[0]).toMatchObject({ includes: ["base", "child"], missingParent: null });
+    const target = path.join(base, "home", `imported-${++count}`);
+    expect(
+      await (await importTheme({ source: child, theme: "child", path: target, name: "Child", language: "en-US" }))
+        .status,
+    ).toBe(201);
+    await ctx.builds.settled();
+    expect(fs.existsSync(path.join(target, "themes", "base", "theme.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(target, "themes", "child", "theme.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(target, "themes", "child", ".env"))).toBe(false);
+    expect(fs.existsSync(path.join(target, "themes", "child", "node_modules"))).toBe(false);
+
+    // A full site folder is offered to both importers.
+    const siteDir = repo("import-site");
+    expect(await (await inspect(siteDir)).json()).toMatchObject({
+      site: { configFile: "site.yaml" },
+      themes: [{ name: "starter" }],
+    });
+  });
+
+  it("refuses a missing parent, plugin files, links and an unreadable zip", async () => {
+    const root = path.join(base, "sources", `bad-${++count}`);
+    const orphan = themeDir(root, "orphan", { extends: "missing" });
+    const inspected = (await (await inspect(orphan)).json()) as {
+      themes: { missingParent: string | null }[];
+    };
+    expect(inspected.themes[0]?.missingParent).toBe("missing");
+    const target = path.join(base, "home", `bad-import-${++count}`);
+    const missing = await importTheme({
+      source: orphan,
+      theme: "orphan",
+      path: target,
+      name: "Orphan",
+      language: "en-US",
+    });
+    expect(missing.status).toBe(409);
+    expect(await missing.json()).toMatchObject({ code: "theme.parent_missing", params: { parent: "missing" } });
+    expect(fs.existsSync(target)).toBe(false);
+
+    const plugin = themeDir(root, "plugin");
+    fs.mkdirSync(path.join(plugin, "plugins"));
+    const plugged = await importTheme({
+      source: plugin,
+      theme: "plugin",
+      path: target,
+      name: "Plugin",
+      language: "en-US",
+    });
+    expect(plugged.status).toBe(409);
+    expect(await plugged.json()).toMatchObject({ code: "theme.import_unsafe" });
+
+    const linked = themeDir(root, "linked");
+    fs.symlinkSync("theme.yaml", path.join(linked, "alias.yaml"));
+    const linkRes = await importTheme({
+      source: linked,
+      theme: "linked",
+      path: target,
+      name: "Linked",
+      language: "en-US",
+    });
+    expect(linkRes.status).toBe(409);
+    expect(await linkRes.json()).toMatchObject({ code: "theme.import_unsafe" });
+
+    const badZip = path.join(base, "sources", `bad-${++count}.zip`);
+    fs.writeFileSync(badZip, "not a zip");
+    const zipRes = await inspect(badZip);
+    expect(zipRes.status).toBe(400);
+    expect(await zipRes.json()).toMatchObject({ code: "theme.import_invalid" });
+    expect(fs.existsSync(target)).toBe(false);
   });
 });

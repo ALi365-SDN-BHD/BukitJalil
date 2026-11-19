@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("bukitjalil", {
   pickFolder: (start?: string): Promise<string | null> => ipcRenderer.invoke("desktop:pick-folder", start),
   saveFile: (name: string, data: ArrayBuffer): Promise<string | null> =>
     ipcRenderer.invoke("desktop:save-file", name, data),
+  pickFile: (start?: string): Promise<string | null> => ipcRenderer.invoke("desktop:pick-file", start),
   restart: (): Promise<void> => ipcRenderer.invoke("desktop:restart"),
   setLocale: (locale: string): void => ipcRenderer.send("desktop:locale", locale),
 });

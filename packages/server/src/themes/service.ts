@@ -4,10 +4,12 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   type CreateThemeRequest,
   DEFAULT_CONFIG_FILE,
+  type ImportThemeRequest,
   type ProjectKey,
   projectKey,
   type SitePatch,
   type Theme,
+  type ThemeImportInspection,
   type ThemeOrigin,
 } from "@bukitjalil/shared";
 import type { GuardResult } from "../bukit/guard.ts";
@@ -24,7 +26,8 @@ import {
 import type { SiteLocks } from "../sites/locks.ts";
 import type { NewSite } from "../sites/template.ts";
 import type { SettingsStore } from "../store/settings.ts";
-import { makeThemeProject } from "./demo.ts";
+import { makeThemeProject, removeStarterTheme, replaceSampleContent, setSiteThemeName } from "./demo.ts";
+import { inspectThemeSource, loadTheme } from "./import.ts";
 import { newThemeId, ThemeStore } from "./store.ts";
 
 export interface ThemeServiceOptions {
@@ -126,6 +129,43 @@ export class ThemeService {
   }
 
   /**
+   * Import a theme folder or zip (design 5): the chosen theme and its `extends` parents replace the starter
+   * in a new sample site, then the usual commit, checks, registration and first build. The source is read
+   * before anything is created, so a bad or unsafe source leaves no folder behind.
+   */
+  async inspectImport(path: string): Promise<ThemeImportInspection> {
+    return inspectThemeSource(path);
+  }
+
+  async importTheme(req: ImportThemeRequest): Promise<Theme> {
+    const identity = commitIdentity(this.opts.settings);
+    const loaded = await loadTheme(req.source, req.theme);
+    const real = this.location(req.path);
+    return this.opts.repos.reserved(real, async () => {
+      assertEmptyOrMissing(real);
+      const existed = fs.existsSync(real);
+      try {
+        await this.opts.newSite(real, { title: req.name, language: req.language });
+        removeStarterTheme(real);
+        for (const theme of loaded.dirs) writeTheme(real, theme);
+        setSiteThemeName(real, loaded.name);
+        replaceSampleContent(real, this.opts.themeDemo);
+        await this.opts.repos.commitNew(real, identity, `Imported theme ${loaded.name}`);
+      } catch (err) {
+        removeCreated(real, existed);
+        throw err;
+      }
+      return this.register(real, {
+        name: req.name,
+        themeName: loaded.name,
+        defaultBranch: "main",
+        configFile: DEFAULT_CONFIG_FILE,
+        origin: "import",
+      });
+    });
+  }
+
+  /**
    * Record a repository the caller made or checked at `real` (T1–T3) and run the safety checks; the
    * caller holds the path with `repos.reserved`. The location rules are checked again here.
    */
@@ -202,5 +242,15 @@ export class ThemeService {
       this.store.delete(id);
       return { leftovers };
     });
+  }
+}
+
+/** Write one imported theme directory into a new project; the importer checked every path. */
+function writeTheme(target: string, theme: { dir: string; files: Map<string, Buffer> }): void {
+  const dir = path.join(target, "themes", theme.dir);
+  for (const [rel, data] of theme.files) {
+    const file = path.join(dir, ...rel.split("/"));
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, data, { mode: 0o644 });
   }
 }

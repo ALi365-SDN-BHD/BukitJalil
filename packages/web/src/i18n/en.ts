@@ -56,6 +56,28 @@ const en: Messages = {
     applyToSite: "Apply to a site",
     export: "Export .zip",
     exportFailed: "Could not export the theme",
+    fromDescription: "From a description",
+    importTheme: "Import theme",
+    importDialog: {
+      title: "Import a theme",
+      description:
+        "A theme folder, a Bukit site, or a zip of either. The theme and its extends parents become a new theme project.",
+      source: "Folder or .zip",
+      sourceHint: "A folder with theme.yaml, a site or folder with themes/, or a zip of one.",
+      chooseZip: "Choose .zip",
+      inspect: "Inspect",
+      inspecting: "Inspecting…",
+      nothing: "No theme with theme.yaml was found here.",
+      themes: "Theme",
+      site: "This folder is also a Bukit site.",
+      siteHint:
+        "Importing it as a site keeps everything (its own importer asks for confirmation); taking a theme here makes a new theme project.",
+      importAsSite: "Import as a site",
+      target: "New theme project",
+      missingParent: "The parent theme {parent} is missing",
+      import: "Import",
+      importing: "Importing…",
+    },
     apply: {
       title: "Apply theme to a site",
       description:
@@ -1181,6 +1203,9 @@ const en: Messages = {
     "theme.empty": "The theme {theme} has no files to deliver",
     "theme.too_large": "The theme is larger than {max} bytes",
     "theme.target_unsafe": "The site's themes folder cannot hold the theme safely",
+    "theme.import_invalid": "This is not a theme BukitJalil can import: {detail}",
+    "theme.import_unsafe": "The theme contains something unsafe: {detail}",
+    "theme.parent_missing": "The parent theme {parent} of {theme} is missing; import it together",
     "image.invalid": "The image cannot be read; it may be damaged",
     "image.too_large": "The image is too large; each can be at most 5 MiB",
     "image.unsupported_type": "Only PNG, JPEG and WebP images are supported",

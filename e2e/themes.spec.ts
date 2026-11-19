@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { tinyPng } from "../packages/server/test/fixtures/images.ts";
+import { writeStarter } from "../packages/server/test/fixtures/starter.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
 import { importSite, putSettings, removeImportedSites } from "./site-helpers.ts";
@@ -47,6 +48,7 @@ test("a theme is made from a description and image, and the theme mode shows its
   const parent = fs.mkdtempSync(path.join(work, "p-"));
   const brief = "A calm blog theme with a beige background and serif headings.";
   await page.getByTestId("new-theme").click();
+  await page.getByTestId("new-theme-description").click();
   await page.locator("#theme-project-name").fill("Paper Notes");
   await expect(page.getByTestId("new-theme-dir")).toHaveValue("paper-notes");
   await page.getByTestId("new-theme-brief").fill(brief);
@@ -132,4 +134,41 @@ test("a theme is applied to a site as its change set and exported as a zip", asy
   const download = page.waitForEvent("download");
   await page.getByTestId("export-theme").click();
   expect((await download).suggestedFilename()).toBe("apply-me.zip");
+});
+
+test("a theme folder is imported, and a site folder is handed to the site importer", async ({ page, server }) => {
+  await login(page, server);
+  const root = fs.mkdtempSync(path.join(work, "import-"));
+  const source = path.join(root, "helios");
+  fs.mkdirSync(path.join(source, "layouts"), { recursive: true });
+  fs.writeFileSync(path.join(source, "theme.yaml"), "name: helios\ndisplay_name: Helios\n");
+  fs.writeFileSync(path.join(source, "layouts", "index.html"), "<h1>Helios</h1>");
+
+  await page.getByTestId("mode-theme").click();
+  await page.getByTestId("new-theme").click();
+  await page.getByTestId("import-theme").click();
+  await page.getByTestId("theme-import-source").fill(source);
+  await page.getByTestId("theme-import-inspect").click();
+  await expect(page.getByTestId("theme-import-candidates")).toContainText("Helios");
+  await page.getByTestId("theme-import-name").fill("Helios Imported");
+  const folder = page.getByRole("dialog").getByTestId("dir-current");
+  await folder.fill(root);
+  await folder.press("Enter");
+  await expect(folder).toHaveValue(root);
+  await page.getByTestId("theme-import-confirm").click();
+  await expect(page.getByTestId("theme-home")).toContainText("Helios Imported");
+  expect(fs.existsSync(path.join(root, "helios-imported", "themes", "helios", "theme.yaml"))).toBe(true);
+
+  // A Bukit site folder offers the site importer; the path is carried over.
+  const siteSource = path.join(root, "existing-site");
+  writeStarter(siteSource, { title: "Existing Site", language: "en-US" });
+  await page.getByTestId("new-theme").click();
+  await page.getByTestId("import-theme").click();
+  await page.getByTestId("theme-import-source").fill(siteSource);
+  await page.getByTestId("theme-import-inspect").click();
+  await expect(page.getByTestId("theme-import-as-site")).toBeVisible();
+  await page.getByTestId("theme-import-as-site").click();
+  await expect(page.getByTestId("mode-site")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("dialog").getByTestId("dir-current")).toHaveValue(siteSource);
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
 });

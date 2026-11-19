@@ -15,16 +15,19 @@ export function ImportDialog({
   open,
   onOpenChange,
   onImported,
+  initialDir = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImported: (site: Site) => void;
+  /** A folder handed over from another screen (the theme importer's "import as a site"). */
+  initialDir?: string | null;
 }) {
   const { m, t, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: keys.settings, queryFn: api.settings });
   const identity = useIdentity();
-  const [dir, setDir] = useState<string | null>(null);
+  const [dir, setDir] = useState<string | null>(initialDir);
   // The inspection with the folder it was asked for: an answer for a folder the user has since left is
   // ignored, so Import always acts on the folder shown.
   const [inspected, setInspected] = useState<{ dir: string; result: ImportInspection } | null>(null);

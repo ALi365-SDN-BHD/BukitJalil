@@ -22,9 +22,24 @@ export function makeThemeProject(target: string, theme: { name: string; displayN
     description: `${theme.displayName}, a Bukit theme`,
   });
   setYaml(path.join(target, "site.yaml"), { "theme.name": theme.name });
+  replaceSampleContent(target, demoDir);
+}
+
+/** Remove Bukit's starter theme before an imported theme (and its parents) is written in its place. */
+export function removeStarterTheme(target: string): void {
+  fs.rmSync(path.join(target, "themes", STARTER_THEME), { recursive: true, force: true });
+}
+
+/** Put the sample content in `content/` (design 3.4): every page type must have an example. */
+export function replaceSampleContent(target: string, demoDir: string): void {
   const content = path.join(target, "content");
   fs.rmSync(content, { recursive: true, force: true });
   fs.cpSync(path.join(demoDir, "content"), content, { recursive: true });
+}
+
+/** Point the sample site at a theme (an imported one keeps its own theme.yaml). */
+export function setSiteThemeName(target: string, name: string): void {
+  setYaml(path.join(target, "site.yaml"), { "theme.name": name });
 }
 
 /** Set dotted keys in a YAML file, keeping the rest of it. */

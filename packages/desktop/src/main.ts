@@ -246,6 +246,16 @@ function lockDown() {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  ipcMain.handle("desktop:pick-file", async (event, start: unknown) => {
+    if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`) || !win) return null;
+    const defaultPath = typeof start === "string" && path.isAbsolute(start) && start.length < 4096 ? start : undefined;
+    const result = await dialog.showOpenDialog(win, {
+      properties: ["openFile"],
+      filters: [{ name: "Zip", extensions: ["zip"] }],
+      ...(defaultPath ? { defaultPath } : {}),
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
   // Saving a file the app produced (a theme zip): the user picks the path, the renderer sends the bytes.
   ipcMain.handle("desktop:save-file", async (event, name: unknown, data: unknown) => {
     if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`) || !win) return null;

@@ -7,6 +7,8 @@ export interface DesktopBridge {
   pickFolder(start?: string): Promise<string | null>;
   /** The system save dialog; the chosen path, or null when cancelled. */
   saveFile(name: string, data: ArrayBuffer): Promise<string | null>;
+  /** The system file dialog for a zip; the chosen file, or null when cancelled. */
+  pickFile(start?: string): Promise<string | null>;
   /** Tell the desktop app the chosen language, for its menus and About panel. */
   setLocale?(locale: string): void;
 }

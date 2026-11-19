@@ -1,6 +1,16 @@
 import type { Theme } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, ChevronDown, ChevronRight, Lock, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronDown,
+  ChevronRight,
+  Lock,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
@@ -17,6 +27,7 @@ import { SidebarFooter } from "@/features/sites/SiteList";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { themeKey } from "@/lib/project";
+import { ImportThemeDialog } from "./ImportThemeDialog";
 import { NewThemeDialog, useOpenCreatedTheme } from "./NewThemeDialog";
 
 /** Theme development's sidebar (design 2): theme projects, newest opened first, archived ones folded away. */
@@ -25,6 +36,7 @@ export function ThemeList() {
   const openCreated = useOpenCreatedTheme();
   const themes = useQuery({ queryKey: keys.themes, queryFn: api.themes });
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const active = themes.data?.filter((x) => !x.archived) ?? [];
   const archived = themes.data?.filter((x) => x.archived) ?? [];
@@ -32,9 +44,21 @@ export function ThemeList() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-col gap-1 border-b p-2">
-        <Button size="sm" variant="outline" data-testid="new-theme" onClick={() => setCreating(true)}>
-          <Plus /> {m.themes.newTheme}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="outline" data-testid="new-theme">
+              <Plus /> {m.themes.newTheme} <ChevronDown className="ml-auto" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onSelect={() => setCreating(true)} data-testid="new-theme-description">
+              <Plus /> {m.themes.fromDescription}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setImporting(true)} data-testid="import-theme">
+              <Upload /> {m.themes.importTheme}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-2 text-sm" aria-label={m.themes.title} data-testid="theme-list">
         {themes.isPending && <p className="p-2 text-muted-foreground">{m.common.loading}</p>}
@@ -73,6 +97,7 @@ export function ThemeList() {
       <SidebarFooter />
       {/* Mounted only while open, so each opening starts empty. */}
       {creating && <NewThemeDialog onClose={() => setCreating(false)} onCreated={openCreated} />}
+      {importing && <ImportThemeDialog onClose={() => setImporting(false)} onCreated={openCreated} />}
     </div>
   );
 }

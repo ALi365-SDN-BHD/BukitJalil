@@ -124,3 +124,44 @@ export interface ThemeApplyResult {
   siteId: string;
   changeId: string | null;
 }
+
+/** Inspect a folder or zip before importing a theme from it (design 5). */
+export const InspectThemeRequest = z.object({ path: AbsolutePath }).strict();
+export type InspectThemeRequest = z.infer<typeof InspectThemeRequest>;
+
+/** A theme found in an import source (design 5). */
+export interface ThemeCandidate {
+  /** What an import request sends back: the theme's directory inside the source. */
+  id: string;
+  /** Where it is written in the new project: `themes/<dir>/`. */
+  dir: string;
+  name: string;
+  displayName: string | null;
+  /** Every directory copied with it, `extends` parents first. */
+  includes: string[];
+  /** A parent theme the source does not contain; the candidate cannot be imported. */
+  missingParent: string | null;
+}
+
+/** What a folder or zip holds for a theme import; nothing is written by inspecting. */
+export interface ThemeImportInspection {
+  path: string;
+  /** The folder is also a Bukit site, which the site import can take instead. */
+  site: { configFile: string } | null;
+  themes: ThemeCandidate[];
+}
+
+/** Import the chosen theme (with its parents) as a new theme project (design 5). */
+export const ImportThemeRequest = z
+  .object({
+    /** The folder or zip that was inspected. */
+    source: AbsolutePath,
+    /** `ThemeCandidate.id`, checked again against the source. */
+    theme: z.string().min(1).max(300),
+    /** The new theme project's directory; it must not exist or be empty. */
+    path: AbsolutePath,
+    name: SiteName,
+    language: SiteLanguage,
+  })
+  .strict();
+export type ImportThemeRequest = z.infer<typeof ImportThemeRequest>;
