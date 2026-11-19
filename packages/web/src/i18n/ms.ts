@@ -58,6 +58,37 @@ const ms: Messages = {
     exportFailed: "Tema tidak dapat dieksport",
     fromDescription: "Daripada penerangan",
     importTheme: "Import tema",
+    cloneSite: "Klon laman",
+    cloneNeedsDesktop: "Mengklon laman memerlukan aplikasi desktop",
+    clone: {
+      title: "Klon laman anda menjadi tema",
+      description:
+        "Menangkap struktur dan gaya laman milik anda, kemudian AI menukarnya menjadi tema Bukit. Laman dirender di sini; tiada apa-apa dimuat naik.",
+      homepage: "Alamat halaman utama",
+      morePages: "Halaman lain",
+      morePagesHint:
+        "Pilihan, satu alamat setiap baris: satu catatan, satu halaman senarai. Paling banyak 4 lagi, semuanya pada laman yang sama.",
+      authorized: "Laman ini milik saya, atau saya mempunyai kebenaran untuk menyalinnya",
+      copyright:
+        "Imej, teks, logo dan fon komersial mungkin dilindungi hak cipta. Secara lalai hanya struktur dan gaya diambil: teks menjadi kandungan contoh, imej menjadi pemegang tempat, fon menggunakan fon sistem atau sumber terbuka.",
+      options: "Muat turun juga",
+      images: "Imej",
+      fonts: "Fail fon",
+      optionsHint: "Mati secara lalai. Muat turun hanya fail yang anda berhak gunakan.",
+      check: "Periksa laman",
+      checking: "Memeriksa…",
+      start: "Mula menangkap",
+      capturing: "Menangkap laman…",
+      progress: "Halaman {index} daripada {total}",
+      http: "Laman ini menggunakan http, bukan https: halaman boleh diubah dalam perjalanan. Teruskan hanya jika anda mempercayai rangkaian ini.",
+      robots: "robots.txt tidak membenarkan halaman ini ditangkap:",
+      result: "Ditangkap {pages} halaman, {files} fail. Namakan projek tema dan semaknya.",
+      create: "Cipta projek tema",
+      creating: "Mencipta…",
+      failed: "Tangkapan gagal",
+      draft:
+        "Tukar halaman yang ditangkap dalam _capture/ menjadi tema Bukit, bermula dengan halaman utama. Tangkapan skrin ada dalam _reference/; lihat capture-1-1280.png dahulu.",
+    },
     importDialog: {
       title: "Import tema",
       description:
@@ -1228,6 +1259,9 @@ const ms: Messages = {
     "theme.import_invalid": "Ini bukan tema yang boleh diimport oleh BukitJalil: {detail}",
     "theme.import_unsafe": "Tema mengandungi sesuatu yang tidak selamat: {detail}",
     "theme.parent_missing": "Tema induk {parent} bagi {theme} tiada; import bersama-sama",
+    "theme.capture_missing": "Laman yang ditangkap sudah tiada; tangkap semula",
+    "theme.capture_invalid": "Laman yang ditangkap tidak boleh digunakan: {detail}",
+    "theme.clone_unauthorized": "Sahkan bahawa laman ini milik anda atau anda dibenarkan menyalinnya",
     "image.invalid": "Imej tidak dapat dibaca; ia mungkin rosak",
     "image.too_large": "Imej terlalu besar; setiap satu paling banyak 5 MiB",
     "image.unsupported_type": "Hanya imej PNG, JPEG dan WebP disokong",

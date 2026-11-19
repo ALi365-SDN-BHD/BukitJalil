@@ -88,6 +88,15 @@ export const CreateThemeRequest = z
     language: SiteLanguage,
     /** Reference images (design 4.2), written into _reference/ with the first commit. */
     images: ReferenceImages.optional(),
+    /** `clone` makes the project from a desktop capture (design 6.2); omitted means a new theme. */
+    origin: z.enum(["new", "clone"]).optional(),
+    /** The capture directory under the app data folder, from the desktop capture. */
+    captureId: z
+      .string()
+      .regex(/^[0-9a-f]{16,64}$/)
+      .optional(),
+    /** The user confirmed the captured site is theirs or they may copy it (design 6.1). */
+    authorized: z.boolean().optional(),
   })
   .strict();
 export type CreateThemeRequest = z.infer<typeof CreateThemeRequest>;

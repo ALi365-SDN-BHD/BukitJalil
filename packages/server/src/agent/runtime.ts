@@ -113,7 +113,7 @@ export function buildSystemPrompt(site: PromptSite): string {
           "",
           `- You can write only in \`themes/${site.themeName}/\`, \`content/\` and \`${site.configFile}\`.`,
           "- Read the theme-development skill before changing the theme, and use theme_coverage to see which",
-          "  page types still lack a template.",
+          "  page types still lack a template. When `_capture/` exists, read the site-to-theme skill first.",
         ];
   return [
     ...intro,

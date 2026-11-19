@@ -26,6 +26,7 @@ import {
 import type { SiteLocks } from "../sites/locks.ts";
 import type { NewSite } from "../sites/template.ts";
 import type { SettingsStore } from "../store/settings.ts";
+import { type LoadedCapture, loadCapture } from "./capture.ts";
 import { makeThemeProject, removeStarterTheme, replaceSampleContent, setSiteThemeName } from "./demo.ts";
 import { inspectThemeSource, loadTheme } from "./import.ts";
 import { newThemeId, ThemeStore } from "./store.ts";
@@ -102,6 +103,7 @@ export class ThemeService {
    * sample content, a git repository with one commit, then the usual checks and first build (plan 5.2).
    */
   async create(req: CreateThemeRequest): Promise<Theme> {
+    if (req.origin === "clone") return this.createFromCapture(req);
     const identity = commitIdentity(this.opts.settings);
     const real = this.location(req.path);
     // Checked before anything is created: a bad image fails the request, not a half-made project.
@@ -124,6 +126,44 @@ export class ThemeService {
         defaultBranch: "main",
         configFile: DEFAULT_CONFIG_FILE,
         origin: "new",
+      });
+    });
+  }
+
+  /**
+   * A theme project from a desktop capture (design 6.2): the capture is validated again, put in `_capture/`
+   * and `_reference/`, and the capture folder is deleted once it is committed. Converting it is the AI's job.
+   */
+  private async createFromCapture(req: CreateThemeRequest): Promise<Theme> {
+    if (req.authorized !== true) throw new SiteError("theme.clone_unauthorized", 400);
+    if (!req.captureId) throw new SiteError("theme.capture_missing", 409);
+    const captureId = req.captureId;
+    const capture = loadCapture(this.opts.paths.captures, captureId);
+    const identity = commitIdentity(this.opts.settings);
+    const real = this.location(req.path);
+    return this.opts.repos.reserved(real, async () => {
+      assertEmptyOrMissing(real);
+      const existed = fs.existsSync(real);
+      try {
+        await this.opts.newSite(real, { title: req.name, language: req.language });
+        makeThemeProject(real, { name: req.themeName, displayName: req.name }, this.opts.themeDemo);
+        writeCapture(real, capture);
+        await this.opts.repos.commitNew(
+          real,
+          identity,
+          `Initial theme project from captured ${capture.title || "site"}`,
+        );
+        fs.rmSync(path.join(this.opts.paths.captures, captureId), { recursive: true, force: true });
+      } catch (err) {
+        removeCreated(real, existed);
+        throw err;
+      }
+      return this.register(real, {
+        name: req.name,
+        themeName: req.themeName,
+        defaultBranch: "main",
+        configFile: DEFAULT_CONFIG_FILE,
+        origin: "clone",
       });
     });
   }
@@ -253,4 +293,15 @@ function writeTheme(target: string, theme: { dir: string; files: Map<string, Buf
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     fs.writeFileSync(file, data, { mode: 0o644 });
   }
+}
+
+/** Write a validated capture: pages and assets under `_capture/`, screenshots under `_reference/`. */
+function writeCapture(target: string, capture: LoadedCapture): void {
+  const write = (root: string, rel: string, data: Buffer) => {
+    const file = path.join(root, ...rel.split("/"));
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, data, { mode: 0o644 });
+  };
+  for (const [rel, data] of capture.files) write(path.join(target, "_capture"), rel, data);
+  for (const [name, data] of capture.references) write(path.join(target, "_reference"), name, data);
 }

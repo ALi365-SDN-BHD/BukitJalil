@@ -4,7 +4,7 @@
 export const REQUIRED_SKILLS = ["site-editing", "theme-development"] as const;
 
 /** Skills only theme projects load (theme development design 4.1). */
-export const THEME_SKILLS: readonly string[] = ["theme-development"];
+export const THEME_SKILLS: readonly string[] = ["theme-development", "site-to-theme"];
 /** Skills only sites load: a theme project is never published. */
 export const SITE_ONLY_SKILLS: readonly string[] = ["publishing"];
 

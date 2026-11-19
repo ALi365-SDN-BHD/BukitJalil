@@ -81,6 +81,8 @@ export interface AppPaths {
   piBin: string;
   /** Scratch space for git work that must not touch a user's directory. */
   tmp: string;
+  /** Site captures handed from the desktop app to the server (design 6.2), captures/<id>/. */
+  captures: string;
   /** Per-data-source Notion tokens, 0600. */
   dataSourceTokens: string;
   /** Per-publishing-account GitHub tokens, 0600. */
@@ -107,6 +109,7 @@ export function ensureAppHome(home: string): AppPaths {
     pi: path.join(home, "pi"),
     piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
+    captures: path.join(home, "captures"),
     dataSourceTokens: path.join(home, "data-source-tokens.json"),
     publishAccountTokens: path.join(home, "publish-account-tokens.json"),
     dataSourceTokensEnc: path.join(home, "data-source-tokens.enc.json"),
@@ -125,6 +128,7 @@ export function ensureAppHome(home: string): AppPaths {
     paths.previews,
     paths.notionSnapshots,
     paths.piBin,
+    paths.captures,
   ]) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }

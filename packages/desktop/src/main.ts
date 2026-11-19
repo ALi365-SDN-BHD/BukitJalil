@@ -13,6 +13,7 @@ import {
   session,
   shell,
 } from "electron";
+import { CaptureService } from "./capture.ts";
 import { loadSecretKey, removeSecretKey } from "./secrets.ts";
 import { ServerProcess, type StartResult } from "./server.ts";
 import { replaceAppImage } from "./update.ts";
@@ -22,6 +23,8 @@ import { replaceAppImage } from "./update.ts";
 const DEFAULT_PORT = 47880;
 
 app.setName("BukitJalil");
+// QUIC is UDP and would bypass an HTTP proxy; the capture's checking proxy must see every request (design 6.2).
+app.commandLine.appendSwitch("disable-quic");
 // Tests run each app with its own profile, so they neither share the single-instance lock nor touch the
 // user's own (~/Library/Application Support/BukitJalil).
 if (process.env.BUKITJALIL_DESKTOP_PROFILE)
@@ -38,6 +41,7 @@ const windowIcon = path.join(__dirname, packaged ? "icon.png" : "../assets/icon.
 const statusUrl = pathToFileURL(statusPage).href;
 const dataDir = path.resolve(process.env.BUKITJALIL_HOME || path.join(os.homedir(), ".bukitjalil"));
 const updatesDir = path.join(dataDir, "updates");
+const capturesDir = path.join(dataDir, "captures");
 /** Root package.json while developing, the app bundle when packaged; BUKITJALIL_VERSION overrides for tests. */
 const appVersion = process.env.BUKITJALIL_VERSION?.trim() || (packaged ? app.getVersion() : packageVersion());
 
@@ -220,6 +224,15 @@ function senderUrl(event: IpcMainInvokeEvent): string {
   return event.senderFrame?.url ?? "";
 }
 
+const capture = new CaptureService({
+  dir: capturesDir,
+  // The desktop e2e tests' local site; never set in normal use (design 6.2 blocks private addresses).
+  allowLoopback: process.env.BUKITJALIL_CAPTURE_ALLOW_LOOPBACK === "1",
+  onProgress: (progress) => {
+    if (win && server.running) win.webContents.send("desktop:capture-progress", progress);
+  },
+});
+
 function lockDown() {
   // No camera, microphone, notifications, geolocation… for any page, the previews included.
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
@@ -255,6 +268,24 @@ function lockDown() {
       ...(defaultPath ? { defaultPath } : {}),
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  ipcMain.handle("desktop:capture-preflight", async (event, urls: unknown) => {
+    if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`))
+      return { ok: false, error: "not allowed" };
+    const list = Array.isArray(urls) ? urls.filter((url): url is string => typeof url === "string") : [];
+    return capture.preflight(list);
+  });
+  ipcMain.handle("desktop:capture-start", async (event, request: unknown) => {
+    if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`))
+      return { ok: false, error: "not allowed" };
+    const req = (request ?? {}) as Record<string, unknown>;
+    const urls = Array.isArray(req.urls) ? req.urls.filter((url): url is string => typeof url === "string") : [];
+    return capture.start({
+      urls,
+      images: req.images === true,
+      fonts: req.fonts === true,
+      authorized: req.authorized === true,
+    });
   });
   // Saving a file the app produced (a theme zip): the user picks the path, the renderer sends the bytes.
   ipcMain.handle("desktop:save-file", async (event, name: unknown, data: unknown) => {

@@ -610,3 +610,128 @@ describe("importing theme projects (T2)", () => {
     expect(fs.existsSync(target)).toBe(false);
   });
 });
+
+describe("cloning a site from a desktop capture (T3)", () => {
+  beforeAll(() => {
+    new SettingsStore(ctx.db).update({ commitName: "Theme Owner", commitEmail: "owner@example.com" });
+  });
+
+  /** A capture directory as the desktop writes it; returns its id. */
+  function capture(options: { svg?: string; authorized?: boolean } = {}): string {
+    const id = "abcdef0123456789abcdef0123456789";
+    const dir = path.join(ctx.paths.captures, id);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(path.join(dir, "pages", "1"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "reference"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "pages", "1", "index.html"), "<!doctype html><h1>Captured</h1>");
+    fs.writeFileSync(path.join(dir, "pages", "1", "styles.css"), "h1 { color: #123456 }");
+    fs.writeFileSync(
+      path.join(dir, "pages", "1", "meta.json"),
+      JSON.stringify({ url: "https://example.com/", title: "Example", images: [], resources: [] }),
+    );
+    fs.writeFileSync(
+      path.join(dir, "pages", "1", "logo.svg"),
+      options.svg ?? '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>',
+    );
+    fs.writeFileSync(path.join(dir, "reference", "1-375.png"), tinyPng());
+    fs.writeFileSync(
+      path.join(dir, "manifest.json"),
+      JSON.stringify({
+        format: 1,
+        id,
+        origin: "https://example.com",
+        title: "Example",
+        options: { images: true, fonts: false },
+        pages: [
+          {
+            url: "https://example.com/",
+            title: "Example",
+            html: "pages/1/index.html",
+            css: "pages/1/styles.css",
+            meta: "pages/1/meta.json",
+            screenshots: ["reference/1-375.png"],
+          },
+        ],
+        reference: ["reference/1-375.png"],
+        assets: [{ path: "pages/1/logo.svg", source: "https://example.com/logo.svg" }],
+      }),
+    );
+    return id;
+  }
+
+  it("validates the capture again and makes a theme project with _capture and _reference", async () => {
+    const captureId = capture({
+      svg: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><rect fill="red"/><image href="https://evil.example/x.png"/></svg>',
+    });
+    const target = path.join(base, "home", `clone-${++count}`);
+    const res = await call("POST", "/api/themes", {
+      name: "Captured Theme",
+      themeName: "captured",
+      path: target,
+      language: "en-US",
+      origin: "clone",
+      captureId,
+      authorized: true,
+    });
+    expect(res.status).toBe(201);
+    const theme = (await res.json()) as Theme;
+    await ctx.builds.settled();
+    expect(theme).toMatchObject({ themeName: "captured", origin: "clone", readOnly: null });
+    expect(fs.readFileSync(path.join(target, "_capture", "pages", "1", "index.html"), "utf8")).toContain("Captured");
+    expect(fs.readFileSync(path.join(target, "_capture", "pages", "1", "styles.css"), "utf8")).toContain("#123456");
+    expect(fs.existsSync(path.join(target, "_reference", "capture-1-375.png"))).toBe(true);
+    // SVG scripts and external references are removed; the drawing stays.
+    const svg = fs.readFileSync(path.join(target, "_capture", "pages", "1", "logo.svg"), "utf8");
+    expect(svg).not.toContain("<script");
+    expect(svg).not.toContain("evil.example");
+    expect(svg).toContain("<rect");
+    // The capture is gone after its first commit.
+    expect(fs.existsSync(path.join(ctx.paths.captures, captureId))).toBe(false);
+  });
+
+  it("refuses an unauthorized clone, a missing capture, a bad manifest and a symlink", async () => {
+    const captureId = capture();
+    const target = path.join(base, "home", `clone-${++count}`);
+    const unauthorized = await call("POST", "/api/themes", {
+      name: "No",
+      themeName: "no",
+      path: target,
+      language: "en-US",
+      origin: "clone",
+      captureId,
+      authorized: false,
+    });
+    expect(unauthorized.status).toBe(400);
+    expect(await unauthorized.json()).toMatchObject({ code: "theme.clone_unauthorized" });
+    expect(fs.existsSync(path.join(ctx.paths.captures, captureId))).toBe(true);
+
+    const missing = await call("POST", "/api/themes", {
+      name: "Missing",
+      themeName: "missing",
+      path: target,
+      language: "en-US",
+      origin: "clone",
+      captureId: "ffffffffffffffffffffffffffffffff",
+      authorized: true,
+    });
+    expect(missing.status).toBe(409);
+    expect(await missing.json()).toMatchObject({ code: "theme.capture_missing" });
+
+    const dir = path.join(ctx.paths.captures, captureId);
+    fs.rmSync(path.join(dir, "reference", "1-375.png"));
+    fs.symlinkSync(path.join(dir, "pages", "1", "index.html"), path.join(dir, "reference", "1-375.png"));
+    const linked = await call("POST", "/api/themes", {
+      name: "Linked",
+      themeName: "linked",
+      path: target,
+      language: "en-US",
+      origin: "clone",
+      captureId,
+      authorized: true,
+    });
+    expect(linked.status).toBe(400);
+    expect(await linked.json()).toMatchObject({ code: "theme.capture_invalid" });
+    expect(fs.existsSync(target)).toBe(false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});

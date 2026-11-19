@@ -1,9 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { tinyPng } from "../../packages/server/test/fixtures/images.ts";
+import { putSettings } from "../site-helpers.ts";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const desktopDir = path.join(root, "packages/desktop");
@@ -68,7 +71,18 @@ test("opens the app signed in, with only the desktop bridge exposed", async () =
   ]);
   expect(
     await page.evaluate(() => Object.keys((window as unknown as { bukitjalil: object }).bukitjalil).sort()),
-  ).toEqual(["desktop", "pickFolder", "platform", "restart", "setLocale"]);
+  ).toEqual([
+    "capturePreflight",
+    "desktop",
+    "onCaptureProgress",
+    "pickFile",
+    "pickFolder",
+    "platform",
+    "restart",
+    "saveFile",
+    "setLocale",
+    "startCapture",
+  ]);
   // The server holds the data directory while the app runs and gives it back on quit.
   const pid = Number(fs.readFileSync(lockFile(home), "utf8"));
   expect(pid).toBeGreaterThan(0);
@@ -272,4 +286,95 @@ test("chooses folders with the system dialog, opened where the field points", as
     { properties: ["openDirectory", "createDirectory"], defaultPath: before },
   ]);
   await app.close();
+});
+
+/** A local site for the capture: JS-rendered content, CSS, an image, a form, an alert, robots rules. */
+async function fakeSite(): Promise<{ origin: string; close: () => void }> {
+  const server = http.createServer((req, res) => {
+    if (req.url === "/robots.txt") {
+      res.end("User-agent: *\nDisallow: /private/\n");
+      return;
+    }
+    if (req.url === "/style.css") {
+      res.setHeader("content-type", "text/css");
+      res.end("body { background: #fafafa } .card { border: 1px solid #ccc }");
+      return;
+    }
+    if (req.url === "/logo.png") {
+      res.setHeader("content-type", "image/png");
+      res.end(tinyPng());
+      return;
+    }
+    if (req.url === "/private/secret") {
+      res.end("not captured");
+      return;
+    }
+    const article = req.url === "/article/";
+    res.setHeader("content-type", "text/html");
+    res.end(`<!doctype html><html><head><title>${article ? "Clone Article" : "Clone Home"}</title>
+      <link rel="stylesheet" href="/style.css"></head><body>
+      <header><h1>${article ? "An article" : "Home"}</h1></header>
+      <div id="app"></div>
+      <img src="/logo.png" width="80" height="80">
+      <img src="http://10.0.0.1/blocked.png">
+      <iframe src="/frame"></iframe>
+      <form action="/submit"><input name="x"></form>
+      <script>document.getElementById("app").innerHTML = '<p class="card">Rendered by script</p>'; alert("hello");</script>
+      </body></html>`);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("no site port");
+  return { origin: `http://127.0.0.1:${address.port}`, close: () => server.close() };
+}
+
+test("clones the user's site into a theme through a locked-down capture", async () => {
+  test.setTimeout(180_000);
+  const site = await fakeSite();
+  const run = await launch(undefined, { BUKITJALIL_CAPTURE_ALLOW_LOOPBACK: "1" });
+  const { app, page, home } = run;
+  try {
+    await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+    await putSettings(page, { commitName: "E2E Tester", commitEmail: "e2e@example.com", locale: "en" });
+    await page.reload();
+    await expect(page.getByTestId("new-site")).toBeVisible();
+
+    // Private addresses are refused before anything is captured.
+    expect(await page.evaluate(() => (window as any).bukitjalil.capturePreflight(["http://10.0.0.1/"]))).toMatchObject({
+      ok: false,
+    });
+
+    await page.getByTestId("mode-theme").click();
+    await page.getByTestId("new-theme").click();
+    await page.getByTestId("clone-site").click();
+    await page.getByTestId("clone-homepage").fill(`${site.origin}/`);
+    await page.getByTestId("clone-pages").fill(`${site.origin}/article/\n${site.origin}/private/secret`);
+    await page.getByTestId("clone-authorized").check();
+    await page.getByTestId("clone-check").click();
+    await expect(page.getByTestId("clone-preflight")).toContainText("/private/secret");
+    await page.getByTestId("clone-start").click();
+    await expect(page.getByTestId("clone-result")).toBeVisible({ timeout: 120_000 });
+
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), "bj-clone-"));
+    const folder = page.getByRole("dialog").getByTestId("dir-current");
+    await folder.fill(parent);
+    await folder.press("Enter");
+    await expect(folder).toHaveValue(fs.realpathSync(parent));
+    await page.getByTestId("clone-name").fill("Cloned Site");
+    await page.getByTestId("clone-create").click();
+    await expect(page).toHaveURL(/\/themes\/[0-9a-f]+\/sessions\/[0-9a-f]+$/, { timeout: 120_000 });
+    await expect(page.getByTestId("composer-input")).toHaveValue(/site-to-theme|_capture/);
+
+    const project = fs.readdirSync(parent).find((name) => fs.existsSync(path.join(parent, name, "_capture")));
+    expect(project).toBeTruthy();
+    const root = path.join(parent, project as string);
+    const html = fs.readFileSync(path.join(root, "_capture", "pages", "1", "index.html"), "utf8");
+    expect(html).toContain("Rendered by script");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<iframe");
+    expect(fs.readdirSync(path.join(root, "_reference")).length).toBeGreaterThanOrEqual(3);
+  } finally {
+    site.close();
+    await app.close();
+  }
 });

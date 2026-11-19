@@ -5,6 +5,7 @@ import {
   ArchiveRestore,
   ChevronDown,
   ChevronRight,
+  Globe,
   Lock,
   MoreHorizontal,
   Plus,
@@ -26,7 +27,9 @@ import { SessionList } from "@/features/chat/sessions";
 import { SidebarFooter } from "@/features/sites/SiteList";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { desktopBridge } from "@/lib/desktop";
 import { themeKey } from "@/lib/project";
+import { CloneSiteDialog } from "./CloneSiteDialog";
 import { ImportThemeDialog } from "./ImportThemeDialog";
 import { NewThemeDialog, useOpenCreatedTheme } from "./NewThemeDialog";
 
@@ -37,6 +40,7 @@ export function ThemeList() {
   const themes = useQuery({ queryKey: keys.themes, queryFn: api.themes });
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [cloning, setCloning] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const active = themes.data?.filter((x) => !x.archived) ?? [];
   const archived = themes.data?.filter((x) => x.archived) ?? [];
@@ -56,6 +60,9 @@ export function ThemeList() {
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setImporting(true)} data-testid="import-theme">
               <Upload /> {m.themes.importTheme}
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!desktopBridge()} onSelect={() => setCloning(true)} data-testid="clone-site">
+              <Globe /> {desktopBridge() ? m.themes.cloneSite : m.themes.cloneNeedsDesktop}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -98,6 +105,7 @@ export function ThemeList() {
       {/* Mounted only while open, so each opening starts empty. */}
       {creating && <NewThemeDialog onClose={() => setCreating(false)} onCreated={openCreated} />}
       {importing && <ImportThemeDialog onClose={() => setImporting(false)} onCreated={openCreated} />}
+      {cloning && <CloneSiteDialog onClose={() => setCloning(false)} onCreated={() => {}} />}
     </div>
   );
 }

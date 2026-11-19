@@ -58,6 +58,37 @@ const en: Messages = {
     exportFailed: "Could not export the theme",
     fromDescription: "From a description",
     importTheme: "Import theme",
+    cloneSite: "Clone a site",
+    cloneNeedsDesktop: "Cloning a site needs the desktop app",
+    clone: {
+      title: "Clone your site into a theme",
+      description:
+        "Captures the structure and style of a site you own, then the AI turns it into a Bukit theme. The site is rendered here; nothing is uploaded.",
+      homepage: "Home page address",
+      morePages: "More pages",
+      morePagesHint:
+        "Optional, one address per line: a post, a list page. Up to 4 more, all on the same site as the home page.",
+      authorized: "This site is mine, or I have permission to copy it",
+      copyright:
+        "Images, text, logos and commercial fonts may be copyrighted. By default only the structure and style are taken: text becomes sample content, images become placeholders, fonts use system or open-source ones.",
+      options: "Also download",
+      images: "Images",
+      fonts: "Font files",
+      optionsHint: "Off by default. Only download files you have the right to use.",
+      check: "Check the site",
+      checking: "Checking…",
+      start: "Start capture",
+      capturing: "Capturing the site…",
+      progress: "Page {index} of {total}",
+      http: "This site uses http, not https: the pages can be changed on the way. Continue only if you trust the network.",
+      robots: "robots.txt does not allow capturing these pages:",
+      result: "Captured {pages} page(s), {files} files. Name the theme project and review it.",
+      create: "Create theme project",
+      creating: "Creating…",
+      failed: "The capture failed",
+      draft:
+        "Turn the pages captured in _capture/ into a Bukit theme, starting with the home page. The screenshots are in _reference/; look at capture-1-1280.png first.",
+    },
     importDialog: {
       title: "Import a theme",
       description:
@@ -1206,6 +1237,9 @@ const en: Messages = {
     "theme.import_invalid": "This is not a theme BukitJalil can import: {detail}",
     "theme.import_unsafe": "The theme contains something unsafe: {detail}",
     "theme.parent_missing": "The parent theme {parent} of {theme} is missing; import it together",
+    "theme.capture_missing": "The captured site is gone; capture it again",
+    "theme.capture_invalid": "The captured site cannot be used: {detail}",
+    "theme.clone_unauthorized": "Confirm that the site is yours or that you may copy it",
     "image.invalid": "The image cannot be read; it may be damaged",
     "image.too_large": "The image is too large; each can be at most 5 MiB",
     "image.unsupported_type": "Only PNG, JPEG and WebP images are supported",

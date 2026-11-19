@@ -29,7 +29,7 @@ import {
   readAttachments,
   selectedModelReadsImages,
 } from "./attachments";
-import { takeComposerDraft } from "./drafts";
+import { takeComposerDraft, takeComposerImages } from "./drafts";
 import { type PendingMessage, unseen } from "./live";
 import { type ChatItem, chatItems, latestSummary, mergeMessages, modelErrorKind, tailSignature } from "./model";
 import { sessionPath } from "./sessions";
@@ -324,7 +324,7 @@ function Composer({
   const [text, setText] = useState(() => takeComposerDraft(session.id) ?? "");
   const [failed, setFailed] = useState<{ text: string; images: Attachment[] } | null>(null);
   const textRef = useRef(text);
-  const [images, setImages] = useState<Attachment[]>([]);
+  const [images, setImages] = useState<Attachment[]>(() => takeComposerImages(session.id));
   const imagesRef = useRef(images);
   const [attachProblem, setAttachProblem] = useState<AttachProblem | "model" | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
