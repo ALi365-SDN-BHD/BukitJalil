@@ -235,7 +235,7 @@ export function createAdminApp(opts: AdminAppOptions) {
     readIdentity: opts.readIdentity,
     userHome: opts.userHome,
   });
-  themeRoutes(api, { themes: opts.themes, builds: opts.builds, deliver: opts.deliver });
+  themeRoutes(api, { themes: opts.themes, builds: opts.builds, deliver: opts.deliver, agent: opts.agent });
   panelRoutes(api, opts.panels);
   mediaRoutes(api, { media: opts.media, agent: opts.agent });
   pluginRoutes(api, { changes: opts.changes, agent: opts.agent });

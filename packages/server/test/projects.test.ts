@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { CurrentChange, SessionInfo, Theme, ThemeResponse, TreeResponse } from "@bukitjalil/shared";
 import { strToU8, unzipSync, zipSync } from "fflate";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PathGate } from "../src/agent/gate.ts";
 import { workingCopyFiles } from "../src/agent/site-tools.ts";
 import { parseYaml } from "../src/panels/yaml.ts";
@@ -416,6 +416,72 @@ describe("new theme projects (T1)", () => {
     expect(new TextDecoder().decode(entries["theme.yaml"])).toMatch(/^name: deliver$/m);
   });
 
+  it("keeps the site's uploads, leaves an existing change set open, and waits for a running conversation", async () => {
+    const siteDir = repo("site");
+    const uploads = path.join(siteDir, "themes", "starter", "static", "uploads");
+    fs.mkdirSync(uploads, { recursive: true });
+    fs.writeFileSync(path.join(uploads, "logo.png"), tinyPng());
+    commitAllAs(base, siteDir);
+    const s = await ctx.sites.import({ path: siteDir });
+    await ctx.builds.settled();
+    const make = async (name: string) => {
+      const res = await create({
+        name,
+        themeName: name,
+        path: path.join(base, "home", `t-${++count}`),
+        language: "en-US",
+      });
+      await ctx.builds.settled();
+      return (await res.json()) as Theme;
+    };
+    const files = async () =>
+      ((await (await call("GET", `/api/sites/${s.id}/changes/current`)).json()) as CurrentChange).change?.files ?? [];
+    const discardOpen = async () => {
+      const open = ctx.changes.store.open(s.id);
+      if (open) await ctx.changes.discard(open.id);
+    };
+
+    // Switching the site to another theme brings the uploads along.
+    const aurora = await make("aurora");
+    expect((await call("POST", `/api/themes/${aurora.id}/apply`, { siteId: s.id, setConfig: true })).status).toBe(201);
+    expect((await files()).map((f) => f.path)).toContain("themes/aurora/static/uploads/logo.png");
+    const switched = await ctx.changes.current(s.id, false);
+    if (!switched) throw new Error("no change set");
+    await ctx.changes.apply(switched.id, { treeHash: switched.treeHash, force: true });
+    await ctx.builds.settled();
+
+    // Replacing the site's copy of the same theme keeps them, and the plan does not list them as removed.
+    const starter = await make("starter");
+    const plan = (await (await call("GET", `/api/themes/${starter.id}/apply?siteId=${s.id}`)).json()) as {
+      removed: string[];
+    };
+    expect(plan.removed).not.toContain("static/uploads/logo.png");
+    const replaced = await call("POST", `/api/themes/${starter.id}/apply`, { siteId: s.id, overwrite: true });
+    expect(replaced.status).toBe(201);
+    expect((await files()).some((f) => f.path.includes("static/uploads"))).toBe(false);
+    await discardOpen();
+
+    // Applying what the site already has changes nothing, and leaves a change set it did not open alone.
+    const session = ctx.agent.create(s.id);
+    await ctx.changes.begin(s.id, session.id);
+    const opened = ctx.changes.store.open(s.id);
+    expect(opened).not.toBeNull();
+    const same = await call("POST", `/api/themes/${aurora.id}/apply`, { siteId: s.id, overwrite: true });
+    expect(await same.json()).toMatchObject({ changeId: null });
+    expect(ctx.changes.store.open(s.id)?.id).toBe(opened?.id);
+    await discardOpen();
+
+    // A running conversation writes the same checkout: apply waits for it.
+    const busy = vi.spyOn(ctx.agent, "busy").mockReturnValue(true);
+    try {
+      const refused = await call("POST", `/api/themes/${aurora.id}/apply`, { siteId: s.id, overwrite: true });
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toMatchObject({ code: "site.busy" });
+    } finally {
+      busy.mockRestore();
+    }
+  });
+
   it("keeps the snapshot and files together when reading the change set back fails", async () => {
     const dir = path.join(base, "home", `new-theme-${++count}`);
     const t = (await (
@@ -594,13 +660,17 @@ describe("importing theme projects (T2)", () => {
     expect(fs.existsSync(path.join(zipTarget, "themes", "zip-theme", "layouts", "index.html"))).toBe(true);
   });
 
-  it("refuses a manifest larger than 1 MiB before reading it", async () => {
+  it("skips a manifest larger than 1 MiB without reading it, and still offers the other themes", async () => {
     const root = path.join(base, "sources", `huge-manifest-${++count}`);
-    const source = themeDir(root, "huge");
-    fs.writeFileSync(path.join(source, "theme.yaml"), "x".repeat(1024 * 1024 + 1));
-    const res = await inspect(source);
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: "theme.too_large" });
+    themeDir(path.join(root, "themes"), "ok");
+    const huge = themeDir(path.join(root, "themes"), "huge");
+    fs.writeFileSync(path.join(huge, "theme.yaml"), "x".repeat(1024 * 1024 + 1));
+    const res = await inspect(root);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { themes: { dir: string }[] }).themes.map((t) => t.dir)).toEqual(["ok"]);
+    const single = await inspect(huge);
+    expect(single.status).toBe(200);
+    expect(await single.json()).toMatchObject({ themes: [] });
   });
 
   it("ignores macOS archive metadata when a zip wraps one theme", async () => {
@@ -678,8 +748,13 @@ describe("importing theme projects (T2)", () => {
     expect(await missing.json()).toMatchObject({ code: "theme.parent_missing", params: { parent: "missing" } });
     expect(fs.existsSync(target)).toBe(false);
 
+    // A folder called plugins is an ordinary theme folder; a plugin.yaml is a plugin file.
     const plugin = themeDir(root, "plugin");
-    fs.mkdirSync(path.join(plugin, "plugins"));
+    fs.mkdirSync(path.join(plugin, "assets", "plugins"), { recursive: true });
+    fs.writeFileSync(path.join(plugin, "assets", "plugins", "lightbox.js"), "");
+    expect((await inspect(plugin)).status).toBe(200);
+    fs.mkdirSync(path.join(plugin, "plugins", "x"), { recursive: true });
+    fs.writeFileSync(path.join(plugin, "plugins", "x", "plugin.yaml"), "name: x\n");
     const plugged = await importTheme({
       source: plugin,
       theme: "plugin",
@@ -701,6 +776,13 @@ describe("importing theme projects (T2)", () => {
     });
     expect(linkRes.status).toBe(409);
     expect(await linkRes.json()).toMatchObject({ code: "theme.import_unsafe" });
+
+    // A linked folder on the way to a theme is not followed either.
+    const siteRoot = path.join(base, "sources", `linked-site-${++count}`);
+    fs.mkdirSync(siteRoot, { recursive: true });
+    themeDir(path.join(root, "elsewhere"), "outside");
+    fs.symlinkSync(path.join(root, "elsewhere"), path.join(siteRoot, "themes"));
+    expect(await (await inspect(siteRoot)).json()).toMatchObject({ themes: [] });
 
     const badZip = path.join(base, "sources", `bad-${++count}.zip`);
     fs.writeFileSync(badZip, "not a zip");

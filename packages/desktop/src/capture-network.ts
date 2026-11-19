@@ -179,6 +179,17 @@ function ipv6Groups(ip: string): number[] | null {
   return [...left, ...Array(8 - left.length - right.length).fill(0), ...right];
 }
 
+/**
+ * Ports a CONNECT tunnel may reach (design 6.2): the HTTPS ones. A tunnel is a raw socket, so without this a
+ * captured page could talk to mail or other services from the user's address. The desktop tests' loopback
+ * server (`testOrigin`) uses a random port.
+ */
+const TUNNEL_PORTS = new Set([443, 8443]);
+
+export function tunnelPortAllowed(port: number, testOrigin = false): boolean {
+  return TUNNEL_PORTS.has(port) || testOrigin;
+}
+
 export interface Fetched {
   url: string;
   status: number;
@@ -412,6 +423,7 @@ export class CaptureNetwork {
       const host = text.startsWith("[") ? text.slice(1, text.indexOf("]")) : text.split(":")[0];
       const port = Number(text.startsWith("[") ? text.slice(text.indexOf("]") + 2) : text.split(":")[1]);
       if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return fail();
+      if (!tunnelPortAllowed(port, this.testOrigin)) return fail();
       const target = await this.target(new URL(`https://${net.isIP(host) === 6 ? `[${host}]` : host}/`), false);
       this.touch();
       const upstream = net.connect({

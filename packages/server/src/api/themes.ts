@@ -7,6 +7,7 @@ import {
   ThemeApplyRequest,
 } from "@bukitjalil/shared";
 import type { Hono } from "hono";
+import type { AgentService } from "../agent/service.ts";
 import type { AppEnv } from "../app.ts";
 import type { BuildService } from "../builds/service.ts";
 import { apiError } from "../security/guard.ts";
@@ -16,6 +17,7 @@ import { attachment, body, handle } from "./common.ts";
 
 export interface ThemeRouteDeps {
   themes: ThemeService;
+  agent: AgentService;
   builds: BuildService;
   deliver: ThemeDeliverService;
 }
@@ -25,7 +27,7 @@ export interface ThemeRouteDeps {
  * panels are the project routes under /themes/:themeId. New ones come from a description (T1); import and
  * clone come with T2 and T3. Applying to a site and exporting are the deliverable actions (design 7).
  */
-export function themeRoutes(api: Hono<AppEnv>, { themes, builds, deliver }: ThemeRouteDeps) {
+export function themeRoutes(api: Hono<AppEnv>, { themes, builds, deliver, agent }: ThemeRouteDeps) {
   api.get("/themes", (c) => c.json(themes.list()));
 
   api.post("/themes", (c) =>
@@ -85,7 +87,7 @@ export function themeRoutes(api: Hono<AppEnv>, { themes, builds, deliver }: Them
     handle(c, async () => {
       const req = await body(c, ThemeApplyRequest);
       if (!req) return apiError(c, 400, "request.invalid_body");
-      return c.json(await deliver.apply(c.req.param("themeId"), req), 201);
+      return c.json(await deliver.apply(c.req.param("themeId"), req, () => agent.busy(req.siteId)), 201);
     }),
   );
 

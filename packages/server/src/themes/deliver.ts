@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Site, ThemeApplyPlan, ThemeApplyRequest, ThemeApplyResult } from "@bukitjalil/shared";
+import {
+  type Site,
+  type ThemeApplyPlan,
+  type ThemeApplyRequest,
+  type ThemeApplyResult,
+  ThemeName,
+} from "@bukitjalil/shared";
 import { zipSync } from "fflate";
 import { parseDocument } from "yaml";
 import type { ChangeService } from "../changes/service.ts";
@@ -12,6 +18,13 @@ import type { Project, ProjectService } from "../projects/service.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import { themeKey } from "./service.ts";
+
+/**
+ * Media uploads live in the theme's static folder (media/dir.ts): applying a theme keeps the site's uploads
+ * instead of replacing or orphaning them.
+ */
+const UPLOADS = "static/uploads";
+const isUpload = (rel: string) => rel === UPLOADS || rel.startsWith(`${UPLOADS}/`);
 
 /** A theme is a deliverable, not a site: a large one is refused rather than held in memory (design 5, 7). */
 const MAX_THEME_BYTES = 50 * 1024 * 1024;
@@ -48,7 +61,8 @@ export class ThemeDeliverService {
       if (!old) added.push(rel);
       else if (old.oid !== entry.oid || old.mode !== entry.mode) modified.push(rel);
     }
-    const removed = [...target.keys()].filter((rel) => !source.has(rel));
+    // The site's uploads are kept (see apply), so they are not removed.
+    const removed = [...target.keys()].filter((rel) => !source.has(rel) && !isUpload(rel));
     return {
       site: { id: site.id, name: site.name },
       theme: { name: theme.themeName, dir: `themes/${theme.themeName}` },
@@ -66,10 +80,12 @@ export class ThemeDeliverService {
    * `overwrite` is required when the site already has that theme. The directory swap is rolled back if a
    * later step fails, and a change set this request created is closed rather than left empty.
    */
-  async apply(themeId: string, req: ThemeApplyRequest): Promise<ThemeApplyResult> {
+  async apply(themeId: string, req: ThemeApplyRequest, busy: () => boolean): Promise<ThemeApplyResult> {
     return this.opts.locks.run(req.siteId, "theme", async () => {
       const theme = this.theme(themeId);
       const site = this.site(req.siteId);
+      // A running conversation writes the same checkout; checked under the lock, where a run cannot start.
+      if (busy()) throw new SiteError("site.busy", 409, { operation: "session" });
       // A change set the AI is still filling must be dealt with first (like a restore): replacing a whole
       // theme under it would hide what the user is reviewing.
       const open = await this.opts.changes.current(req.siteId, false);
@@ -98,6 +114,15 @@ export class ThemeDeliverService {
         stage(staged, source, files);
         this.ensureThemesDir(cwd);
         this.assertTarget(dir);
+        // Keep the site's uploads: those of this theme's old copy, and, when the site switches to this theme,
+        // those of the theme it used before. Files the new theme already has win.
+        copyUploads(dir, staged);
+        const previous = req.setConfig ? uploadsTheme(cwd, site.configFile) : null;
+        if (previous !== null && previous !== theme.themeName) {
+          const old = path.join(cwd, "themes", previous);
+          this.assertTarget(old);
+          copyUploads(old, staged);
+        }
         if (fs.existsSync(dir)) {
           backup = path.join(tmp, "old");
           fs.renameSync(dir, backup);
@@ -116,8 +141,9 @@ export class ThemeDeliverService {
           this.opts.logger.log("warn", "theme.current_failed", { siteId: req.siteId, error: String(err) });
         }
         if (view && !view.reviewable) {
-          // Applying the same theme again: do not leave an empty change set behind.
-          await this.opts.changes.discard(change.id);
+          // Applying the same theme again: do not leave an empty change set behind, but only close one this
+          // request opened.
+          if (created) await this.opts.changes.discard(change.id);
           return { siteId: req.siteId, changeId: null };
         }
         if (!change.aiJoined && change.restoreCommit === null) {
@@ -276,6 +302,54 @@ function stage(dir: string, entries: Map<string, TreeEntry>, files: Map<string, 
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     fs.writeFileSync(file, files.get(rel) ?? Buffer.alloc(0));
     fs.chmodSync(file, entry.mode === "100755" ? 0o755 : 0o644);
+  }
+}
+
+/**
+ * Copy the regular files under `<from>/static/uploads` into `<to>/static/uploads` where `to` has none; a
+ * symbolic link anywhere is refused, as in the media upload.
+ */
+function copyUploads(from: string, to: string): void {
+  const walk = (rel: string) => {
+    const src = path.join(from, ...rel.split("/"));
+    const stat = fs.lstatSync(src, { throwIfNoEntry: false });
+    if (!stat) return;
+    if (stat.isSymbolicLink()) throw new SiteError("media.dir_unsafe", 409);
+    if (stat.isDirectory()) {
+      for (const name of fs.readdirSync(src)) walk(`${rel}/${name}`);
+      return;
+    }
+    if (!stat.isFile()) return;
+    const dest = path.join(to, ...rel.split("/"));
+    if (fs.existsSync(dest)) return;
+    fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
+    fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
+  };
+  for (const part of ["static", UPLOADS]) {
+    const stat = fs.lstatSync(path.join(from, ...part.split("/")), { throwIfNoEntry: false });
+    if (!stat) return;
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new SiteError("media.dir_unsafe", 409);
+  }
+  walk(UPLOADS);
+}
+
+/**
+ * The theme whose static folder holds the site's uploads now, or null when the config names none or puts
+ * the static folder elsewhere (then switching themes leaves the uploads where they are).
+ */
+function uploadsTheme(cwd: string, configFile: string): string | null {
+  try {
+    const file = path.join(cwd, configFile);
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.size > MAX_CONFIG_BYTES) return null;
+    const doc = parseDocument(fs.readFileSync(file, "utf8"));
+    if (doc.errors.length > 0) return null;
+    const name = doc.getIn(["theme", "name"]);
+    const staticDir = doc.getIn(["theme", "static"]);
+    if (staticDir !== undefined && staticDir !== null && String(staticDir).toLowerCase() !== "static") return null;
+    return typeof name === "string" && ThemeName.safeParse(name).success ? name : null;
+  } catch {
+    return null;
   }
 }
 

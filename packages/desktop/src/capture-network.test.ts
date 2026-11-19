@@ -13,6 +13,7 @@ import {
   captureUrl,
   contentLength,
   isLocalName,
+  tunnelPortAllowed,
 } from "./capture-network.ts";
 
 const servers: http.Server[] = [];
@@ -200,6 +201,15 @@ describe("capture HTTPS tunnels (design 6.2)", () => {
       });
     });
   }
+
+  it("tunnels only to HTTPS ports outside the desktop tests", () => {
+    expect(tunnelPortAllowed(443)).toBe(true);
+    expect(tunnelPortAllowed(8443)).toBe(true);
+    expect(tunnelPortAllowed(25)).toBe(false);
+    expect(tunnelPortAllowed(22)).toBe(false);
+    expect(tunnelPortAllowed(80)).toBe(false);
+    expect(tunnelPortAllowed(25, true)).toBe(true);
+  });
 
   it("relays CONNECT to a checked address and refuses it when the test switch is off", async () => {
     const target = await echoServer();

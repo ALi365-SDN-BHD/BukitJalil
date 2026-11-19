@@ -27,6 +27,16 @@ describe("captured SVGs (design 6.2)", () => {
     expect(svg).not.toContain("&#104;");
     expect(svg).toContain('href="#ok"');
   });
+
+  it("removes handlers after a slash and animation elements that can set a link", () => {
+    const svg = cleanSvg(
+      '<svg/onload=alert(1)><a><set attributeName="href" to="javascript:alert(1)"/><animate attributeName="href" values="javascript:alert(2)"></animate><circle/></a></svg>',
+    );
+    expect(svg).not.toContain("onload");
+    expect(svg).not.toContain("javascript:");
+    expect(svg).not.toMatch(/<(set|animate)\b/);
+    expect(svg).toContain("<circle/>");
+  });
 });
 
 describe("capture validation (design 6.2)", () => {
@@ -100,6 +110,17 @@ describe("capture validation (design 6.2)", () => {
     write();
     const dir = path.join(root, id);
     fs.writeFileSync(path.join(dir, "reference", "1-1280.png"), "not a png");
+    expect(() => loadCapture(root, id)).toThrow(expect.objectContaining({ code: "theme.capture_invalid" }));
+  });
+
+  it("refuses two screenshots with the same name, which would overwrite each other", () => {
+    write();
+    const dir = path.join(root, id);
+    fs.mkdirSync(path.join(dir, "other"));
+    fs.writeFileSync(path.join(dir, "other", "1-1280.png"), tinyPng());
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
+    manifest.pages[0].screenshots.push("other/1-1280.png");
+    fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest));
     expect(() => loadCapture(root, id)).toThrow(expect.objectContaining({ code: "theme.capture_invalid" }));
   });
 });

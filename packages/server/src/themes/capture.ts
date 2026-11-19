@@ -115,7 +115,9 @@ export function loadCapture(capturesDir: string, id: string): LoadedCapture {
     files.set(`pages/${n}/meta.json`, read(page.meta, "page"));
     for (const shot of page.screenshots) {
       const data = read(shot, "reference");
+      // The desktop names them <page>-<width>.png; a capture with two of the same name is not trusted.
       const name = `capture-${path.basename(shot)}`;
+      if (references.has(name)) throw invalid(`two screenshots are called ${path.basename(shot)}`);
       references.set(name, data);
     }
   }
@@ -127,7 +129,9 @@ export function loadCapture(capturesDir: string, id: string): LoadedCapture {
   for (const ref of manifest.reference) {
     if (manifest.pages.some((p) => p.screenshots.includes(ref))) continue;
     const data = read(ref, "reference");
-    references.set(`capture-${path.basename(ref)}`, data);
+    const name = `capture-${path.basename(ref)}`;
+    if (references.has(name)) throw invalid(`two screenshots are called ${path.basename(ref)}`);
+    references.set(name, data);
   }
   if (files.size === 0 || references.size === 0) throw invalid("the capture has no pages or screenshots");
   return { title: manifest.title, files, references };
@@ -170,6 +174,9 @@ export function cleanSvg(text: string): string {
     text
       .replace(/<script\b[\s\S]*?<\/script\s*>/gi, "")
       .replace(/<foreignObject\b[\s\S]*?<\/foreignObject\s*>/gi, "")
+      // Animation elements can set href (or any attribute) to javascript:; a captured asset does not need them.
+      .replace(/<(set|animate|animateMotion|animateTransform|discard|handler|listener)\b[^>]*\/>/gi, "")
+      .replace(/<(set|animate|animateMotion|animateTransform|discard|handler|listener)\b[\s\S]*?<\/\1\s*>/gi, "")
       .replace(/@import[^;]+;/gi, "")
       // Only fragments stay as links; quoted, unquoted and entity-encoded external values are all removed.
       .replace(
@@ -181,7 +188,8 @@ export function cleanSvg(text: string): string {
         const value = (dq ?? sq ?? uq ?? "").trim();
         return value.startsWith("#") || /^data:/i.test(value) ? match : "none";
       })
-      .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      // An HTML parser also takes `/` before an attribute (`<svg/onload=…>`), so handlers go after either.
+      .replace(/[\s/]on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, " ")
   );
 }
 

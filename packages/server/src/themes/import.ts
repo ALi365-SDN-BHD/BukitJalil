@@ -93,7 +93,7 @@ function candidates(source: Source): ThemeCandidate[] {
 
 /** The theme's manifest, or null when it is missing, unreadable, or uses an invalid name. */
 function manifestOf(tree: Tree, dir: string) {
-  const raw = tree.read(join(dir, MANIFEST), MAX_MANIFEST_FILE);
+  const raw = readManifest(tree, dir);
   if (raw === null) return null;
   const parsed = parseYaml(raw.toString("utf8"));
   if (parsed.error !== null || !isRecord(parsed.value)) return null;
@@ -108,11 +108,21 @@ function manifestOf(tree: Tree, dir: string) {
   return { name, displayName: displayName || null, parent };
 }
 
+/** A theme.yaml's bytes; a missing or oversized one is null, so one bad theme does not hide the others. */
+function readManifest(tree: Tree, dir: string): Buffer | null {
+  try {
+    return tree.read(join(dir, MANIFEST), MAX_MANIFEST_FILE);
+  } catch (err) {
+    if (err instanceof SiteError && err.code === "theme.too_large") return null;
+    throw err;
+  }
+}
+
 /** The theme directories of a collection (a site's themes/ or a zip's themes/), sorted. */
 function themeDirs(tree: Tree): string[] {
   const root = tree.list("themes");
   return root
-    .filter((name) => tree.read(join("themes", name, MANIFEST)) !== null)
+    .filter((name) => readManifest(tree, join("themes", name)) !== null)
     .map((name) => join("themes", name))
     .sort();
 }
@@ -258,7 +268,7 @@ function folderTree(root: string): Tree {
   };
   return {
     read(rel, maxBytes = MAX_FILE) {
-      if (pathProblem(rel) !== null) return null;
+      if (pathProblem(rel) !== null || linkedParent(root, rel)) return null;
       const abs = path.join(root, ...rel.split("/"));
       const stat = fs.lstatSync(abs, { throwIfNoEntry: false });
       if (!stat?.isFile()) return null;
@@ -266,7 +276,7 @@ function folderTree(root: string): Tree {
       return fs.readFileSync(abs);
     },
     list(dir) {
-      if (pathProblem(dir) !== null) return [];
+      if (pathProblem(dir) !== null || linkedParent(root, `${dir}/.`)) return [];
       try {
         return fs
           .readdirSync(path.join(root, ...dir.split("/")), { withFileTypes: true })
@@ -280,6 +290,7 @@ function folderTree(root: string): Tree {
       const out = new Map<string, Buffer>();
       if (pathProblem(dir) !== null) throw unsafe(`bad path: ${dir}`);
       const rel = dir === "." ? "" : dir;
+      if (rel !== "" && linkedParent(root, `${rel}/.`)) throw unsafe(`symbolic link: ${rel}`);
       const abs = path.join(root, ...(rel === "" ? [] : rel.split("/")));
       const stat = fs.lstatSync(abs, { throwIfNoEntry: false });
       if (!stat?.isDirectory()) return out;
@@ -326,12 +337,22 @@ function zipTree(files: Map<string, Buffer>): Tree {
   };
 }
 
-/** Refuse plugin files a site may not carry (design 5, plan 8.5). */
+/**
+ * Refuse plugin files a site may not carry (design 5, plan 8.5). The files go under themes/<name>/, never the
+ * site root, so of the site's rules only a `plugin.yaml` anywhere applies; a folder called plugins is fine.
+ */
 function unsafeName(rel: string): void {
-  const parts = rel.split("/");
-  const lower = parts.map((p) => p.toLowerCase());
-  if (lower.includes("plugins") || lower.includes("plugin.yaml") || rel.toLowerCase() === ".bukit/plugins.yaml")
-    throw unsafe(`plugin file: ${rel}`);
+  if ((rel.split("/").pop() ?? "").toLowerCase() === "plugin.yaml") throw unsafe(`plugin file: ${rel}`);
+}
+
+/** A symbolic link in a folder on the way from `root` to `rel` (the last part is checked by the caller). */
+function linkedParent(root: string, rel: string): boolean {
+  let current = root;
+  for (const part of rel.split("/").slice(0, -1)) {
+    current = path.join(current, part);
+    if (fs.lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink()) return true;
+  }
+  return false;
 }
 
 function unsafe(detail: string): SiteError {
