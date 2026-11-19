@@ -441,10 +441,18 @@ describe("new theme projects (T1)", () => {
       if (open) await ctx.changes.discard(open.id);
     };
 
-    // Switching the site to another theme brings the uploads along.
+    // Switching the site to another theme brings the uploads along, and they win over the theme's own.
     const aurora = await make("aurora");
+    const auroraUploads = path.join(aurora.path, "themes", "aurora", "static", "uploads");
+    fs.mkdirSync(auroraUploads, { recursive: true });
+    fs.writeFileSync(path.join(auroraUploads, "logo.png"), "theme's own logo");
+    commitAllAs(base, aurora.path);
     expect((await call("POST", `/api/themes/${aurora.id}/apply`, { siteId: s.id, setConfig: true })).status).toBe(201);
     expect((await files()).map((f) => f.path)).toContain("themes/aurora/static/uploads/logo.png");
+    const siteCwd = path.join(ctx.paths.worktrees, s.id, "ai");
+    expect(
+      fs.readFileSync(path.join(siteCwd, "themes", "aurora", "static", "uploads", "logo.png")).equals(tinyPng()),
+    ).toBe(true);
     const switched = await ctx.changes.current(s.id, false);
     if (!switched) throw new Error("no change set");
     await ctx.changes.apply(switched.id, { treeHash: switched.treeHash, force: true });
@@ -456,6 +464,7 @@ describe("new theme projects (T1)", () => {
       removed: string[];
     };
     expect(plan.removed).not.toContain("static/uploads/logo.png");
+    expect(plan).not.toMatchObject({ modified: expect.arrayContaining(["static/uploads/logo.png"]) });
     const replaced = await call("POST", `/api/themes/${starter.id}/apply`, { siteId: s.id, overwrite: true });
     expect(replaced.status).toBe(201);
     expect((await files()).some((f) => f.path.includes("static/uploads"))).toBe(false);

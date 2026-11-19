@@ -59,7 +59,8 @@ export class ThemeDeliverService {
     for (const [rel, entry] of source) {
       const old = target.get(rel);
       if (!old) added.push(rel);
-      else if (old.oid !== entry.oid || old.mode !== entry.mode) modified.push(rel);
+      // The site's own upload of the same name is kept (see apply), so it does not change.
+      else if ((old.oid !== entry.oid || old.mode !== entry.mode) && !isUpload(rel)) modified.push(rel);
     }
     // The site's uploads are kept (see apply), so they are not removed.
     const removed = [...target.keys()].filter((rel) => !source.has(rel) && !isUpload(rel));
@@ -115,7 +116,7 @@ export class ThemeDeliverService {
         this.ensureThemesDir(cwd);
         this.assertTarget(dir);
         // Keep the site's uploads: those of this theme's old copy, and, when the site switches to this theme,
-        // those of the theme it used before. Files the new theme already has win.
+        // those of the theme it used before. They are the user's files, so they win over the theme's own.
         copyUploads(dir, staged);
         const previous = req.setConfig ? uploadsTheme(cwd, site.configFile) : null;
         if (previous !== null && previous !== theme.themeName) {
@@ -306,8 +307,8 @@ function stage(dir: string, entries: Map<string, TreeEntry>, files: Map<string, 
 }
 
 /**
- * Copy the regular files under `<from>/static/uploads` into `<to>/static/uploads` where `to` has none; a
- * symbolic link anywhere is refused, as in the media upload.
+ * Copy the regular files under `<from>/static/uploads` into `<to>/static/uploads`, replacing what `to` has
+ * there (`to` is the fresh staging copy); a symbolic link anywhere is refused, as in the media upload.
  */
 function copyUploads(from: string, to: string): void {
   const walk = (rel: string) => {
@@ -321,7 +322,7 @@ function copyUploads(from: string, to: string): void {
     }
     if (!stat.isFile()) return;
     const dest = path.join(to, ...rel.split("/"));
-    if (fs.existsSync(dest)) return;
+    fs.rmSync(dest, { recursive: true, force: true });
     fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
     fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
   };
