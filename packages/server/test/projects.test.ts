@@ -319,6 +319,12 @@ describe("new theme projects (T1)", () => {
     ]);
     expect(panel.siteTheme).toMatchObject({ name: "panel" });
 
+    // A tokens file larger than a template may be (256 KiB) still shows its colors.
+    fs.writeFileSync(path.join(dir, "themes", "panel", "tokens.yaml"), `${tokens}# ${"x".repeat(300 * 1024)}\n`);
+    commitAllAs(base, dir);
+    const big = (await (await call("GET", `/api/themes/${t.id}/theme?ref=main`)).json()) as ThemeResponse;
+    expect(big.colors?.map((c) => c.name)).toEqual(["bg", "text"]);
+
     // A site's theme panel has none of them.
     const s = await ctx.sites.import({ path: repo("site") });
     await ctx.builds.settled();

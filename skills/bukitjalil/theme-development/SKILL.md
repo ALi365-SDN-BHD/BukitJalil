@@ -66,11 +66,18 @@ whether `tokens.yaml`, the search page and `static/404.html` exist.
    `layout`). Bukit writes them to `/assets/css/theme-tokens.css`; link it in
    the base layout and use the CSS variables everywhere instead of literal
    values.
-3. Then the base layout and partials (header, navigation, footer), then each
-   page type, from the home page down.
-4. After each step run `bukit_check` (its doctor part checks the manifest,
+3. Then the base layout, the partials (header, navigation, footer) and the
+   home page.
+4. **Confirm the style first.** Run `bukit_check` and `bukit_build`, then stop:
+   call `summarize_changes`, tell the user the home page is ready in the
+   preview, and ask them to confirm the look or say what to change. Do not
+   build the other page types yet. Repeat this step until they confirm. Skip
+   it only when the user said to finish the whole theme in one go.
+5. After they confirm, do each remaining page type: post, page, list,
+   pagination, archive, taxonomy index and term, search, 404.
+6. After each step run `bukit_check` (its doctor part checks the manifest,
    templates and includes), then `bukit_build`, and fix what they report.
-5. Finish with `theme_coverage`: nothing missing. Then `summarize_changes`.
+7. Finish with `theme_coverage`: nothing missing. Then `summarize_changes`.
 
 ## Rules for templates and styles
 

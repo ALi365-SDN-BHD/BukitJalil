@@ -98,6 +98,11 @@ test("a theme is made from a description and image, and the theme mode shows its
   await expect(page.getByTestId("site-list")).toBeVisible();
   await page.getByTestId("mode-theme").click();
   await expect(page).toHaveURL(new RegExp(`^${themeUrl.replace(/[.?]/g, "\\$&")}`));
+  // The prefilled description is still waiting in the box after leaving the conversation and coming back.
+  await expect(page.getByTestId("composer-input")).toHaveValue(new RegExp(`^${brief}`));
+  // Panel tabs are named by their label; the shortcut is declared, not used as the name.
+  await expect(page.getByTestId("tab-theme")).toHaveAttribute("aria-keyshortcuts", "Alt+4");
+  await expect(page.getByTestId("tab-theme")).toHaveAccessibleName(/^(Theme|主题)$/);
 });
 
 test("a theme is applied to a site as its change set and exported as a zip", async ({ page, server }) => {

@@ -3,6 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it } from "vitest";
 import { keys } from "@/lib/api";
 import { handleEvent } from "@/lib/events";
+import { composerDraft, composerImages, saveComposer, setComposerDraft } from "./drafts";
 import { applyEvent, emptyLive, unseen } from "./live";
 import {
   chatItems,
@@ -331,5 +332,20 @@ describe("modelErrorKind", () => {
     expect(modelErrorKind("TypeError: fetch failed")).toBe("network");
     expect(modelErrorKind("getaddrinfo ENOTFOUND api.example.com")).toBe("network");
     expect(modelErrorKind("Something odd")).toBe(null);
+  });
+});
+
+describe("composer drafts (theme development design 4)", () => {
+  it("keeps a conversation's unsent text and images until the box is emptied", () => {
+    const image = { id: 1, name: "a.png", mimeType: "image/png" as const, data: "AAAA" };
+    setComposerDraft("s1", "A calm blog theme");
+    expect(composerDraft("s1")).toBe("A calm blog theme");
+    expect(composerDraft("s1")).toBe("A calm blog theme");
+    saveComposer("s1", "A calm blog theme, beige", [image]);
+    expect(composerDraft("s1")).toBe("A calm blog theme, beige");
+    expect(composerImages("s1")).toEqual([image]);
+    saveComposer("s1", "", []);
+    expect(composerDraft("s1")).toBe("");
+    expect(composerImages("s1")).toEqual([]);
   });
 });

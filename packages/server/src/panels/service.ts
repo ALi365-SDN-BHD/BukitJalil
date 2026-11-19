@@ -199,7 +199,8 @@ export class PanelService {
         themeProject && config
           ? {
               coverage: await themeCoverage(config, name, this.versionFiles(v)),
-              colors: themeColors(await this.readTextOrNull(v, `${dir}/tokens.yaml`, MAX_COVERAGE_FILE_BYTES)),
+              // Read like the config and theme.yaml (1 MiB), not the template limit: a big tokens file still has colors.
+              colors: themeColors(await this.readTextOrNull(v, `${dir}/tokens.yaml`, MAX_CONFIG_BYTES)),
               siteTheme: config.theme ?? null,
             }
           : {};

@@ -88,7 +88,9 @@ export function RightPanel({ mode, project, readOnly }: { mode: Mode; project: P
             aria-selected={tab === key}
             data-testid={`tab-${key}`}
             onClick={() => select(key)}
-            title={`Alt+${tabs.indexOf(key) + 1}`}
+            // The shortcut is announced as such; the title keeps the label first, so no tool reads the tab as "Alt+N".
+            aria-keyshortcuts={`Alt+${tabs.indexOf(key) + 1}`}
+            title={`${m.panel[key]} (Alt+${tabs.indexOf(key) + 1})`}
             className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-sm ${tab === key ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/60"}`}
           >
             {m.panel[key]}

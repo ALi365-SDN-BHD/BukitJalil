@@ -29,7 +29,7 @@ import {
   readAttachments,
   selectedModelReadsImages,
 } from "./attachments";
-import { takeComposerDraft, takeComposerImages } from "./drafts";
+import { composerDraft, composerImages, saveComposer } from "./drafts";
 import { type PendingMessage, unseen } from "./live";
 import { type ChatItem, chatItems, latestSummary, mergeMessages, modelErrorKind, tailSignature } from "./model";
 import { sessionPath } from "./sessions";
@@ -321,10 +321,12 @@ function Composer({
   uploader: RefObject<MediaUploadHandle | null>;
 }) {
   const { m, t, errorOf } = useI18n();
-  const [text, setText] = useState(() => takeComposerDraft(session.id) ?? "");
+  const [text, setText] = useState(() => composerDraft(session.id));
   const [failed, setFailed] = useState<{ text: string; images: Attachment[] } | null>(null);
   const textRef = useRef(text);
-  const [images, setImages] = useState<Attachment[]>(() => takeComposerImages(session.id));
+  const [images, setImages] = useState<Attachment[]>(() => composerImages(session.id));
+  // The box survives leaving the conversation (the view is keyed by session) until the message is sent.
+  useEffect(() => saveComposer(session.id, text, images), [session.id, text, images]);
   const imagesRef = useRef(images);
   const [attachProblem, setAttachProblem] = useState<AttachProblem | "model" | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
