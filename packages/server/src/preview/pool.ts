@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import type { ProjectKey } from "@bukitjalil/shared";
 import type { Logger } from "../log.ts";
 import { previewHeaders } from "../security/headers.ts";
 import { contentType, resolveStaticFile } from "../static-files.ts";
@@ -48,9 +49,9 @@ export class PreviewPool {
     private readonly idleMs = PREVIEW_IDLE_MS,
   ) {}
 
-  /** Slot key of a site's preview. */
-  static key(siteId: string, ref: "main" | "change"): string {
-    return `${siteId}:${ref}`;
+  /** Slot key of a project's preview. */
+  static key(project: ProjectKey, ref: "main" | "change"): string {
+    return `${project}:${ref}`;
   }
 
   /**
@@ -149,10 +150,10 @@ export class PreviewPool {
     await Promise.all([...this.slots.keys()].map((k) => this.close(k, { force: true })));
   }
 
-  /** Close every slot of a site (it was removed). */
-  async closeSite(siteId: string): Promise<void> {
+  /** Close every slot of a project (it was removed). */
+  async closeProject(project: ProjectKey): Promise<void> {
     await Promise.all(
-      [...this.slots.keys()].filter((k) => k.startsWith(`${siteId}:`)).map((k) => this.close(k, { force: true })),
+      [...this.slots.keys()].filter((k) => k.startsWith(`${project}:`)).map((k) => this.close(k, { force: true })),
     );
   }
 

@@ -8,6 +8,7 @@ import type {
   FileResponse,
   ImageMime,
   PanelRef,
+  ProjectKey,
   SourceCounts,
   ThemeResponse,
   TreeEntryView,
@@ -28,8 +29,8 @@ import {
   treeEntryAt,
 } from "../git/objects.ts";
 import { GitError, type GitRunner } from "../git/run.ts";
+import type { ProjectService } from "../projects/service.ts";
 import { SiteError } from "../sites/location.ts";
-import type { SiteService } from "../sites/service.ts";
 import { parseFrontMatter, parseYaml } from "./yaml.ts";
 
 /** Text shown inline in the file panel. */
@@ -73,18 +74,18 @@ export class PanelService {
   constructor(
     private readonly opts: {
       git: GitRunner;
-      sites: SiteService;
-      /** The snapshot of the site's open change set (ref=change), or null when none is open. */
-      changeCommit: (siteId: string) => string | null;
+      projects: ProjectService;
+      /** The snapshot of the project's open change set (ref=change), or null when none is open. */
+      changeCommit: (project: ProjectKey) => string | null;
       /** Entries per source of the newest successful build of `ref` (plan 5.5). */
-      sourceCounts?: (siteId: string, ref: PanelRef) => SourceCounts | null;
+      sourceCounts?: (project: ProjectKey, ref: PanelRef) => SourceCounts | null;
     },
   ) {}
 
   // --- files ---
 
-  async tree(siteId: string, ref: PanelRef, dir: string): Promise<TreeResponse> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async tree(project: ProjectKey, ref: PanelRef, dir: string): Promise<TreeResponse> {
+    return this.withVersion(project, ref, async (v) => {
       let entries: TreeEntry[];
       try {
         entries = await listTree(this.opts.git, v.repo, v.commit, dir ? { dir } : {});
@@ -104,8 +105,13 @@ export class PanelService {
     });
   }
 
-  async file(siteId: string, ref: PanelRef, filePath: string, as: "json" | "raw" | "download"): Promise<FileResult> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async file(
+    project: ProjectKey,
+    ref: PanelRef,
+    filePath: string,
+    as: "json" | "raw" | "download",
+  ): Promise<FileResult> {
+    return this.withVersion(project, ref, async (v) => {
       const entry = await this.entryAt(v, filePath);
       if (!entry) throw new SiteError("panel.not_found", 404);
       const base = { ref, commit: v.commit, path: filePath };
@@ -148,8 +154,8 @@ export class PanelService {
 
   // --- config ---
 
-  async config(siteId: string, ref: PanelRef): Promise<ConfigResponse> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async config(project: ProjectKey, ref: PanelRef): Promise<ConfigResponse> {
+    return this.withVersion(project, ref, async (v) => {
       const { raw, config, error } = await this.siteConfig(v);
       return { ref, commit: v.commit, raw, error, config, summary: config ? summarizeConfig(config) : null };
     });
@@ -157,8 +163,8 @@ export class PanelService {
 
   // --- theme ---
 
-  async theme(siteId: string, ref: PanelRef): Promise<ThemeResponse> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async theme(project: ProjectKey, ref: PanelRef): Promise<ThemeResponse> {
+    return this.withVersion(project, ref, async (v) => {
       const { config, error: configError } = await this.siteConfig(v);
       const theme = isRecord(config?.theme) ? config.theme : {};
       const empty: ThemeResponse = {
@@ -212,8 +218,8 @@ export class PanelService {
    * The databaseId of content source `index` on the default branch (plan 5.4), for reading its fields with
    * the bound token. Never a change set's: an unreviewed site.yaml could name any database the token reads.
    */
-  async notionDatabaseId(siteId: string, index: number): Promise<string> {
-    return this.withVersion(siteId, "main", async (v) => {
+  async notionDatabaseId(project: ProjectKey, index: number): Promise<string> {
+    return this.withVersion(project, "main", async (v) => {
       // Every value as text, as Bukit reads it: an unquoted all-digit id must not turn into a number.
       const { raw } = await this.siteConfig(v);
       const parsed = raw === null ? null : parseYaml(raw, { asText: true });
@@ -227,8 +233,8 @@ export class PanelService {
     });
   }
 
-  async data(siteId: string, ref: PanelRef): Promise<DataResponse> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async data(project: ProjectKey, ref: PanelRef): Promise<DataResponse> {
+    return this.withVersion(project, ref, async (v) => {
       const { config } = await this.siteConfig(v);
       const content = isRecord(config?.content) ? config.content : {};
       const sources = Array.isArray(content.sources) ? content.sources : [];
@@ -287,8 +293,9 @@ export class PanelService {
         commit: v.commit,
         sources: out,
         truncated,
-        counts: this.opts.sourceCounts?.(siteId, ref) ?? null,
-        notionSnapshot: notion ? this.opts.sites.notionSnapshots.get(siteId) : null,
+        counts: this.opts.sourceCounts?.(project, ref) ?? null,
+        notionSnapshot:
+          notion && this.opts.projects.isSite(project) ? this.opts.projects.sites.notionSnapshots.get(project) : null,
       };
     });
   }
@@ -325,9 +332,9 @@ export class PanelService {
   // --- shared ---
 
   /** Resolve the version and turn git failures about the repository into API errors. */
-  private async withVersion<T>(siteId: string, ref: PanelRef, fn: (v: Version) => Promise<T>): Promise<T> {
-    const site = this.opts.sites.get(siteId);
-    const changeCommit = ref === "change" ? this.opts.changeCommit(siteId) : null;
+  private async withVersion<T>(project: ProjectKey, ref: PanelRef, fn: (v: Version) => Promise<T>): Promise<T> {
+    const site = this.opts.projects.get(project);
+    const changeCommit = ref === "change" ? this.opts.changeCommit(project) : null;
     if (ref === "change" && changeCommit === null) throw new SiteError("change.not_found", 404);
     if (!fs.existsSync(site.path)) throw new SiteError("fs.not_found", 404);
     if (!fs.existsSync(path.join(site.path, ".git"))) throw new SiteError("site.not_repo", 409);

@@ -122,7 +122,7 @@ export function siteRoutes(
     handle(c, async () => {
       const id = c.req.param("siteId");
       const result = await sites.remove(id);
-      await builds.forgetSite(id);
+      await builds.forgetProject(id);
       return c.json(result);
     }),
   );

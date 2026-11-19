@@ -135,7 +135,7 @@ function DiffView({ change, path }: { change: ChangeView; path: string }) {
   const preview = image ? (
     <div className="flex max-h-80 shrink-0 items-center justify-center overflow-auto border-b bg-muted/20 p-3">
       <img
-        src={fileUrl(change.siteId, "change", path, "raw")}
+        src={fileUrl(change.project, "change", path, "raw")}
         alt={path}
         className="max-h-72 max-w-full object-contain"
         data-testid="media-preview"
@@ -145,7 +145,7 @@ function DiffView({ change, path }: { change: ChangeView; path: string }) {
     <div className="shrink-0 border-b p-3">
       <a
         className="inline-flex items-center gap-1 text-sm underline"
-        href={fileUrl(change.siteId, "change", path, "download")}
+        href={fileUrl(change.project, "change", path, "download")}
         download
       >
         <Download className="size-4" /> {m.media.download}

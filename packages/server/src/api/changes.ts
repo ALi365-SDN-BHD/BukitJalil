@@ -14,7 +14,7 @@ import type { ChangeService } from "../changes/service.ts";
 import type { Logger } from "../log.ts";
 import { apiError } from "../security/guard.ts";
 import { SiteError } from "../sites/location.ts";
-import { body, handle } from "./common.ts";
+import { body, handle, PROJECT_PREFIXES, projectParam } from "./common.ts";
 
 export interface ChangeRouteDeps {
   changes: ChangeService;
@@ -25,13 +25,14 @@ export interface ChangeRouteDeps {
 
 /** Change sets (plan 7.2, 9.1): the current one, a file's diff, apply and reject; history and restore (7.4). */
 export function changeRoutes(api: Hono<AppEnv>, { changes, agent, builds, logger }: ChangeRouteDeps) {
-  api.get("/sites/:siteId/changes/current", (c) =>
-    handle(c, async () => {
-      const siteId = c.req.param("siteId");
-      const res: CurrentChange = { change: await changes.current(siteId, agent.busy(siteId)) };
-      return c.json(res);
-    }),
-  );
+  for (const prefix of PROJECT_PREFIXES)
+    api.get(`${prefix}/changes/current`, (c) =>
+      handle(c, async () => {
+        const project = projectParam(c);
+        const res: CurrentChange = { change: await changes.current(project, agent.busy(project)) };
+        return c.json(res);
+      }),
+    );
 
   api.get("/changes/:changeId/diff", (c) =>
     handle(c, async () => {
@@ -47,14 +48,14 @@ export function changeRoutes(api: Hono<AppEnv>, { changes, agent, builds, logger
       if (!req) return apiError(c, 400, "request.invalid_body");
       const changeId = c.req.param("changeId");
       // A running or queued conversation is about to change what the user reviewed (plan 7.2).
-      if (agent.busy(changes.get(changeId).siteId)) throw new SiteError("site.busy", 409);
+      if (agent.busy(changes.get(changeId).project)) throw new SiteError("site.busy", 409);
       const result = await changes.apply(changeId, req);
       // The default branch moved: rebuild the main preview (plan 7.2). When that cannot start now (no Bukit,
       // the site is busy), the preview stays on the previous build until the next one.
       if (result.outcome === "applied" || result.outcome === "partial") {
-        builds.start(result.change.siteId, "main").catch((err) => {
+        builds.start(result.change.project, "main").catch((err) => {
           if (err instanceof SiteError) return;
-          logger.log("error", "changes.build_failed", { siteId: result.change.siteId, error: String(err) });
+          logger.log("error", "changes.build_failed", { project: result.change.project, error: String(err) });
         });
       }
       return c.json(result);
@@ -65,36 +66,39 @@ export function changeRoutes(api: Hono<AppEnv>, { changes, agent, builds, logger
     handle(c, async () => c.json(await changes.reject(c.req.param("changeId")))),
   );
 
-  api.get("/sites/:siteId/history", (c) =>
-    handle(c, async () => {
-      const q = HistoryQuery.safeParse(c.req.query());
-      if (!q.success) return apiError(c, 400, "request.invalid_query");
-      return c.json(await changes.history(c.req.param("siteId"), q.data.skip));
-    }),
-  );
+  for (const prefix of PROJECT_PREFIXES)
+    api.get(`${prefix}/history`, (c) =>
+      handle(c, async () => {
+        const q = HistoryQuery.safeParse(c.req.query());
+        if (!q.success) return apiError(c, 400, "request.invalid_query");
+        return c.json(await changes.history(projectParam(c), q.data.skip));
+      }),
+    );
 
-  api.get("/sites/:siteId/history/:commit/diff", (c) =>
-    handle(c, async () => {
-      const commit = ObjectId.safeParse(c.req.param("commit"));
-      const q = VersionDiffQuery.safeParse(c.req.query());
-      if (!commit.success || !q.success) return apiError(c, 400, "request.invalid_query");
-      const siteId = c.req.param("siteId");
-      return c.json(
-        q.data.path === undefined
-          ? await changes.versionDiff(siteId, commit.data)
-          : await changes.versionDiff(siteId, commit.data, q.data.path),
-      );
-    }),
-  );
+  for (const prefix of PROJECT_PREFIXES)
+    api.get(`${prefix}/history/:commit/diff`, (c) =>
+      handle(c, async () => {
+        const commit = ObjectId.safeParse(c.req.param("commit"));
+        const q = VersionDiffQuery.safeParse(c.req.query());
+        if (!commit.success || !q.success) return apiError(c, 400, "request.invalid_query");
+        const project = projectParam(c);
+        return c.json(
+          q.data.path === undefined
+            ? await changes.versionDiff(project, commit.data)
+            : await changes.versionDiff(project, commit.data, q.data.path),
+        );
+      }),
+    );
 
-  api.post("/sites/:siteId/history/:commit/restore", (c) =>
-    handle(c, async () => {
-      const commit = ObjectId.safeParse(c.req.param("commit"));
-      if (!commit.success) return apiError(c, 400, "request.invalid_query");
-      const siteId = c.req.param("siteId");
-      // A queued or running conversation would write over the restored AI checkout.
-      if (agent.busy(siteId)) throw new SiteError("site.busy", 409);
-      return c.json(await changes.restore(siteId, commit.data));
-    }),
-  );
+  for (const prefix of PROJECT_PREFIXES)
+    api.post(`${prefix}/history/:commit/restore`, (c) =>
+      handle(c, async () => {
+        const commit = ObjectId.safeParse(c.req.param("commit"));
+        if (!commit.success) return apiError(c, 400, "request.invalid_query");
+        const project = projectParam(c);
+        // A queued or running conversation would write over the restored AI checkout.
+        if (agent.busy(project)) throw new SiteError("site.busy", 409);
+        return c.json(await changes.restore(project, commit.data));
+      }),
+    );
 }

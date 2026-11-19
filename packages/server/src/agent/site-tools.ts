@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { ProjectKey } from "@bukitjalil/shared";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { auditText } from "../builds/audit.ts";
 import { isRecord, pathProblem } from "../bukit/guard.ts";
@@ -31,7 +32,7 @@ const MAX_SCHEMA_CHARS = 60_000;
 export const MAX_SUMMARY_CHARS = 2000;
 
 export interface SiteToolOptions {
-  siteId: string;
+  project: ProjectKey;
   /** The site config's file name in the working copy (found by content when the site was imported). */
   configFile: string;
   /** The working copy (the session's cwd). */
@@ -100,7 +101,7 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       parameters: object({}),
       executionMode: "sequential",
       async execute(_id, _params, signal) {
-        return json(formatCheck(await opts.bukit.check(opts.siteId, cwd, signal)));
+        return json(formatCheck(await opts.bukit.check(opts.project, cwd, signal)));
       },
     },
     {
@@ -111,7 +112,7 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       parameters: object({}),
       executionMode: "sequential",
       async execute(_id, _params, signal) {
-        return json(formatBuild(await opts.bukit.build(opts.siteId, cwd, signal)));
+        return json(formatBuild(await opts.bukit.build(opts.project, cwd, signal)));
       },
     },
     {

@@ -66,7 +66,7 @@ function service(
   const aiBukit = new AiBukit({
     git: ctx.git,
     paths: ctx.paths,
-    sites: ctx.sites,
+    projects: ctx.projects,
     bukit: ctx.bukit,
     changes: ctx.changes,
   });
@@ -81,7 +81,7 @@ function service(
   const agent = new AgentService({
     db: ctx.db,
     paths: ctx.paths,
-    sites: ctx.sites,
+    projects: ctx.projects,
     locks: ctx.locks,
     changes: ctx.changes,
     logger: silentLogger,
@@ -319,7 +319,7 @@ describe("AgentService", () => {
     const next = agent.create(s.id);
     expect((await readSkill(next.id))?.isError).toBe(true);
     // Reopening the same conversation reads its session file again and uses the new setting.
-    await agent.closeSite(s.id);
+    await agent.closeProject(s.id);
     expect((await readSkill(current.id))?.isError).toBe(true);
   });
 
@@ -436,7 +436,7 @@ describe("AgentService", () => {
     expect(byName("bukit_check")?.isError).toBe(true);
     expect(text("bukit_check")).toContain("Bukit is not installed");
     expect(events.filter((e) => e.type === "summary")).toEqual([
-      { siteId: s.id, sessionId: session.id, type: "summary", summary: "Changed the title." },
+      { project: s.id, sessionId: session.id, type: "summary", summary: "Changed the title." },
     ]);
   });
 
@@ -792,7 +792,7 @@ describe("AgentService", () => {
       }
     });
     release();
-    expect(await done).toEqual({ siteId: s.id, sessionId: session.id, type: "status", status: "idle" });
+    expect(await done).toEqual({ project: s.id, sessionId: session.id, type: "status", status: "idle" });
     stop();
     expect(during).toMatchObject({ code: "site.busy", params: { operation: "session" } });
     expect(ctx.locks.holder(s.id)).toBeNull();
@@ -881,11 +881,11 @@ describe("AgentService", () => {
   it("does not crash when a session cannot be disposed", () => {
     const { agent } = service();
     const internals = agent as unknown as {
-      live: Map<string, { siteId: string; session: { dispose(): void }; unsubscribe: () => void; idleTimer: null }>;
+      live: Map<string, { project: string; session: { dispose(): void }; unsubscribe: () => void; idleTimer: null }>;
       dispose(id: string): void;
     };
     internals.live.set("fake", {
-      siteId: "site",
+      project: "site",
       session: {
         dispose() {
           throw new Error("disk full");

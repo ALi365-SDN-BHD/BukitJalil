@@ -67,7 +67,7 @@ export class MediaService {
         const root = fs.realpathSync.native(cwd);
         const config = await this.readConfig(site.path, change.snapshotCommit, site.configFile);
         // The URL follows the default branch: deploy settings commit there directly (design 4.2).
-        const base = await this.readConfig(site.path, await this.opts.sites.headOf(site), site.configFile);
+        const base = await this.readConfig(site.path, await this.opts.sites.repos.headOf(site), site.configFile);
         const uploadDir = mediaDir(root, config);
         assertSafePath(root, uploadDir);
         const gate = new PathGate(root);

@@ -93,12 +93,12 @@ async function setup(opts: { bin?: string | null; files?: Record<string, string>
   await ctx.builds.settled(); // the first main build after import holds the site lock
   const session = ctx.agent.create(site.id);
   const { cwd } = await ctx.changes.begin(site.id, session.id);
-  const ai = new AiBukit({ git: ctx.git, paths: ctx.paths, sites: ctx.sites, bukit, changes: ctx.changes });
+  const ai = new AiBukit({ git: ctx.git, paths: ctx.paths, projects: ctx.projects, bukit, changes: ctx.changes });
   const snapshot = () => ctx.changes.snapshot(site.id, cwd);
   const summaries: string[] = [];
   const tools = Object.fromEntries(
     createSiteTools({
-      siteId: site.id,
+      project: site.id,
       configFile: site.configFile,
       cwd,
       gate: new PathGate(cwd, [SKILLS]),

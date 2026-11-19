@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { NotionProblem } from "./data-sources.ts";
 import { PanelRef } from "./panels.ts";
+import type { ProjectKey } from "./projects.ts";
 import type { SiteReason } from "./sites.ts";
 
 /** Builds and previews (plan 8.3, 8.4, 9.1). */
@@ -184,7 +185,7 @@ export interface BuildReport {
 
 export interface Build {
   id: string;
-  siteId: string;
+  project: ProjectKey;
   ref: PanelRef;
   /** The change set a change build previews; null for main builds. */
   changeSetId: string | null;

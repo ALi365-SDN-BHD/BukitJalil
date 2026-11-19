@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TreePath } from "./panels.ts";
+import type { ProjectKey } from "./projects.ts";
 import type { SiteReason } from "./sites.ts";
 
 /** Change sets (plan 7.2): what the AI changed in its working copy, waiting for review. */
@@ -19,7 +20,7 @@ export interface ChangedFile {
 
 export interface ChangeSet {
   id: string;
-  siteId: string;
+  project: ProjectKey;
   status: ChangeStatus;
   /** The default-branch commit the change is based on. */
   baseCommit: string;

@@ -74,7 +74,7 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
     case "session.status": {
       const { status } = event.data;
       const setStatus = (s: SessionInfo) => (s.id === event.sessionId ? { ...s, status } : s);
-      queryClient.setQueryData<SessionInfo[]>(keys.sessions(event.siteId), (list) => list?.map(setStatus));
+      queryClient.setQueryData<SessionInfo[]>(keys.sessions(event.project), (list) => list?.map(setStatus));
       queryClient.setQueryData<SessionDetail>(keys.session(event.sessionId), (d) =>
         d ? { ...d, session: setStatus(d.session) } : d,
       );
@@ -82,7 +82,7 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
         // The stored messages now include the run, with the entry ids a fork needs.
         void queryClient.invalidateQueries({ queryKey: keys.session(event.sessionId) });
         // A run touches updatedAt, which orders the list.
-        void queryClient.invalidateQueries({ queryKey: keys.sessions(event.siteId) });
+        void queryClient.invalidateQueries({ queryKey: keys.sessions(event.project) });
         // Nobody shows this session: what the run added is fetched when it is opened.
         const detail = queryClient.getQueryCache().find({ queryKey: keys.session(event.sessionId) });
         if (!detail?.getObserversCount()) liveStore.settle(event.sessionId);
@@ -91,61 +91,61 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
     }
     case "session.updated": {
       const { session } = event.data;
-      queryClient.setQueryData<SessionInfo[]>(keys.sessions(event.siteId), (list) =>
+      queryClient.setQueryData<SessionInfo[]>(keys.sessions(event.project), (list) =>
         list ? [session, ...list.filter((s) => s.id !== session.id)] : list,
       );
       queryClient.setQueryData<SessionDetail>(keys.session(session.id), (d) => (d ? { ...d, session } : d));
       break;
     }
     case "session.deleted":
-      queryClient.setQueryData<SessionInfo[]>(keys.sessions(event.siteId), (list) =>
+      queryClient.setQueryData<SessionInfo[]>(keys.sessions(event.project), (list) =>
         list?.filter((s) => s.id !== event.sessionId),
       );
       queryClient.removeQueries({ queryKey: keys.session(event.sessionId) });
       break;
     case "build.start":
-      void queryClient.invalidateQueries({ queryKey: keys.builds(event.siteId) });
+      void queryClient.invalidateQueries({ queryKey: keys.builds(event.project) });
       break;
     case "build.end":
-      void queryClient.invalidateQueries({ queryKey: keys.builds(event.siteId) });
+      void queryClient.invalidateQueries({ queryKey: keys.builds(event.project) });
       // A build can end before the list ever showed it running, so the preview cannot wait for that.
-      void queryClient.invalidateQueries({ queryKey: ["preview", event.siteId] });
-      void queryClient.invalidateQueries({ queryKey: ["audit", event.siteId] });
+      void queryClient.invalidateQueries({ queryKey: ["preview", event.project] });
+      void queryClient.invalidateQueries({ queryKey: ["audit", event.project] });
       break;
     case "deploy": {
       const { deploy } = event.data;
-      queryClient.setQueryData<DeployListResponse>(keys.deploys(event.siteId), (list) =>
+      queryClient.setQueryData<DeployListResponse>(keys.deploys(event.project), (list) =>
         list ? { deploys: [deploy, ...list.deploys.filter((d) => d.id !== deploy.id)] } : list,
       );
       if (deploy.status !== "running") {
-        void queryClient.invalidateQueries({ queryKey: keys.deploys(event.siteId) });
-        void queryClient.invalidateQueries({ queryKey: ["deploy-report", event.siteId, deploy.id] });
+        void queryClient.invalidateQueries({ queryKey: keys.deploys(event.project) });
+        void queryClient.invalidateQueries({ queryKey: ["deploy-report", event.project, deploy.id] });
         // A refused publish marks the site read-only.
-        void queryClient.invalidateQueries({ queryKey: keys.site(event.siteId) });
-        void queryClient.invalidateQueries({ queryKey: keys.deploy(event.siteId) });
+        void queryClient.invalidateQueries({ queryKey: keys.site(event.project) });
+        void queryClient.invalidateQueries({ queryKey: keys.deploy(event.project) });
       }
       break;
     }
     case "change": {
-      const { siteId } = event;
-      const before = queryClient.getQueryData<CurrentChange>(keys.change(siteId))?.change;
+      const { project } = event;
+      const before = queryClient.getQueryData<CurrentChange>(keys.change(project))?.change;
       const after = event.data.change;
-      queryClient.setQueryData<CurrentChange>(keys.change(siteId), event.data);
-      const ofSite = (key: readonly unknown[]) => key[0] === "panel" && key[1] === siteId;
+      queryClient.setQueryData<CurrentChange>(keys.change(project), event.data);
+      const ofProject = (key: readonly unknown[]) => key[0] === "panel" && key[1] === project;
       if (after && before?.snapshotCommit !== after.snapshotCommit) {
         // Panels showing the change set's snapshot (ref=change) are out of date.
-        void queryClient.invalidateQueries({ predicate: (q) => ofSite(q.queryKey) && q.queryKey[3] === "change" });
+        void queryClient.invalidateQueries({ predicate: (q) => ofProject(q.queryKey) && q.queryKey[3] === "change" });
       } else if (before && !after) {
         // Closed: its snapshot can no longer be shown (the panels fall back to the main version), and when
         // it was applied the main version moved.
-        queryClient.removeQueries({ predicate: (q) => ofSite(q.queryKey) && q.queryKey[3] === "change" });
-        queryClient.removeQueries({ queryKey: ["preview", siteId, "change"] });
-        queryClient.removeQueries({ queryKey: ["audit", siteId, "change"] });
-        void queryClient.invalidateQueries({ queryKey: ["audit", siteId] });
-        void queryClient.invalidateQueries({ predicate: (q) => ofSite(q.queryKey) });
-        void queryClient.invalidateQueries({ queryKey: keys.site(siteId) });
-        void queryClient.invalidateQueries({ queryKey: keys.history(siteId) });
-        void queryClient.invalidateQueries({ queryKey: keys.deploy(siteId) });
+        queryClient.removeQueries({ predicate: (q) => ofProject(q.queryKey) && q.queryKey[3] === "change" });
+        queryClient.removeQueries({ queryKey: ["preview", project, "change"] });
+        queryClient.removeQueries({ queryKey: ["audit", project, "change"] });
+        void queryClient.invalidateQueries({ queryKey: ["audit", project] });
+        void queryClient.invalidateQueries({ predicate: (q) => ofProject(q.queryKey) });
+        void queryClient.invalidateQueries({ queryKey: keys.site(project) });
+        void queryClient.invalidateQueries({ queryKey: keys.history(project) });
+        void queryClient.invalidateQueries({ queryKey: keys.deploy(project) });
       }
       break;
     }

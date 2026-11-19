@@ -7,7 +7,7 @@ import { agentEventTranslator, changeRefresher, connectEvents } from "../src/eve
 import { EventHub } from "../src/events/hub.ts";
 import { silentLogger } from "../src/log.ts";
 
-const S = { siteId: "site1", sessionId: "aaaaaaaaaaaaaaaa" };
+const S = { project: "site1", sessionId: "aaaaaaaaaaaaaaaa" };
 const status = (s: "idle" | "running") => ({ ...S, type: "session.status", data: { status: s } }) as const;
 const delta = (offset: number, text: string, sessionId = S.sessionId) =>
   ({ ...S, sessionId, type: "message.delta", data: { offset, text } }) as const;
@@ -198,7 +198,7 @@ describe("agent events on the stream", () => {
     const t = agentEventTranslator();
     const info = {
       id: S.sessionId,
-      siteId: S.siteId,
+      project: S.project,
       title: null,
       createdAt: "t",
       updatedAt: "t",
@@ -255,11 +255,11 @@ describe("agent events on the stream", () => {
       changes: changes as unknown as ChangeService,
       logger: silentLogger,
     });
-    const build = { id: "b1", siteId: "site9" } as BuildEvent["build"];
+    const build = { id: "b1", project: "site9" } as BuildEvent["build"];
     buildListener?.({ type: "build.start", build });
     agentListener?.({ ...S, type: "status", status: "running" });
     expect(got.map(({ id: _, ...e }) => e)).toEqual([
-      { type: "build.start", siteId: "site9", data: { build } },
+      { type: "build.start", project: "site9", data: { build } },
       { ...S, type: "session.status", data: { status: "running" } },
     ]);
   });
@@ -270,11 +270,11 @@ describe("change set events", () => {
 
   it("keeps only each site's newest change event for reconnects", () => {
     const hub = new EventHub();
-    const first = hub.publish({ type: "change", siteId: "a", data: { change: view("1") } });
-    hub.publish({ type: "change", siteId: "b", data: { change: view("2") } });
-    hub.publish({ type: "change", siteId: "a", data: { change: null } });
+    const first = hub.publish({ type: "change", project: "a", data: { change: view("1") } });
+    hub.publish({ type: "change", project: "b", data: { change: view("2") } });
+    hub.publish({ type: "change", project: "a", data: { change: null } });
     const replay = listen(hub, first.id).sub.backlog.map((e) =>
-      e.type === "change" ? [e.siteId, e.data.change] : e.type,
+      e.type === "change" ? [e.project, e.data.change] : e.type,
     );
     expect(replay).toEqual([
       ["b", { id: "2" }],

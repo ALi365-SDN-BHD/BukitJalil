@@ -15,7 +15,7 @@ import {
 } from "./model";
 import { liveStore } from "./store";
 
-const S = { siteId: "site1", sessionId: "aaaaaaaaaaaaaaaa" };
+const S = { project: "site1", sessionId: "aaaaaaaaaaaaaaaa" };
 let seq = 0;
 const ev = (e: ServerEventInput) => ({ ...e, id: `e-${++seq}` }) as ServerEvent;
 const status = (s: SessionInfo["status"], error?: string) =>
@@ -31,7 +31,7 @@ const assistant = (content: unknown[], extra: Record<string, unknown> = {}): Cha
 const end = (message: ChatMessage) => ev({ ...S, type: "message.end", data: { message } } as never);
 const info = (over: Partial<SessionInfo> = {}): SessionInfo => ({
   id: S.sessionId,
-  siteId: S.siteId,
+  project: S.project,
   title: null,
   createdAt: "t",
   updatedAt: "t",
@@ -234,22 +234,22 @@ describe("events and the query cache", () => {
   });
 
   it("fetches the previews again when a build ends", () => {
-    qc.setQueryData(["preview", S.siteId, "change"], { buildId: "old" });
+    qc.setQueryData(["preview", S.project, "change"], { buildId: "old" });
     qc.setQueryData(["preview", "ffffffffffffffff", "main"], { buildId: "other" });
-    handleEvent(qc, ev({ type: "build.end", siteId: S.siteId, data: { build: {} } } as never));
-    expect(qc.getQueryState(["preview", S.siteId, "change"])?.isInvalidated).toBe(true);
+    handleEvent(qc, ev({ type: "build.end", project: S.project, data: { build: {} } } as never));
+    expect(qc.getQueryState(["preview", S.project, "change"])?.isInvalidated).toBe(true);
     expect(qc.getQueryState(["preview", "ffffffffffffffff", "main"])?.isInvalidated).toBe(false);
   });
 
   it("keeps session lists and details current", () => {
     const other = info({ id: "bbbbbbbbbbbbbbbb" });
-    qc.setQueryData(keys.sessions(S.siteId), [other]);
+    qc.setQueryData(keys.sessions(S.project), [other]);
     handleEvent(qc, ev({ ...S, type: "session.updated", data: { session: info({ title: "New" }) } }));
-    expect(qc.getQueryData<SessionInfo[]>(keys.sessions(S.siteId))?.map((s) => s.title)).toEqual(["New", null]);
+    expect(qc.getQueryData<SessionInfo[]>(keys.sessions(S.project))?.map((s) => s.title)).toEqual(["New", null]);
 
     qc.setQueryData<SessionDetail>(keys.session(S.sessionId), { session: info(), messages: [] });
     handleEvent(qc, status("running"));
-    expect(qc.getQueryData<SessionInfo[]>(keys.sessions(S.siteId))?.[0]?.status).toBe("running");
+    expect(qc.getQueryData<SessionInfo[]>(keys.sessions(S.project))?.[0]?.status).toBe("running");
     expect(qc.getQueryData<SessionDetail>(keys.session(S.sessionId))?.session.status).toBe("running");
 
     handleEvent(qc, status("idle"));
@@ -257,7 +257,7 @@ describe("events and the query cache", () => {
     expect(qc.getQueryState(keys.session(S.sessionId))?.isInvalidated).toBe(true);
 
     handleEvent(qc, ev({ ...S, type: "session.deleted", data: {} }));
-    expect(qc.getQueryData<SessionInfo[]>(keys.sessions(S.siteId))?.map((s) => s.id)).toEqual([other.id]);
+    expect(qc.getQueryData<SessionInfo[]>(keys.sessions(S.project))?.map((s) => s.id)).toEqual([other.id]);
     expect(qc.getQueryData(keys.session(S.sessionId))).toBeUndefined();
     // An open view sees the mark and leaves without fetching the session again.
     expect(liveStore.isDeleted(S.sessionId)).toBe(true);
@@ -277,10 +277,10 @@ describe("events and the query cache", () => {
   });
 
   it("refreshes builds on build events, and everything on resync", () => {
-    qc.setQueryData(keys.builds(S.siteId), { builds: [] });
+    qc.setQueryData(keys.builds(S.project), { builds: [] });
     qc.setQueryData(keys.sites, []);
-    handleEvent(qc, ev({ type: "build.start", siteId: S.siteId, data: { build: {} as never } }));
-    expect(qc.getQueryState(keys.builds(S.siteId))?.isInvalidated).toBe(true);
+    handleEvent(qc, ev({ type: "build.start", project: S.project, data: { build: {} as never } }));
+    expect(qc.getQueryState(keys.builds(S.project))?.isInvalidated).toBe(true);
     expect(qc.getQueryState(keys.sites)?.isInvalidated).toBe(false);
 
     handleEvent(qc, delta(0, "partial"));
@@ -290,28 +290,28 @@ describe("events and the query cache", () => {
     expect(liveStore.get(S.sessionId).text).toBeNull();
   });
   it("keeps the change set current and marks the panels it makes stale", () => {
-    const change = (snapshotCommit: string) => ({ id: "c1", siteId: S.siteId, snapshotCommit }) as never;
-    const main = keys.panel(S.siteId, "tree", "main", "");
-    const inChange = keys.panel(S.siteId, "tree", "change", "");
+    const change = (snapshotCommit: string) => ({ id: "c1", project: S.project, snapshotCommit }) as never;
+    const main = keys.panel(S.project, "tree", "main", "");
+    const inChange = keys.panel(S.project, "tree", "change", "");
     const fresh = () => {
       qc.setQueryData(main, {});
       qc.setQueryData(inChange, {});
     };
     fresh();
-    handleEvent(qc, ev({ type: "change", siteId: S.siteId, data: { change: change("a") } }));
-    expect(qc.getQueryData(keys.change(S.siteId))).toEqual({ change: change("a") });
+    handleEvent(qc, ev({ type: "change", project: S.project, data: { change: change("a") } }));
+    expect(qc.getQueryData(keys.change(S.project))).toEqual({ change: change("a") });
     expect(qc.getQueryState(inChange)?.isInvalidated).toBe(true);
     expect(qc.getQueryState(main)?.isInvalidated).toBe(false);
 
     // The same snapshot (e.g. only reviewable changed): nothing to refetch.
     fresh();
-    handleEvent(qc, ev({ type: "change", siteId: S.siteId, data: { change: change("a") } }));
+    handleEvent(qc, ev({ type: "change", project: S.project, data: { change: change("a") } }));
     expect(qc.getQueryState(inChange)?.isInvalidated).toBe(false);
 
     // Closed (applied or rejected): the main version may have moved.
     fresh();
-    handleEvent(qc, ev({ type: "change", siteId: S.siteId, data: { change: null } }));
-    expect(qc.getQueryData(keys.change(S.siteId))).toEqual({ change: null });
+    handleEvent(qc, ev({ type: "change", project: S.project, data: { change: null } }));
+    expect(qc.getQueryData(keys.change(S.project))).toEqual({ change: null });
     expect(qc.getQueryState(main)?.isInvalidated).toBe(true);
     // The closed snapshot is dropped, not fetched again (it would only answer change.not_found).
     expect(qc.getQueryState(inChange)).toBeUndefined();

@@ -1047,6 +1047,7 @@ const ms: Messages = {
     "site.path_not_empty": "Folder mestilah baharu atau kosong",
     "site.path_overlaps_site": "Lokasi ini bertindih dengan laman {site}",
     "site.already_registered": "Folder ini sudah menjadi laman BukitJalil",
+    "site.path_overlaps_theme": "Lokasi ini bertindih dengan projek tema {theme}",
     "site.no_site_yaml":
       "Tiada fail YAML di akar folder yang berkandungan konfigurasi laman Bukit (site dan theme peringkat atas)",
     "site.bad_config_file": "Fail yang dipilih bukan lagi konfigurasi laman Bukit; semak folder sekali lagi",
@@ -1075,6 +1076,8 @@ const ms: Messages = {
     "build.not_found": "Binaan tidak ditemui",
     "site.read_only": "Laman ini baca sahaja kerana tidak memenuhi peraturan keselamatan",
     "site.create_failed": "Bukit tidak dapat mencipta laman: {detail}",
+    "theme.not_found": "Projek tema tidak ditemui",
+    "theme.already_registered": "Folder ini sudah menjadi projek tema BukitJalil",
     "build.bukit_missing": "Bukit tidak dipasang atau versinya tidak disokong",
     "preview.not_built": "Belum ada binaan yang berjaya untuk dipratonton",
     "preview.no_port": "Tiada port pratonton yang kosong ditemui",

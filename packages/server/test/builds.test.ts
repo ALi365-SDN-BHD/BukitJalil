@@ -547,7 +547,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     try {
       const b = await s.build();
       const mine = got.filter((e) => e.type === "build.start" || e.type === "build.end");
-      expect(mine.map((e) => [e.type, "siteId" in e && e.siteId])).toEqual([
+      expect(mine.map((e) => [e.type, "project" in e && e.project])).toEqual([
         ["build.start", s.site.id],
         ["build.end", s.site.id],
       ]);
@@ -879,10 +879,10 @@ describe("build records", () => {
   it("closes builds left running by a previous process", () => {
     const db = openDatabase(":memory:");
     db.prepare(
-      "INSERT INTO sites (id, name, path, default_branch, created_at) VALUES ('s', 'n', '/x', 'main', 't')",
+      "INSERT INTO sites (id, name, path, default_branch, created_at) VALUES ('0000000000000001', 'n', '/x', 'main', 't')",
     ).run();
     const store = new BuildStore(db);
-    store.insert({ id: "b1", siteId: "s", commit: "c" });
+    store.insert({ id: "b1", project: "0000000000000001", commit: "c" });
     expect(store.closeInterrupted()).toBe(1);
     expect(store.get("b1")).toMatchObject({ status: "failed", outcome: "interrupted", finishedAt: expect.any(String) });
   });

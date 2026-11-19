@@ -1,10 +1,11 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { ChangeStatus } from "@bukitjalil/shared";
+import type { ChangeStatus, ProjectKey } from "@bukitjalil/shared";
+import { ownerOf, rowProject } from "../projects/owner.ts";
 
 export interface ChangeRecord {
   id: string;
-  siteId: string;
+  project: ProjectKey;
   createdBySessionId: string | null;
   baseCommit: string;
   snapshotCommit: string;
@@ -24,7 +25,8 @@ export interface ChangeRecord {
 
 interface ChangeRow {
   id: string;
-  site_id: string;
+  site_id: string | null;
+  theme_id: string | null;
   created_by_session_id: string | null;
   base_commit: string;
   snapshot_commit: string | null;
@@ -41,7 +43,7 @@ interface ChangeRow {
 
 const toRecord = (row: ChangeRow): ChangeRecord => ({
   id: row.id,
-  siteId: row.site_id,
+  project: rowProject(row),
   createdBySessionId: row.created_by_session_id,
   baseCommit: row.base_commit,
   snapshotCommit: row.snapshot_commit ?? row.base_commit,
@@ -70,7 +72,7 @@ function parsePaths(raw: string | null): string[] {
 export const newChangeId = () => crypto.randomBytes(8).toString("hex");
 export const isChangeId = (id: string) => /^[0-9a-f]{16}$/.test(id);
 
-/** The `change_sets` and `change_set_sessions` tables (plan 4.2). At most one open change set per site. */
+/** The `change_sets` and `change_set_sessions` tables (plan 4.2). At most one open change set per project. */
 export class ChangeStore {
   constructor(private readonly db: DatabaseSync) {}
 
@@ -79,16 +81,17 @@ export class ChangeStore {
     return row ? toRecord(row) : null;
   }
 
-  open(siteId: string): ChangeRecord | null {
-    const row = this.db.prepare("SELECT * FROM change_sets WHERE site_id = ? AND status = 'open'").get(siteId) as
-      | ChangeRow
-      | undefined;
+  open(project: ProjectKey): ChangeRecord | null {
+    const owner = ownerOf(project);
+    const row = this.db
+      .prepare(`SELECT * FROM change_sets WHERE ${owner.column} = ? AND status = 'open'`)
+      .get(owner.id) as ChangeRow | undefined;
     return row ? toRecord(row) : null;
   }
 
   insert(change: {
     id: string;
-    siteId: string;
+    project: ProjectKey;
     sessionId: string | null;
     baseCommit: string;
     /** Defaults to the base (nothing changed yet). */
@@ -97,14 +100,15 @@ export class ChangeStore {
     userSummary?: string | null;
   }): ChangeRecord {
     const now = new Date().toISOString();
+    const owner = ownerOf(change.project);
     this.db
       .prepare(
-        `INSERT INTO change_sets (id, site_id, created_by_session_id, base_commit, snapshot_commit, status, created_at,
+        `INSERT INTO change_sets (id, ${owner.column}, created_by_session_id, base_commit, snapshot_commit, status, created_at,
            restore_commit, user_summary) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
       )
       .run(
         change.id,
-        change.siteId,
+        owner.id,
         change.sessionId,
         change.baseCommit,
         change.snapshotCommit ?? change.baseCommit,

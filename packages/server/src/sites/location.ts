@@ -56,11 +56,13 @@ export interface LocationRules {
   userHome?: string;
   /** Registered sites, to refuse overlaps. */
   sites: { name: string; path: string }[];
+  /** Registered theme projects (theme development design 3.1), refused the same way. */
+  themes?: { name: string; path: string }[];
 }
 
 /**
  * Where a site may live (plan 5.2): not the root or the home directory itself, not in or around the app
- * data directory, and not inside or around another registered site. Returns the real path.
+ * data directory, and not inside or around another registered site or theme project. Returns the real path.
  */
 export function checkSiteLocation(target: string, rules: LocationRules): string {
   if (!path.isAbsolute(target)) throw new SiteError("site.path_forbidden", 400, { reason: "relative" });
@@ -77,6 +79,13 @@ export function checkSiteLocation(target: string, rules: LocationRules): string 
     if (real === other) throw new SiteError("site.already_registered", 409);
     if (inside(real, other) || inside(other, real)) {
       throw new SiteError("site.path_overlaps_site", 409, { site: site.name });
+    }
+  }
+  for (const theme of rules.themes ?? []) {
+    const other = realPathOf(theme.path);
+    if (real === other) throw new SiteError("theme.already_registered", 409);
+    if (inside(real, other) || inside(other, real)) {
+      throw new SiteError("site.path_overlaps_theme", 409, { theme: theme.name });
     }
   }
   return real;

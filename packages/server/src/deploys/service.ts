@@ -184,7 +184,7 @@ export class DeployService {
     return this.opts.locks.run(siteId, "deploy-config", async () => {
       const current = this.opts.sites.get(siteId);
       if (current.readOnly) throw new SiteError("site.read_only", 409);
-      const head = await this.opts.sites.headOf(current);
+      const head = await this.opts.sites.repos.headOf(current);
       await commitSiteYaml({
         git: this.opts.git,
         sites: this.opts.sites,
@@ -246,7 +246,7 @@ export class DeployService {
     const release = this.opts.locks.acquire(siteId, "deploy");
     try {
       // Under the lock: what is published is the head now, and it must be what the user confirmed.
-      const head = await this.opts.sites.headOf(site);
+      const head = await this.opts.sites.repos.headOf(site);
       if (head !== commit) throw new SiteError("deploy.commit_changed", 409, { commit: head });
       const target = this.sourceBranchTarget(site, await this.targetAt(site, head));
       if (target.problem !== null || !target.repo) {
@@ -419,7 +419,7 @@ export class DeployService {
       }
       if (signal.aborted) return finish("stopped");
 
-      checkout = await this.opts.sites.mainCheckout(site.id, site.path, commit);
+      checkout = await this.opts.sites.repos.mainCheckout(site.id, site.path, commit);
       const rel = `${DEPLOY_OUTPUT_PARENT}/${id}`;
       output = path.join(checkout, rel);
       fs.rmSync(path.join(checkout, DEPLOY_OUTPUT_PARENT), { recursive: true, force: true });

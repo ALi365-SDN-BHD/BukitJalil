@@ -32,6 +32,8 @@ import { MediaService } from "./media/service.ts";
 import { PanelService } from "./panels/service.ts";
 import { ensureAppHome, readPackageVersion, resolveAppHome, resolveResources } from "./paths.ts";
 import { PreviewPool } from "./preview/pool.ts";
+import { ProjectRepos } from "./projects/repo.ts";
+import { ProjectService } from "./projects/service.ts";
 import { PublishAccountService } from "./publish/accounts.ts";
 import { SecretStore } from "./secrets/store.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
@@ -41,6 +43,7 @@ import { SiteService } from "./sites/service.ts";
 import { bukitNewSite } from "./sites/template.ts";
 import { openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
+import { ThemeService } from "./themes/service.ts";
 import { UpdateService } from "./updates/service.ts";
 
 // The desktop app passes app.getVersion(); development reads the root package.json so the footer and the
@@ -184,6 +187,8 @@ const gitStatus = new GitService({
   applyPath: (path) => git.usePath(path),
 });
 const locks = new SiteLocks();
+// Sites and theme projects share the repository work, and neither may overlap the other (theme design 3).
+const repos = new ProjectRepos({ db, git, paths, bukit });
 const sites = new SiteService({
   db,
   git,
@@ -194,7 +199,18 @@ const sites = new SiteService({
   dataSources,
   newSite: bukitNewSite(bukit, { git, home: paths.home, tmpDir: paths.bukitTmp }),
   notionSnapshots: new NotionSnapshots({ db, root: paths.notionSnapshots, logger }),
+  repos,
+  otherProjects: () => themes.list(),
 });
+const themes = new ThemeService({
+  db,
+  paths,
+  settings: settingsStore,
+  locks,
+  repos,
+  otherProjects: () => sites.list(),
+});
+const projects = new ProjectService(sites, themes, repos);
 
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
 const rg = new RgService({ piBin: paths.piBin });
@@ -206,24 +222,24 @@ if (!fs.existsSync(path.join(skillsDir, "bukitjalil", "site-editing", "SKILL.md"
 const changes = new ChangeService({
   db,
   git,
-  sites,
+  projects,
   locks,
-  check: (siteId, cwd, commit) => aiBukit.checkForApply(siteId, cwd, commit),
+  check: (project, cwd, commit) => aiBukit.checkForApply(project, cwd, commit),
   tmpDir: paths.tmp,
   logger,
 });
 const media = new MediaService({ git, sites, changes, locks, paths, logger });
-const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
+const aiBukit = new AiBukit({ git, paths, projects, bukit, changes });
 const builds = new BuildService({
   db,
   git,
   paths,
-  sites,
+  projects,
   bukit,
   locks,
   previews,
   changes,
-  notionToken: (siteId) => sites.notionToken(siteId),
+  notionToken: (project) => projects.notionToken(project),
   logger,
 });
 const customModels = new CustomModelStore(
@@ -277,7 +293,7 @@ function whenSecretsSettled(): void {
 const agent = new AgentService({
   db,
   paths,
-  sites,
+  projects,
   locks,
   changes,
   logger,
@@ -313,7 +329,7 @@ if (desktop) {
 }
 const panels = new PanelService({
   git,
-  sites,
+  projects,
   changeCommit: (id) => changes.openSnapshot(id),
   sourceCounts: (id, ref) => builds.sourceCounts(id, ref),
 });
@@ -335,6 +351,7 @@ const app = createAdminApp({
   bukit,
   rg,
   sites,
+  themes,
   panels,
   media,
   builds,

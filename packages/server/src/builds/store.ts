@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { Build, BuildOutcome, BuildReport, BuildStatus } from "@bukitjalil/shared";
+import type { Build, BuildOutcome, BuildReport, BuildStatus, ProjectKey } from "@bukitjalil/shared";
+import { ownerOf, rowProject } from "../projects/owner.ts";
 
 interface BuildRow {
   id: string;
-  site_id: string;
+  site_id: string | null;
+  theme_id: string | null;
   change_set_id: string | null;
   commit: string;
   status: string;
@@ -21,7 +23,7 @@ interface StoredReport extends BuildReport {
 }
 
 export interface BuildRecord extends Build {
-  /** previews/<siteId>/<buildId>, while the output is kept. */
+  /** previews/<project>/<buildId>, while the output is kept. */
   outputDir: string | null;
   /** The change set a change build previews; null for main builds. */
   changeSetId: string | null;
@@ -39,7 +41,7 @@ function toBuild(row: BuildRow): BuildRecord {
   const { outcome = null, ...report } = stored ?? {};
   return {
     id: row.id,
-    siteId: row.site_id,
+    project: rowProject(row),
     ref: row.change_set_id === null ? "main" : "change",
     commit: row.commit,
     status: row.status as BuildStatus,
@@ -54,19 +56,20 @@ function toBuild(row: BuildRow): BuildRecord {
   };
 }
 
-/** Build ids are path segments (previews/<siteId>/<buildId>/, .bukitjalil-build/<buildId>/). */
+/** Build ids are path segments (previews/<project>/<buildId>/, .bukitjalil-build/<buildId>/). */
 export const newBuildId = () => crypto.randomBytes(8).toString("hex");
 
 /** The `builds` table (plan 4.2), `kind = 'build'` rows only; check and doctor runs are not recorded yet. */
 export class BuildStore {
   constructor(private readonly db: DatabaseSync) {}
 
-  insert(build: { id: string; siteId: string; commit: string; changeSetId?: string | null }): void {
+  insert(build: { id: string; project: ProjectKey; commit: string; changeSetId?: string | null }): void {
+    const owner = ownerOf(build.project);
     this.db
       .prepare(
-        `INSERT INTO builds (id, site_id, change_set_id, "commit", kind, status, started_at) VALUES (?, ?, ?, ?, 'build', 'running', ?)`,
+        `INSERT INTO builds (id, ${owner.column}, change_set_id, "commit", kind, status, started_at) VALUES (?, ?, ?, ?, 'build', 'running', ?)`,
       )
-      .run(build.id, build.siteId, build.changeSetId ?? null, build.commit, new Date().toISOString());
+      .run(build.id, owner.id, build.changeSetId ?? null, build.commit, new Date().toISOString());
   }
 
   finish(
@@ -89,21 +92,25 @@ export class BuildStore {
   }
 
   /** Newest first. */
-  list(siteId: string, limit: number): BuildRecord[] {
+  list(project: ProjectKey, limit: number): BuildRecord[] {
+    const owner = ownerOf(project);
     const rows = this.db
-      .prepare("SELECT * FROM builds WHERE site_id = ? AND kind = 'build' ORDER BY started_at DESC, rowid DESC LIMIT ?")
-      .all(siteId, limit);
+      .prepare(
+        `SELECT * FROM builds WHERE ${owner.column} = ? AND kind = 'build' ORDER BY started_at DESC, rowid DESC LIMIT ?`,
+      )
+      .all(owner.id, limit);
     return (rows as unknown as BuildRow[]).map(toBuild);
   }
 
   /** The newest build of `ref` whose output is kept: what that preview shows. */
-  latestWithOutput(siteId: string, ref: "main" | "change"): BuildRecord | null {
+  latestWithOutput(project: ProjectKey, ref: "main" | "change"): BuildRecord | null {
+    const owner = ownerOf(project);
     const row = this.db
       .prepare(
-        `SELECT * FROM builds WHERE site_id = ? AND kind = 'build' AND output_dir IS NOT NULL
+        `SELECT * FROM builds WHERE ${owner.column} = ? AND kind = 'build' AND output_dir IS NOT NULL
            AND (change_set_id IS NULL) = ? ORDER BY started_at DESC, rowid DESC LIMIT 1`,
       )
-      .get(siteId, ref === "main" ? 1 : 0);
+      .get(owner.id, ref === "main" ? 1 : 0);
     return row ? toBuild(row as unknown as BuildRow) : null;
   }
 
@@ -111,23 +118,25 @@ export class BuildStore {
    * The newest finished builds of one ref, newest first (plan 10.4): main builds when `changeSetId` is
    * null, else that change set's. Its own window, so many change builds never hide the main ones.
    */
-  finishedOf(siteId: string, changeSetId: string | null, limit: number): BuildRecord[] {
+  finishedOf(project: ProjectKey, changeSetId: string | null, limit: number): BuildRecord[] {
+    const owner = ownerOf(project);
     const rows = this.db
       .prepare(
-        `SELECT * FROM builds WHERE site_id = ? AND kind = 'build' AND status != 'running'
+        `SELECT * FROM builds WHERE ${owner.column} = ? AND kind = 'build' AND status != 'running'
            AND change_set_id IS ? ORDER BY started_at DESC, rowid DESC LIMIT ?`,
       )
-      .all(siteId, changeSetId, limit);
+      .all(owner.id, changeSetId, limit);
     return (rows as unknown as BuildRow[]).map(toBuild);
   }
 
   /** Builds with a kept output, newest first. */
-  withOutput(siteId: string): BuildRecord[] {
+  withOutput(project: ProjectKey): BuildRecord[] {
+    const owner = ownerOf(project);
     const rows = this.db
       .prepare(
-        "SELECT * FROM builds WHERE site_id = ? AND kind = 'build' AND output_dir IS NOT NULL ORDER BY started_at DESC, rowid DESC",
+        `SELECT * FROM builds WHERE ${owner.column} = ? AND kind = 'build' AND output_dir IS NOT NULL ORDER BY started_at DESC, rowid DESC`,
       )
-      .all(siteId);
+      .all(owner.id);
     return (rows as unknown as BuildRow[]).map(toBuild);
   }
 
@@ -135,15 +144,16 @@ export class BuildStore {
     this.db.prepare("UPDATE builds SET output_dir = NULL WHERE id = ?").run(id);
   }
 
-  /** Keep the newest `keep` records of a site; older ones go (their outputs are already gone). */
-  pruneRecords(siteId: string, keep: number): void {
+  /** Keep the newest `keep` records of a project; older ones go (their outputs are already gone). */
+  pruneRecords(project: ProjectKey, keep: number): void {
+    const { column, id } = ownerOf(project);
     this.db
       .prepare(
-        `DELETE FROM builds WHERE site_id = ? AND kind = 'build' AND output_dir IS NULL AND status != 'running'
-           AND id NOT IN (SELECT id FROM builds WHERE site_id = ? AND kind = 'build'
+        `DELETE FROM builds WHERE ${column} = ? AND kind = 'build' AND output_dir IS NULL AND status != 'running'
+           AND id NOT IN (SELECT id FROM builds WHERE ${column} = ? AND kind = 'build'
                           ORDER BY started_at DESC, rowid DESC LIMIT ?)`,
       )
-      .run(siteId, siteId, keep);
+      .run(id, id, keep);
   }
 
   /** Builds still marked running from a previous server process; returns how many were closed. */

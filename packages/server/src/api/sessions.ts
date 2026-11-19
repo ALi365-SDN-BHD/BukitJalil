@@ -3,18 +3,20 @@ import type { Hono } from "hono";
 import type { AgentService } from "../agent/service.ts";
 import type { AppEnv } from "../app.ts";
 import { apiError } from "../security/guard.ts";
-import { body, handle } from "./common.ts";
+import { body, handle, PROJECT_PREFIXES, projectParam } from "./common.ts";
 
 /** AI sessions (plan 9.1); what they do arrives on the event stream. */
 export function sessionRoutes(api: Hono<AppEnv>, agent: AgentService) {
-  api.get("/sites/:siteId/sessions", (c) => handle(c, () => c.json(agent.listInfo(c.req.param("siteId")))));
+  for (const prefix of PROJECT_PREFIXES)
+    api.get(`${prefix}/sessions`, (c) => handle(c, () => c.json(agent.listInfo(projectParam(c)))));
 
-  api.post("/sites/:siteId/sessions", (c) =>
-    handle(c, () => {
-      const record = agent.create(c.req.param("siteId"));
-      return c.json(agent.info(record.id), 201);
-    }),
-  );
+  for (const prefix of PROJECT_PREFIXES)
+    api.post(`${prefix}/sessions`, (c) =>
+      handle(c, () => {
+        const record = agent.create(projectParam(c));
+        return c.json(agent.info(record.id), 201);
+      }),
+    );
 
   api.get("/sessions/:sessionId", (c) =>
     handle(c, async () => {

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { ConfigCheck, Site, SiteReason } from "@bukitjalil/shared";
+import type { ProjectState } from "../projects/repo.ts";
 
 interface SiteRow {
   id: string;
@@ -40,12 +41,6 @@ function toSite(row: SiteRow): Site {
     notionDataSourceId: row.notion_data_source_id,
     configFile: row.config_file,
   };
-}
-
-export interface SiteState {
-  readOnly: SiteReason[] | null;
-  checkedCommit: string | null;
-  configCheck: ConfigCheck | null;
 }
 
 /** Site ids are path segments (worktrees/<siteId>/): 16 lower-case hex characters. */
@@ -116,7 +111,7 @@ export class SiteStore {
     this.db.prepare("UPDATE sites SET notion_data_source_id = ? WHERE id = ?").run(sourceId, id);
   }
 
-  setState(id: string, state: SiteState) {
+  setState(id: string, state: ProjectState) {
     this.db
       .prepare("UPDATE sites SET read_only_reasons = ?, checked_commit = ?, config_check = ? WHERE id = ?")
       .run(state.readOnly ? JSON.stringify(state.readOnly) : null, state.checkedCommit, state.configCheck, id);

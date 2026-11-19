@@ -135,7 +135,7 @@ describe("session API", () => {
     const created = await call("POST", `/api/sites/${s.id}/sessions`, {});
     expect(created.status).toBe(201);
     const session = (await created.json()) as SessionInfo;
-    expect(session).toMatchObject({ siteId: s.id, title: null, status: "idle" });
+    expect(session).toMatchObject({ project: s.id, title: null, status: "idle" });
     expect(session).not.toHaveProperty("file");
 
     const listed = (await (await get(`/api/sites/${s.id}/sessions`)).json()) as SessionInfo[];
@@ -228,7 +228,7 @@ describe("session API", () => {
     expect(detail.messages.map((m) => m.message.role)).toEqual(["user", "assistant"]);
     expect(detail.messages.every((m) => /^[0-9a-f]+$/.test(m.entryId))).toBe(true);
     // After the AgentSession is gone, the same messages come back from the file.
-    await ctx.agent.closeSite(s.id);
+    await ctx.agent.closeProject(s.id);
     expect(((await (await get(`/api/sessions/${session.id}`)).json()) as SessionDetail).messages).toEqual(
       detail.messages,
     );
@@ -307,7 +307,7 @@ describe("session API", () => {
     const res = await call("POST", `/api/sessions/${session.id}/fork`, { entryId: messages[1]?.entryId });
     expect(res.status).toBe(201);
     const fork = (await res.json()) as SessionInfo;
-    expect(fork).toMatchObject({ siteId: s.id, title: "Original", status: "idle" });
+    expect(fork).toMatchObject({ project: s.id, title: "Original", status: "idle" });
     expect(fork.id).not.toBe(session.id);
     const forked = (await (await get(`/api/sessions/${fork.id}`)).json()) as SessionDetail;
     expect(forked.messages).toEqual(messages.slice(0, 2));
@@ -427,7 +427,7 @@ describe("session API", () => {
     await waitFor(() => ctx.events.subscriberCount === before + 1);
     for (let i = 0; i < 100 && ctx.events.subscriberCount > before; i++) {
       ctx.events.publish({
-        siteId: "x",
+        project: "x",
         sessionId: "0000000000000000",
         type: "session.summary",
         data: { summary: "y".repeat(1000) },

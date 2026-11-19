@@ -1837,6 +1837,36 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 
 **和 Windows 无关、但同样限制平台的一项**：Linux 没有钥匙串时不保存 token 和密钥（6.7）。要覆盖这类用户，需要另做"应用主密码"（用 scrypt 从用户输入的密码派生主密钥，每次启动输入一次），约 2–3 天，包括设置页、迁移、重置和测试。没有排期，也没有定下要做。
 
+### 主题开发（2026-11-19 定，进行中）
+
+设计和已定的问题见 [plans/2026-11-19-theme-development-design.md](plans/2026-11-19-theme-development-design.md)。左栏顶部切换"网站构建 / 主题开发"；主题开发有三个入口：按描述新建、导入主题、克隆网站（仅桌面版）；产出是 `themes/<name>/`，可以应用到网站（用户作者的改动集）或导出 zip。主题项目单独存在 `themes` 表里，仓库里带一个只为预览存在的样例网站。
+
+**分层实施**（每层：实现 → 审计 → 修复 → 复查 → 提交推送）：
+
+| 阶段 | 层 | 内容 |
+| --- | --- | --- |
+| T0 抽出"项目" | 1 | 迁移 013：`themes` 表；`sessions`、`change_sets`、`builds` 改为属于网站或主题二选一（重建表）；共享类型 `ProjectKind`、`ProjectRef`、项目键；`ThemeStore`；三个表的存取按项目 |
+| | 2 | 服务端按项目：检出、操作锁、改动集、构建、会话、预览、文件和主题面板、AI 工具和闸门、事件；`/api/themes` 和 `/api/themes/:themeId/...` 挂同一套处理函数；只属于网站的功能（Notion、发布、SEO、插件、素材上传网址检查）拒绝主题 |
+| | 3 | 界面按项目：接口地址、事件分发、对话、改动、面板组件改为接收项目；不改行为 |
+| T1 新建主题 | 1 | 自带样例内容；按描述新建主题项目（`bukit new`、改名、换样例内容、参考图写进 `_reference/`）；主题列表、删除、改名接口 |
+| | 2 | AI：主题项目的闸门写入范围、`theme-development` 技能、按项目类型的系统提示、`theme_coverage` 工具 |
+| | 3 | 参考图输入：对话附图、模型能力判断、服务端校验和去 EXIF、主题项目存进 `_reference/` |
+| | 4 | 界面：模式切换、主题列表和新建对话框、主题模式的面板（预览页面类型 / 宽度、主题覆盖、样例内容、参考） |
+| | 5 | 应用到网站（用户作者的改动集）、导出 zip |
+| T2 导入主题 | 1 | 文件夹和 zip、三种形状识别、安全检查、父主题、界面 |
+| T3 克隆网站 | 1 | 桌面主进程：锁死的隐藏窗口、带 DNS 检查的本地代理、限额、隔离世界收集 DOM / CSS / 截图、`captures/` |
+| | 2 | 服务端复核 `captures/`、生成主题项目、`site-to-theme` 技能、授权确认和选项、界面 |
+
+**T0 第 1–2 层实现说明**（2026-11-19）：
+
+- 两层一起提交：第 1 层把 `siteId` 换成项目键后，存取层的记录字段变了，服务端不跟着改就编译不过。
+- 项目键：网站就是网站 id，主题项目是 `themes/<id>`（`@bukitjalil/shared` 的 `projectKey`、`parseProjectKey`）。它同时用作 `worktrees/`、`sessions/`、`previews/` 下的目录、操作锁的键和事件、记录里的 `project` 字段。两种 id 都是 16 位十六进制，靠前缀区分，一个主题 id 永远不会被当成网站 id。
+- 迁移 013 新建 `themes` 表，重建 `sessions`、`change_sets`、`builds`：`site_id`、`theme_id` 两列，`CHECK` 二选一；"每个项目最多一个未完成改动集"拆成两个部分唯一索引。重建要 `DROP TABLE`，外键开着会触发级联删除，所以迁移执行器在迁移期间关掉外键，每个迁移提交前跑 `PRAGMA foreign_key_check`，最后（失败时也一样）重新打开。
+- 代码分层：`projects/repo.ts`（`ProjectRepos`，从 `SiteService` 抽出的检出、安全检查、删除文件）、`projects/service.ts`（`ProjectService`，按键取项目，只属于网站的功能用 `site(key)`，主题键一律 404 `site.not_found`）、`themes/`（`ThemeStore`、`ThemeService`：注册、复查、改名、删除）。改动集、构建、会话、预览、面板、AI 工具、事件都改为接收项目键。
+- 接口：项目路由同时挂在 `/sites/:siteId` 和 `/themes/:themeId` 下（`PROJECT_PREFIXES`、`projectParam`）；`/api/themes` 有列表、详情、改名、复查、打开、删除，新建、导入、克隆随 T1–T3。插件、SEO 检查、发布、Notion、素材上传只挂在网站下。
+- 位置规则：网站和主题项目互相不能重叠；和主题项目重叠报 `site.path_overlaps_theme`，已经是主题项目报 `theme.already_registered`。
+- 留到后面的：界面仍按网站拼接口地址，主题项目的地址在第 3 层改；检出、锁、只读这些共用操作仍报 `site.read_only`、`site.busy`、`site.branch_missing`，主题模式的界面（T1 第 4 层）要按当前模式措辞。
+
 ### 里程碑总览
 
 ```text

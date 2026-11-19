@@ -1027,6 +1027,7 @@ const en: Messages = {
     "site.path_not_empty": "The folder must be new or empty",
     "site.path_overlaps_site": "This location overlaps the site {site}",
     "site.already_registered": "This folder is already a BukitJalil site",
+    "site.path_overlaps_theme": "This location overlaps the theme project {theme}",
     "site.no_site_yaml":
       "No YAML file in the folder's root has the content of a Bukit site config (top-level site and theme)",
     "site.bad_config_file": "The chosen file is no longer a Bukit site config; inspect the folder again",
@@ -1053,6 +1054,8 @@ const en: Messages = {
     "build.not_found": "Build not found",
     "site.read_only": "The site is read-only because it does not meet the safety rules",
     "site.create_failed": "Bukit could not create the site: {detail}",
+    "theme.not_found": "Theme project not found",
+    "theme.already_registered": "This folder is already a BukitJalil theme project",
     "build.bukit_missing": "Bukit is not installed or its version is not supported",
     "preview.not_built": "There is no successful build to preview yet",
     "preview.no_port": "No free preview port was found",
