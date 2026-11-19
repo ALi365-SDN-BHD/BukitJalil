@@ -12,6 +12,7 @@ import {
   contentLength,
   isLocalName,
 } from "./capture-network.ts";
+import { pruneCaptures } from "./capture-store.ts";
 import { parseRobots, robotsAllows } from "./robots.ts";
 
 /** The capture IPC contract, mirrored in packages/web/src/lib/desktop.ts. */
@@ -114,6 +115,7 @@ export class CaptureService {
     if (this.running) return { ok: false, error: "a capture is already running" };
     if (!req.authorized) return { ok: false, error: "the site must be confirmed as your own" };
     this.running = true;
+    pruneCaptures(this.opts.dir);
     try {
       const urls = pageUrls(req.urls);
       const origin = urls[0]?.origin ?? "";
