@@ -3,16 +3,18 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type {
   ProjectKey,
+  ReferenceImageRequest,
   SessionInfo,
   SessionMessage,
   SessionStatus,
   SkillsResponse,
   ThinkingLevel,
 } from "@bukitjalil/shared";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ChangeService } from "../changes/service.ts";
 import type { Logger } from "../log.ts";
+import { cleanReferenceImage, type ReferenceImage, writeReferenceImages } from "../media/reference.ts";
 import type { AppPaths } from "../paths.ts";
 import { aiWriteScope, type ProjectService } from "../projects/service.ts";
 import { asSiteError, SiteError } from "../sites/location.ts";
@@ -88,9 +90,15 @@ interface Live {
   idleTimer: NodeJS.Timeout | null;
 }
 
+/** A message from the user: its text and its checked reference images (theme development design 4.2). */
+interface Message {
+  text: string;
+  images: ReferenceImage[];
+}
+
 interface Pending {
   sessionId: string;
-  texts: string[];
+  messages: Message[];
 }
 
 /** The run of one session; at most one per site. */
@@ -99,7 +107,7 @@ interface Run {
   /** Set by stop, delete, site removal or shutdown: no further prompt is sent. */
   cancelled: boolean;
   /** Messages that arrived while the session was not streaming (opening, or between prompts). */
-  extra: string[];
+  extra: Message[];
   /** The AI checkout of the run's change set, once the run has one; snapshotted when the run ends. */
   cwd: string | null;
   /** Settles when the run has ended and touched nothing more. */
@@ -312,12 +320,22 @@ export class AgentService {
    * Send a message (plan 6.2). A running session gets it as a steering message, or after the current run
    * with `followUp`; if it is still opening, the message is sent once the current prompt ends. Otherwise
    * it waits for the site's running session, if any, then starts a run; messages sent while waiting are
-   * joined into one. Resolves once the message is accepted.
+   * joined into one. Resolves once the message is accepted. Images are checked and cleaned first, and refused
+   * when the model cannot read them (theme development design 4.2).
    */
-  async send(id: string, text: string, opts: { followUp?: boolean } = {}): Promise<void> {
+  async send(
+    id: string,
+    text: string,
+    opts: { followUp?: boolean; images?: readonly ReferenceImageRequest[] } = {},
+  ): Promise<void> {
     this.assertOpen();
     const session = this.get(id);
     if (this.opts.projects.get(session.project).readOnly) throw new SiteError("site.read_only", 409);
+    const message: Message = { text, images: (opts.images ?? []).map(cleanReferenceImage) };
+    if (message.images.length > 0 && !(await this.model()).input.includes("image")) {
+      throw new SiteError("image.model_unsupported", 400);
+    }
+    this.assertOpen();
     // The first message names the conversation; manual rename can still replace it later.
     if (!session.title) {
       const title = autoTitle(text);
@@ -329,8 +347,14 @@ export class AgentService {
     const run = this.running.get(session.project);
     if (run?.sessionId === id && !run.cancelled) {
       const live = this.live.get(id);
-      if (live?.session.isStreaming) await (opts.followUp ? live.session.followUp(text) : live.session.steer(text));
-      else run.extra.push(text);
+      if (live?.session.isStreaming) {
+        const input = this.input(session.project, run.cwd, [message]);
+        await (opts.followUp
+          ? live.session.followUp(input.text, input.images)
+          : live.session.steer(input.text, input.images));
+      } else {
+        run.extra.push(message);
+      }
       return;
     }
     // Fail now, not inside the queued run, when no model is set up.
@@ -339,8 +363,8 @@ export class AgentService {
     const queue = this.pending.get(session.project) ?? [];
     this.pending.set(session.project, queue);
     const waiting = queue.find((p) => p.sessionId === id);
-    if (waiting) waiting.texts.push(text);
-    else queue.push({ sessionId: id, texts: [text] });
+    if (waiting) waiting.messages.push(message);
+    else queue.push({ sessionId: id, messages: [message] });
     if (this.running.has(session.project) || this.opts.locks.holder(session.project) !== null)
       this.emit({ project: session.project, sessionId: id, type: "status", status: "queued" });
     this.pump(session.project);
@@ -499,7 +523,7 @@ export class AgentService {
     this.running.set(project, run);
     const base = { project, sessionId: next.sessionId, type: "status" } as const;
     this.emit({ ...base, status: "running" });
-    run.done = this.execute(run, next.texts.join("\n\n"))
+    run.done = this.execute(run, next.messages)
       .then(async (error) => {
         // An aborted check or build may still be stopping Bukit: the lock stays until it has.
         await this.opts.bukit.settled(project);
@@ -528,12 +552,33 @@ export class AgentService {
   }
 
   /** Put messages first in line for `sessionId`, joined with any it already has waiting. */
-  private requeue(project: ProjectKey, sessionId: string, texts: string[]): void {
+  private requeue(project: ProjectKey, sessionId: string, messages: Message[]): void {
     const queue = this.pending.get(project) ?? [];
     this.pending.set(project, queue);
     const waiting = queue.find((p) => p.sessionId === sessionId);
-    if (waiting) waiting.texts.unshift(...texts);
-    else queue.unshift({ sessionId, texts });
+    if (waiting) waiting.messages.unshift(...messages);
+    else queue.unshift({ sessionId, messages });
+  }
+
+  /**
+   * What to send Pi for messages: their texts joined, and their images. In a theme project the images are
+   * also kept in the AI checkout's `_reference/` (design 4.2), so they reach the change set, and the text
+   * names the files; a site keeps them only in the session file.
+   */
+  private input(project: ProjectKey, cwd: string | null, messages: readonly Message[]) {
+    let text = messages.map((m) => m.text).join("\n\n");
+    const images = messages.flatMap((m) => m.images);
+    if (images.length === 0) return { text, images: undefined };
+    if (cwd && this.opts.projects.get(project).themeName !== null) {
+      const files = writeReferenceImages(cwd, images);
+      text += `\n\n(The attached images are saved in the project as ${files.join(", ")}.)`;
+    }
+    const content: ImageContent[] = images.map((i) => ({
+      type: "image",
+      data: i.data.toString("base64"),
+      mimeType: i.mimeType,
+    }));
+    return { text, images: content };
   }
 
   /**
@@ -564,7 +609,7 @@ export class AgentService {
   }
 
   /** Run a session's prompts; resolves to an error code, never rejects. */
-  private async execute(run: Run, text: string): Promise<string | undefined> {
+  private async execute(run: Run, messages: Message[]): Promise<string | undefined> {
     const id = run.sessionId;
     let live: Live | null = null;
     try {
@@ -592,11 +637,12 @@ export class AgentService {
           details: { changeSetId: joined.change.id },
         });
       }
-      let prompt: string | undefined = text;
-      while (prompt !== undefined && !run.cancelled) {
-        await live.session.prompt(prompt);
+      let batch: Message[] = messages;
+      while (batch.length > 0 && !run.cancelled) {
+        const input = this.input(record.project, run.cwd, batch);
+        await live.session.prompt(input.text, input.images ? { images: input.images } : undefined);
         await live.session.waitForIdle();
-        prompt = run.extra.length > 0 ? run.extra.splice(0).join("\n\n") : undefined;
+        batch = run.extra.splice(0);
       }
       return undefined;
     } catch (err) {

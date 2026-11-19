@@ -49,6 +49,28 @@ export const SessionTitle = z
 export const SessionPatch = z.object({ title: SessionTitle.nullable() }).strict();
 export type SessionPatch = z.infer<typeof SessionPatch>;
 
+/** Reference images (theme development design 4.2): PNG, JPEG or WebP, at most 5 MiB each, 5 per message. */
+export const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type ReferenceImageMime = (typeof REFERENCE_IMAGE_MIMES)[number];
+export const MAX_REFERENCE_IMAGES = 5;
+export const MAX_REFERENCE_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * An attached image as sent: base64 bytes. The declared type is only a hint for the UI; the server reads the
+ * bytes to decide what the image is.
+ */
+export const ReferenceImageRequest = z
+  .object({
+    mimeType: z.enum(REFERENCE_IMAGE_MIMES),
+    data: z
+      .string()
+      .min(1)
+      .max(Math.ceil(MAX_REFERENCE_IMAGE_BYTES / 3) * 4),
+  })
+  .strict();
+export type ReferenceImageRequest = z.infer<typeof ReferenceImageRequest>;
+export const ReferenceImages = z.array(ReferenceImageRequest).max(MAX_REFERENCE_IMAGES);
+
 /**
  * prompt and steer: a running session gets the message as a steering message, an idle one starts a run.
  * followUp: a running session gets it after the current run ends.
@@ -60,6 +82,8 @@ export const SendMessageRequest = z
       .max(MAX_MESSAGE_CHARS)
       .refine((s) => s.trim() !== "", "must not be empty"),
     mode: z.enum(["prompt", "steer", "followUp"]).default("prompt"),
+    /** Only when the selected model reads images; a theme project also keeps them in _reference/. */
+    images: ReferenceImages.optional(),
   })
   .strict();
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;

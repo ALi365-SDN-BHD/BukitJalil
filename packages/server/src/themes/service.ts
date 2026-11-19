@@ -11,6 +11,7 @@ import {
   type ThemeOrigin,
 } from "@bukitjalil/shared";
 import type { GuardResult } from "../bukit/guard.ts";
+import { cleanReferenceImage, writeReferenceImages } from "../media/reference.ts";
 import type { AppPaths } from "../paths.ts";
 import type { Prechecked, ProjectRepos, ProjectState } from "../projects/repo.ts";
 import {
@@ -100,12 +101,15 @@ export class ThemeService {
   async create(req: CreateThemeRequest): Promise<Theme> {
     const identity = commitIdentity(this.opts.settings);
     const real = this.location(req.path);
+    // Checked before anything is created: a bad image fails the request, not a half-made project.
+    const images = (req.images ?? []).map(cleanReferenceImage);
     return this.opts.repos.reserved(real, async () => {
       assertEmptyOrMissing(real);
       const existed = fs.existsSync(real);
       try {
         await this.opts.newSite(real, { title: req.name, language: req.language });
         makeThemeProject(real, { name: req.themeName, displayName: req.name }, this.opts.themeDemo);
+        writeReferenceImages(real, images);
         await this.opts.repos.commitNew(real, identity, INITIAL_MESSAGE);
       } catch (err) {
         removeCreated(real, existed);

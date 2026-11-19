@@ -12,10 +12,12 @@ import { agentEventTranslator } from "../src/events/bridge.ts";
 import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
 import { themeKey } from "../src/themes/service.ts";
+import { tinyPng } from "./fixtures/images.ts";
 import { writeStarter } from "./fixtures/starter.ts";
 import { commitAllAs, expectMode, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
 
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
+const PNG = tinyPng().toString("base64");
 
 // Pi keeps the directory it saw when it loaded, so this file uses one app home (vitest runs each test
 // file in its own module graph).
@@ -57,6 +59,8 @@ async function site(files: Record<string, string> = {}) {
 function service(
   opts: {
     model?: boolean;
+    /** The model reads text only. */
+    textOnly?: boolean;
     idleMs?: number;
     shutdownMs?: number;
     rgReady?: () => boolean;
@@ -86,7 +90,11 @@ function service(
     locks: ctx.locks,
     changes: ctx.changes,
     logger: silentLogger,
-    resolveModel: () => (opts.model === false ? undefined : (faux.getModel() as Model<Api>)),
+    resolveModel: () => {
+      if (opts.model === false) return undefined;
+      const model = faux.getModel() as Model<Api>;
+      return opts.textOnly ? { ...model, input: ["text"] } : model;
+    },
     setupRuntime: (runtime) => runtime.registerNativeProvider(faux.provider),
     rgReady: opts.rgReady ?? (() => false),
     bukit: aiBukit,
@@ -500,7 +508,7 @@ describe("AgentService", () => {
       pi.ai.fauxAssistantMessage("done"),
     ]);
     const done = settled(session.id);
-    await agent.send(session.id, "Start the theme");
+    await agent.send(session.id, "Start the theme", { images: [{ mimeType: "image/png", data: PNG }] });
     await done;
 
     const system = systemOf(seen, "theme");
@@ -530,7 +538,45 @@ describe("AgentService", () => {
     const ai = path.join(ctx.paths.worktrees, "themes", t.id, "ai");
     expect(fs.existsSync(path.join(ai, "themes", "aurora", "tokens.yaml"))).toBe(true);
     expect(fs.existsSync(path.join(ai, "layouts"))).toBe(false);
-    expect(fs.existsSync(path.join(ai, "_reference"))).toBe(false);
+    // The attached image went to the model and into _reference/; the AI's own write there was refused.
+    const refs = fs.readdirSync(path.join(ai, "_reference"));
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatch(/^ref-.*\.png$/);
+    expect(JSON.stringify(seen)).toContain(`saved in the project as _reference/${refs[0]}`);
+    expect(JSON.stringify(seen)).toContain('"type":"image"');
+  });
+
+  it("sends attached images to a model that reads them, and refuses them for one that does not", async () => {
+    const s = await site();
+    const { agent, settled } = service();
+    const session = agent.create(s.id);
+    let seen: unknown;
+    faux.setResponses([
+      (context) => {
+        seen = context;
+        return pi.ai.fauxAssistantMessage("Nice picture");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Like this", { images: [{ mimeType: "image/webp", data: PNG }] });
+    await done;
+    const user = (seen as { messages: { role: string; content: unknown }[] }).messages.find((x) => x.role === "user");
+    expect(user?.content).toEqual([
+      { type: "text", text: "Like this" },
+      { type: "image", mimeType: "image/png", data: PNG },
+    ]);
+    // A site keeps images only in the session file.
+    expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "_reference"))).toBe(false);
+    expect(fs.readFileSync(agent.get(session.id).file, "utf8")).toContain(PNG);
+
+    const textOnly = service({ textOnly: true }).agent;
+    const other = textOnly.create(s.id);
+    await expect(textOnly.send(other.id, "Look", { images: [{ mimeType: "image/png", data: PNG }] })).rejects.toThrow(
+      expect.objectContaining({ code: "image.model_unsupported" }),
+    );
+    await expect(
+      textOnly.send(other.id, "Look", { images: [{ mimeType: "image/png", data: "AAAA" }] }),
+    ).rejects.toThrow(expect.objectContaining({ code: "image.unsupported_type" }));
   });
 
   it("lets grep run only while the rg check passes", async () => {

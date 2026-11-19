@@ -137,3 +137,56 @@ test("a provider's error is explained in plain words, with its own text kept", a
   await last.locator("summary").click();
   await expect(last).toContainText("ENOTFOUND");
 });
+
+test("reference images: attach by picking, dropping and pasting, remove one, send, and see thumbnails", async ({
+  page,
+  server,
+  browserName,
+}) => {
+  await startConversation(page, server, "Agent images");
+  // A 1x1 PNG.
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMwTpsJAAICATNWh+JUAAAAAElFTkSuQmCC",
+    "base64",
+  );
+  await page.getByTestId("attach-images-input").setInputFiles([
+    { name: "one.png", mimeType: "image/png", buffer: png },
+    { name: "two.png", mimeType: "image/png", buffer: png },
+    { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("x") },
+  ]);
+  await expect(page.getByTestId("attached-image")).toHaveCount(2);
+  await expect(page.getByTestId("attach-problem")).toBeVisible();
+  await page.getByRole("button", { name: /two\.png/ }).click();
+  await expect(page.getByTestId("attached-image")).toHaveCount(1);
+  // Dropping an image on the input attaches it, and so does pasting one (Firefox does not take a test's
+  // clipboard data on a paste event, so it skips that step).
+  const attach = (kind: "drop" | "paste") =>
+    page.getByTestId("composer-input").evaluate(
+      (el, [b64, how]) => {
+        const bytes = Uint8Array.from(atob(b64 as string), (c) => c.charCodeAt(0));
+        const data = new DataTransfer();
+        data.items.add(new File([bytes], `${how}.png`, { type: "image/png" }));
+        const init = { bubbles: true, cancelable: true };
+        el.dispatchEvent(
+          how === "drop"
+            ? new DragEvent("drop", { ...init, dataTransfer: data })
+            : new ClipboardEvent("paste", { ...init, clipboardData: data }),
+        );
+      },
+      [png.toString("base64"), kind],
+    );
+  await attach("drop");
+  await expect(page.getByTestId("attached-image")).toHaveCount(2);
+  if (browserName !== "firefox") {
+    await page.getByRole("button", { name: /drop\.png/ }).click();
+    await attach("paste");
+    await expect(page.getByTestId("attached-image")).toHaveCount(2);
+  }
+
+  await ask(page, "Make it look like this");
+  await expect(page.getByTestId("attached-image")).toHaveCount(0);
+  await expect(page.getByTestId("message-image")).toHaveCount(2);
+  // The images are in the stored conversation: still there after a reload.
+  await page.reload();
+  await expect(page.getByTestId("message-image")).toHaveCount(2);
+});

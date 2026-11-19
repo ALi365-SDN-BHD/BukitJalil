@@ -25,8 +25,15 @@ export type ItemPart =
   | { kind: "thinking"; text: string }
   | { kind: "tool"; tool: ToolView };
 
+/** An image in a user message (theme development design 4.2), as Pi stores it. */
+export interface UserImage {
+  mimeType: string;
+  /** base64 */
+  data: string;
+}
+
 export type ChatItem =
-  | { kind: "user"; key: string; entryId: string | null; text: string; images: number }
+  | { kind: "user"; key: string; entryId: string | null; text: string; images: UserImage[] }
   | {
       kind: "assistant";
       key: string;
@@ -75,7 +82,13 @@ export function chatItems(
     if (message.role === "user") {
       const blocks = blocksOf(message);
       const text = blocks.flatMap((b) => (b.type === "text" ? [(b as { text: string }).text] : [])).join("\n");
-      items.push({ kind: "user", key, entryId, text, images: blocks.filter((b) => b.type === "image").length });
+      const images = blocks.flatMap((b) => {
+        const image = b as { type: string; data?: unknown; mimeType?: unknown };
+        return image.type === "image" && typeof image.data === "string" && typeof image.mimeType === "string"
+          ? [{ mimeType: image.mimeType, data: image.data }]
+          : [];
+      });
+      items.push({ kind: "user", key, entryId, text, images });
       return;
     }
     if (message.role !== "assistant") return;

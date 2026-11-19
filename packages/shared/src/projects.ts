@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReferenceImages } from "./sessions.ts";
 import { AbsolutePath, type ConfigCheck, SiteLanguage, SiteName, type SiteReason } from "./sites.ts";
 
 /**
@@ -75,7 +76,7 @@ export const ThemeName = z
 
 /**
  * A new theme project from a description (design 4): Bukit's starter with the theme renamed and the bundled
- * sample content. The description and reference images go into the first conversation, not this request.
+ * sample content. The description goes into the first conversation (prefilled), not this request.
  */
 export const CreateThemeRequest = z
   .object({
@@ -85,6 +86,8 @@ export const CreateThemeRequest = z
     /** The new project directory itself; it must not exist or be empty. */
     path: AbsolutePath,
     language: SiteLanguage,
+    /** Reference images (design 4.2), written into _reference/ with the first commit. */
+    images: ReferenceImages.optional(),
   })
   .strict();
 export type CreateThemeRequest = z.infer<typeof CreateThemeRequest>;

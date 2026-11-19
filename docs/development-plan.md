@@ -1889,6 +1889,15 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - 技能：新增 `skills/bukitjalil/theme-development`（目录约定、页面类型清单和样例里的对应地址、先 tokens 后模板、转义、只用本地资源、纯 CSS、搜索页和 404、检查顺序）。`theme-development` 只给主题项目，`publishing` 只给网站（`THEME_SKILLS`、`SITE_ONLY_SKILLS`）；`theme-development` 和 `site-editing` 一样是必需技能，设置页列出全部技能。
 - 新工具 `theme_coverage`（只有主题项目有）：`theme.yaml` 声明的模板和文件是否存在、缺哪些页面类型（`home`、`post`、`page`、`list`、`pagination`、`archive`、`taxonomy_index`、`taxonomy_term`）、`include` 指向不存在的文件、有没有 `tokens.yaml`、搜索页和 `static/404.html`。都经过闸门读，读不到的报告出来而不是抛错。
 
+**T1 第 3 层实现说明**（2026-11-19）：
+
+- 共享类型：`ReferenceImageRequest`（`mimeType` 只作提示，`data` 是 base64）、每条最多 5 张、每张最多 5 MiB；`SendMessageRequest` 和 `CreateThemeRequest` 多了可选的 `images`；`ModelInfo.images` 来自模型的 `input` 是否含 `image`。新错误码 `image.invalid`、`image.too_large`、`image.unsupported_type`、`image.model_unsupported`。
+- 服务端校验（`media/reference.ts`）：按字节判断类型，不信声明的类型和文件名；按结构解析而不是完整解码：PNG 逐块检查长度和 CRC，从 `IHDR` 到 `IEND`；JPEG 逐段检查长度，扫描数据按标记找到结尾（渐进式有多段扫描），到图像结束标记为止，后面附加的内容（例如带自己 EXIF 的增益图）丢掉；WebP 检查 RIFF 块，必须有图像块。解析不通过就拒绝。去掉元数据：PNG 的 `eXIf`、`tEXt`、`zTXt`、`iTXt`、`tIME`；JPEG 的 APP1–APP15（保留 ICC 配置）、注释和结束标记之后的内容；WebP 的 `EXIF`、`XMP ` 块，同时清掉 `VP8X` 里对应的标记。GIF、SVG 等不收。像素不重新编码；缩放交给 Pi（它用 Photon 解码，PNG 的 CRC 不对时会丢图，所以这里先查 CRC）。
+- 对话：`AgentService.send` 先清理图片，有图片且所选模型不读图时返回 `image.model_unsupported`。排队的消息改为"文字 + 图片"，合并时文字用空行连接、图片按顺序合并；运行中的会话用 `steer`/`followUp` 带上图片。
+- 写进 `_reference/` 的时机：主题项目在发给 Pi 之前写进 AI 检出的 `_reference/`（新文件名 `ref-<时间>-<序号>-<随机>.<扩展名>`，`O_EXCL`、不跟随符号链接，目录或其上级是符号链接、`_reference` 是文件时拒绝），所以跟着这次运行的快照进改动集；发给模型的文字末尾注明文件路径。AI 写不了 `_reference/`，所以主题项目记录"AI 改过的文件"时不算这里的文件（7.2 的 `AI changes: …`）。网站项目不写文件，图片只在 Pi 的会话文件里。分叉会话时 Pi 复制消息，图片跟着走。
+- 新建主题：请求里的图片在创建任何东西之前校验，`makeThemeProject` 之后写进 `_reference/`，和首次提交一起提交。
+- 界面：输入框可以选图、粘贴、拖入（拖到输入框上的图片总是作为附图；拖到对话其他位置时，网站仍走素材上传，主题项目没有素材上传，也作为附图）；附图显示缩略图，可逐张移除，不合规的文件说明原因；所选模型不读图时附图按钮禁用并说明。主题项目不显示素材上传按钮（素材上传只属于网站）。发送失败时文字和图片一起回到输入框；输入框里已经有新内容时，失败的消息（连同图片）作为"重试"提供，不把图片混进新消息。对话记录里用户消息显示缩略图（只渲染 PNG、JPEG、WebP 的 `data:` 地址，CSP 已允许 `img-src data:`）。
+
 ### 里程碑总览
 
 ```text

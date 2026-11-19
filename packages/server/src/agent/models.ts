@@ -430,7 +430,13 @@ function keyEditable(provider: Provider): boolean {
 }
 
 function modelInfo(model: Model<Api>): ModelInfo {
-  return { id: model.id, name: model.name, reasoning: !!model.reasoning, contextWindow: model.contextWindow };
+  return {
+    id: model.id,
+    name: model.name,
+    reasoning: !!model.reasoning,
+    contextWindow: model.contextWindow,
+    images: model.input.includes("image"),
+  };
 }
 
 /**

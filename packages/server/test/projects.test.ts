@@ -8,6 +8,7 @@ import { themeCoverage } from "../src/agent/site-tools.ts";
 import { parseYaml } from "../src/panels/yaml.ts";
 import { SettingsStore } from "../src/store/settings.ts";
 import { themeKey } from "../src/themes/service.ts";
+import { pngChunk, tinyPng } from "./fixtures/images.ts";
 import { writeStarter } from "./fixtures/starter.ts";
 import { ADMIN, commitAllAs, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
 
@@ -199,6 +200,62 @@ describe("new theme projects (T1)", () => {
     expect(rawGit(base, dir, "status", "--porcelain").trim()).toBe("");
     expect(ctx.themes.get(t.id).readOnly).toBeNull();
   });
+
+  it("puts reference images, cleaned, into _reference/ with the first commit, and refuses a bad one first", async () => {
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    const withText = tinyPng([pngChunk("tEXt", Buffer.from("Location\0Home"))]);
+    const images = [{ mimeType: "image/png", data: withText.toString("base64") }];
+    const res = await create({ name: "Refs", themeName: "refs", path: dir, language: "en-US", images });
+    expect(res.status).toBe(201);
+    await ctx.builds.settled();
+    const refs = fs.readdirSync(path.join(dir, "_reference"));
+    expect(refs).toHaveLength(1);
+    expect(fs.readFileSync(path.join(dir, "_reference", refs[0] as string)).equals(tinyPng())).toBe(true);
+    expect(rawGit(base, dir, "ls-files", "_reference").trim()).toBe(`_reference/${refs[0]}`);
+    expect(rawGit(base, dir, "status", "--porcelain").trim()).toBe("");
+
+    const other = path.join(base, "home", `new-theme-${++count}`);
+    const gif = [{ mimeType: "image/png", data: Buffer.from("GIF89a\x01\0\x01\0", "latin1").toString("base64") }];
+    const bad = await create({ name: "Bad", themeName: "bad", path: other, language: "en-US", images: gif });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ code: "image.unsupported_type" });
+    expect(fs.existsSync(other)).toBe(false);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "does not count reference images in _reference/ as the AI's files in a theme project",
+    async () => {
+      const dir = path.join(base, "home", `new-theme-${++count}`);
+      const res = await create({ name: "Count", themeName: "count", path: dir, language: "en-US" });
+      const key = themeKey(((await res.json()) as Theme).id);
+      await ctx.builds.settled();
+      const session = ctx.agent.create(key);
+      const first = await ctx.changes.begin(key, session.id);
+      fs.writeFileSync(path.join(first.cwd, "content", "pages", "faq.md"), "---\ntitle: FAQ\n---\n");
+      await ctx.changes.snapshot(key, first.cwd);
+      ctx.changes.setSummary(key, "Added an FAQ page.");
+      const applied = await ctx.changes.current(key, false);
+      if (!applied) throw new Error("no change set");
+      // No Bukit in this app: the check cannot pass, so both applies are forced.
+      await ctx.changes.apply(applied.id, { treeHash: applied.treeHash, force: true });
+      await ctx.builds.settled();
+      const init = rawGit(base, dir, "rev-parse", "HEAD^").trim();
+
+      // A restore (a user action), joined by a conversation that brought an image and changed a page.
+      await ctx.changes.restore(key, init);
+      const { cwd } = await ctx.changes.begin(key, session.id);
+      fs.mkdirSync(path.join(cwd, "_reference"));
+      fs.writeFileSync(path.join(cwd, "_reference", "ref-1.png"), tinyPng());
+      fs.writeFileSync(path.join(cwd, "content", "pages", "extra.md"), "---\ntitle: Extra\n---\n");
+      await ctx.changes.snapshot(key, cwd);
+      const view = await ctx.changes.current(key, false);
+      if (!view) throw new Error("no change set");
+      await ctx.changes.apply(view.id, { treeHash: view.treeHash, force: true });
+      const body = rawGit(base, dir, "log", "-1", "--format=%b");
+      expect(body).toContain("AI changes: Add 1 file: content/pages/extra.md");
+      expect(body).not.toContain("_reference");
+    },
+  );
 
   it("reports what a theme lacks: page types, template files and includes (theme_coverage)", async () => {
     const dir = path.join(base, "home", `new-theme-${++count}`);

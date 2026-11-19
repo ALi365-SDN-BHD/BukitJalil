@@ -83,6 +83,7 @@ describe("model catalog and keys", () => {
       name: expect.any(String),
       reasoning: expect.any(Boolean),
       contextWindow: expect.any(Number),
+      images: true,
     });
     expect(anthropic?.oauth).toMatchObject({ isSubscription: true });
     expect(anthropic?.auth).toEqual({ configured: false, type: null, source: null });

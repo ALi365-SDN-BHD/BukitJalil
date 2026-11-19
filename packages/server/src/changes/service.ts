@@ -22,6 +22,7 @@ import { guardCommit } from "../bukit/guard.ts";
 import { pluginStateFromDocument, setPluginInDocument } from "../bukit/plugins.ts";
 import { GitError, type GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
+import { REFERENCE_DIR } from "../media/reference.ts";
 import type { Project, ProjectService } from "../projects/service.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
@@ -227,7 +228,10 @@ export class ChangeService {
         // Only the commit message depends on it: a failed diff must not fail the snapshot.
         try {
           const { files } = await changedFiles(this.opts.git, site.path, change.snapshotCommit, snap.commit);
-          const paths = new Set([...change.aiPaths, ...files.map((f) => f.path)]);
+          // In a theme project the AI cannot write _reference/: what is there came with the user's message.
+          const reference = site.themeName !== null ? `${REFERENCE_DIR}/` : null;
+          const ai = files.map((f) => f.path).filter((p) => reference === null || !p.startsWith(reference));
+          const paths = new Set([...change.aiPaths, ...ai]);
           if (paths.size > change.aiPaths.length) this.store.setAiPaths(change.id, [...paths]);
         } catch (err) {
           this.opts.logger.log("warn", "changes.ai_paths_failed", { changeId: change.id, error: String(err) });
