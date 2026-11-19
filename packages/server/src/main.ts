@@ -43,6 +43,7 @@ import { SiteService } from "./sites/service.ts";
 import { bukitNewSite } from "./sites/template.ts";
 import { openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
+import { ThemeDeliverService } from "./themes/deliver.ts";
 import { ThemeService } from "./themes/service.ts";
 import { UpdateService } from "./updates/service.ts";
 
@@ -235,6 +236,7 @@ const changes = new ChangeService({
   logger,
 });
 const media = new MediaService({ git, sites, changes, locks, paths, logger });
+const deliver = new ThemeDeliverService({ git, paths, projects, changes, locks, logger });
 const aiBukit = new AiBukit({ git, paths, projects, bukit, changes });
 const builds = new BuildService({
   db,
@@ -358,6 +360,7 @@ const app = createAdminApp({
   rg,
   sites,
   themes,
+  deliver,
   panels,
   media,
   builds,

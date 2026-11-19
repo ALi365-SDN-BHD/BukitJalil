@@ -3,18 +3,7 @@ import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
 import type { PanelService } from "../panels/service.ts";
 import { apiError } from "../security/guard.ts";
-import { handle, PROJECT_PREFIXES, projectParam } from "./common.ts";
-
-/** `filename*` per RFC 6266/5987, plus a plain ASCII fallback. */
-function attachment(name: string): string {
-  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_") || "download";
-  // encodeURIComponent leaves !'()* alone, but RFC 5987 does not allow them unescaped.
-  const encoded = encodeURIComponent(name).replace(
-    /[!'()*]/g,
-    (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
-}
+import { attachment, handle, PROJECT_PREFIXES, projectParam } from "./common.ts";
 
 /** Read-only panels (plan 9.1): tree, file, config, theme, data. */
 export function panelRoutes(api: Hono<AppEnv>, panels: PanelService) {

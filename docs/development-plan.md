@@ -1908,6 +1908,15 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - 样例内容面板列出 `content/` 下的文章和页面，参考面板显示 `_reference/` 的图片（`_capture/` 随 T3）。两者都按所选版本读。
 - 共用操作的报错（`site.busy`、`site.branch_missing`、`site.read_only`）改成不提"网站"的措辞，两种模式通用。
 
+**T1 第 5 层实现说明**（2026-11-19）：
+
+- "应用到网站"复制的是主题项目**默认分支**（审核过的版本），不是当前打开的改动集；界面在主题首页，不跟右侧的版本开关走。这样主题项目里没审核的改动不会借另一个网站的改动集绕过审核。
+- `GET /api/themes/:themeId/apply?siteId=`（`ThemeApplyPlan`）比较网站默认分支的 `themes/<主题名>/`：新增、修改、删除（按路径和 git 对象）、网站当前的 `theme.name`。网站或主题只读时 409；网站已有同名主题时应用必须带 `overwrite`，否则 409 `theme.exists`。
+- `POST /api/themes/:themeId/apply`（`ThemeApplyRequest`：`siteId`、`overwrite`、`setConfig`）在网站锁（操作名 `theme`）下：改动的改动集有内容时先让用户处理（409 `change.open_exists`，和恢复一致；空的改动集会被加入）；整目录替换：先写到 `worktrees/<siteId>/.theme-apply-<pid>/`，再换进 AI 检出；失败时换回原目录、恢复 `site.yaml` 并关掉这次新建的改动集；快照标为用户操作，改动集没被对话加入时写 `user_summary`（"Applied theme …"）；网站原本就是这个主题时不留空改动集，返回 `changeId: null`。
+- 可选同时把网站配置的 `theme.name` 改成主题名（`setConfig`），保留配置其余内容；改之前先解析，YAML 坏了就整次应用失败。根目录 `layouts/` 的覆盖文件不动，对话框里说明它们仍会盖过主题模板。
+- 导出 `GET /api/themes/:themeId/export`：只打包默认分支的 `themes/<主题名>/`（跳过符号链接和子模块，上限 50 MiB，和导入一致），文件名 `<主题名>.zip`。浏览器直接下载；桌面版通过新的 `desktop:save-file` IPC 打开系统保存对话框，主进程检查来源、文件名、大小（64 MiB）后写入用户选的位置。
+- 界面：主题首页的"应用到网站"和"导出 zip"。应用对话框列出未归档的网站（只读的不能选），先加载计划：已有同名主题时显示警告和新增/修改/删除的路径列表，`theme.name` 开关默认在网站不是这个主题时打开；完成后给出到网站改动集的链接。三种语言的文案都补齐。
+
 ### 里程碑总览
 
 ```text

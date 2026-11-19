@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld("bukitjalil", {
   desktop: true,
   platform: process.platform,
   pickFolder: (start?: string): Promise<string | null> => ipcRenderer.invoke("desktop:pick-folder", start),
+  saveFile: (name: string, data: ArrayBuffer): Promise<string | null> =>
+    ipcRenderer.invoke("desktop:save-file", name, data),
   restart: (): Promise<void> => ipcRenderer.invoke("desktop:restart"),
   setLocale: (locale: string): void => ipcRenderer.send("desktop:locale", locale),
 });

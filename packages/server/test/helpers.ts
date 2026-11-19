@@ -33,6 +33,7 @@ import { SiteLocks } from "../src/sites/locks.ts";
 import { SiteService } from "../src/sites/service.ts";
 import { openDatabase } from "../src/store/db.ts";
 import { SettingsStore } from "../src/store/settings.ts";
+import { ThemeDeliverService } from "../src/themes/deliver.ts";
 import { ThemeService } from "../src/themes/service.ts";
 import { UpdateService } from "../src/updates/service.ts";
 import { writeStarter } from "./fixtures/starter.ts";
@@ -172,6 +173,7 @@ export function makeApp(
     logger,
   });
   const media = new MediaService({ git, sites, changes, locks, paths, logger });
+  const deliver = new ThemeDeliverService({ git, paths, projects, changes, locks, logger });
   const aiBukit = new AiBukit({ git, paths, projects, bukit, changes });
   const customModels = new CustomModelStore(path.join(paths.pi, "custom-models.json"));
   const builds = new BuildService({
@@ -229,6 +231,7 @@ export function makeApp(
     rg,
     sites,
     themes,
+    deliver,
     panels,
     media,
     builds,
@@ -258,6 +261,7 @@ export function makeApp(
     repos,
     panels,
     media,
+    deliver,
     paths,
     git,
     builds,

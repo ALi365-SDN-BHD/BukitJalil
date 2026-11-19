@@ -246,6 +246,18 @@ function lockDown() {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  // Saving a file the app produced (a theme zip): the user picks the path, the renderer sends the bytes.
+  ipcMain.handle("desktop:save-file", async (event, name: unknown, data: unknown) => {
+    if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`) || !win) return null;
+    if (typeof name !== "string" || !/^[^/\\\0]{1,200}$/.test(name)) return null;
+    if (!(data instanceof ArrayBuffer) || data.byteLength > 64 * 1024 * 1024) return null;
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: path.join(app.getPath("downloads"), name),
+    });
+    if (result.canceled || !result.filePath) return null;
+    fs.writeFileSync(result.filePath, Buffer.from(data));
+    return result.filePath;
+  });
   // The menus and the About panel follow the language chosen in the app's settings.
   ipcMain.on("desktop:locale", (event, locale: unknown) => {
     if (!server.running || !senderUrl(event).startsWith(`${server.origin}/`)) return;

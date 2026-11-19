@@ -12,6 +12,8 @@ import { StartConversation } from "@/features/sites/SiteHome";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { themeKey, themeProject } from "@/lib/project";
+import { ApplyThemeDialog } from "./ApplyThemeDialog";
+import { ExportThemeButton } from "./ExportThemeButton";
 import { NewThemeDialog, useOpenCreatedTheme } from "./NewThemeDialog";
 
 /** A theme project's home in the middle column (design 2): overview, builds, history, and where a conversation starts. */
@@ -19,6 +21,7 @@ export function ThemeHome({ theme }: { theme: Theme }) {
   const { m, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const project = themeProject(theme);
+  const [applying, setApplying] = useState(false);
   const recheck = useMutation({
     mutationFn: () => api.recheckTheme(theme.id),
     onSuccess: (updated) => {
@@ -65,8 +68,19 @@ export function ThemeHome({ theme }: { theme: Theme }) {
           <Button size="sm" variant="outline" disabled={recheck.isPending} onClick={() => recheck.mutate()}>
             <RefreshCw className={recheck.isPending ? "animate-spin" : undefined} /> {m.site.recheck}
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={theme.readOnly !== null}
+            data-testid="apply-theme"
+            onClick={() => setApplying(true)}
+          >
+            <Palette /> {m.themes.applyToSite}
+          </Button>
+          <ExportThemeButton theme={theme} />
         </div>
       </div>
+      {applying && <ApplyThemeDialog theme={theme} onClose={() => setApplying(false)} />}
       {recheck.error && (
         <p role="alert" className="text-sm text-destructive">
           {errorOf(recheck.error)}

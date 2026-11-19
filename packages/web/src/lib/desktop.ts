@@ -5,6 +5,8 @@ export interface DesktopBridge {
   platform: string;
   /** The system folder dialog, opened at `start`; the chosen folder, or null when cancelled. */
   pickFolder(start?: string): Promise<string | null>;
+  /** The system save dialog; the chosen path, or null when cancelled. */
+  saveFile(name: string, data: ArrayBuffer): Promise<string | null>;
   /** Tell the desktop app the chosen language, for its menus and About panel. */
   setLocale?(locale: string): void;
 }

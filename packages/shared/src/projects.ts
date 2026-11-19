@@ -91,3 +91,36 @@ export const CreateThemeRequest = z
   })
   .strict();
 export type CreateThemeRequest = z.infer<typeof CreateThemeRequest>;
+
+/**
+ * Apply a theme project to a site (design 7): the site's change set copies `themes/<name>/` from the theme
+ * project's default branch. `overwrite` is required when the site has that theme already; `setConfig` also
+ * points the site's `theme.name` at it.
+ */
+export const ThemeApplyRequest = z
+  .object({
+    siteId: z.string().regex(/^[0-9a-f]{16}$/),
+    overwrite: z.boolean().optional(),
+    setConfig: z.boolean().optional(),
+  })
+  .strict();
+export type ThemeApplyRequest = z.infer<typeof ThemeApplyRequest>;
+
+/** What applying a theme would change on a site, shown before the user confirms (design 7). */
+export interface ThemeApplyPlan {
+  site: { id: string; name: string };
+  theme: { name: string; dir: string };
+  /** The site's default branch already has `themes/<name>/`. */
+  existing: boolean;
+  added: string[];
+  modified: string[];
+  removed: string[];
+  /** The `theme.name` in the site's config on its default branch; null when it has none or it cannot be read. */
+  configTheme: string | null;
+}
+
+/** The change set applying a theme made on the site; null when the site already had exactly this theme. */
+export interface ThemeApplyResult {
+  siteId: string;
+  changeId: string | null;
+}

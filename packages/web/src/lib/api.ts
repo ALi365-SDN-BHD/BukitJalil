@@ -63,6 +63,9 @@ import {
   type SitePatch,
   type SkillsResponse,
   type Theme,
+  type ThemeApplyPlan,
+  type ThemeApplyRequest,
+  type ThemeApplyResult,
   type ThemeResponse,
   type TreeResponse,
   type VersionDiff,
@@ -155,6 +158,8 @@ export const api = {
   recheckTheme: (id: string) => post<Theme>(`/themes/${id}/recheck`),
   openTheme: (id: string) => post<null>(`/themes/${id}/open`),
   removeTheme: (id: string) => request<{ leftovers: string[] }>(`/themes/${id}`, { method: "DELETE" }),
+  themeApplyPlan: (id: string, siteId: string) => request<ThemeApplyPlan>(`/themes/${id}/apply?${query({ siteId })}`),
+  applyTheme: (id: string, req: ThemeApplyRequest) => post<ThemeApplyResult>(`/themes/${id}/apply`, req),
 
   // Project routes (theme development design 3.3): a site's or a theme project's, by project key.
   tree: (project: ProjectKey, ref: PanelRef, path: string) =>
@@ -267,6 +272,9 @@ export const api = {
 export function fileUrl(project: ProjectKey, ref: PanelRef, path: string, as: "raw" | "download"): string {
   return `/api${projectPath(project)}/file?${query({ ref, path, as })}`;
 }
+
+/** The theme project's deliverable as a zip (design 7); the route sets the file name. */
+export const themeExportUrl = (id: string) => `/api/themes/${id}/export`;
 
 /** Query keys, so mutations can invalidate exactly what they change. */
 export const keys = {

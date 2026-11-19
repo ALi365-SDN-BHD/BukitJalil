@@ -5,7 +5,7 @@ import type { Page } from "@playwright/test";
 import { tinyPng } from "../packages/server/test/fixtures/images.ts";
 import { bukitForTests } from "./fake-bukit.ts";
 import { expect, test } from "./fixtures.ts";
-import { putSettings } from "./site-helpers.ts";
+import { importSite, putSettings, removeImportedSites } from "./site-helpers.ts";
 
 // Theme development T1 layer 4 (design 2, 4): the mode switch, the new-theme dialog and the theme mode's panels.
 // Builds use a stand-in Bukit unless BUKIT_BIN names a real one.
@@ -25,6 +25,7 @@ test.afterAll(async ({ browser, server }) => {
   await page.goto(await server.loginUrl());
   await putSettings(page, { commitName: null, commitEmail: null });
   await page.close();
+  removeImportedSites();
   fs.rmSync(work, { recursive: true, force: true });
 });
 
@@ -32,7 +33,7 @@ async function login(page: Page, server: { loginUrl(): Promise<string>; setBukit
   await page.goto(await server.loginUrl());
   server.setBukit(bukitBin);
   await page.evaluate(() => fetch("/api/bukit?refresh=1"));
-  await putSettings(page, { commitName: "E2E Tester", commitEmail: "e2e@example.com" });
+  await putSettings(page, { commitName: "E2E Tester", commitEmail: "e2e@example.com", locale: "en" });
   await page.reload();
   await expect(page.getByTestId("site-list")).toBeVisible();
 }
@@ -95,4 +96,40 @@ test("a theme is made from a description and image, and the theme mode shows its
   await expect(page.getByTestId("site-list")).toBeVisible();
   await page.getByTestId("mode-theme").click();
   await expect(page).toHaveURL(new RegExp(`^${themeUrl.replace(/[.?]/g, "\\$&")}`));
+});
+
+test("a theme is applied to a site as its change set and exported as a zip", async ({ page, server }) => {
+  await login(page, server);
+  const siteId = await importSite(page, "Theme Target");
+  const parent = fs.mkdtempSync(path.join(work, "apply-"));
+  const theme = await page.evaluate(async (root) => {
+    const res = await fetch("/api/themes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-BukitJalil": "1" },
+      body: JSON.stringify({ name: "Apply Me", themeName: "apply-me", path: `${root}/apply-me`, language: "en-US" }),
+    });
+    if (!res.ok) throw new Error(`theme: ${res.status}`);
+    return (await res.json()) as { id: string };
+  }, parent);
+
+  await page.goto(`/themes/${theme.id}`);
+  await expect(page.getByTestId("theme-home")).toBeVisible();
+  await page.getByTestId("apply-theme").click();
+  const dialog = page.getByTestId("apply-theme-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId("apply-theme-site")).toHaveValue(siteId);
+  await expect(dialog).toContainText("starter");
+  await dialog.getByTestId("apply-theme-confirm").click();
+  await expect(dialog).toContainText("Review and apply it on the site");
+
+  // The site's change set has the theme; nothing was written to its default branch.
+  await dialog.getByRole("link", { name: "Review the changes" }).click();
+  await expect(page).toHaveURL(new RegExp(`/sites/${siteId}\\?panel=changes$`));
+  await expect(page.getByTestId("changes-panel")).toContainText("themes/apply-me/theme.yaml");
+
+  // The export is the theme directory only.
+  await page.goto(`/themes/${theme.id}`);
+  const download = page.waitForEvent("download");
+  await page.getByTestId("export-theme").click();
+  expect((await download).suggestedFilename()).toBe("apply-me.zip");
 });

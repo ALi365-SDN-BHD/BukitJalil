@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CurrentChange, SessionInfo, Theme, ThemeResponse, TreeResponse } from "@bukitjalil/shared";
+import { unzipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PathGate } from "../src/agent/gate.ts";
 import { workingCopyFiles } from "../src/agent/site-tools.ts";
@@ -323,6 +324,96 @@ describe("new theme projects (T1)", () => {
     await ctx.builds.settled();
     const site = (await (await call("GET", `/api/sites/${s.id}/theme?ref=main`)).json()) as ThemeResponse;
     expect(site).toMatchObject({ coverage: null, colors: null, siteTheme: null });
+  });
+
+  it("applies a theme to a site as a user change set and exports only the theme as a zip", async () => {
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    const created = await create({ name: "Deliver", themeName: "deliver", path: dir, language: "en-US" });
+    const t = (await created.json()) as Theme;
+    await ctx.builds.settled();
+    const s = await ctx.sites.import({ path: repo("site") });
+    await ctx.builds.settled();
+
+    // The plan compares the site's default branch: nothing there yet, and its theme is still the starter.
+    const plan = await call("GET", `/api/themes/${t.id}/apply?siteId=${s.id}`);
+    expect(plan.status).toBe(200);
+    expect(await plan.json()).toMatchObject({
+      site: { id: s.id },
+      theme: { name: "deliver", dir: "themes/deliver" },
+      existing: false,
+      removed: [],
+      configTheme: "starter",
+    });
+    const planBody = (await (await call("GET", `/api/themes/${t.id}/apply?siteId=${s.id}`)).json()) as {
+      added: string[];
+    };
+    expect(planBody.added).toEqual(expect.arrayContaining(["theme.yaml", "layouts/pages/index.html"]));
+
+    const applied = await call("POST", `/api/themes/${t.id}/apply`, { siteId: s.id, setConfig: true });
+    expect(applied.status).toBe(201);
+    const result = (await applied.json()) as { siteId: string; changeId: string };
+    expect(result.siteId).toBe(s.id);
+    const change = (await (await call("GET", `/api/sites/${s.id}/changes/current`)).json()) as CurrentChange;
+    expect(change.change).toMatchObject({ id: result.changeId, status: "open" });
+    expect(change.change?.files.map((f) => f.path)).toEqual(
+      expect.arrayContaining(["site.yaml", "themes/deliver/theme.yaml"]),
+    );
+    expect(change.change?.summary).toContain("Applied theme deliver from Deliver");
+    // Sample content is not part of the deliverable, and the default branch is untouched until review.
+    expect(change.change?.files.some((f) => f.path.startsWith("content/"))).toBe(false);
+    expect(rawGit(base, s.path, "show", "main:site.yaml")).not.toMatch(/name: deliver/);
+
+    // Apply through the normal review flow, then the site has the theme and names it.
+    const view = change.change;
+    if (!view) throw new Error("no change set");
+    await ctx.changes.apply(view.id, { treeHash: view.treeHash, force: true });
+    await ctx.builds.settled();
+    expect(fs.existsSync(path.join(s.path, "themes", "deliver", "theme.yaml"))).toBe(true);
+    expect(rawGit(base, s.path, "show", "main:site.yaml")).toMatch(/name: deliver/);
+
+    // The site already has it: apply refuses without `overwrite`, and the same files make no new change set.
+    expect(await (await call("GET", `/api/themes/${t.id}/apply?siteId=${s.id}`)).json()).toMatchObject({
+      existing: true,
+      configTheme: "deliver",
+      added: [],
+      modified: [],
+      removed: [],
+    });
+    const refused = await call("POST", `/api/themes/${t.id}/apply`, { siteId: s.id });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ code: "theme.exists" });
+    const again = await call("POST", `/api/themes/${t.id}/apply`, {
+      siteId: s.id,
+      overwrite: true,
+      setConfig: true,
+    });
+    expect(again.status).toBe(201);
+    expect(await again.json()).toMatchObject({ siteId: s.id, changeId: null });
+
+    // A change set with content waiting for review is not stepped over.
+    const session = ctx.agent.create(s.id);
+    const work = await ctx.changes.begin(s.id, session.id);
+    fs.writeFileSync(path.join(work.cwd, "content", "pages", "waiting.md"), "---\ntitle: Waiting\n---\n");
+    await ctx.changes.snapshot(s.id, work.cwd);
+    const blocked = await call("POST", `/api/themes/${t.id}/apply`, {
+      siteId: s.id,
+      overwrite: true,
+    });
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ code: "change.open_exists" });
+    const waiting = ctx.changes.store.open(s.id);
+    if (!waiting) throw new Error("no open change set");
+    await ctx.changes.discard(waiting.id);
+
+    // The zip holds themes/deliver/ alone, not the sample site.
+    const zip = await call("GET", `/api/themes/${t.id}/export`);
+    expect(zip.status).toBe(200);
+    expect(zip.headers.get("content-type")).toBe("application/zip");
+    expect(zip.headers.get("content-disposition")).toContain('filename="deliver.zip"');
+    const entries = unzipSync(new Uint8Array(await zip.arrayBuffer()));
+    expect(Object.keys(entries)).toEqual(expect.arrayContaining(["theme.yaml", "layouts/pages/index.html"]));
+    expect(Object.keys(entries).some((p) => p.startsWith("content/"))).toBe(false);
+    expect(new TextDecoder().decode(entries["theme.yaml"])).toMatch(/^name: deliver$/m);
   });
 
   it("keeps the starter directory when the theme is called starter", async () => {

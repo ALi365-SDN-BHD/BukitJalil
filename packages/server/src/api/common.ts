@@ -33,6 +33,17 @@ export async function body<T extends z.ZodType>(c: Context, schema: T): Promise<
   }
 }
 
+/** `filename*` per RFC 6266/5987, plus a plain ASCII fallback. */
+export function attachment(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_") || "download";
+  // encodeURIComponent leaves !'()* alone, but RFC 5987 does not allow them unescaped.
+  const encoded = encodeURIComponent(name).replace(
+    /[!'()*]/g,
+    (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 /** Map an expected failure to its API error; anything else goes to the generic 500 handler. */
 export async function handle(c: Context, fn: () => Promise<Response> | Response): Promise<Response> {
   try {

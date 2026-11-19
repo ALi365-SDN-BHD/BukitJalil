@@ -57,6 +57,7 @@ import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
 import { storageErrorCode } from "./storage-errors.ts";
 import { SettingsStore } from "./store/settings.ts";
+import type { ThemeDeliverService } from "./themes/deliver.ts";
 import type { ThemeService } from "./themes/service.ts";
 import type { UpdateService } from "./updates/service.ts";
 
@@ -76,6 +77,7 @@ export interface AdminAppOptions {
   rg: RgService;
   sites: SiteService;
   themes: ThemeService;
+  deliver: ThemeDeliverService;
   panels: PanelService;
   media: MediaService;
   builds: BuildService;
@@ -233,7 +235,7 @@ export function createAdminApp(opts: AdminAppOptions) {
     readIdentity: opts.readIdentity,
     userHome: opts.userHome,
   });
-  themeRoutes(api, { themes: opts.themes, builds: opts.builds });
+  themeRoutes(api, { themes: opts.themes, builds: opts.builds, deliver: opts.deliver });
   panelRoutes(api, opts.panels);
   mediaRoutes(api, { media: opts.media, agent: opts.agent });
   pluginRoutes(api, { changes: opts.changes, agent: opts.agent });
