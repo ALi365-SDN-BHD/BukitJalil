@@ -15,16 +15,19 @@ export function ImportDialog({
   open,
   onOpenChange,
   onImported,
+  initialDir = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImported: (site: Site) => void;
+  /** A folder handed over from another screen (the theme importer's "import as a site"). */
+  initialDir?: string | null;
 }) {
   const { m, t, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: keys.settings, queryFn: api.settings });
   const identity = useIdentity();
-  const [dir, setDir] = useState<string | null>(null);
+  const [dir, setDir] = useState<string | null>(initialDir);
   // The inspection with the folder it was asked for: an answer for a folder the user has since left is
   // ignored, so Import always acts on the folder shown.
   const [inspected, setInspected] = useState<{ dir: string; result: ImportInspection } | null>(null);
@@ -40,14 +43,19 @@ export function ImportDialog({
   };
 
   const inspect = useMutation({
-    mutationFn: (path: string) => api.inspectImport(path),
-    onSuccess: (result, path) => setInspected({ dir: path, result }),
+    mutationFn: ({ path, configFile }: { path: string; configFile?: string }) => api.inspectImport(path, configFile),
+    onSuccess: (result, { path }) => setInspected({ dir: path, result }),
   });
 
   const run = useMutation({
     mutationFn: async () => {
       if (!inspection) throw new Error("not inspected");
-      const base = { path: inspection.path, ...(name.trim() ? { name: name.trim() } : {}) };
+      if (inspection.kind === "pick_config") throw new Error("config not chosen");
+      const base = {
+        path: inspection.path,
+        configFile: inspection.configFile,
+        ...(name.trim() ? { name: name.trim() } : {}),
+      };
       if (inspection.kind === "git") return api.importSite(base);
       await identity.save();
       return api.importSite({ ...base, initGit: { files: inspection.files } });
@@ -61,7 +69,10 @@ export function ImportDialog({
   });
 
   const canImport =
-    inspection !== null && !run.isPending && (inspection.kind === "git" || (confirmed && identity.ready));
+    inspection !== null &&
+    inspection.kind !== "pick_config" &&
+    !run.isPending &&
+    (inspection.kind === "git" || (confirmed && identity.ready));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -75,13 +86,35 @@ export function ImportDialog({
             variant="outline"
             data-testid="import-inspect"
             disabled={!current || inspect.isPending}
-            onClick={() => current && inspect.mutate(current)}
+            onClick={() => current && inspect.mutate({ path: current })}
           >
             {inspect.isPending ? m.importSite.inspecting : m.importSite.inspect}
           </Button>
           {inspect.error && (
             <p role="alert" className="text-sm text-destructive">
               {errorOf(inspect.error)}
+            </p>
+          )}
+          {inspection?.kind === "pick_config" && (
+            <div className="flex flex-col gap-2 text-sm" data-testid="pick-config">
+              <p>{m.importSite.pickConfig}</p>
+              {inspection.candidates.map((file) => (
+                <Button
+                  key={file}
+                  type="button"
+                  variant="outline"
+                  className="justify-start font-mono"
+                  disabled={inspect.isPending}
+                  onClick={() => inspect.mutate({ path: inspection.path, configFile: file })}
+                >
+                  {file}
+                </Button>
+              ))}
+            </div>
+          )}
+          {inspection && inspection.kind !== "pick_config" && (
+            <p className="text-sm" data-testid="config-file">
+              {t(m.importSite.configFile, { file: inspection.configFile })}
             </p>
           )}
           {inspection?.kind === "git" && (

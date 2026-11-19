@@ -142,7 +142,7 @@ describe("the bukit new stand-in (test/fixtures/starter)", () => {
     await git.run(["add", "-A"], { cwd: target });
     await git.run(["commit", "-q", "-m", "Initial site from BukitJalil starter"], { cwd: target, config: id });
     const commit = (await git.text(["rev-parse", "HEAD"], { cwd: target })).trim();
-    expect(await guardCommit(git, target, commit)).toEqual({ ok: true, reasons: [], usesNotion: false });
+    expect(await guardCommit(git, target, commit, "site.yaml")).toEqual({ ok: true, reasons: [], usesNotion: false });
   });
 
   it.skipIf(!REAL_BIN || process.platform === "win32")(

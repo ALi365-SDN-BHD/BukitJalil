@@ -25,12 +25,16 @@ import { MediaService } from "../src/media/service.ts";
 import { PanelService } from "../src/panels/service.ts";
 import { ensureAppHome } from "../src/paths.ts";
 import { PreviewPool } from "../src/preview/pool.ts";
+import { ProjectRepos } from "../src/projects/repo.ts";
+import { ProjectService } from "../src/projects/service.ts";
 import { PublishAccountService } from "../src/publish/accounts.ts";
 import { LoginToken } from "../src/security/token.ts";
 import { SiteLocks } from "../src/sites/locks.ts";
 import { SiteService } from "../src/sites/service.ts";
 import { openDatabase } from "../src/store/db.ts";
 import { SettingsStore } from "../src/store/settings.ts";
+import { ThemeDeliverService } from "../src/themes/deliver.ts";
+import { ThemeService } from "../src/themes/service.ts";
 import { UpdateService } from "../src/updates/service.ts";
 import { writeStarter } from "./fixtures/starter.ts";
 
@@ -131,6 +135,7 @@ export function makeApp(
     tokenFile: paths.publishAccountTokens,
     fetchImpl: overrides.publishFetch ?? null,
   });
+  const repos = new ProjectRepos({ db, git, paths, bukit });
   const sites = new SiteService({
     db,
     git,
@@ -142,36 +147,51 @@ export function makeApp(
     // No real Bukit in unit tests: a copy of its `bukit new` output (plan 5.2).
     newSite: async (target, values) => writeStarter(target, values),
     userHome: overrides.userHome,
+    repos,
+    otherProjects: () => themes.list(),
   });
+  const themes = new ThemeService({
+    db,
+    paths,
+    userHome: overrides.userHome,
+    settings,
+    locks,
+    repos,
+    otherProjects: () => sites.list(),
+    newSite: async (target, values) => writeStarter(target, values),
+    themeDemo: path.join(import.meta.dirname, "..", "assets", "theme-demo"),
+  });
+  const projects = new ProjectService(sites, themes, repos);
   const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);
   const changes = new ChangeService({
     db,
     git,
-    sites,
+    projects,
     locks,
-    check: (siteId, cwd, commit) => aiBukit.checkForApply(siteId, cwd, commit),
+    check: (project, cwd, commit) => aiBukit.checkForApply(project, cwd, commit),
     tmpDir: paths.tmp,
     logger,
   });
   const media = new MediaService({ git, sites, changes, locks, paths, logger });
-  const aiBukit = new AiBukit({ git, paths, sites, bukit, changes });
+  const deliver = new ThemeDeliverService({ git, paths, projects, changes, locks, logger });
+  const aiBukit = new AiBukit({ git, paths, projects, bukit, changes });
   const customModels = new CustomModelStore(path.join(paths.pi, "custom-models.json"));
   const builds = new BuildService({
     db,
     git,
     paths,
-    sites,
+    projects,
     bukit,
     locks,
     previews,
     changes,
-    notionToken: (siteId) => sites.notionToken(siteId),
+    notionToken: (project) => projects.notionToken(project),
     logger,
   });
   const agent = new AgentService({
     db,
     paths,
-    sites,
+    projects,
     locks,
     changes,
     logger,
@@ -192,7 +212,7 @@ export function makeApp(
   });
   const panels = new PanelService({
     git,
-    sites,
+    projects,
     changeCommit: (id) => changes.openSnapshot(id),
     sourceCounts: (id, ref) => builds.sourceCounts(id, ref),
   });
@@ -210,6 +230,8 @@ export function makeApp(
     bukit,
     rg,
     sites,
+    themes,
+    deliver,
     panels,
     media,
     builds,
@@ -234,8 +256,12 @@ export function makeApp(
     db,
     loginToken,
     sites,
+    themes,
+    projects,
+    repos,
     panels,
     media,
+    deliver,
     paths,
     git,
     builds,

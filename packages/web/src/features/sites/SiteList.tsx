@@ -12,8 +12,8 @@ import {
   Settings,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
-import { Link, NavLink, useNavigate, useParams } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, NavLink, useLocation, useNavigate, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -35,7 +35,18 @@ export function SiteList() {
   const { m, t, errorOf } = useI18n();
   const sites = useQuery({ queryKey: keys.sites, queryFn: api.sites });
   const [dialog, setDialog] = useState<SiteDialog>(null);
+  const [initialImport, setInitialImport] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  // A theme import can hand a folder to the site importer ("this is also a site").
+  const location = useLocation();
+  const navigate = useNavigate();
+  const handover = (location.state as { importPath?: string } | null)?.importPath;
+  useEffect(() => {
+    if (!handover) return;
+    setInitialImport(handover);
+    setDialog("import");
+    navigate(location.pathname, { replace: true, state: null });
+  }, [handover, location.pathname, navigate]);
   const active = sites.data?.filter((s) => !s.archived) ?? [];
   const archived = sites.data?.filter((s) => s.archived) ?? [];
 
@@ -84,13 +95,13 @@ export function SiteList() {
         )}
       </nav>
       <SidebarFooter />
-      <SiteDialogs dialog={dialog} onClose={() => setDialog(null)} />
+      <SiteDialogs dialog={dialog} onClose={() => setDialog(null)} initialImport={initialImport} />
     </div>
   );
 }
 
 /** Version and the way into the settings page, pinned to the bottom of the sites column. */
-function SidebarFooter() {
+export function SidebarFooter() {
   const { m } = useI18n();
   const openSettings = useOpenSettings();
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, retry: false });
@@ -146,7 +157,7 @@ function SiteItem({ site }: { site: Site }) {
         </NavLink>
         <SiteMenu site={site} />
       </div>
-      {selected && <SessionList siteId={site.id} readOnly={!!site.readOnly} />}
+      {selected && <SessionList project={site.id} readOnly={!!site.readOnly} />}
     </li>
   );
 }

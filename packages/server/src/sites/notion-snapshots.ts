@@ -77,10 +77,10 @@ export class NotionSnapshots {
    * After a formal build that recorded the snapshot succeeded: copy its media cache (`<checkout>/.cache/media`),
    * pin its Notion keys and note the commit. Without a snapshot from Bukit nothing is recorded.
    */
-  recorded(siteId: string, commit: string, checkout: string): void {
+  recorded(siteId: string, commit: string, checkout: string, configFile: string): void {
     if (!fs.existsSync(path.join(this.snapshotDir(siteId), "manifest.json"))) return;
     const dir = this.siteDir(siteId);
-    this.writePin(siteId, checkout);
+    this.writePin(siteId, checkout, configFile);
     const media = path.join(checkout, ".cache", "media");
     const next = path.join(dir, `.cache-${crypto.randomBytes(6).toString("hex")}`);
     try {
@@ -170,9 +170,9 @@ export class NotionSnapshots {
   }
 
   /** pin.json from the site.yaml the formal build used (0600, replaced atomically). */
-  private writePin(siteId: string, checkout: string): void {
-    const parsed = parseYaml(fs.readFileSync(path.join(checkout, "site.yaml"), "utf8"), { asText: true });
-    if (parsed.error !== null) throw new Error("the formal build's site.yaml cannot be read for the Notion pin");
+  private writePin(siteId: string, checkout: string, configFile: string): void {
+    const parsed = parseYaml(fs.readFileSync(path.join(checkout, configFile), "utf8"), { asText: true });
+    if (parsed.error !== null) throw new Error("the formal build's site config cannot be read for the Notion pin");
     const next = `${this.pinFile(siteId)}.${crypto.randomBytes(6).toString("hex")}.tmp`;
     try {
       fs.writeFileSync(next, JSON.stringify(notionPinFrom(parsed.value)), { mode: 0o600, flag: "wx" });

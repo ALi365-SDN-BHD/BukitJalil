@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { ConfigCheck, Site, SiteReason } from "@bukitjalil/shared";
+import type { ProjectState } from "../projects/repo.ts";
 
 interface SiteRow {
   id: string;
@@ -14,6 +15,7 @@ interface SiteRow {
   checked_commit: string | null;
   config_check: string | null;
   notion_data_source_id: string | null;
+  config_file: string;
 }
 
 function toSite(row: SiteRow): Site {
@@ -37,13 +39,8 @@ function toSite(row: SiteRow): Site {
     checkedCommit: row.checked_commit,
     configCheck: row.config_check as ConfigCheck | null,
     notionDataSourceId: row.notion_data_source_id,
+    configFile: row.config_file,
   };
-}
-
-export interface SiteState {
-  readOnly: SiteReason[] | null;
-  checkedCommit: string | null;
-  configCheck: ConfigCheck | null;
 }
 
 /** Site ids are path segments (worktrees/<siteId>/): 16 lower-case hex characters. */
@@ -73,10 +70,11 @@ export class SiteStore {
     path: string;
     defaultBranch: string;
     notionDataSourceId?: string | null;
+    configFile: string;
   }): void {
     this.db
       .prepare(
-        "INSERT INTO sites (id, name, path, default_branch, created_at, notion_data_source_id) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sites (id, name, path, default_branch, created_at, notion_data_source_id, config_file) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         site.id,
@@ -85,6 +83,7 @@ export class SiteStore {
         site.defaultBranch,
         new Date().toISOString(),
         site.notionDataSourceId ?? null,
+        site.configFile,
       );
   }
 
@@ -112,7 +111,7 @@ export class SiteStore {
     this.db.prepare("UPDATE sites SET notion_data_source_id = ? WHERE id = ?").run(sourceId, id);
   }
 
-  setState(id: string, state: SiteState) {
+  setState(id: string, state: ProjectState) {
     this.db
       .prepare("UPDATE sites SET read_only_reasons = ?, checked_commit = ?, config_check = ? WHERE id = ?")
       .run(state.readOnly ? JSON.stringify(state.readOnly) : null, state.checkedCommit, state.configCheck, id);

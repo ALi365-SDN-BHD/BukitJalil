@@ -1,4 +1,4 @@
-import type { HistoryEntry, RestoreResult, Site } from "@bukitjalil/shared";
+import type { HistoryEntry, RestoreResult } from "@bukitjalil/shared";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, History } from "lucide-react";
 import { useState } from "react";
@@ -11,20 +11,21 @@ import { ReasonList } from "@/features/sites/ReasonList";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { formatTime, shortOid } from "@/lib/format";
+import type { ProjectInfo } from "@/lib/project";
 import { ChangedFileList } from "./ChangedFileList";
 import { FileDiffView } from "./FileDiffView";
 import { useCurrentChange } from "./hooks";
 
 /**
- * Version history on the site home (plan 7.4, 10.2): the default branch's versions, newest first, a page
+ * Version history on the project home (plan 7.4, 10.2): the default branch's versions, newest first, a page
  * at a time. Opening one shows what it changed and offers to restore it.
  */
-export function HistorySection({ site }: { site: Site }) {
+export function HistorySection({ project }: { project: ProjectInfo }) {
   const { m, t, locale } = useI18n();
   const [open, setOpen] = useState<{ entry: HistoryEntry; latest: boolean } | null>(null);
   const history = useInfiniteQuery({
-    queryKey: keys.history(site.id),
-    queryFn: ({ pageParam }) => api.history(site.id, pageParam),
+    queryKey: keys.history(project.key),
+    queryFn: ({ pageParam }) => api.history(project.key, pageParam),
     initialPageParam: 0,
     getNextPageParam: (last, pages) => (last.hasMore ? pages.reduce((n, p) => n + p.entries.length, 0) : undefined),
   });
@@ -95,7 +96,7 @@ export function HistorySection({ site }: { site: Site }) {
       {open && (
         <VersionDialog
           key={open.entry.commit}
-          site={site}
+          project={project}
           entry={open.entry}
           latest={open.latest}
           onClose={() => setOpen(null)}
@@ -106,12 +107,12 @@ export function HistorySection({ site }: { site: Site }) {
 }
 
 function VersionDialog({
-  site,
+  project,
   entry,
   latest,
   onClose,
 }: {
-  site: Site;
+  project: ProjectInfo;
   entry: HistoryEntry;
   latest: boolean;
   onClose: () => void;
@@ -119,18 +120,18 @@ function VersionDialog({
   const { m, t, errorOf, locale } = useI18n();
   const queryClient = useQueryClient();
   const [, setParams] = useSearchParams();
-  const { change } = useCurrentChange(site.id);
+  const { change } = useCurrentChange(project.key);
   const [selected, setSelected] = useState<string | null>(null);
   const [restored, setRestored] = useState<RestoreResult | null>(null);
   const diff = useQuery({
-    queryKey: keys.versionDiff(site.id, entry.commit),
-    queryFn: () => api.versionDiff(site.id, entry.commit),
+    queryKey: keys.versionDiff(project.key, entry.commit),
+    queryFn: () => api.versionDiff(project.key, entry.commit),
     staleTime: Number.POSITIVE_INFINITY,
   });
   const path = selected ?? diff.data?.files[0]?.path ?? null;
   const fileDiff = useQuery({
-    queryKey: keys.versionDiff(site.id, entry.commit, path ?? ""),
-    queryFn: () => api.versionFileDiff(site.id, entry.commit, path ?? ""),
+    queryKey: keys.versionDiff(project.key, entry.commit, path ?? ""),
+    queryFn: () => api.versionFileDiff(project.key, entry.commit, path ?? ""),
     enabled: path !== null,
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -144,15 +145,15 @@ function VersionDialog({
     });
   };
   const restore = useMutation({
-    mutationFn: () => api.restore(site.id, entry.commit),
+    mutationFn: () => api.restore(project.key, entry.commit),
     onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: keys.change(site.id) });
+      void queryClient.invalidateQueries({ queryKey: keys.change(project.key) });
       if (result.guard.ok) openChanges();
       else setRestored(result);
     },
   });
   // Why restoring is not offered right now, if it is not.
-  const blocked = site.readOnly
+  const blocked = project.readOnly
     ? m.history.blockedReadOnly
     : latest
       ? m.history.blockedLatest

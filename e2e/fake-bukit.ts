@@ -24,8 +24,13 @@ case "$1" in
   config|doctor) exit 0;;
   new) exec ${NEW_SITE} "$@";;
   build)
-    out=""; prev=""
-    for a in "$@"; do if [ "$prev" = "--output" ]; then out="$a"; fi; prev="$a"; done
+    out=""; cfg="site.yaml"; prev=""
+    for a in "$@"; do
+      if [ "$prev" = "--output" ]; then out="$a"; fi
+      if [ "$prev" = "--config" ]; then cfg="$a"; fi
+      prev="$a"
+    done
+    if [ ! -f "$cfg" ]; then echo "no such config: $cfg" >&2; exit 2; fi
     if [ "$(cat fake-mode 2>/dev/null)" = "fail" ]; then
       echo '{"ts":"t","level":"error","msg":"event=content.error file=broken.md"}'
       echo "boom" >&2
@@ -37,7 +42,7 @@ case "$1" in
       printf '{\n  "schema": "https://bukit.dev/schemas/cli-error.v1.json",\n  "errors": [{ "code": "cli-error", "message": "Referenced localized media output is missing: assets/images/noneimg-news.jpg" }]\n}\n' >&2
       exit 1
     fi
-    title=$(grep -m1 '^  title:' site.yaml | sed -e 's/^  title: *//' -e 's/^"//' -e 's/"$//')
+    title=$(grep -m1 '^  title:' "$cfg" | sed -e 's/^  title: *//' -e 's/^"//' -e 's/"$//')
     mkdir -p "$out"
     echo "<!doctype html><meta charset=utf-8><title>$title</title><h1>$title</h1>" > "$out/index.html"
     # The SEO / GEO reports real Bukit writes with every build (a site without site.url).

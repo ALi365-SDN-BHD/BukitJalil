@@ -1,15 +1,24 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type { SessionInfo, SessionMessage, SessionStatus, SkillsResponse, ThinkingLevel } from "@bukitjalil/shared";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type {
+  ProjectKey,
+  ReferenceImageRequest,
+  SessionInfo,
+  SessionMessage,
+  SessionStatus,
+  SkillsResponse,
+  ThinkingLevel,
+} from "@bukitjalil/shared";
+import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ChangeService } from "../changes/service.ts";
 import type { Logger } from "../log.ts";
+import { cleanReferenceImage, type ReferenceImage, writeReferenceImages } from "../media/reference.ts";
 import type { AppPaths } from "../paths.ts";
+import { aiWriteScope, type ProjectService } from "../projects/service.ts";
 import { asSiteError, SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
-import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode } from "../storage-errors.ts";
 import type { AiBukit } from "./ai-bukit.ts";
 import { PathGate } from "./gate.ts";
@@ -17,7 +26,7 @@ import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
 import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
 import type { SecretCredentialStore } from "./secret-credentials.ts";
-import { createSiteTools, SITE_TOOLS } from "./site-tools.ts";
+import { createSiteTools, SITE_TOOLS, THEME_TOOLS } from "./site-tools.ts";
 import { listSkills, skillReadRoots } from "./skills.ts";
 import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./store.ts";
 import { autoTitle } from "./title.ts";
@@ -30,7 +39,7 @@ const SHUTDOWN_WAIT_MS = 10_000;
 export type { SessionStatus };
 
 /** What a session does, for the event stream: Pi's own events, status changes, and changes to the list. */
-export type AgentEvent = { siteId: string; sessionId: string } & (
+export type AgentEvent = { project: ProjectKey; sessionId: string } & (
   | { type: "pi"; event: AgentSessionEvent }
   | { type: "status"; status: SessionStatus; error?: string }
   /** summarize_changes: the AI's description of its changes, for the review (also kept with the change set). */
@@ -43,7 +52,7 @@ export type AgentEvent = { siteId: string; sessionId: string } & (
 export interface AgentServiceOptions {
   db: DatabaseSync;
   paths: AppPaths;
-  sites: SiteService;
+  projects: ProjectService;
   /** The site lock: a run holds it from start to end; while another operation holds it, runs wait. */
   locks: SiteLocks;
   /** Change sets: opened before a run, snapshotted after it (plan 7.2). */
@@ -75,15 +84,21 @@ export interface AgentServiceOptions {
 }
 
 interface Live {
-  siteId: string;
+  project: ProjectKey;
   session: AgentSession;
   unsubscribe: () => void;
   idleTimer: NodeJS.Timeout | null;
 }
 
+/** A message from the user: its text and its checked reference images (theme development design 4.2). */
+interface Message {
+  text: string;
+  images: ReferenceImage[];
+}
+
 interface Pending {
   sessionId: string;
-  texts: string[];
+  messages: Message[];
 }
 
 /** The run of one session; at most one per site. */
@@ -92,7 +107,7 @@ interface Run {
   /** Set by stop, delete, site removal or shutdown: no further prompt is sent. */
   cancelled: boolean;
   /** Messages that arrived while the session was not streaming (opening, or between prompts). */
-  extra: string[];
+  extra: Message[];
   /** The AI checkout of the run's change set, once the run has one; snapshotted when the run ends. */
   cwd: string | null;
   /** Settles when the run has ended and touched nothing more. */
@@ -130,7 +145,7 @@ export class AgentService {
   readonly store: SessionStore;
   private readonly live = new Map<string, Live>();
   private readonly pending = new Map<string, Pending[]>();
-  /** siteId -> the run there. */
+  /** project -> the run there. */
   private readonly running = new Map<string, Run>();
   /** Sites whose queued messages wait for another operation to free the site lock. */
   private readonly waiting = new Set<string>();
@@ -140,7 +155,7 @@ export class AgentService {
 
   constructor(private readonly opts: AgentServiceOptions) {
     this.store = new SessionStore(opts.db);
-    opts.sites.onRemoving((siteId) => this.closeSite(siteId));
+    opts.projects.onRemoving((project) => this.closeProject(project));
   }
 
   /** Pi's own directory (auth.json, models.json). */
@@ -175,9 +190,9 @@ export class AgentService {
     return () => this.listeners.delete(listener);
   }
 
-  list(siteId: string): SessionRecord[] {
-    this.opts.sites.get(siteId);
-    return this.store.list(siteId);
+  list(project: ProjectKey): SessionRecord[] {
+    this.opts.projects.get(project);
+    return this.store.list(project);
   }
 
   get(id: string): SessionRecord {
@@ -195,18 +210,18 @@ export class AgentService {
     return this.toInfo(this.get(id));
   }
 
-  listInfo(siteId: string): SessionInfo[] {
-    return this.list(siteId).map((s) => this.toInfo(s));
+  listInfo(project: ProjectKey): SessionInfo[] {
+    return this.list(project).map((s) => this.toInfo(s));
   }
 
   /** A session of the site is running or has messages waiting: its change set is about to change. */
-  busy(siteId: string): boolean {
-    return this.running.has(siteId) || (this.pending.get(siteId)?.length ?? 0) > 0;
+  busy(project: ProjectKey): boolean {
+    return this.running.has(project) || (this.pending.get(project)?.length ?? 0) > 0;
   }
 
   private toInfo({ file: _, ...record }: SessionRecord): SessionInfo {
-    const run = this.running.get(record.siteId);
-    const queued = this.pending.get(record.siteId)?.some((p) => p.sessionId === record.id);
+    const run = this.running.get(record.project);
+    const queued = this.pending.get(record.project)?.some((p) => p.sessionId === record.id);
     return { ...record, status: run?.sessionId === record.id ? "running" : queued ? "queued" : "idle" };
   }
 
@@ -238,10 +253,10 @@ export class AgentService {
   async fork(id: string, entryId: string): Promise<SessionRecord> {
     this.assertOpen();
     const source = this.get(id);
-    const site = this.opts.sites.get(source.siteId);
+    const site = this.opts.projects.get(source.project);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
     if (!fs.existsSync(source.file)) throw new SiteError("session.entry_not_found", 404);
-    const dir = this.sessionDir(site.id);
+    const dir = this.sessionDir(site.key);
     const manager = await this.openFile(source);
     if (!manager.getEntry(entryId)) throw new SiteError("session.entry_not_found", 404);
     this.assertOpen();
@@ -250,7 +265,7 @@ export class AgentService {
     const written = manager.createBranchedSession(entryId);
     // Pi writes the file only when the branch holds a conversation; otherwise the new session starts empty.
     if (written && fs.existsSync(written)) fs.renameSync(written, file);
-    this.store.insert({ id: newId, siteId: site.id, file });
+    this.store.insert({ id: newId, project: site.key, file });
     if (source.title) this.store.rename(newId, source.title);
     return this.announce(newId);
   }
@@ -259,7 +274,7 @@ export class AgentService {
   private async openFile(record: SessionRecord, cwd?: string) {
     const pi = await this.pi();
     try {
-      return pi.pi.SessionManager.open(record.file, this.sessionDir(record.siteId), cwd);
+      return pi.pi.SessionManager.open(record.file, this.sessionDir(record.project), cwd);
     } catch (err) {
       this.opts.logger.log("warn", "agent.session_unreadable", { sessionId: record.id, error: String(err) });
       throw new SiteError("session.unreadable", 409);
@@ -269,17 +284,17 @@ export class AgentService {
   /** Tell the event stream about a new or changed session. */
   private announce(id: string): SessionRecord {
     const record = this.get(id);
-    this.emit({ siteId: record.siteId, sessionId: id, type: "session", session: this.toInfo(record) });
+    this.emit({ project: record.project, sessionId: id, type: "session", session: this.toInfo(record) });
     return record;
   }
 
   /** Record a new session; its AgentSession and file are made with the first message. */
-  create(siteId: string): SessionRecord {
+  create(project: ProjectKey): SessionRecord {
     this.assertOpen();
-    const site = this.opts.sites.get(siteId);
+    const site = this.opts.projects.get(project);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
     const id = newSessionId();
-    this.store.insert({ id, siteId, file: path.join(this.sessionDir(siteId), `${id}.jsonl`) });
+    this.store.insert({ id, project, file: path.join(this.sessionDir(project), `${id}.jsonl`) });
     return this.announce(id);
   }
 
@@ -293,24 +308,34 @@ export class AgentService {
   async delete(id: string): Promise<void> {
     const session = this.get(id);
     await this.stop(id);
-    const run = this.running.get(session.siteId);
+    const run = this.running.get(session.project);
     if (run?.sessionId === id) await run.done;
     this.dispose(id);
     this.store.delete(id);
     fs.rmSync(session.file, { force: true });
-    this.emit({ siteId: session.siteId, sessionId: id, type: "deleted" });
+    this.emit({ project: session.project, sessionId: id, type: "deleted" });
   }
 
   /**
    * Send a message (plan 6.2). A running session gets it as a steering message, or after the current run
    * with `followUp`; if it is still opening, the message is sent once the current prompt ends. Otherwise
    * it waits for the site's running session, if any, then starts a run; messages sent while waiting are
-   * joined into one. Resolves once the message is accepted.
+   * joined into one. Resolves once the message is accepted. Images are checked and cleaned first, and refused
+   * when the model cannot read them (theme development design 4.2).
    */
-  async send(id: string, text: string, opts: { followUp?: boolean } = {}): Promise<void> {
+  async send(
+    id: string,
+    text: string,
+    opts: { followUp?: boolean; images?: readonly ReferenceImageRequest[] } = {},
+  ): Promise<void> {
     this.assertOpen();
     const session = this.get(id);
-    if (this.opts.sites.get(session.siteId).readOnly) throw new SiteError("site.read_only", 409);
+    if (this.opts.projects.get(session.project).readOnly) throw new SiteError("site.read_only", 409);
+    const message: Message = { text, images: (opts.images ?? []).map(cleanReferenceImage) };
+    if (message.images.length > 0 && !(await this.model()).input.includes("image")) {
+      throw new SiteError("image.model_unsupported", 400);
+    }
+    this.assertOpen();
     // The first message names the conversation; manual rename can still replace it later.
     if (!session.title) {
       const title = autoTitle(text);
@@ -319,43 +344,49 @@ export class AgentService {
         this.announce(id);
       }
     }
-    const run = this.running.get(session.siteId);
+    const run = this.running.get(session.project);
     if (run?.sessionId === id && !run.cancelled) {
       const live = this.live.get(id);
-      if (live?.session.isStreaming) await (opts.followUp ? live.session.followUp(text) : live.session.steer(text));
-      else run.extra.push(text);
+      if (live?.session.isStreaming) {
+        const input = this.input(session.project, run.cwd, [message]);
+        await (opts.followUp
+          ? live.session.followUp(input.text, input.images)
+          : live.session.steer(input.text, input.images));
+      } else {
+        run.extra.push(message);
+      }
       return;
     }
     // Fail now, not inside the queued run, when no model is set up.
     await this.model();
     this.assertOpen();
-    const queue = this.pending.get(session.siteId) ?? [];
-    this.pending.set(session.siteId, queue);
+    const queue = this.pending.get(session.project) ?? [];
+    this.pending.set(session.project, queue);
     const waiting = queue.find((p) => p.sessionId === id);
-    if (waiting) waiting.texts.push(text);
-    else queue.push({ sessionId: id, texts: [text] });
-    if (this.running.has(session.siteId) || this.opts.locks.holder(session.siteId) !== null)
-      this.emit({ siteId: session.siteId, sessionId: id, type: "status", status: "queued" });
-    this.pump(session.siteId);
+    if (waiting) waiting.messages.push(message);
+    else queue.push({ sessionId: id, messages: [message] });
+    if (this.running.has(session.project) || this.opts.locks.holder(session.project) !== null)
+      this.emit({ project: session.project, sessionId: id, type: "status", status: "queued" });
+    this.pump(session.project);
   }
 
   /** Stop a running session (plan 6.2), even one still opening, or drop its waiting messages. */
   async stop(id: string): Promise<void> {
     const session = this.get(id);
-    this.dropPending(session.siteId, (p) => p.sessionId === id);
-    const run = this.running.get(session.siteId);
+    this.dropPending(session.project, (p) => p.sessionId === id);
+    const run = this.running.get(session.project);
     if (run?.sessionId === id) await this.cancel(run);
   }
 
   /** Stop every session of a site and wait for its run to end, before the site is removed. */
-  async closeSite(siteId: string): Promise<void> {
-    this.dropPending(siteId, () => true);
-    const run = this.running.get(siteId);
+  async closeProject(project: ProjectKey): Promise<void> {
+    this.dropPending(project, () => true);
+    const run = this.running.get(project);
     if (run) {
       await this.cancel(run);
       await run.done;
     }
-    for (const [id, live] of [...this.live]) if (live.siteId === siteId) this.dispose(id);
+    for (const [id, live] of [...this.live]) if (live.project === project) this.dispose(id);
   }
 
   /** Stop all sessions, wait for their runs to end and dispose them (server shutdown). */
@@ -385,8 +416,8 @@ export class AgentService {
     if (this.closing) throw new SiteError("server.shutting_down", 503);
   }
 
-  private sessionDir(siteId: string): string {
-    return path.join(this.opts.paths.sessions, siteId);
+  private sessionDir(project: ProjectKey): string {
+    return path.join(this.opts.paths.sessions, project);
   }
 
   private emit(event: AgentEvent): void {
@@ -400,11 +431,11 @@ export class AgentService {
   }
 
   /** Remove waiting sessions of a site; each gets an idle status. */
-  private dropPending(siteId: string, match: (p: Pending) => boolean): void {
-    const queue = this.pending.get(siteId) ?? [];
-    for (const p of queue.filter(match)) this.emit({ siteId, sessionId: p.sessionId, type: "status", status: "idle" });
+  private dropPending(project: ProjectKey, match: (p: Pending) => boolean): void {
+    const queue = this.pending.get(project) ?? [];
+    for (const p of queue.filter(match)) this.emit({ project, sessionId: p.sessionId, type: "status", status: "idle" });
     this.pending.set(
-      siteId,
+      project,
       queue.filter((p) => !match(p)),
     );
   }
@@ -466,54 +497,54 @@ export class AgentService {
    * Start the site's next queued run. The run holds the site lock from start to end (plan 7.2); while a
    * build or another operation holds it, the messages stay queued and the run starts once it is free.
    */
-  private pump(siteId: string): void {
-    if (this.running.has(siteId) || this.closing) return;
-    if (!this.pending.get(siteId)?.length) return;
+  private pump(project: ProjectKey): void {
+    if (this.running.has(project) || this.closing) return;
+    if (!this.pending.get(project)?.length) return;
     let release: () => void;
     try {
-      release = this.opts.locks.acquire(siteId, "session");
+      release = this.opts.locks.acquire(project, "session");
     } catch (err) {
       if (!(err instanceof SiteError) || err.code !== "site.busy") throw err;
-      if (!this.waiting.has(siteId)) {
-        this.waiting.add(siteId);
-        void this.opts.locks.waitFree(siteId).then(() => {
-          this.waiting.delete(siteId);
-          this.pump(siteId);
+      if (!this.waiting.has(project)) {
+        this.waiting.add(project);
+        void this.opts.locks.waitFree(project).then(() => {
+          this.waiting.delete(project);
+          this.pump(project);
         });
       }
       return;
     }
-    const next = this.pending.get(siteId)?.shift();
+    const next = this.pending.get(project)?.shift();
     if (!next) {
       release();
       return;
     }
     const run: Run = { sessionId: next.sessionId, cancelled: false, extra: [], cwd: null, done: Promise.resolve() };
-    this.running.set(siteId, run);
-    const base = { siteId, sessionId: next.sessionId, type: "status" } as const;
+    this.running.set(project, run);
+    const base = { project, sessionId: next.sessionId, type: "status" } as const;
     this.emit({ ...base, status: "running" });
-    run.done = this.execute(run, next.texts.join("\n\n"))
+    run.done = this.execute(run, next.messages)
       .then(async (error) => {
         // An aborted check or build may still be stopping Bukit: the lock stays until it has.
-        await this.opts.bukit.settled(siteId);
-        return (await this.snapshotAfter(siteId, run)) ?? error;
+        await this.opts.bukit.settled(project);
+        return (await this.snapshotAfter(project, run)) ?? error;
       })
       // execute and snapshotAfter do not reject, but if anything in them does, the lock is still released.
       .catch((err: unknown) => runErrorCode(err))
       .then((error) => {
-        this.running.delete(siteId);
+        this.running.delete(project);
         release();
         // Messages that arrived after the last prompt ended, while the run was still finishing (Bukit
         // stopping, the snapshot): they start the session's next run instead of being dropped. Not after a
         // failure: with no model or key, or a change set that could not open, the next run fails the same way.
         const requeued = run.extra.length > 0 && !error && !run.cancelled && !this.closing;
-        if (requeued) this.requeue(siteId, run.sessionId, run.extra.splice(0));
+        if (requeued) this.requeue(project, run.sessionId, run.extra.splice(0));
         try {
           if (requeued) this.emit({ ...base, status: "queued" });
           else this.emit(error ? { ...base, status: "idle", error } : { ...base, status: "idle" });
           // Whether the change set can be reviewed depends on the run: say so even when no file changed.
-          if (run.cwd) this.opts.changes.notify(siteId);
-          this.pump(siteId);
+          if (run.cwd) this.opts.changes.notify(project);
+          this.pump(project);
         } catch (err) {
           this.opts.logger.log("error", "agent.after_run_failed", { sessionId: run.sessionId, error: String(err) });
         }
@@ -521,22 +552,43 @@ export class AgentService {
   }
 
   /** Put messages first in line for `sessionId`, joined with any it already has waiting. */
-  private requeue(siteId: string, sessionId: string, texts: string[]): void {
-    const queue = this.pending.get(siteId) ?? [];
-    this.pending.set(siteId, queue);
+  private requeue(project: ProjectKey, sessionId: string, messages: Message[]): void {
+    const queue = this.pending.get(project) ?? [];
+    this.pending.set(project, queue);
     const waiting = queue.find((p) => p.sessionId === sessionId);
-    if (waiting) waiting.texts.unshift(...texts);
-    else queue.unshift({ sessionId, texts });
+    if (waiting) waiting.messages.unshift(...messages);
+    else queue.unshift({ sessionId, messages });
+  }
+
+  /**
+   * What to send Pi for messages: their texts joined, and their images. In a theme project the images are
+   * also kept in the AI checkout's `_reference/` (design 4.2), so they reach the change set, and the text
+   * names the files; a site keeps them only in the session file.
+   */
+  private input(project: ProjectKey, cwd: string | null, messages: readonly Message[]) {
+    let text = messages.map((m) => m.text).join("\n\n");
+    const images = messages.flatMap((m) => m.images);
+    if (images.length === 0) return { text, images: undefined };
+    if (cwd && this.opts.projects.get(project).themeName !== null) {
+      const files = writeReferenceImages(cwd, images);
+      text += `\n\n(The attached images are saved in the project as ${files.join(", ")}.)`;
+    }
+    const content: ImageContent[] = images.map((i) => ({
+      type: "image",
+      data: i.data.toString("base64"),
+      mimeType: i.mimeType,
+    }));
+    return { text, images: content };
   }
 
   /**
    * After a run, still holding the lock: snapshot what the AI left in the checkout into the change set, even
    * when the run failed or was stopped. Resolves to an error code when that fails, never rejects.
    */
-  private async snapshotAfter(siteId: string, run: Run): Promise<string | undefined> {
-    if (!run.cwd || !this.opts.changes.store.open(siteId)) return undefined;
+  private async snapshotAfter(project: ProjectKey, run: Run): Promise<string | undefined> {
+    if (!run.cwd || !this.opts.changes.store.open(project)) return undefined;
     try {
-      await this.opts.changes.snapshot(siteId, run.cwd);
+      await this.opts.changes.snapshot(project, run.cwd);
       return undefined;
     } catch (err) {
       this.opts.logger.log("error", "agent.snapshot_failed", { sessionId: run.sessionId, error: String(err) });
@@ -557,7 +609,7 @@ export class AgentService {
   }
 
   /** Run a session's prompts; resolves to an error code, never rejects. */
-  private async execute(run: Run, text: string): Promise<string | undefined> {
+  private async execute(run: Run, messages: Message[]): Promise<string | undefined> {
     const id = run.sessionId;
     let live: Live | null = null;
     try {
@@ -566,7 +618,7 @@ export class AgentService {
       // Every run joins the site's open change set, or starts one (plan 7.2), before the AI touches files.
       const record = this.store.get(id);
       if (!record || run.cancelled || this.closing) return undefined;
-      const joined = await this.opts.changes.begin(record.siteId, id);
+      const joined = await this.opts.changes.begin(record.project, id);
       run.cwd = joined.cwd;
       live = await this.open(run);
       if (!live) return undefined;
@@ -585,11 +637,12 @@ export class AgentService {
           details: { changeSetId: joined.change.id },
         });
       }
-      let prompt: string | undefined = text;
-      while (prompt !== undefined && !run.cancelled) {
-        await live.session.prompt(prompt);
+      let batch: Message[] = messages;
+      while (batch.length > 0 && !run.cancelled) {
+        const input = this.input(record.project, run.cwd, batch);
+        await live.session.prompt(input.text, input.images ? { images: input.images } : undefined);
         await live.session.waitForIdle();
-        prompt = run.extra.length > 0 ? run.extra.splice(0).join("\n\n") : undefined;
+        batch = run.extra.splice(0);
       }
       return undefined;
     } catch (err) {
@@ -619,7 +672,7 @@ export class AgentService {
     const existing = this.live.get(id);
     if (existing) return existing;
     const record = this.get(id);
-    const site = this.opts.sites.get(record.siteId);
+    const site = this.opts.projects.get(record.project);
     const cwd = run.cwd;
     if (!cwd) throw new Error("open() before the run has a change set");
     const pi = await this.pi();
@@ -632,6 +685,7 @@ export class AgentService {
       piDir,
       settings: settingsManager,
       systemPrompt: buildSystemPrompt(site),
+      projectKind: site.ref.kind,
       skillsDir: this.opts.skillsDir,
       disabledSkills: this.opts.disabledSkills?.() ?? [],
     });
@@ -642,9 +696,10 @@ export class AgentService {
       skillReadRoots(resourceLoader.getSkills().skills, this.opts.skillsDir, (name, reason) =>
         this.opts.logger.log("warn", "agent.skill_read_root_skipped", { skill: name, reason }),
       ),
+      aiWriteScope(site) ?? undefined,
     );
     if (gone()) return null;
-    const dir = this.sessionDir(site.id);
+    const dir = this.sessionDir(site.key);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     // open() starts a new session when the file does not exist yet, and keeps this path.
     const sessionManager = await this.openFile(record, cwd);
@@ -655,17 +710,19 @@ export class AgentService {
       model,
       thinkingLevel: this.opts.thinkingLevel?.(),
       // An allowlist that the custom tools must be in too (plan 6.3).
-      tools: [...BUILTIN_TOOLS, ...SITE_TOOLS],
+      tools: [...BUILTIN_TOOLS, ...SITE_TOOLS, ...(site.themeName === null ? [] : THEME_TOOLS)],
       customTools: [
         ...createGatedTools(pi, { cwd, gate, rgReady: this.opts.rgReady }),
         ...createSiteTools({
-          siteId: site.id,
+          project: site.key,
+          configFile: site.configFile,
+          themeName: site.themeName,
           cwd,
           gate,
           bukit: this.opts.bukit,
           onSummary: (summary) => {
-            this.opts.changes.setSummary(site.id, summary);
-            this.emit({ siteId: site.id, sessionId: id, type: "summary", summary });
+            this.opts.changes.setSummary(site.key, summary);
+            this.emit({ project: site.key, sessionId: id, type: "summary", summary });
           },
         }),
       ],
@@ -673,8 +730,10 @@ export class AgentService {
       sessionManager,
       settingsManager,
     });
-    const unsubscribe = session.subscribe((event) => this.emit({ siteId: site.id, sessionId: id, type: "pi", event }));
-    const live: Live = { siteId: site.id, session, unsubscribe, idleTimer: null };
+    const unsubscribe = session.subscribe((event) =>
+      this.emit({ project: site.key, sessionId: id, type: "pi", event }),
+    );
+    const live: Live = { project: site.key, session, unsubscribe, idleTimer: null };
     this.live.set(id, live);
     if (gone()) {
       this.dispose(id);

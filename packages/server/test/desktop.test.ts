@@ -86,11 +86,13 @@ describe("resource folders (plan M7)", () => {
       skills: path.join("/repo", "skills"),
       web: path.join("/repo", "packages/web/dist"),
       bukit: path.join("/repo", `vendor/bukit-${BUKIT_VERSION}`),
+      themeDemo: path.join("/repo", "packages/server/assets/theme-demo"),
     });
     expect(resolveResources("/repo", { BUKITJALIL_RESOURCES: "/App/Resources/app" })).toEqual({
       skills: path.resolve("/App/Resources/app", "skills"),
       web: path.resolve("/App/Resources/app", "web"),
       bukit: path.resolve("/App/Resources/app", "bukit"),
+      themeDemo: path.resolve("/App/Resources/app", "theme-demo"),
     });
   });
 });

@@ -9,6 +9,16 @@ contextBridge.exposeInMainWorld("bukitjalil", {
   desktop: true,
   platform: process.platform,
   pickFolder: (start?: string): Promise<string | null> => ipcRenderer.invoke("desktop:pick-folder", start),
+  saveFile: (name: string, data: ArrayBuffer): Promise<string | null> =>
+    ipcRenderer.invoke("desktop:save-file", name, data),
+  pickFile: (start?: string): Promise<string | null> => ipcRenderer.invoke("desktop:pick-file", start),
+  capturePreflight: (urls: string[]): Promise<unknown> => ipcRenderer.invoke("desktop:capture-preflight", urls),
+  startCapture: (request: unknown): Promise<unknown> => ipcRenderer.invoke("desktop:capture-start", request),
+  onCaptureProgress: (callback: (progress: unknown) => void): (() => void) => {
+    const listener = (_event: unknown, progress: unknown) => callback(progress);
+    ipcRenderer.on("desktop:capture-progress", listener);
+    return () => ipcRenderer.removeListener("desktop:capture-progress", listener);
+  },
   restart: (): Promise<void> => ipcRenderer.invoke("desktop:restart"),
   setLocale: (locale: string): void => ipcRenderer.send("desktop:locale", locale),
 });

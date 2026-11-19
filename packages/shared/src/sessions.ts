@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Build } from "./builds.ts";
 import type { CurrentChange } from "./changes.ts";
 import type { Deploy } from "./deploys.ts";
+import type { ProjectKey } from "./projects.ts";
 
 /** AI sessions and the event stream (plan 6.2, 9.1, 9.2). */
 
@@ -9,7 +10,7 @@ export type SessionStatus = "idle" | "queued" | "running";
 
 export interface SessionInfo {
   id: string;
-  siteId: string;
+  project: ProjectKey;
   title: string | null;
   createdAt: string;
   updatedAt: string;
@@ -48,6 +49,28 @@ export const SessionTitle = z
 export const SessionPatch = z.object({ title: SessionTitle.nullable() }).strict();
 export type SessionPatch = z.infer<typeof SessionPatch>;
 
+/** Reference images (theme development design 4.2): PNG, JPEG or WebP, at most 5 MiB each, 5 per message. */
+export const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type ReferenceImageMime = (typeof REFERENCE_IMAGE_MIMES)[number];
+export const MAX_REFERENCE_IMAGES = 5;
+export const MAX_REFERENCE_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * An attached image as sent: base64 bytes. The declared type is only a hint for the UI; the server reads the
+ * bytes to decide what the image is.
+ */
+export const ReferenceImageRequest = z
+  .object({
+    mimeType: z.enum(REFERENCE_IMAGE_MIMES),
+    data: z
+      .string()
+      .min(1)
+      .max(Math.ceil(MAX_REFERENCE_IMAGE_BYTES / 3) * 4),
+  })
+  .strict();
+export type ReferenceImageRequest = z.infer<typeof ReferenceImageRequest>;
+export const ReferenceImages = z.array(ReferenceImageRequest).max(MAX_REFERENCE_IMAGES);
+
 /**
  * prompt and steer: a running session gets the message as a steering message, an idle one starts a run.
  * followUp: a running session gets it after the current run ends.
@@ -59,6 +82,8 @@ export const SendMessageRequest = z
       .max(MAX_MESSAGE_CHARS)
       .refine((s) => s.trim() !== "", "must not be empty"),
     mode: z.enum(["prompt", "steer", "followUp"]).default("prompt"),
+    /** Only when the selected model reads images; a theme project also keeps them in _reference/. */
+    images: ReferenceImages.optional(),
   })
   .strict();
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
@@ -69,10 +94,10 @@ export type ForkRequest = z.infer<typeof ForkRequest>;
 
 // --- event stream (plan 9.2) ---
 
-type SessionScoped<T extends string, D> = { type: T; siteId: string; sessionId: string; data: D };
+type SessionScoped<T extends string, D> = { type: T; project: ProjectKey; sessionId: string; data: D };
 
 /**
- * Events on GET /api/events, one connection per tab for all sites; the UI dispatches by `siteId`.
+ * Events on GET /api/events, one connection per tab for all projects; the UI dispatches by `project`.
  * `id` is the SSE event id (for Last-Event-ID).
  */
 export type ServerEvent = { id: string } & (
@@ -92,14 +117,14 @@ export type ServerEvent = { id: string } & (
   | SessionScoped<"session.deleted", Record<string, never>>
   /** summarize_changes: the AI's description of its changes (kept with the change set from M4). */
   | SessionScoped<"session.summary", { summary: string }>
-  | { type: "build.start" | "build.end"; siteId: string; data: { build: Build } }
-  /** A publish started, moved to its next step, or ended. */
-  | { type: "deploy"; siteId: string; data: { deploy: Deploy } }
+  | { type: "build.start" | "build.end"; project: ProjectKey; data: { build: Build } }
+  /** A publish started, moved to its next step, or ended (sites only). */
+  | { type: "deploy"; project: ProjectKey; data: { deploy: Deploy } }
   /**
-   * The site's change set changed (plan 9.2): its whole current state, or null once none is open. Only the
-   * last one per site is kept for reconnects.
+   * The project's change set changed (plan 9.2): its whole current state, or null once none is open. Only
+   * the last one per project is kept for reconnects.
    */
-  | { type: "change"; siteId: string; data: CurrentChange }
+  | { type: "change"; project: ProjectKey; data: CurrentChange }
   /** Events were lost (buffer overflow or server restart): refetch sessions, messages and change sets. */
   | { type: "resync"; data: Record<string, never> }
 );

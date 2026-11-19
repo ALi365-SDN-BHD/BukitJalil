@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { ProjectKey } from "@bukitjalil/shared";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { auditText } from "../builds/audit.ts";
 import { isRecord, pathProblem } from "../bukit/guard.ts";
@@ -8,6 +9,7 @@ import { sniffMedia } from "../media/sniff.ts";
 import { summarizeConfig } from "../panels/service.ts";
 import { parseFrontMatter, parseYaml } from "../panels/yaml.ts";
 import { SiteError } from "../sites/location.ts";
+import { MAX_COVERAGE_FILE_BYTES, type ThemeFiles, themeCoverage } from "../themes/coverage.ts";
 import { type AiBukit, type BuildResult, type CheckResult, type NotionNote, notionNoteText } from "./ai-bukit.ts";
 import { GateError, type PathGate, segmentKey } from "./gate.ts";
 
@@ -24,14 +26,22 @@ export const SITE_TOOLS = [
   "summarize_changes",
 ] as const;
 
+/** Tools only theme projects get (theme development design 4.1). */
+export const THEME_TOOLS = ["theme_coverage"] as const;
+
 const MAX_CONFIG_BYTES = 256 * 1024;
+const MARKDOWN_FILE = /\.(md|markdown)$/i;
 const MAX_CONTENT_FILES = 500;
 const MAX_CONTENT_FILE_BYTES = 256 * 1024;
 const MAX_SCHEMA_CHARS = 60_000;
 export const MAX_SUMMARY_CHARS = 2000;
 
 export interface SiteToolOptions {
-  siteId: string;
+  project: ProjectKey;
+  /** The site config's file name in the working copy (found by content when the site was imported). */
+  configFile: string;
+  /** A theme project's theme (adds theme_coverage); null for a site. */
+  themeName: string | null;
   /** The working copy (the session's cwd). */
   cwd: string;
   gate: PathGate;
@@ -52,14 +62,14 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
   ({ type: "object", properties, required, additionalProperties: false }) as never;
 
 export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
-  const { cwd, gate } = opts;
+  const { cwd, gate, configFile } = opts;
 
-  /** site.yaml from the working copy, through the gate; parse errors are returned, not thrown. */
+  /** The site config from the working copy, through the gate; parse errors are returned, not thrown. */
   const readConfig = (): { config: Record<string, unknown> | null; error: string | null } => {
-    const real = gate.check(path.join(cwd, "site.yaml"), "read");
+    const real = gate.check(path.join(cwd, configFile), "read");
     const st = fs.statSync(real, { throwIfNoEntry: false });
-    if (!st?.isFile()) return { config: null, error: "site.yaml does not exist" };
-    if (st.size > MAX_CONFIG_BYTES) return { config: null, error: "site.yaml is too large" };
+    if (!st?.isFile()) return { config: null, error: `${configFile} does not exist` };
+    if (st.size > MAX_CONFIG_BYTES) return { config: null, error: `${configFile} is too large` };
     const parsed = parseYaml(fs.readFileSync(real, "utf8"));
     if (parsed.error !== null) return { config: null, error: parsed.error };
     return isRecord(parsed.value) ? { config: parsed.value, error: null } : { config: null, error: "not a mapping" };
@@ -98,7 +108,7 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       parameters: object({}),
       executionMode: "sequential",
       async execute(_id, _params, signal) {
-        return json(formatCheck(await opts.bukit.check(opts.siteId, cwd, signal)));
+        return json(formatCheck(await opts.bukit.check(opts.project, cwd, signal)));
       },
     },
     {
@@ -109,7 +119,7 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       parameters: object({}),
       executionMode: "sequential",
       async execute(_id, _params, signal) {
-        return json(formatBuild(await opts.bukit.build(opts.siteId, cwd, signal)));
+        return json(formatBuild(await opts.bukit.build(opts.project, cwd, signal)));
       },
     },
     {
@@ -140,7 +150,42 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       },
     },
   ];
+  const { themeName } = opts;
+  if (themeName !== null) {
+    tools.push({
+      name: "theme_coverage",
+      label: "Theme coverage",
+      description:
+        "What the theme covers: the templates theme.yaml declares and whether their files exist, the page types with no template, includes that point at missing files, and whether tokens.yaml, a search page and static/404.html exist.",
+      parameters: object({}),
+      async execute() {
+        const { config, error } = readConfig();
+        if (!config) return json({ error });
+        return json(await themeCoverage(config, themeName, workingCopyFiles(cwd, gate)));
+      },
+    });
+  }
   return tools;
+}
+
+/** The AI's working copy as theme_coverage reads it: through the gate, without symlinks (design 4.1). */
+export function workingCopyFiles(cwd: string, gate: PathGate): ThemeFiles {
+  return {
+    list: async (dir) => filesUnder(cwd, dir, gate, /./),
+    read: async (paths) => {
+      const out = new Map<string, string>();
+      for (const rel of paths) {
+        try {
+          const real = gate.check(path.join(cwd, rel), "read");
+          const st = fs.statSync(real, { throwIfNoEntry: false });
+          if (st?.isFile() && st.size <= MAX_COVERAGE_FILE_BYTES) out.set(rel, fs.readFileSync(real, "utf8"));
+        } catch (err) {
+          if (!(err instanceof GateError)) throw err;
+        }
+      }
+      return out;
+    },
+  };
 }
 
 // --- results the model reads ---
@@ -302,7 +347,7 @@ export function listContent(
       continue;
     }
     const files: ContentFile[] = [];
-    for (const rel of markdownFiles(cwd, dir, gate)) {
+    for (const rel of filesUnder(cwd, dir, gate, MARKDOWN_FILE)) {
       if (budget === 0) {
         truncated = true;
         break;
@@ -318,8 +363,8 @@ export function listContent(
   return { sources: out, truncated };
 }
 
-/** .md / .markdown files under `dir`, relative to the working copy, sorted; no symlinks, no .git. */
-function markdownFiles(cwd: string, dir: string, gate: PathGate): string[] {
+/** Files under `dir` whose names match `pattern`, relative to the working copy, sorted; no symlinks, no .git. */
+function filesUnder(cwd: string, dir: string, gate: PathGate, pattern: RegExp): string[] {
   const start = path.join(cwd, dir);
   let root: string;
   try {
@@ -341,7 +386,7 @@ function markdownFiles(cwd: string, dir: string, gate: PathGate): string[] {
       if (found.length > MAX_CONTENT_FILES || e.isSymbolicLink() || segmentKey(e.name) === ".git") continue;
       const childRel = path.posix.join(rel, e.name);
       if (e.isDirectory()) walk(path.join(abs, e.name), childRel);
-      else if (e.isFile() && /\.(md|markdown)$/i.test(e.name)) found.push(childRel);
+      else if (e.isFile() && pattern.test(e.name)) found.push(childRel);
     }
   };
   walk(root, path.posix.normalize(dir).replace(/\/+$/, ""));

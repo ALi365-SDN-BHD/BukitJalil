@@ -44,12 +44,12 @@ export async function commitSiteYaml(opts: {
 }): Promise<void> {
   const { git, sites, site, head, codes } = opts;
   await assertCheckoutReady(git, site, codes);
-  const checkout = await sites.mainCheckout(site.id, site.path, head);
+  const checkout = await sites.repos.mainCheckout(site.id, site.path, head);
   try {
-    const file = path.join(checkout, "site.yaml");
+    const file = path.join(checkout, site.configFile);
     const text = await fs.promises.readFile(file, "utf8");
     await fs.promises.writeFile(file, opts.edit(text));
-    await git.run(["add", "--", "site.yaml"], { cwd: checkout });
+    await git.run(["add", "--", site.configFile], { cwd: checkout });
     const tree = (await git.text(["write-tree"], { cwd: checkout })).trim();
     const identity = sites.commitIdentity();
     const commit = (
@@ -64,7 +64,7 @@ export async function commitSiteYaml(opts: {
       })
     ).trim();
     await assertCheckoutReady(git, site, codes);
-    if ((await sites.headOf(site)) !== head) throw new SiteError(codes.changed, 409);
+    if ((await sites.repos.headOf(site)) !== head) throw new SiteError(codes.changed, 409);
     try {
       await git.run(["merge", "-q", "--ff-only", "--no-overwrite-ignore", "--end-of-options", commit], {
         cwd: site.path,

@@ -184,7 +184,7 @@ export class DeployService {
     return this.opts.locks.run(siteId, "deploy-config", async () => {
       const current = this.opts.sites.get(siteId);
       if (current.readOnly) throw new SiteError("site.read_only", 409);
-      const head = await this.opts.sites.headOf(current);
+      const head = await this.opts.sites.repos.headOf(current);
       await commitSiteYaml({
         git: this.opts.git,
         sites: this.opts.sites,
@@ -246,7 +246,7 @@ export class DeployService {
     const release = this.opts.locks.acquire(siteId, "deploy");
     try {
       // Under the lock: what is published is the head now, and it must be what the user confirmed.
-      const head = await this.opts.sites.headOf(site);
+      const head = await this.opts.sites.repos.headOf(site);
       if (head !== commit) throw new SiteError("deploy.commit_changed", 409, { commit: head });
       const target = this.sourceBranchTarget(site, await this.targetAt(site, head));
       if (target.problem !== null || !target.repo) {
@@ -342,7 +342,7 @@ export class DeployService {
 
   /** The target in site.yaml at `commit` (what is about to be published, not what a panel last showed). */
   private async targetAt(site: Site, commit: string): Promise<DeployTarget> {
-    const text = await readBlobAt(this.opts.git, site.path, commit, "site.yaml", MAX_SITE_YAML);
+    const text = await readBlobAt(this.opts.git, site.path, commit, site.configFile, MAX_SITE_YAML);
     if (!text) return deployTarget(null);
     const { value } = parseYaml(text.toString("utf8"));
     return deployTarget(isRecord(value) ? value : null);
@@ -399,7 +399,7 @@ export class DeployService {
     try {
       begin("guard");
       const started = Date.now();
-      const guard = await guardCommit(this.opts.git, site.path, commit);
+      const guard = await guardCommit(this.opts.git, site.path, commit, site.configFile);
       steps.push({
         step: "guard",
         ok: guard.ok,
@@ -419,20 +419,20 @@ export class DeployService {
       }
       if (signal.aborted) return finish("stopped");
 
-      checkout = await this.opts.sites.mainCheckout(site.id, site.path, commit);
+      checkout = await this.opts.sites.repos.mainCheckout(site.id, site.path, commit);
       const rel = `${DEPLOY_OUTPUT_PARENT}/${id}`;
       output = path.join(checkout, rel);
       fs.rmSync(path.join(checkout, DEPLOY_OUTPUT_PARENT), { recursive: true, force: true });
 
-      const check = await run("check", "check", ["config", "check", "--config", "site.yaml"]);
+      const check = await run("check", "check", ["config", "check", "--config", site.configFile]);
       if (!check.ok) return failed(check.result);
-      const doctor = await run("doctor", "doctor", ["doctor", "--config", "site.yaml"]);
+      const doctor = await run("doctor", "doctor", ["doctor", "--config", site.configFile]);
       if (!doctor.ok) return failed(doctor.result);
       // The site's own baseUrl and site.url, read by Bukit from site.yaml (previews pass the same baseUrl).
       const build = await run("build", "build", [
         "build",
         "--config",
-        "site.yaml",
+        site.configFile,
         "--output",
         rel,
         "--log-format",
@@ -446,7 +446,7 @@ export class DeployService {
       if (link) return finish("symlink", { detail: link });
 
       // The build passed, but old upload prefixes would 404 once published (design 4.9).
-      const base = checkoutBasePath(checkout);
+      const base = checkoutBasePath(checkout, site.configFile);
       if (base.ok) {
         const problems = findUploadUrlProblems(output, base.basePath);
         if (problems.length > 0) {
@@ -458,13 +458,13 @@ export class DeployService {
       const summary = readPublishAudit(output);
       if (!audit.ok) return failed(audit.result, summary ? { audit: summary } : {});
       // After the audit, which checks the pages Bukit wrote, not this one.
-      const entry = previewEntry(output, checkoutLanguage(checkout));
+      const entry = previewEntry(output, checkoutLanguage(checkout, site.configFile));
       if (entry) fs.writeFileSync(path.join(output, "index.html"), rootRedirectPage(entry), { flag: "wx" });
 
       const deploy = await run("deploy", "deploy", [
         "deploy",
         "--config",
-        "site.yaml",
+        site.configFile,
         "--skip-build",
         "--output",
         rel,

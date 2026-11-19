@@ -14,7 +14,7 @@ interface Buffered {
 /** The streamed text of a session's current message so far, kept as chunks so appending stays cheap. */
 interface Delta {
   seq: number;
-  siteId: string;
+  project: string;
   sessionId: string;
   chunks: string[];
   length: number;
@@ -109,7 +109,7 @@ export class EventHub {
         event: {
           id: this.id(d.seq),
           type: "message.delta",
-          siteId: d.siteId,
+          project: d.project,
           sessionId: d.sessionId,
           data: { offset: 0, text },
         },
@@ -139,7 +139,7 @@ export class EventHub {
         if (d) this.dropDelta(d);
         const fresh: Delta = {
           seq,
-          siteId: event.siteId,
+          project: event.project,
           sessionId: event.sessionId,
           chunks: [text],
           length: text.length,
@@ -161,7 +161,7 @@ export class EventHub {
     }
     if (event.type === "change") {
       // Each one is the site's whole change set state, so only the newest is worth replaying.
-      const i = this.buffer.findIndex((b) => b.event.type === "change" && b.event.siteId === event.siteId);
+      const i = this.buffer.findIndex((b) => b.event.type === "change" && b.event.project === event.project);
       if (i >= 0) {
         this.bytes -= this.buffer[i]?.bytes ?? 0;
         this.buffer.splice(i, 1);

@@ -35,6 +35,8 @@ export interface ModelInfo {
   /** Supports thinking levels. */
   reasoning: boolean;
   contextWindow: number;
+  /** Reads images (theme development design 4.2): attaching reference images needs it. */
+  images: boolean;
 }
 
 export interface ProviderInfo {

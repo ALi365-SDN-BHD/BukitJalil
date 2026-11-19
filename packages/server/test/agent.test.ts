@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { SkillsResponse } from "@bukitjalil/shared";
+import { SITE_ONLY_SKILLS, type SkillsResponse, THEME_SKILLS } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AiBukit } from "../src/agent/ai-bukit.ts";
@@ -11,10 +11,13 @@ import { type AgentEvent, AgentService } from "../src/agent/service.ts";
 import { agentEventTranslator } from "../src/events/bridge.ts";
 import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
+import { themeKey } from "../src/themes/service.ts";
+import { tinyPng } from "./fixtures/images.ts";
 import { writeStarter } from "./fixtures/starter.ts";
 import { commitAllAs, expectMode, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
 
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
+const PNG = tinyPng().toString("base64");
 
 // Pi keeps the directory it saw when it loaded, so this file uses one app home (vitest runs each test
 // file in its own module graph).
@@ -56,6 +59,8 @@ async function site(files: Record<string, string> = {}) {
 function service(
   opts: {
     model?: boolean;
+    /** The model reads text only. */
+    textOnly?: boolean;
     idleMs?: number;
     shutdownMs?: number;
     rgReady?: () => boolean;
@@ -66,7 +71,7 @@ function service(
   const aiBukit = new AiBukit({
     git: ctx.git,
     paths: ctx.paths,
-    sites: ctx.sites,
+    projects: ctx.projects,
     bukit: ctx.bukit,
     changes: ctx.changes,
   });
@@ -81,11 +86,15 @@ function service(
   const agent = new AgentService({
     db: ctx.db,
     paths: ctx.paths,
-    sites: ctx.sites,
+    projects: ctx.projects,
     locks: ctx.locks,
     changes: ctx.changes,
     logger: silentLogger,
-    resolveModel: () => (opts.model === false ? undefined : (faux.getModel() as Model<Api>)),
+    resolveModel: () => {
+      if (opts.model === false) return undefined;
+      const model = faux.getModel() as Model<Api>;
+      return opts.textOnly ? { ...model, input: ["text"] } : model;
+    },
     setupRuntime: (runtime) => runtime.registerNativeProvider(faux.provider),
     rgReady: opts.rgReady ?? (() => false),
     bukit: aiBukit,
@@ -151,6 +160,7 @@ describe("Skills settings and API", () => {
       required: true,
       enabled: true,
     });
+    expect(before.skills.find((s) => s.name === "theme-development")).toMatchObject({ required: true, enabled: true });
     expect(before.skills.find((s) => s.name === "bukit-config")).toMatchObject({
       source: "bukit",
       required: false,
@@ -170,12 +180,16 @@ describe("Skills settings and API", () => {
   });
 });
 
-/** Names of BukitJalil's skills: every SKILL.md below the skills directory. */
-const skillNames = () =>
+/**
+ * Names of BukitJalil's skills: every SKILL.md below the skills directory. With a project kind, the ones
+ * its sessions get: without the other kind's skills (theme development design 4.1).
+ */
+const skillNames = (kind?: "site" | "theme") =>
   fs
     .readdirSync(SKILLS, { recursive: true, encoding: "utf8" })
     .filter((p) => path.basename(p) === "SKILL.md")
     .map((p) => path.basename(path.dirname(p)))
+    .filter((name) => kind === undefined || !(kind === "theme" ? SITE_ONLY_SKILLS : THEME_SKILLS).includes(name))
     .sort();
 
 /**
@@ -191,10 +205,13 @@ function systemSections(context: unknown): { preamble: string; cwd: string; skil
   return sections;
 }
 
-function systemOf(context: unknown): { preamble: string; cwd: string; skills: string } {
+function systemOf(
+  context: unknown,
+  kind: "site" | "theme" = "site",
+): { preamble: string; cwd: string; skills: string } {
   const sections = systemSections(context);
   const listed = [...sections.skills.matchAll(/<name>([^<]+)<\/name>/g)].map((m) => m[1]).sort();
-  expect(listed).toEqual(skillNames());
+  expect(listed).toEqual(skillNames(kind));
   return sections;
 }
 
@@ -319,7 +336,7 @@ describe("AgentService", () => {
     const next = agent.create(s.id);
     expect((await readSkill(next.id))?.isError).toBe(true);
     // Reopening the same conversation reads its session file again and uses the new setting.
-    await agent.closeSite(s.id);
+    await agent.closeProject(s.id);
     expect((await readSkill(current.id))?.isError).toBe(true);
   });
 
@@ -341,7 +358,7 @@ describe("AgentService", () => {
     const skills = [...systemSections(seen).skills.matchAll(/<name>([^<]+)<\/name>/g)].map((m) => m[1]);
     expect(skills).not.toContain("content-writing");
     expect(skills).toContain("site-editing");
-    expect(skills).toHaveLength(skillNames().length - 1);
+    expect(skills).toHaveLength(skillNames("site").length - 1);
   });
 
   it("gives sessions the six gated tools and no bash", async () => {
@@ -436,8 +453,130 @@ describe("AgentService", () => {
     expect(byName("bukit_check")?.isError).toBe(true);
     expect(text("bukit_check")).toContain("Bukit is not installed");
     expect(events.filter((e) => e.type === "summary")).toEqual([
-      { siteId: s.id, sessionId: session.id, type: "summary", summary: "Changed the title." },
+      { project: s.id, sessionId: session.id, type: "summary", summary: "Changed the title." },
     ]);
+  });
+
+  it("gives a theme project session the theme prompt, skill and tool, and writes only theme paths", async () => {
+    const dir = path.join(base, "home", `theme${++siteCount}`);
+    writeStarter(dir, { title: "Theme", language: "en-US" });
+    fs.renameSync(path.join(dir, "themes", "starter"), path.join(dir, "themes", "aurora"));
+    fs.writeFileSync(
+      path.join(dir, "site.yaml"),
+      fs.readFileSync(path.join(dir, "site.yaml"), "utf8").replace("  name: starter\n", "  name: aurora\n"),
+    );
+    fs.writeFileSync(
+      path.join(dir, "themes", "aurora", "theme.yaml"),
+      fs
+        .readFileSync(path.join(dir, "themes", "aurora", "theme.yaml"), "utf8")
+        .replace(/^name: starter$/m, "name: aurora"),
+    );
+    rawGit(base, dir, "init", "-q", "-b", "main");
+    commitAllAs(base, dir);
+    const real = fs.realpathSync(dir);
+    const t = await ctx.repos.reserved(real, () =>
+      ctx.themes.register(real, {
+        name: "Theme",
+        themeName: "aurora",
+        defaultBranch: "main",
+        configFile: "site.yaml",
+        origin: "new",
+      }),
+    );
+    await ctx.builds.settled();
+    const { agent, events, settled } = service();
+    const session = agent.create(themeKey(t.id));
+    const call = pi.ai.fauxToolCall;
+    let seen: unknown;
+    faux.setResponses([
+      (context) => {
+        seen = context;
+        return pi.ai.fauxAssistantMessage(
+          [
+            call("write", { path: "themes/aurora/tokens.yaml", content: "colors:\n  accent: '#0969da'\n" }),
+            call("write", { path: "content/posts/new.md", content: "---\ntitle: New\n---\n" }),
+            call("edit", { path: "site.yaml", edits: [{ oldText: 'title: "Theme"', newText: 'title: "Aurora"' }] }),
+            call("write", { path: "layouts/pages/index.html", content: "x" }),
+            call("write", { path: "themes/other/theme.yaml", content: "name: other\n" }),
+            call("write", { path: "_reference/note.md", content: "x" }),
+            call("write", { path: "static/404.html", content: "x" }),
+            call("theme_coverage", {}),
+          ],
+          { stopReason: "toolUse" },
+        );
+      },
+      pi.ai.fauxAssistantMessage("done"),
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Start the theme", { images: [{ mimeType: "image/png", data: PNG }] });
+    await done;
+
+    const system = systemOf(seen, "theme");
+    expect(system.preamble).toContain("BukitJalil theme assistant");
+    expect(system.preamble).toContain("themes/aurora/");
+    expect(system.skills).toContain("theme-development");
+    expect(system.skills).not.toContain("<name>publishing</name>");
+    const ends = events.flatMap((e) => (e.type === "pi" && e.event.type === "tool_execution_end" ? [e.event] : []));
+    // Tool results end in any order: two writes inside the scope, four outside it.
+    const writes = ends.filter((e) => e.toolName === "write").map((e) => e.isError);
+    expect(writes.filter((error) => !error)).toHaveLength(2);
+    expect(writes.filter((error) => error)).toHaveLength(4);
+    expect(ends.find((e) => e.toolName === "edit")?.isError).toBe(false);
+    const refused = ends.find((e) => e.toolName === "write" && e.isError);
+    expect(JSON.stringify(refused?.result)).toContain("only themes/aurora, content, site.yaml");
+    const coverage = ends.find((e) => e.toolName === "theme_coverage");
+    expect(coverage?.isError).toBe(false);
+    // The tools of one turn run together, so coverage saw the starter theme before tokens.yaml was written.
+    expect((coverage?.result as { details: unknown } | undefined)?.details).toMatchObject({
+      theme: "themes/aurora",
+      missingPageTypes: [],
+      missingTemplateFiles: [],
+      missingIncludes: [],
+      searchPage: true,
+      notFoundPage: false,
+    });
+    const ai = path.join(ctx.paths.worktrees, "themes", t.id, "ai");
+    expect(fs.existsSync(path.join(ai, "themes", "aurora", "tokens.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(ai, "layouts"))).toBe(false);
+    // The attached image went to the model and into _reference/; the AI's own write there was refused.
+    const refs = fs.readdirSync(path.join(ai, "_reference"));
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatch(/^ref-.*\.png$/);
+    expect(JSON.stringify(seen)).toContain(`saved in the project as _reference/${refs[0]}`);
+    expect(JSON.stringify(seen)).toContain('"type":"image"');
+  });
+
+  it("sends attached images to a model that reads them, and refuses them for one that does not", async () => {
+    const s = await site();
+    const { agent, settled } = service();
+    const session = agent.create(s.id);
+    let seen: unknown;
+    faux.setResponses([
+      (context) => {
+        seen = context;
+        return pi.ai.fauxAssistantMessage("Nice picture");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Like this", { images: [{ mimeType: "image/webp", data: PNG }] });
+    await done;
+    const user = (seen as { messages: { role: string; content: unknown }[] }).messages.find((x) => x.role === "user");
+    expect(user?.content).toEqual([
+      { type: "text", text: "Like this" },
+      { type: "image", mimeType: "image/png", data: PNG },
+    ]);
+    // A site keeps images only in the session file.
+    expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "_reference"))).toBe(false);
+    expect(fs.readFileSync(agent.get(session.id).file, "utf8")).toContain(PNG);
+
+    const textOnly = service({ textOnly: true }).agent;
+    const other = textOnly.create(s.id);
+    await expect(textOnly.send(other.id, "Look", { images: [{ mimeType: "image/png", data: PNG }] })).rejects.toThrow(
+      expect.objectContaining({ code: "image.model_unsupported" }),
+    );
+    await expect(
+      textOnly.send(other.id, "Look", { images: [{ mimeType: "image/png", data: "AAAA" }] }),
+    ).rejects.toThrow(expect.objectContaining({ code: "image.unsupported_type" }));
   });
 
   it("lets grep run only while the rg check passes", async () => {
@@ -792,7 +931,7 @@ describe("AgentService", () => {
       }
     });
     release();
-    expect(await done).toEqual({ siteId: s.id, sessionId: session.id, type: "status", status: "idle" });
+    expect(await done).toEqual({ project: s.id, sessionId: session.id, type: "status", status: "idle" });
     stop();
     expect(during).toMatchObject({ code: "site.busy", params: { operation: "session" } });
     expect(ctx.locks.holder(s.id)).toBeNull();
@@ -881,11 +1020,11 @@ describe("AgentService", () => {
   it("does not crash when a session cannot be disposed", () => {
     const { agent } = service();
     const internals = agent as unknown as {
-      live: Map<string, { siteId: string; session: { dispose(): void }; unsubscribe: () => void; idleTimer: null }>;
+      live: Map<string, { project: string; session: { dispose(): void }; unsubscribe: () => void; idleTimer: null }>;
       dispose(id: string): void;
     };
     internals.live.set("fake", {
-      siteId: "site",
+      project: "site",
       session: {
         dispose() {
           throw new Error("disk full");

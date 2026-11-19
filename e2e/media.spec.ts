@@ -138,7 +138,7 @@ test("a site lock error pauses the queue and one retry finishes it", async ({ pa
     { name: "two.png", mimeType: "image/png", buffer: PNG },
   ]);
   const queue = page.getByTestId("media-queue");
-  await expect(queue).toContainText("The site is busy");
+  await expect(queue).toContainText("Another operation is in progress");
   await expect(queue).toContainText("Waiting");
   await page.getByRole("button", { name: "Retry" }).click();
   await expect(queue.getByText("Uploaded")).toHaveCount(2);

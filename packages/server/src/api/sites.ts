@@ -57,7 +57,7 @@ export function siteRoutes(
     handle(c, async () => {
       const req = await body(c, InspectImportRequest);
       if (!req) return apiError(c, 400, "request.invalid_body");
-      return c.json(await sites.inspectImport(req.path));
+      return c.json(await sites.inspectImport(req.path, req.configFile));
     }),
   );
 
@@ -122,7 +122,7 @@ export function siteRoutes(
     handle(c, async () => {
       const id = c.req.param("siteId");
       const result = await sites.remove(id);
-      await builds.forgetSite(id);
+      await builds.forgetProject(id);
       return c.json(result);
     }),
   );

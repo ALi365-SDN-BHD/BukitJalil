@@ -243,6 +243,42 @@ test("a folder that is not a git repository yet is imported after confirming its
   expect(fs.existsSync(path.join(dir, ".git"))).toBe(true);
 });
 
+test("a config file with any name is found by its content, picked, built and used", async ({ page, server }) => {
+  await login(page, server);
+  const { name, parent } = fresh("Config");
+  const dir = path.join(parent, "renamed");
+  writeStarter(dir, { title: "First Config", language: "en-US" });
+  // No file is called site.yaml; two have the content of a site config, one only has "site" in its name.
+  const first = fs.readFileSync(path.join(dir, "site.yaml"), "utf8");
+  fs.rmSync(path.join(dir, "site.yaml"));
+  fs.writeFileSync(path.join(dir, "zhangsan.yaml"), first);
+  fs.writeFileSync(path.join(dir, "blog.yml"), first.replace("First Config", "Second Config"));
+  fs.writeFileSync(path.join(dir, "my_site.yaml"), "foo: 1\n");
+  git(dir, "init", "-q", "-b", "main");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "init");
+
+  await page.getByTestId("import-site").click();
+  await goToFolder(page, dir);
+  await page.getByTestId("import-inspect").click();
+  const pick = page.getByTestId("pick-config");
+  await expect(pick).toContainText("zhangsan.yaml");
+  await expect(pick).toContainText("blog.yml");
+  await expect(pick).not.toContainText("my_site.yaml");
+  await expect(page.getByTestId("import-submit")).toBeDisabled();
+  await pick.getByRole("button", { name: "blog.yml" }).click();
+  await expect(page.getByTestId("config-file")).toContainText("blog.yml");
+  await page.locator("#import-name").fill(name);
+  await page.getByTestId("import-submit").click();
+
+  await expect(page).toHaveURL(/\/sites\/[0-9a-f]+$/);
+  await expect(page.getByTestId("site-state")).toContainText(/Usable|可用/);
+  await expect(headerBuild(page)).toHaveText(/Succeeded|成功/, { timeout: 60_000 });
+  // The build read the chosen file, and nothing was renamed.
+  expect(fs.existsSync(path.join(dir, "site.yaml"))).toBe(false);
+  expect(fs.existsSync(path.join(dir, "blog.yml"))).toBe(true);
+});
+
 test("a site with a plugin folder is imported read-only and cannot build", async ({ page, server }) => {
   await login(page, server);
   const { name, parent } = fresh("ReadOnly");

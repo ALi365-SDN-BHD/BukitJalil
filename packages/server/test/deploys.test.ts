@@ -189,7 +189,7 @@ async function publishable(
   if (opts.notion)
     fs.writeFileSync(
       path.join(dir, "site.yaml"),
-      `site:\n  name: ${name}\n  title: ${name}\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\ndeploy:\n  repo: someone/blog\n  branch: gh-pages\n`,
+      `site:\n  name: ${name}\n  title: ${name}\n  language: en-US\ntheme:\n  name: starter\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\ndeploy:\n  repo: someone/blog\n  branch: gh-pages\n`,
     );
   if (opts.fail) fs.writeFileSync(path.join(dir, "fake-fail"), opts.fail);
   if (opts.upload) fs.writeFileSync(path.join(dir, "fake-upload"), "");

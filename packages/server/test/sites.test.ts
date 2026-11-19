@@ -241,7 +241,7 @@ describe("import a site (plan 5.1)", () => {
     const { call, paths } = setup();
     const dir = starterRepo("imp-clean", "dev");
     const inspect = await call<ImportInspection>("POST", "/api/sites/import/inspect", { path: dir });
-    expect(inspect.json).toEqual({ kind: "git", path: dir, branch: "dev", readOnly: null });
+    expect(inspect.json).toEqual({ kind: "git", path: dir, branch: "dev", configFile: "site.yaml", readOnly: null });
     const res = await call<Site>("POST", "/api/sites/import", { path: dir });
     expect(res.status).toBe(201);
     expect(res.json).toMatchObject({ name: "imp-clean", defaultBranch: "dev", readOnly: null });
@@ -263,12 +263,12 @@ describe("import a site (plan 5.1)", () => {
 
     const outer = starterRepo("imp-outer");
     fs.mkdirSync(path.join(outer, "sub"));
-    fs.writeFileSync(path.join(outer, "sub", "site.yaml"), "site:\n  title: x\n");
+    fs.writeFileSync(path.join(outer, "sub", "site.yaml"), "site:\n  title: x\ntheme:\n  name: starter\n");
     expect(await code(path.join(outer, "sub"))).toBe("site.not_repo_root");
 
     const empty = path.join(userHome, "imp-empty");
     fs.mkdirSync(empty);
-    fs.writeFileSync(path.join(empty, "site.yaml"), "site:\n  title: x\n");
+    fs.writeFileSync(path.join(empty, "site.yaml"), "site:\n  title: x\ntheme:\n  name: starter\n");
     raw(empty, "init", "-q", "-b", "main");
     expect(await code(empty)).toBe("site.no_commits");
 
@@ -276,6 +276,76 @@ describe("import a site (plan 5.1)", () => {
     fs.mkdirSync(noYaml);
     expect(await code(noYaml)).toBe("site.no_site_yaml");
     expect(await code(path.join(userHome, "missing"))).toBe("fs.not_found");
+  });
+
+  it("finds the config by content, whatever the file is called, and uses it everywhere", async () => {
+    const { call, identity } = setup();
+    await identity();
+    const config = "site:\n  title: Zhang\ntheme:\n  name: starter\n";
+    const make = (name: string, git: boolean, configName = "zhangsan.yaml") => {
+      const dir = path.join(userHome, name);
+      fs.mkdirSync(dir);
+      // Content decides: a name with "site" in it but no site mapping is no candidate, and a name without is.
+      fs.writeFileSync(path.join(dir, "zhangsan_site.yaml"), "foo: 1\n");
+      fs.writeFileSync(path.join(dir, configName), config);
+      fs.writeFileSync(path.join(dir, "other.yaml"), "site: plain\ntheme: x\n");
+      if (git) {
+        raw(dir, "init", "-q", "-b", "main");
+        commitAll(dir);
+      }
+      return dir;
+    };
+
+    const gitDir = make("imp-cfg-git", true);
+    const inspected = await call<ImportInspection>("POST", "/api/sites/import/inspect", { path: gitDir });
+    expect(inspected.json).toMatchObject({ kind: "git", configFile: "zhangsan.yaml", readOnly: null });
+    const imported = await call<Site>("POST", "/api/sites/import", { path: gitDir });
+    expect(imported.status).toBe(201);
+    expect(imported.json.configFile).toBe("zhangsan.yaml");
+    expect(imported.json.name).toBe("Zhang");
+    // Nothing was renamed or committed.
+    expect(fs.existsSync(path.join(gitDir, "zhangsan.yaml"))).toBe(true);
+    expect(fs.existsSync(path.join(gitDir, "site.yaml"))).toBe(false);
+    expect(raw(gitDir, "log", "--format=%s").trim().split("\n")).toHaveLength(1);
+
+    const plain = make("imp-cfg-plain", false, "x.yml");
+    const asked = await call<ImportInspection>("POST", "/api/sites/import/inspect", { path: plain });
+    expect(asked.json).toMatchObject({ kind: "not_git", configFile: "x.yml" });
+    const files = (asked.json as { files: string[] }).files;
+    expect(files).toContain("x.yml");
+    const ok = await call<Site>("POST", "/api/sites/import", { path: plain, initGit: { files } });
+    expect(ok.status).toBe(201);
+    expect(ok.json.configFile).toBe("x.yml");
+  });
+
+  it("asks which file when several have the content of a site config, and checks the answer", async () => {
+    const { call } = setup();
+    const dir = path.join(userHome, "imp-cfg-two");
+    fs.mkdirSync(dir);
+    const config = "site:\n  title: T\ntheme:\n  name: starter\n";
+    fs.writeFileSync(path.join(dir, "a.yaml"), config);
+    fs.writeFileSync(path.join(dir, "b.yml"), config);
+    fs.writeFileSync(path.join(dir, "c.yaml"), "foo: 1\n");
+    const asked = await call<ImportInspection>("POST", "/api/sites/import/inspect", { path: dir });
+    expect(asked.json).toEqual({ kind: "pick_config", path: dir, candidates: ["a.yaml", "b.yml"] });
+    const bad = await call<{ code: string }>("POST", "/api/sites/import/inspect", { path: dir, configFile: "c.yaml" });
+    expect(bad.json.code).toBe("site.bad_config_file");
+    const noPick = await call<{ code: string }>("POST", "/api/sites/import", { path: dir });
+    expect(noPick.json.code).toBe("site.bad_config_file");
+    const picked = await call<ImportInspection>("POST", "/api/sites/import/inspect", {
+      path: dir,
+      configFile: "b.yml",
+    });
+    expect(picked.json).toMatchObject({ kind: "not_git", configFile: "b.yml" });
+  });
+
+  it("refuses a folder with no file that has the content of a site config", async () => {
+    const { call } = setup();
+    const none = path.join(userHome, "imp-cfg-none");
+    fs.mkdirSync(none);
+    fs.writeFileSync(path.join(none, "site.yaml"), "foo: 1\n");
+    const res = await call<{ code: string }>("POST", "/api/sites/import/inspect", { path: none });
+    expect(res.json.code).toBe("site.no_site_yaml");
   });
 
   it("imports a repository with unsafe config read-only, without running anything", async () => {
@@ -508,7 +578,13 @@ describe("manage a site", () => {
 describe("site state stays safe when a check cannot finish", () => {
   it("starts a new row as not checked", () => {
     const { sites } = setup();
-    sites.store.insert({ id: "00000000000000aa", name: "x", path: path.join(userHome, "row"), defaultBranch: "main" });
+    sites.store.insert({
+      id: "00000000000000aa",
+      name: "x",
+      path: path.join(userHome, "row"),
+      defaultBranch: "main",
+      configFile: "site.yaml",
+    });
     expect(sites.get("00000000000000aa").readOnly).toEqual([{ code: "not_checked" }]);
   });
 

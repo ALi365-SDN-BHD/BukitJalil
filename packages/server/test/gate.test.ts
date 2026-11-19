@@ -146,6 +146,35 @@ describe("PathGate", () => {
     expect(gate().check(path.join(worktree, "content", "plugins.md"), "write")).toContain("plugins.md");
   });
 
+  it("narrows writes to a theme project's paths and keeps the other rules there (theme design 4.1)", () => {
+    const scoped = new PathGate(worktree, [], [["themes", "aurora"], ["content"], ["site.yaml"]]);
+    const w = (rel: string) => () => scoped.check(path.join(worktree, rel), "write");
+    for (const rel of [
+      "themes/aurora/layouts/pages/index.html",
+      "THEMES/Aurora/tokens.yaml",
+      "content/x.md",
+      "site.yaml",
+    ]) {
+      expect(w(rel), rel).not.toThrow();
+    }
+    for (const rel of [
+      "layouts/pages/index.html",
+      "static/404.html",
+      "_reference/a.md",
+      "themes/other/theme.yaml",
+      "themes/aurora-2/theme.yaml",
+      "themes",
+      "other.yaml",
+      "site.yaml.bak",
+    ]) {
+      expect(w(rel), rel).toThrow(/only themes\/aurora, content, site\.yaml/);
+    }
+    // Inside the scope the usual protections still hold, and reading is not narrowed.
+    expect(w("themes/aurora/.env")).toThrow(/protected/);
+    expect(w("content/plugin.yaml")).toThrow(/protected/);
+    expect(() => scoped.check(path.join(worktree, "layouts", "x.html"), "read")).not.toThrow();
+  });
+
   it("lets skills be read but not written or listed", () => {
     const skill = path.join(skills, "site-editing", "SKILL.md");
     expect(gate().check(skill, "read")).toBe(skill);
@@ -376,6 +405,29 @@ describe("gated tools", () => {
       fs.rmSync(many, { recursive: true, force: true });
     }
     expect(await findText({ pattern: "*.md" })).not.toContain("Search stopped");
+  });
+
+  it("write in a theme project reaches its config file but makes no directory outside the scope", async () => {
+    const scoped = createGatedTools(pi, {
+      cwd: worktree,
+      gate: new PathGate(worktree, [], [["themes", "aurora"], ["content"], ["site.yaml"]]),
+      rgReady: () => false,
+    });
+    const write = scoped.find((t) => t.name === "write") as ToolDefinition;
+    const call = (params: Record<string, unknown>) =>
+      write.execute("t", params as never, undefined, undefined, undefined as never).then(
+        () => null,
+        (err: Error) => err.message,
+      );
+    try {
+      expect(await call({ path: "site.yaml", content: "site: {}\n" })).toBeNull();
+      expect(await call({ path: "themes/aurora/layouts/new/page.html", content: "x" })).toBeNull();
+      expect(await call({ path: "layouts/new/page.html", content: "x" })).toContain("cannot be written here");
+      expect(fs.existsSync(path.join(worktree, "layouts", "new"))).toBe(false);
+    } finally {
+      fs.rmSync(path.join(worktree, "site.yaml"), { force: true });
+      fs.rmSync(path.join(worktree, "themes"), { recursive: true, force: true });
+    }
   });
 
   it("grep is refused until BukitJalil's rg is installed", async () => {

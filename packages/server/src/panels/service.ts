@@ -8,6 +8,7 @@ import type {
   FileResponse,
   ImageMime,
   PanelRef,
+  ProjectKey,
   SourceCounts,
   ThemeResponse,
   TreeEntryView,
@@ -28,8 +29,9 @@ import {
   treeEntryAt,
 } from "../git/objects.ts";
 import { GitError, type GitRunner } from "../git/run.ts";
+import type { ProjectService } from "../projects/service.ts";
 import { SiteError } from "../sites/location.ts";
-import type { SiteService } from "../sites/service.ts";
+import { MAX_COVERAGE_FILE_BYTES, type ThemeFiles, themeColors, themeCoverage } from "../themes/coverage.ts";
 import { parseFrontMatter, parseYaml } from "./yaml.ts";
 
 /** Text shown inline in the file panel. */
@@ -40,6 +42,8 @@ export const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_CONFIG_BYTES = 1024 * 1024;
 /** Theme file lists, per list. */
 const MAX_THEME_FILES = 2000;
+/** Template and manifest bytes the coverage reads in all. */
+const MAX_COVERAGE_TOTAL_BYTES = 16 * 1024 * 1024;
 /** Markdown files read for the data panel: count and bytes over all sources, and the size of each. */
 const MAX_DATA_FILES = 2000;
 const MAX_DATA_BYTES = 32 * 1024 * 1024;
@@ -59,6 +63,8 @@ export type FileResult =
 
 interface Version {
   repo: string;
+  /** The site's config file in `repo`. */
+  configFile: string;
   ref: PanelRef;
   commit: string;
 }
@@ -71,18 +77,18 @@ export class PanelService {
   constructor(
     private readonly opts: {
       git: GitRunner;
-      sites: SiteService;
-      /** The snapshot of the site's open change set (ref=change), or null when none is open. */
-      changeCommit: (siteId: string) => string | null;
+      projects: ProjectService;
+      /** The snapshot of the project's open change set (ref=change), or null when none is open. */
+      changeCommit: (project: ProjectKey) => string | null;
       /** Entries per source of the newest successful build of `ref` (plan 5.5). */
-      sourceCounts?: (siteId: string, ref: PanelRef) => SourceCounts | null;
+      sourceCounts?: (project: ProjectKey, ref: PanelRef) => SourceCounts | null;
     },
   ) {}
 
   // --- files ---
 
-  async tree(siteId: string, ref: PanelRef, dir: string): Promise<TreeResponse> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async tree(project: ProjectKey, ref: PanelRef, dir: string): Promise<TreeResponse> {
+    return this.withVersion(project, ref, async (v) => {
       let entries: TreeEntry[];
       try {
         entries = await listTree(this.opts.git, v.repo, v.commit, dir ? { dir } : {});
@@ -102,8 +108,13 @@ export class PanelService {
     });
   }
 
-  async file(siteId: string, ref: PanelRef, filePath: string, as: "json" | "raw" | "download"): Promise<FileResult> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async file(
+    project: ProjectKey,
+    ref: PanelRef,
+    filePath: string,
+    as: "json" | "raw" | "download",
+  ): Promise<FileResult> {
+    return this.withVersion(project, ref, async (v) => {
       const entry = await this.entryAt(v, filePath);
       if (!entry) throw new SiteError("panel.not_found", 404);
       const base = { ref, commit: v.commit, path: filePath };
@@ -146,8 +157,8 @@ export class PanelService {
 
   // --- config ---
 
-  async config(siteId: string, ref: PanelRef): Promise<ConfigResponse> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async config(project: ProjectKey, ref: PanelRef): Promise<ConfigResponse> {
+    return this.withVersion(project, ref, async (v) => {
       const { raw, config, error } = await this.siteConfig(v);
       return { ref, commit: v.commit, raw, error, config, summary: config ? summarizeConfig(config) : null };
     });
@@ -155,8 +166,8 @@ export class PanelService {
 
   // --- theme ---
 
-  async theme(siteId: string, ref: PanelRef): Promise<ThemeResponse> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async theme(project: ProjectKey, ref: PanelRef): Promise<ThemeResponse> {
+    return this.withVersion(project, ref, async (v) => {
       const { config, error: configError } = await this.siteConfig(v);
       const theme = isRecord(config?.theme) ? config.theme : {};
       const empty: ThemeResponse = {
@@ -172,6 +183,9 @@ export class PanelService {
         static: [],
         truncated: false,
         params: theme.params ?? null,
+        coverage: null,
+        colors: null,
+        siteTheme: null,
       };
       const name = typeof theme.name === "string" && pathProblem(theme.name, true) === null ? theme.name : null;
       if (!name) return empty;
@@ -179,6 +193,17 @@ export class PanelService {
       const dirEntry = await this.entryAt(v, dir);
       if (dirEntry?.type !== "tree") return { ...empty, name };
 
+      // A theme project's deliverable (theme development design 2): what it covers and its token colors.
+      const themeProject = this.opts.projects.get(project).themeName !== null;
+      const extra =
+        themeProject && config
+          ? {
+              coverage: await themeCoverage(config, name, this.versionFiles(v)),
+              // Read like the config and theme.yaml (1 MiB), not the template limit: a big tokens file still has colors.
+              colors: themeColors(await this.readTextOrNull(v, `${dir}/tokens.yaml`, MAX_CONFIG_BYTES)),
+              siteTheme: config.theme ?? null,
+            }
+          : {};
       const manifestRaw = await this.readText(v, `${dir}/theme.yaml`, MAX_CONFIG_BYTES);
       const manifest = manifestRaw === null ? null : parseYaml(manifestRaw);
       let truncated = false;
@@ -200,6 +225,7 @@ export class PanelService {
         assets: await files("assets"),
         static: await files("static"),
         truncated,
+        ...extra,
       };
     });
   }
@@ -210,8 +236,8 @@ export class PanelService {
    * The databaseId of content source `index` on the default branch (plan 5.4), for reading its fields with
    * the bound token. Never a change set's: an unreviewed site.yaml could name any database the token reads.
    */
-  async notionDatabaseId(siteId: string, index: number): Promise<string> {
-    return this.withVersion(siteId, "main", async (v) => {
+  async notionDatabaseId(project: ProjectKey, index: number): Promise<string> {
+    return this.withVersion(project, "main", async (v) => {
       // Every value as text, as Bukit reads it: an unquoted all-digit id must not turn into a number.
       const { raw } = await this.siteConfig(v);
       const parsed = raw === null ? null : parseYaml(raw, { asText: true });
@@ -225,8 +251,8 @@ export class PanelService {
     });
   }
 
-  async data(siteId: string, ref: PanelRef): Promise<DataResponse> {
-    return this.withVersion(siteId, ref, async (v) => {
+  async data(project: ProjectKey, ref: PanelRef): Promise<DataResponse> {
+    return this.withVersion(project, ref, async (v) => {
       const { config } = await this.siteConfig(v);
       const content = isRecord(config?.content) ? config.content : {};
       const sources = Array.isArray(content.sources) ? content.sources : [];
@@ -285,8 +311,9 @@ export class PanelService {
         commit: v.commit,
         sources: out,
         truncated,
-        counts: this.opts.sourceCounts?.(siteId, ref) ?? null,
-        notionSnapshot: notion ? this.opts.sites.notionSnapshots.get(siteId) : null,
+        counts: this.opts.sourceCounts?.(project, ref) ?? null,
+        notionSnapshot:
+          notion && this.opts.projects.isSite(project) ? this.opts.projects.sites.notionSnapshots.get(project) : null,
       };
     });
   }
@@ -323,15 +350,16 @@ export class PanelService {
   // --- shared ---
 
   /** Resolve the version and turn git failures about the repository into API errors. */
-  private async withVersion<T>(siteId: string, ref: PanelRef, fn: (v: Version) => Promise<T>): Promise<T> {
-    const site = this.opts.sites.get(siteId);
-    const changeCommit = ref === "change" ? this.opts.changeCommit(siteId) : null;
+  private async withVersion<T>(project: ProjectKey, ref: PanelRef, fn: (v: Version) => Promise<T>): Promise<T> {
+    const site = this.opts.projects.get(project);
+    const changeCommit = ref === "change" ? this.opts.changeCommit(project) : null;
     if (ref === "change" && changeCommit === null) throw new SiteError("change.not_found", 404);
     if (!fs.existsSync(site.path)) throw new SiteError("fs.not_found", 404);
     if (!fs.existsSync(path.join(site.path, ".git"))) throw new SiteError("site.not_repo", 409);
     try {
       // The snapshot is pinned by refs/bukitjalil/changes/<id>, so it is always there.
-      if (changeCommit !== null) return await fn({ repo: site.path, ref, commit: changeCommit });
+      if (changeCommit !== null)
+        return await fn({ repo: site.path, configFile: site.configFile, ref, commit: changeCommit });
       let commit: string;
       try {
         commit = await resolveBranch(this.opts.git, site.path, site.defaultBranch);
@@ -345,7 +373,7 @@ export class PanelService {
         }
         throw err;
       }
-      return await fn({ repo: site.path, ref, commit });
+      return await fn({ repo: site.path, configFile: site.configFile, ref, commit });
     } catch (err) {
       if (err instanceof GitError && (err.kind === "unsafe_repo" || err.kind === "dubious_ownership")) {
         throw new SiteError("site.repo_unsafe", 409);
@@ -368,6 +396,52 @@ export class PanelService {
     return all.filter((e) => e.type === "blob" && e.mode !== SYMLINK_MODE).sort((a, b) => compare(a.path, b.path));
   }
 
+  /** A version's files for the theme coverage: blobs only (no symlinks), each read up to the coverage limit. */
+  private versionFiles(v: Version): ThemeFiles {
+    const listed = new Map<string, TreeEntry>();
+    return {
+      list: async (dir) => {
+        const entries = await this.blobsUnder(v, dir);
+        for (const e of entries) listed.set(e.path, e);
+        return entries.map((e) => e.path);
+      },
+      read: async (paths) => {
+        // Files past the total limit are left out, like a file over its own limit.
+        let total = 0;
+        const entries: TreeEntry[] = [];
+        for (const p of new Set(paths)) {
+          const e = listed.get(p);
+          const size = e?.size ?? 0;
+          if (!e || size > MAX_COVERAGE_FILE_BYTES || total + size > MAX_COVERAGE_TOTAL_BYTES) continue;
+          total += size;
+          entries.push(e);
+        }
+        const blobs = await readBlobs(
+          this.opts.git,
+          v.repo,
+          entries.map((e) => e.oid),
+          MAX_COVERAGE_TOTAL_BYTES,
+        );
+        const out = new Map<string, string>();
+        for (const e of entries) {
+          const data = blobs.get(e.oid);
+          if (data) out.set(e.path, data.toString("utf8"));
+        }
+        return out;
+      },
+    };
+  }
+
+  /** A file's text, or null when it is missing or larger than `maxBytes`. */
+  private async readTextOrNull(v: Version, p: string, maxBytes: number): Promise<string | null> {
+    try {
+      return await this.readText(v, p, maxBytes);
+    } catch (err) {
+      if (err instanceof GitError && err.kind === "output_too_large") return null;
+      throw err;
+    }
+  }
+
   private async readText(v: Version, p: string, maxBytes: number): Promise<string | null> {
     return (await readBlobAt(this.opts.git, v.repo, v.commit, p, maxBytes))?.toString("utf8") ?? null;
   }
@@ -375,7 +449,7 @@ export class PanelService {
   private async siteConfig(
     v: Version,
   ): Promise<{ raw: string | null; config: Record<string, unknown> | null; error: string | null }> {
-    const raw = await this.readText(v, "site.yaml", MAX_CONFIG_BYTES);
+    const raw = await this.readText(v, v.configFile, MAX_CONFIG_BYTES);
     if (raw === null) return { raw, config: null, error: null };
     const parsed = parseYaml(raw);
     if (parsed.error !== null) return { raw, config: null, error: parsed.error };

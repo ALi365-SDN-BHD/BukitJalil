@@ -78,7 +78,7 @@ function openChange(siteId: string) {
 
 async function changeFile(siteId: string, rel: string): Promise<Buffer> {
   const change = openChange(siteId);
-  const cwd = await ctx.sites.aiWorktree(siteId, change.snapshotCommit, { reset: false });
+  const cwd = await ctx.projects.aiWorktree(siteId, change.snapshotCommit, { reset: false });
   return fs.readFileSync(path.join(cwd, rel));
 }
 
@@ -340,7 +340,7 @@ describe("MediaService.upload", () => {
     const result = await upload(site.id, { name: "logo.png", data: PNG.toString("base64"), replace: true });
     expect(result.replaced).toBe(true);
     const change = openChange(site.id);
-    const cwd = await ctx.sites.aiWorktree(site.id, change.snapshotCommit, { reset: false });
+    const cwd = await ctx.projects.aiWorktree(site.id, change.snapshotCommit, { reset: false });
     const names = fs.readdirSync(path.join(cwd, "themes/starter/static/uploads"));
     // The API returns logo.png and Pages is case-sensitive, so the stored name must match exactly.
     expect(names).toContain("logo.png");
@@ -435,7 +435,7 @@ describe("MediaService.upload", () => {
       snap.mockRestore();
     }
     expect(ctx.changes.store.open(site.id)).toBeNull();
-    const cwd = await ctx.sites.aiWorktree(site.id, await ctx.sites.headOf(site), { reset: false });
+    const cwd = await ctx.projects.aiWorktree(site.id, await ctx.projects.headOf(site), { reset: false });
     expect(fs.existsSync(path.join(cwd, "themes/starter/static/uploads/logo.png"))).toBe(false);
   });
 
@@ -454,7 +454,7 @@ describe("MediaService.upload", () => {
     } finally {
       snap.mockRestore();
     }
-    const cwd = await ctx.sites.aiWorktree(site.id, await ctx.sites.headOf(site), { reset: false });
+    const cwd = await ctx.projects.aiWorktree(site.id, await ctx.projects.headOf(site), { reset: false });
     expect((await fs.promises.readFile(path.join(cwd, "themes/starter/static/uploads/logo.png"))).equals(PNG)).toBe(
       true,
     );

@@ -235,7 +235,7 @@ it.skipIf(process.platform === "win32")(
     writeStarter(dir, { title: "notion", language: "en-US" });
     fs.writeFileSync(
       path.join(dir, "site.yaml"),
-      "site:\n  name: notion\n  title: Notion\n  language: en-US\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n",
+      "site:\n  name: notion\n  title: Notion\n  language: en-US\ntheme:\n  name: starter\ncontent:\n  sources:\n    - name: posts\n      type: notion\n      collection: post\n      notion:\n        databaseId: abc\n",
     );
     raw(dir, "init", "-q", "-b", "main");
     commitAll(dir, "notion");
@@ -461,7 +461,7 @@ it.skipIf(process.platform === "win32")(
       const [, dir] = snapshots.recordArgs(s.site.id) as [string, string];
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, "manifest.json"), "{}");
-      snapshots.recorded(s.site.id, "c".repeat(40), s.dir);
+      snapshots.recorded(s.site.id, "c".repeat(40), s.dir, "site.yaml");
       expect(snapshots.get(s.site.id)).toMatchObject({ commit: "c".repeat(40) });
     };
     record();
@@ -547,7 +547,7 @@ describe("main builds (plan 8.3, 8.4)", () => {
     try {
       const b = await s.build();
       const mine = got.filter((e) => e.type === "build.start" || e.type === "build.end");
-      expect(mine.map((e) => [e.type, "siteId" in e && e.siteId])).toEqual([
+      expect(mine.map((e) => [e.type, "project" in e && e.project])).toEqual([
         ["build.start", s.site.id],
         ["build.end", s.site.id],
       ]);
@@ -879,10 +879,10 @@ describe("build records", () => {
   it("closes builds left running by a previous process", () => {
     const db = openDatabase(":memory:");
     db.prepare(
-      "INSERT INTO sites (id, name, path, default_branch, created_at) VALUES ('s', 'n', '/x', 'main', 't')",
+      "INSERT INTO sites (id, name, path, default_branch, created_at) VALUES ('0000000000000001', 'n', '/x', 'main', 't')",
     ).run();
     const store = new BuildStore(db);
-    store.insert({ id: "b1", siteId: "s", commit: "c" });
+    store.insert({ id: "b1", project: "0000000000000001", commit: "c" });
     expect(store.closeInterrupted()).toBe(1);
     expect(store.get("b1")).toMatchObject({ status: "failed", outcome: "interrupted", finishedAt: expect.any(String) });
   });

@@ -1,4 +1,4 @@
-import type { ChangedFileStatus, FileResponse, PanelRef, TreeEntryView } from "@bukitjalil/shared";
+import type { ChangedFileStatus, FileResponse, PanelRef, ProjectKey, TreeEntryView } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Download, File, FileSymlink, Folder, Package } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -14,12 +14,12 @@ import { PanelError, PanelLoading, RefSwitch } from "./common";
 import { MarkdownView, splitFrontMatter } from "./MarkdownView";
 
 /** File panel (plan 5.3, 10.2): a lazily loaded tree from git objects and a read-only file view. */
-export function FilesPanel({ siteId }: { siteId: string }) {
+export function FilesPanel({ project }: { project: ProjectKey }) {
   const { m } = useI18n();
   const [params, setParams] = useSearchParams();
   const selected = params.get("file");
-  const [ref] = usePanelRef(siteId);
-  const { change } = useCurrentChange(siteId);
+  const [ref] = usePanelRef(project);
+  const { change } = useCurrentChange(project);
   // Changed files are marked in the snapshot's tree (deleted ones are not in it).
   const marks = useMemo(
     () => new Map(ref === "change" && change ? change.files.map((f) => [f.path, f.status] as const) : []),
@@ -36,11 +36,11 @@ export function FilesPanel({ siteId }: { siteId: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <RefSwitch siteId={siteId} />
+      <RefSwitch project={project} />
       <div className="flex min-h-0 flex-1">
         <nav className="w-56 shrink-0 overflow-auto border-r py-1 text-sm" data-testid="file-tree">
           <TreeLevel
-            siteId={siteId}
+            project={project}
             refName={ref}
             marks={marks}
             path=""
@@ -51,7 +51,7 @@ export function FilesPanel({ siteId }: { siteId: string }) {
         </nav>
         <div className="flex min-w-0 flex-1 flex-col">
           {selected ? (
-            <FileView key={`${ref}:${selected}`} siteId={siteId} refName={ref} path={selected} />
+            <FileView key={`${ref}:${selected}`} project={project} refName={ref} path={selected} />
           ) : (
             <p className="p-6 text-sm text-muted-foreground">{m.files.select}</p>
           )}
@@ -62,7 +62,7 @@ export function FilesPanel({ siteId }: { siteId: string }) {
 }
 
 function TreeLevel(props: {
-  siteId: string;
+  project: ProjectKey;
   refName: PanelRef;
   marks: Map<string, ChangedFileStatus>;
   path: string;
@@ -72,8 +72,8 @@ function TreeLevel(props: {
 }) {
   const { m, errorOf } = useI18n();
   const tree = useQuery({
-    queryKey: keys.panel(props.siteId, "tree", props.refName, props.path),
-    queryFn: () => api.tree(props.siteId, props.refName, props.path),
+    queryKey: keys.panel(props.project, "tree", props.refName, props.path),
+    queryFn: () => api.tree(props.project, props.refName, props.path),
   });
   const pad = { paddingLeft: `${props.depth * 12 + 8}px` };
   if (tree.isPending)
@@ -111,7 +111,7 @@ function TreeItem({
   ...props
 }: {
   entry: TreeEntryView;
-  siteId: string;
+  project: ProjectKey;
   refName: PanelRef;
   marks: Map<string, ChangedFileStatus>;
   depth: number;
@@ -152,11 +152,11 @@ function TreeItem({
   );
 }
 
-function FileView({ siteId, refName, path }: { siteId: string; refName: PanelRef; path: string }) {
+function FileView({ project, refName, path }: { project: ProjectKey; refName: PanelRef; path: string }) {
   const { m, t, locale } = useI18n();
   const file = useQuery({
-    queryKey: keys.panel(siteId, "file", refName, path),
-    queryFn: () => api.file(siteId, refName, path),
+    queryKey: keys.panel(project, "file", refName, path),
+    queryFn: () => api.file(project, refName, path),
   });
   const [rendered, setRendered] = useState(true);
 
@@ -168,7 +168,7 @@ function FileView({ siteId, refName, path }: { siteId: string; refName: PanelRef
       {extra}
       {file.data && file.data.kind !== "symlink" && file.data.kind !== "submodule" && (
         <Button asChild size="xs" variant="ghost">
-          <a href={fileUrl(siteId, refName, path, "download")} download>
+          <a href={fileUrl(project, refName, path, "download")} download>
             <Download /> {m.files.download}
           </a>
         </Button>
@@ -240,7 +240,7 @@ function FileView({ siteId, refName, path }: { siteId: string; refName: PanelRef
         {header()}
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[repeating-conic-gradient(var(--muted)_0_25%,transparent_0_50%)] bg-[length:16px_16px] p-4">
           <img
-            src={fileUrl(siteId, refName, path, "raw")}
+            src={fileUrl(project, refName, path, "raw")}
             alt={path}
             className="max-h-full max-w-full"
             data-testid="file-image"

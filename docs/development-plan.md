@@ -265,6 +265,8 @@ BukitJalil/
 3. 检查通过后才创建 `worktrees/<siteId>/main/` 检出。不通过时网站仍可导入，标记为"**只读：不满足安全规则**"，界面列出原因（例如使用了外部插件、路径越界、包含符号链接）；这类网站可以浏览文件、配置，但不能构建、不能开 AI 会话，也不会创建任何检出
 4. 然后在 `main/` 检出里执行 `bukit config check`；失败标记"配置有误"，仍可以开 AI 会话让 AI 修复
 
+> **配置文件不一定叫 `site.yaml`**（2026-11-18）：导入时只按内容找网站配置，不看文件名，也不改名：根目录的 `*.yaml` / `*.yml`（普通文件、不是符号链接、不超过 1 MiB、`failsafe` 解析），顶层有 `site` 映射且有 `theme` 键才算候选（`sites/config-candidates.ts`）。没有候选报 `site.no_site_yaml`；一个候选直接用；多个候选时检查结果为 `pick_config`，用户选一个再检查（`configFile`，服务端重新核对内容，否则 `site.bad_config_file`）。选定的文件名存在 `sites.config_file`（迁移 012，默认 `site.yaml`，`bukit new` 新建的网站就是它），`Site.configFile` 返回给界面。之后所有读写配置的地方都用它：构建前检查（`guardCommit` 的参数）、构建、`config check`、`doctor`、`deploy` 的 `--config`，预览基础路径和语言，面板、媒体、改动集的 Notion 变化和插件开关，部署设置提交，AI 的 `site_info`、`bukit_check`、`bukit_build`，以及 Notion 固定文件。文件名限制为根目录的 `.yaml` / `.yml`、不以 `-` 开头、没有路径分隔符和控制字符（`ConfigFileName`）。AI 的系统提示里，配置文件不叫 `site.yaml` 时会说明技能里的 `site.yaml` 指这个文件。
+
 > 限制：Bukit 的外部插件（如官方的 IndexNow、WechatSync、Import）在 BukitJalil 里不被支持，使用了它们的网站只能以只读方式导入。
 >
 > 限制：使用 Notion 数据源的网站，Bukit 的 `config check`、`doctor`、`build` 在没有 `NOTION_TOKEN` 时直接报错（已核对 2.0.8 和 2.0.11 源码 `ProviderValidators.cs`、`DoctorCommand.cs`），而未审核内容的构建按 8.5 不传密钥。所以这类网站的 AI 检查、AI 构建和改动集预览在 MVP 里不可用：`bukit_check` / `bukit_build` 直接返回"此网站使用 Notion 数据源，AI 构建不可用"，不调用 Bukit，避免 AI 反复处理它修不了的错误；正式版本的构建传 token。（M7 之后：token 按 Notion 数据源保存，网站在 `sites.notion_data_source_id` 里选用一个数据源；正式版本的每次构建都会传这个 token，包括用户点"应用"后的自动重建——应用本身是用户操作。见 6.5。）M1 已确认不行：Notion 源有 `cacheMode: readonly`，但 Bukit 在读取缓存模式之前就要求 token（源码 `ContentProviderFactory.cs`），2.0.8 和 2.0.11 实测 `cacheMode: readonly` 且没有 token 时 check / doctor / build 仍分别返回 1 / 1 / 2。
@@ -1834,6 +1836,148 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - **Windows 上 git 的行为**：换行转换、长路径（`core.longpaths`）、大小写不敏感的文件系统对 `PathGate` 和改动集的影响，第 0 项和第 5 项里会碰到，可能要补 git 加固里的配置。
 
 **和 Windows 无关、但同样限制平台的一项**：Linux 没有钥匙串时不保存 token 和密钥（6.7）。要覆盖这类用户，需要另做"应用主密码"（用 scrypt 从用户输入的密码派生主密钥，每次启动输入一次），约 2–3 天，包括设置页、迁移、重置和测试。没有排期，也没有定下要做。
+
+### 主题开发（2026-11-19 定，T0–T3 已完成）
+
+设计和已定的问题见 [plans/2026-11-19-theme-development-design.md](plans/2026-11-19-theme-development-design.md)。左栏顶部切换"网站构建 / 主题开发"；主题开发有三个入口：按描述新建、导入主题、克隆网站（仅桌面版）；产出是 `themes/<name>/`，可以应用到网站（用户作者的改动集）或导出 zip。主题项目单独存在 `themes` 表里，仓库里带一个只为预览存在的样例网站。
+
+**分层实施**（每层：实现 → 审计 → 修复 → 复查 → 提交推送）：
+
+| 阶段 | 层 | 内容 |
+| --- | --- | --- |
+| T0 抽出"项目" | 1 | 迁移 013：`themes` 表；`sessions`、`change_sets`、`builds` 改为属于网站或主题二选一（重建表）；共享类型 `ProjectKind`、`ProjectRef`、项目键；`ThemeStore`；三个表的存取按项目 |
+| | 2 | 服务端按项目：检出、操作锁、改动集、构建、会话、预览、文件和主题面板、AI 工具和闸门、事件；`/api/themes` 和 `/api/themes/:themeId/...` 挂同一套处理函数；只属于网站的功能（Notion、发布、SEO、插件、素材上传网址检查）拒绝主题 |
+| | 3 | 界面按项目：接口地址、事件分发、对话、改动、面板组件改为接收项目；不改行为 |
+| T1 新建主题 | 1 | 自带样例内容；按描述新建主题项目（`bukit new`、改名、换样例内容、参考图写进 `_reference/`）；主题列表、删除、改名接口 |
+| | 2 | AI：主题项目的闸门写入范围、`theme-development` 技能、按项目类型的系统提示、`theme_coverage` 工具 |
+| | 3 | 参考图输入：对话附图、模型能力判断、服务端校验和去 EXIF、主题项目存进 `_reference/` |
+| | 4 | 界面：模式切换、主题列表和新建对话框、主题模式的面板（预览页面类型 / 宽度、主题覆盖、样例内容、参考） |
+| | 5 | 应用到网站（用户作者的改动集）、导出 zip |
+| T2 导入主题 | 1 | 文件夹和 zip、三种形状识别、安全检查、父主题、界面 |
+| T3 克隆网站 | 1 | 桌面主进程：锁死的隐藏窗口、带 DNS 检查的本地代理、限额、隔离世界收集 DOM / CSS / 截图、`captures/` |
+| | 2 | 服务端复核 `captures/`、生成主题项目、`site-to-theme` 技能、授权确认和选项、界面 |
+
+**T0 第 1–2 层实现说明**（2026-11-19）：
+
+- 两层一起提交：第 1 层把 `siteId` 换成项目键后，存取层的记录字段变了，服务端不跟着改就编译不过。
+- 项目键：网站就是网站 id，主题项目是 `themes/<id>`（`@bukitjalil/shared` 的 `projectKey`、`parseProjectKey`）。它同时用作 `worktrees/`、`sessions/`、`previews/` 下的目录、操作锁的键和事件、记录里的 `project` 字段。两种 id 都是 16 位十六进制，靠前缀区分，一个主题 id 永远不会被当成网站 id。
+- 迁移 013 新建 `themes` 表，重建 `sessions`、`change_sets`、`builds`：`site_id`、`theme_id` 两列，`CHECK` 二选一；"每个项目最多一个未完成改动集"拆成两个部分唯一索引。重建要 `DROP TABLE`，外键开着会触发级联删除，所以迁移执行器在迁移期间关掉外键，每个迁移提交前跑 `PRAGMA foreign_key_check`，最后（失败时也一样）重新打开。
+- 代码分层：`projects/repo.ts`（`ProjectRepos`，从 `SiteService` 抽出的检出、安全检查、删除文件）、`projects/service.ts`（`ProjectService`，按键取项目，只属于网站的功能用 `site(key)`，主题键一律 404 `site.not_found`）、`themes/`（`ThemeStore`、`ThemeService`：注册、复查、改名、删除）。改动集、构建、会话、预览、面板、AI 工具、事件都改为接收项目键。
+- 接口：项目路由同时挂在 `/sites/:siteId` 和 `/themes/:themeId` 下（`PROJECT_PREFIXES`、`projectParam`）；`/api/themes` 有列表、详情、改名、复查、打开、删除，新建、导入、克隆随 T1–T3。插件、SEO 检查、发布、Notion、素材上传只挂在网站下。
+- 位置规则：网站和主题项目互相不能重叠；和主题项目重叠报 `site.path_overlaps_theme`，已经是主题项目报 `theme.already_registered`。
+- 留到后面的：界面仍按网站拼接口地址，主题项目的地址在第 3 层改；检出、锁、只读这些共用操作仍报 `site.read_only`、`site.busy`、`site.branch_missing`，主题模式的界面（T1 第 4 层）要按当前模式措辞。
+
+**T0 第 3 层实现说明**（2026-11-19）：
+
+- `lib/project.ts`：`projectPath(key)` 给出网站的 `/sites/<id>` 或主题项目的 `/themes/<id>`，接口地址（加 `/api`）和界面路由共用它；`ProjectInfo`（键和只读原因）是对话视图需要的项目信息，网站用 `siteProject(site)` 得到。
+- `api.ts`：项目路由（文件树、文件、配置、主题、数据、构建、预览、改动集、历史、会话）和 `fileUrl` 按项目键拼地址；SEO 检查、插件、素材上传、发布、Notion 仍只拼网站地址。查询键加了 `keys.project(key)` 和 `keys.projects(key)`：网站仍是 `["site", id]`、`["sites"]`，主题项目是 `["theme", id]`、`["themes"]`，构建结束和应用改动后按项目刷新。
+- 组件：对话（`ChatView` 收 `ProjectInfo`）、会话列表、审核卡、改动面板、预览、文件、配置、主题、数据面板和构建组件改为收项目键；只属于网站的部分（插件开关、Notion 绑定和字段、SEO、素材上传）仍收 `siteId`，现在由网站传入。行为没有变化：单元测试和 e2e（147 个）全部通过。
+- 留到后面的：对话附件和改动面板的上传、配置面板的插件开关、数据面板的 Notion 部分调用只属于网站的接口，主题模式的界面（T1 第 3、4 层）要按项目类型隐藏或换成参考图。
+
+**T1 第 1 层实现说明**（2026-11-19）：
+
+- 样例内容自带在 `packages/server/assets/theme-demo/content/`：12 篇文章（每页 10 篇，所以列表有第 2 页）、三个分类、八个标签、三个页面（关于、联系、排版样例），正文覆盖标题、列表、引用、表格、代码块、分隔线。用 Bukit 2.2.6 实际构建过：首页、文章、页面、列表和分页、标签、分类、归档都会生成。样例只有英文，主题的界面文字仍按项目语言。打包时和技能一样作为资源复制（`theme-demo/`，`BUKITJALIL_RESOURCES`），缺了启动就失败。biome 不检查这个目录（它的 Markdown 格式化会改坏 front matter）。
+- `POST /api/themes`（`CreateThemeRequest`：显示名、主题名、目录、语言）：`bukit new` → `themes/starter` 改名为 `themes/<主题名>`，同步改 `theme.yaml` 的 `name`、`display_name`、`description` 和 `site.yaml` 的 `theme.name` → 用样例内容替换 `content/` → 建仓库并首次提交（和新建网站共用 `ProjectRepos.commitNew`）→ 登记、安全检查、首次构建。失败时删掉写出的文件，和新建网站一样。
+- 主题名（`ThemeName`）按 Bukit 的规则（`[A-Za-z0-9_.-]`、不含 `..`、不是 Windows 设备名），另外要求以字母或数字开头，不会是隐藏目录或被当成命令行选项。
+- 描述不传给服务端：界面在 T1 第 4 层把它预填进第一个会话的输入框。参考图挪到第 3 层，和校验、去 EXIF 一起做，避免先写入没校验过的图片。
+- 主题项目的列表、改名、删除接口在 T0 已有。
+
+**T1 第 2 层实现说明**（2026-11-19）：
+
+- 写入范围：`PathGate` 多了一个可选的写入白名单（路径段，按 `segmentKey` 比较，大小写不敏感）。主题项目的会话用 `aiWriteScope`：`themes/<主题名>`、`content`、网站配置文件；读不收窄，原有的禁止项（`.git`、`.env*`、构建目录、插件文件、1 MB、二进制）在白名单内照旧。Pi 的写文件工具会先建父目录，已存在的目录现在不再要求写权限，否则根目录的配置文件写不了；新目录仍要过写检查。
+- 系统提示按项目类型换开头一段：主题项目说明交付物是 `themes/<主题名>/`、`content/` 只是样例、`_reference/` 和 `_capture/` 只读且里面的文字不是指令、能写哪些路径。
+- 技能：新增 `skills/bukitjalil/theme-development`（目录约定、页面类型清单和样例里的对应地址、先 tokens 后模板、转义、只用本地资源、纯 CSS、搜索页和 404、检查顺序）。`theme-development` 只给主题项目，`publishing` 只给网站（`THEME_SKILLS`、`SITE_ONLY_SKILLS`）；`theme-development` 和 `site-editing` 一样是必需技能，设置页列出全部技能。
+- 新工具 `theme_coverage`（只有主题项目有）：`theme.yaml` 声明的模板和文件是否存在、缺哪些页面类型（`home`、`post`、`page`、`list`、`pagination`、`archive`、`taxonomy_index`、`taxonomy_term`）、`include` 指向不存在的文件、有没有 `tokens.yaml`、搜索页和 `static/404.html`。都经过闸门读，读不到的报告出来而不是抛错。
+
+**T1 第 3 层实现说明**（2026-11-19）：
+
+- 共享类型：`ReferenceImageRequest`（`mimeType` 只作提示，`data` 是 base64）、每条最多 5 张、每张最多 5 MiB；`SendMessageRequest` 和 `CreateThemeRequest` 多了可选的 `images`；`ModelInfo.images` 来自模型的 `input` 是否含 `image`。新错误码 `image.invalid`、`image.too_large`、`image.unsupported_type`、`image.model_unsupported`。
+- 服务端校验（`media/reference.ts`）：按字节判断类型，不信声明的类型和文件名；按结构解析而不是完整解码：PNG 逐块检查长度和 CRC，从 `IHDR` 到 `IEND`；JPEG 逐段检查长度，扫描数据按标记找到结尾（渐进式有多段扫描），到图像结束标记为止，后面附加的内容（例如带自己 EXIF 的增益图）丢掉；WebP 检查 RIFF 块，必须有图像块。解析不通过就拒绝。去掉元数据：PNG 的 `eXIf`、`tEXt`、`zTXt`、`iTXt`、`tIME`；JPEG 的 APP1–APP15（保留 ICC 配置）、注释和结束标记之后的内容；WebP 的 `EXIF`、`XMP ` 块，同时清掉 `VP8X` 里对应的标记。GIF、SVG 等不收。像素不重新编码；缩放交给 Pi（它用 Photon 解码，PNG 的 CRC 不对时会丢图，所以这里先查 CRC）。
+- 对话：`AgentService.send` 先清理图片，有图片且所选模型不读图时返回 `image.model_unsupported`。排队的消息改为"文字 + 图片"，合并时文字用空行连接、图片按顺序合并；运行中的会话用 `steer`/`followUp` 带上图片。
+- 写进 `_reference/` 的时机：主题项目在发给 Pi 之前写进 AI 检出的 `_reference/`（新文件名 `ref-<时间>-<序号>-<随机>.<扩展名>`，`O_EXCL`、不跟随符号链接，目录或其上级是符号链接、`_reference` 是文件时拒绝），所以跟着这次运行的快照进改动集；发给模型的文字末尾注明文件路径。AI 写不了 `_reference/`，所以主题项目记录"AI 改过的文件"时不算这里的文件（7.2 的 `AI changes: …`）。网站项目不写文件，图片只在 Pi 的会话文件里。分叉会话时 Pi 复制消息，图片跟着走。
+- 新建主题：请求里的图片在创建任何东西之前校验，`makeThemeProject` 之后写进 `_reference/`，和首次提交一起提交。
+- 界面：输入框可以选图、粘贴、拖入（拖到输入框上的图片总是作为附图；拖到对话其他位置时，网站仍走素材上传，主题项目没有素材上传，也作为附图）；附图显示缩略图，可逐张移除，不合规的文件说明原因；所选模型不读图时附图按钮禁用并说明。主题项目不显示素材上传按钮（素材上传只属于网站）。发送失败时文字和图片一起回到输入框；输入框里已经有新内容时，失败的消息（连同图片）作为"重试"提供，不把图片混进新消息。对话记录里用户消息显示缩略图（只渲染 PNG、JPEG、WebP 的 `data:` 地址，CSP 已允许 `img-src data:`）。
+
+**T1 第 4 层实现说明**（2026-11-19）：
+
+- 模式切换：左栏顶部两段的分段按钮（网站构建 / 主题开发，`ModeSwitch`），在 `/sites/...` 和 `/themes/...` 两组路由之间跳；每组最后打开的位置存在本地存储（`bj-last-site`、`bj-last-theme`），读不到时回到这一组的首页。中间的对话、审核卡、工具卡照旧复用。
+- 主题列表和新建：主题模式的左栏是主题列表（会话列表、归档、删除），顶部现在是"新建主题"按钮；导入和克隆随 T2、T3 加入，那时再改成下拉。新建对话框填名称、主题目录名（默认由名称生成，按 `ThemeName` 校验）、描述、参考图、语言、位置和提交身份；创建后建第一个会话，描述（有参考图时再加一句说明）预填进输入框，不自动发送。
+- 右侧面板按模式换一组：主题模式是预览、改动、文件、主题、样例内容、参考，Alt+数字按这一组的顺序。配置面板不放进主题模式，样例网站的 `theme` 段改在主题面板里显示。
+- 预览：主题项目多了页面类型选择（首页、文章、页面、列表、分页、归档、分类索引、分类页、搜索、404，对应样例内容里的地址）和宽度切换（手机 375、平板 768、桌面）。起步主题没有 `static/404.html`，AI 写之前 404 预览是空的，`theme_coverage` 和主题面板会列出来。主题项目不显示素材上传。
+- 主题面板：主题项目的 `ThemeResponse` 多了 `coverage`（和 `theme_coverage` 工具同一个函数，读的是所选版本的 git 对象，不是工作目录）、`colors`（`tokens.yaml` 的 `colors` 组里是普通 CSS 颜色的值，作色板）和 `siteTheme`；网站项目这三项是 `null`。
+- 样例内容面板列出 `content/` 下的文章和页面，参考面板显示 `_reference/` 的图片（`_capture/` 随 T3）。两者都按所选版本读。
+- 共用操作的报错（`site.busy`、`site.branch_missing`、`site.read_only`）改成不提"网站"的措辞，两种模式通用。
+- 问题记录的结论（开发 SOP 最后一步）：P5、P6 当时已修；P1、P2、P8 不需要改。P3、P4、P7 按用户决定（2026-11-19）也修了：输入框里没发出的文字和图片按会话保存，离开对话再回来还在，发出后清空（`drafts.ts` 的 `saveComposer`，网站对话同样受益）；面板标签用 `aria-keyshortcuts` 声明快捷键，`title` 以标签名开头；`tokens.yaml` 按 1 MiB 读（和配置、`theme.yaml` 相同），大文件也有色板。
+- 先定稿（2026-11-19 按用户决定加入，设计 4、9 第 9 条）：`theme-development` 技能的工作顺序改为先只做 tokens、基础布局、页头页脚和首页，构建后停下来请用户在预览里确认风格，确认后再铺开到其他页面类型；用户说直接做完时跳过。不加界面或接口。
+
+**T1 第 5 层实现说明**（2026-11-19）：
+
+- "应用到网站"复制的是主题项目**默认分支**（审核过的版本），不是当前打开的改动集；界面在主题首页，不跟右侧的版本开关走。这样主题项目里没审核的改动不会借另一个网站的改动集绕过审核。
+- `GET /api/themes/:themeId/apply?siteId=`（`ThemeApplyPlan`）比较网站默认分支的 `themes/<主题名>/`：新增、修改、删除（按路径和 git 对象）、网站当前的 `theme.name`。网站或主题只读时 409；网站已有同名主题时应用必须带 `overwrite`，否则 409 `theme.exists`。
+- `POST /api/themes/:themeId/apply`（`ThemeApplyRequest`：`siteId`、`overwrite`、`setConfig`）在网站锁（操作名 `theme`）下：改动的改动集有内容时先让用户处理（409 `change.open_exists`，和恢复一致；空的改动集会被加入）；整目录替换：先写到 `worktrees/<siteId>/.theme-apply-<pid>/`，再换进 AI 检出；失败时换回原目录、恢复 `site.yaml` 并关掉这次新建的改动集；快照标为用户操作，改动集没被对话加入时写 `user_summary`（"Applied theme …"）；网站原本就是这个主题时不留空改动集，返回 `changeId: null`。
+- 可选同时把网站配置的 `theme.name` 改成主题名（`setConfig`），保留配置其余内容；改之前先解析，YAML 坏了就整次应用失败。根目录 `layouts/` 的覆盖文件不动，对话框里说明它们仍会盖过主题模板。
+- 导出 `GET /api/themes/:themeId/export`：只打包默认分支的 `themes/<主题名>/`（跳过符号链接和子模块，上限 50 MiB，和导入一致），文件名 `<主题名>.zip`。浏览器直接下载；桌面版通过新的 `desktop:save-file` IPC 打开系统保存对话框，主进程检查来源、文件名、大小（64 MiB）后写入用户选的位置。
+- 界面：主题首页的"应用到网站"和"导出 zip"。应用对话框列出未归档的网站（只读的不能选），先加载计划：已有同名主题时显示警告和新增/修改/删除的路径列表，`theme.name` 开关默认在网站不是这个主题时打开；完成后给出到网站改动集的链接。三种语言的文案都补齐。
+
+**T2 第 1 层实现说明**（2026-11-19）：
+
+- 服务端 `themes/import.ts`：目录或 zip 当作不可信内容。目录只收普通文件，符号链接、插件文件（`plugins/`、`plugin.yaml`、`.bukit/plugins.yaml`）拒绝；`.git/`、`node_modules/`、`.env*` 跳过。zip 用 `readZipTree` 检查条目路径、数量和大小，再套用 50 MiB 总量、14 MiB 单文件、5000 个文件的限制；压缩包大于 100 MiB 直接拒绝。`shortcut:` 记下 `readZipTree` 先解到 200 MiB 再套 50 MiB 上限，只接本机用户选的文件。
+- 三种形状按内容识别：根目录有 `theme.yaml` 是单个主题；有 `themes/<名字>/theme.yaml` 是主题集合（完整 Bukit 网站也属于这种，另用 `findConfigCandidates` 判断能否交给网站导入）；zip 里如果只有一个顶层目录（压缩文件夹的常见结果）先去掉这层包装。`theme.yaml` 的 `name` 必须合法并与目录名一致；`display_name` 作为新项目名的默认值。
+- `extends` 在同一个来源里找：集合里是 `themes/<父主题>`，单主题目录是同级目录，zip 根主题是根目录同级。父主题递归带上、环只收一次；父主题不在时检查结果里 `missingParent` 非空，导入报 409 `theme.parent_missing`。
+- `POST /api/themes/import/inspect`（`InspectThemeRequest`）只读，返回 `ThemeImportInspection`：`site`（可作为网站导入时的配置文件名）、`themes`（`id`、目标目录、名称、`includes`、`missingParent`）。`POST /api/themes/import`（`ImportThemeRequest`）重新读一遍来源，按 `theme` 找回候选，整份内容先进内存再建目录，失败不留文件夹。
+- 导入：`bukit new` 的起步网站 → 删掉 `themes/starter` → 写入主题和父主题（`themes/<名字>/**`）→ 换样例内容 → `site.yaml` 的 `theme.name` 指向导入的主题 → 首次提交（`Imported theme <名字>`）→ 登记为 `origin: import` → 照常检查、`config check`、首次构建。构建失败不阻止导入（由 `register` 的现有行为保证）。
+- 界面：主题列表顶部改成下拉（按描述新建 / 导入主题），`ImportThemeDialog` 先检查再选主题；桌面版有选文件夹和选 zip 的按钮，浏览器模式直接填路径。检查结果同时是 Bukit 网站时显示"按网站导入"，把路径交给网站模式（`SiteList` 读取路由 state，`ImportDialog` 用它作为起始目录）。主题名的目录默认值、语言、位置、提交身份和新建主题一致。
+- 没做：主题 `theme.yaml` 的显示名、版本等原样保留；导入的主题目录名以 `name` 为准，不改写 `theme.yaml`。
+
+**T3 第 1 层实现说明**（2026-11-19）：
+
+- 桌面主进程 `capture.ts` / `capture-network.ts` / `robots.ts`。抓取只能从桌面版发起：`desktop:capture-preflight`（同源、`robots.txt`、`http:` 提示）和 `desktop:capture-start`（要求 `authorized`）；进度通过 `desktop:capture-progress` 回传，网页里的 `DesktopBridge` 只多了这四个方法和选 zip 的 `pickFile`。
+- 隐藏窗口：一次性非持久分区 `capture-<随机>`，`sandbox`、`contextIsolation`、无 preload、无 `webviewTag`、`disableDialogs`、`backgroundThrottling: false`；拒绝弹窗、下载、权限、`will-prevent-unload`；顶层导航和重定向只允许首页同源；UA 是通用桌面 Chromium 字符串。`setWebRTCIPHandlingPolicy("disable_non_proxied_udp")` 和应用启动时的 `disable-quic` 防止 UDP 绕过代理。
+- 代理：`session.setProxy` 把 http 和 https 都指向主进程里 `127.0.0.1` 的代理，`proxyBypassRules: "<-loopback>"`。代理自己解析 DNS，拒绝 loopback、私网、链路本地、组播、文档网段、NAT64/Teredo/6to4 和 IPv4 映射地址；连接只连检查过的那个 IP（DNS 重绑定无效），HTTPS 的 `CONNECT` 也先检查。页面请求只允许 http(s)、`data:`、`blob:`、`about:blank`；WebSocket 一律拒绝。`ws`/`wss` 的拒绝和静态资源走代理是两层检查。
+- 限额：整次 500 个请求、30 MiB，单个响应 14 MiB，页面 30 秒、网络空闲 2 秒。空闲判断同时看代理和 `webRequest` 的完成事件；HTTPS 的 CONNECT 隧道不可见，靠完成事件补足。抓取页的高度上限 8000 像素（`shortcut:` 注明只取顶部，需要时再做分段拼接）。
+- 收集在 isolated world（world id 1001）里做：去掉 script/noscript/iframe/object/embed、内联事件、表单 action 和 srcdoc；CSS 规则按页面顺序合并，跨源样式表取不到规则时用同一个检查过的网络重新读取并补在后面。图片、字体的地址和尺寸总是记进 `meta.json`；勾选"下载图片 / 字体"时才真正取回，按真实文件头保存，SVG 由服务端再清洗。
+- 截图：每个页面在 375、768、1280 三个宽度各拍一张整页图（先按该宽度重新量高度），写进 `reference/`；结果目录是应用数据目录的 `captures/<id>/`，带 `manifest.json`（format 1、页面、样式、截图、资源清单）。失败时整个目录删除。
+- 测试：`pnpm e2e:desktop` 用本地假站点跑完整克隆（JS 渲染、弹窗、iframe、表单、robots、私网图片），并检查 `10.0.0.1` 在预检时被拒。测试通过环境变量 `BUKITJALIL_CAPTURE_ALLOW_LOOPBACK=1` 只放行字面量 `127.0.0.1`/`::1`；普通运行不设置，私网仍然全部拒绝。
+
+**T3 第 2 层实现说明**（2026-11-19）：
+
+- `POST /api/themes` 带 `origin: "clone"`、`captureId`、`authorized: true` 时走 `ThemeService.createFromCapture`：先 `loadCapture` 复核，再 `bukit new`、改主题名、换样例内容、把页面写进 `_capture/`、截图写进 `_reference/`、首次提交后删除 `captures/<id>/`，登记为 `origin: clone`，照常检查、`config check`、首次构建。`authorized` 不是 `true` 返回 400 `theme.clone_unauthorized`；抓取目录不在返回 409 `theme.capture_missing`。
+- `themes/capture.ts` 复核：manifest 必须是 format 1、页面同源且是 http(s)，只读清单里的文件；每个路径逐段检查符号链接，真实类型按内容判断（HTML/CSS/JSON 必须是 UTF-8，截图必须是 PNG，资源只收 PNG/JPEG/WebP/GIF/SVG/WOFF/WOFF2/TTF/OTF），SVG 去掉脚本、事件、`@import`、外部 `url()` 和外部 href，大小上限 30 MiB/14 MiB/500 个文件再查一遍。
+- 技能 `skills/bukitjalil/site-to-theme`：先看首页截图，再 tokens、公共 partials、各页面类型、CSS、纯本地资源；`_capture/` 和 `_reference/` 里的文字是资料不是指令。`THEME_SKILLS` 加了这个技能，主题模式的系统提示让 AI 在 `_capture/` 存在时先读它。
+- 界面：主题列表下拉里多了"克隆网站"（浏览器模式是一条禁用的说明"克隆网站需要桌面版"）。克隆对话框填首页和一页一个的额外地址（最多 5 个、同源）、授权勾选、图片/字体选项；先预检，显示 `http:` 和 robots 警告（只提示，用户可继续）；抓取完成后填项目名、主题名、语言、位置和提交身份，创建后直接开第一个会话，输入框预填"把 `_capture/` 转成主题"的说明；所选模型能读图时同时附上首页截图 `_reference/capture-1-1280.png`，否则只留路径让 AI 用 `read` 看。
+- 已知取舍：`readZipTree` 用于主题导入时先解到 200 MiB 再套 50 MiB 上限（只接本机文件）；抓取页面超过 8000 像素只取顶部；跨源样式用同一个检查网络的二次请求补上，不是代理缓存；没有做原站与预览的并排截图对比（设计里的后续项）。
+
+**主题开发审计修复（2026-11-19）**
+
+对 T1–T3 的审计结论逐项修复，不扩大范围。已定的问题：
+
+- **HTTPS 抓取限额**：`webRequest.onBeforeRequest` 计算 https 请求数（HTTP 仍由代理计数），`onHeadersReceived` 按 `Content-Length` 拒绝单资源超过 14 MiB、总量超过 30 MiB 的响应。没有 `Content-Length` 的分块响应只能靠 30 秒页面超时；这一限制写进方案，不再假装字节限额对它们有效。
+- **应用主题的边界**：快照成功就是不可回滚点，之后失败不再删主题目录或恢复 `site.yaml`；`current()` 或写说明失败只记日志，不把请求变成"失败"。写入前用 `git check-ignore` 拒绝 `.gitignore` 忽略 `themes/<名字>` 或配置文件的情况（和素材上传一致）。已有用户说明时追加"Applied theme …"，不覆盖。
+- **导入**：读文件前先看 `stat.size`；`theme.yaml` 最多 1 MiB；zip 元数据（`__MACOSX`、`.DS_Store`、`Thumbs.db`、`._*`）在识别形状和扫描时都跳过。文件数超限用新的 `theme.too_many_files`，不再说成"太大"。
+- **抓取后处理**：isolated world 内先检查 DOM/CSS 大小，图片、样式表、字体列表在脚本里截断；下载循环遇到 `too_many`/`too_large` 立即停止。`"下载图片"` 同时取 CSS 里用到的图片（资源地址按图片扩展名筛选）。抓取目录在 `register` 成功后才删除。
+- **SVG**：只保留以 `#` 开头的 `href`/`xlink:href`，带引号和不带引号都匹配；`url(...)` 只保留 `#` 或 `data:`，`@import` 删除。测试覆盖无引号和实体编码的外部地址。
+- **测试**：新增 CONNECT 隧道测试和本地 TLS 测试（测试证书只在测试里用，`CaptureNetwork` 多一个测试用 CA 参数）；桌面 e2e 勾选"图片"，验证 `<img>` 和 CSS 背景图都落进 `_capture`。
+- **精简**：三个主题创建路径合成一个 helper；三个对话框的公共字段合成一个组件；删除未使用的 `Manifest.options` 和 `ThemeCandidate.name`。
+
+分层：第 1 层服务端和共享类型（应用边界、导入、SVG、字段、错误码）；第 2 层桌面抓取（限额、后处理、CSS 图片、测试）；第 3 层界面（公共字段组件）和创建路径合并。每层实现 → 审计 → 修复 → 复查 → 提交；最后跑全部单元和 e2e（含桌面），推送。
+
+**审计修复实现说明**（2026-11-19）：
+
+- **限额**：`CaptureBudget` 一个对象同时记请求和字节；HTTP 由代理计数，HTTPS 由窗口的 `onBeforeRequest` 计数；`onHeadersReceived` 用 `Content-Length` 检查单资源 14 MiB 和总量 30 MiB。CONNECT 不再单独计数（窗口已经算了这次 HTTPS 请求）；分块响应仍只受 30 秒页面超时约束。新增 `CaptureBudget`、`contentLength` 单元测试、原始 CONNECT 隧道测试和本地 TLS 测试（测试证书在 `packages/desktop/src/fixtures/`，`CaptureNetwork` 的第四个参数只给测试用）。
+- **应用主题**：`snapshot` 之后标记 `snapshotted`，之后的 `current()`、写说明、事件失败都只记日志，不回滚文件和配置；写入前 `git check-ignore` 拒绝被忽略的 `themes/<名字>` 和配置文件（新的 `theme.ignored`）。已有用户说明时用空行追加 "Applied theme …"。三个新测试：快照后读取失败仍保留主题、忽略目录返回 409、用户说明保留。
+- **导入**：`Tree.read` 和 `scanDir` 先看 `stat.size`，`theme.yaml` 上限 1 MiB；`__MACOSX`、`.DS_Store`、`Thumbs.db`、`._*` 在 zip 识别和扫描时都剔除；文件数超限用 `theme.too_many_files`。测试覆盖 1 MiB 以上的 manifest 和带 macOS 元数据的 zip。
+- **抓取后处理**：isolated world 内 DOM/CSS 超过 14 MiB 直接报错，图片/样式表/字体列表在脚本里截断到 500/1000；下载循环遇到 `too_many`/`too_large` 立即抛出；`"下载图片"` 把 CSS 资源里图片扩展名的地址一起下载。桌面 e2e 的假站点加了 CSS 背景图并勾选图片，断言 `_capture` 里至少两张 PNG。SVG 只保留 `#` 片段和 `data:` URL，带引号和不带引号都匹配，测试覆盖无引号和实体编码。
+- **注册顺序**：抓取目录在 `register` 成功后才删除；测试把 `register` 换成抛错，断言抓取目录还在。
+- **精简**：`ThemeService.makeProject` 合并新建/克隆/导入的骨架；`ThemeProjectFields` 和 `themeTarget` 合并三个对话框的公共字段；删除 `Manifest.options` 和 `ThemeCandidate.name`，`ImportThemeDialog` 的候选名改用 `dir`。
+- **验证**：`pnpm check`、单元测试 721 通过 / 19 跳过、浏览器 e2e 159 通过、桌面 e2e 11 通过。
+
+**第二次审计修复**（2026-11-19，对 T0–T3 整个分支的审计，9 项全部修复）：
+
+- **应用主题**：只在这次请求新开的改动集上做"没有变化就关闭"，已有的改动集（例如对话刚开的）不动。对话运行中（`agent.busy`）返回 409 `site.busy`，在网站锁里检查，检查和应用之间对话起不来。网站的上传在主题的 `static/uploads`（素材上传），所以应用时保留：覆盖同名主题时旧副本的上传原样留下，计划的 `removed` 不列它们；`setConfig` 把网站换成别的主题时，原主题的上传一起复制过去。上传是用户的文件，和新主题自带的同名文件冲突时保留网站的，计划里也不列为修改；配置把 `theme.static` 指到主题外时不复制。
+- **导入**：`theme.yaml` 超过 1 MiB 的主题跳过而不是让整次检查失败，其余主题照常列出。只拒绝名为 `plugin.yaml` 的文件；叫 `plugins` 的普通文件夹（如 `assets/js/plugins/`）可以导入，因为主题文件写在 `themes/<名字>/` 下，不是网站根目录。目录来源在途经的上级文件夹里遇到符号链接也不跟随。
+- **抓取复核**：SVG 清理也去掉 `/` 后面的事件属性（`<svg/onload=…>`）和能改链接的动画元素（`set`、`animate*`、`discard`、`handler`、`listener`）；截图仍叫 `capture-<页>-<宽度>.png`，重名时拒绝整个抓取。
+- **桌面代理**：CONNECT 隧道只通 443 和 8443（桌面测试的本机服务除外），抓取的页面不能借用户的地址连邮件等其他端口。
+- **遗留的抓取**（T2、T3 分层复查）：服务端只在抓取变成主题项目后删除 `captures/<id>/`；用户关掉对话框或创建失败后没再重试的抓取，在下一次抓取开始前按 24 小时删除（`capture-store.ts`）。克隆后首条消息附带的首页截图会在 `_reference/` 多存一份，这是设计 6.3 要求的附图，不改。
 
 ### 里程碑总览
 

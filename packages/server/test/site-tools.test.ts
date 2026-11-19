@@ -93,12 +93,14 @@ async function setup(opts: { bin?: string | null; files?: Record<string, string>
   await ctx.builds.settled(); // the first main build after import holds the site lock
   const session = ctx.agent.create(site.id);
   const { cwd } = await ctx.changes.begin(site.id, session.id);
-  const ai = new AiBukit({ git: ctx.git, paths: ctx.paths, sites: ctx.sites, bukit, changes: ctx.changes });
+  const ai = new AiBukit({ git: ctx.git, paths: ctx.paths, projects: ctx.projects, bukit, changes: ctx.changes });
   const snapshot = () => ctx.changes.snapshot(site.id, cwd);
   const summaries: string[] = [];
   const tools = Object.fromEntries(
     createSiteTools({
-      siteId: site.id,
+      project: site.id,
+      configFile: site.configFile,
+      themeName: null,
       cwd,
       gate: new PathGate(cwd, [SKILLS]),
       bukit: ai,
@@ -299,7 +301,7 @@ describe("bukit_check and bukit_build", () => {
       const [, dir] = snapshots.recordArgs(site.id) as [string, string];
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, "manifest.json"), '{"format":1}');
-      snapshots.recorded(site.id, git("rev-parse", "HEAD"), cwd);
+      snapshots.recorded(site.id, git("rev-parse", "HEAD"), cwd, "site.yaml");
       const root = path.join(ctx.paths.notionSnapshots, site.id);
       addNotionSource(cwd);
 

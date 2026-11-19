@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { ApplyCheck, BuildAudit, NotionOfflineData, NotionSnapshotProblem } from "@bukitjalil/shared";
+import type { ApplyCheck, BuildAudit, NotionOfflineData, NotionSnapshotProblem, ProjectKey } from "@bukitjalil/shared";
 import { readAudit } from "../builds/audit.ts";
 import { BUILD_OUTPUT_PARENT, buildArgs, buildReport, limitMessages, notionOfflineData } from "../builds/service.ts";
 import { type GuardReason, guardCommit } from "../bukit/guard.ts";
@@ -13,8 +13,8 @@ import type { Snapshot } from "../changes/snapshot.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
 import { checkoutBasePath } from "../preview/base-path.ts";
+import type { ProjectService } from "../projects/service.ts";
 import type { OfflineNotion } from "../sites/notion-snapshots.ts";
-import type { SiteService } from "../sites/service.ts";
 
 /**
  * Bukit for the AI (plan 6.3, 8.5): `bukit_check` and `bukit_build` run in the site's ai/ checkout. Each
@@ -82,7 +82,7 @@ export interface BuildResult {
 export interface AiBukitOptions {
   git: GitRunner;
   paths: AppPaths;
-  sites: SiteService;
+  projects: ProjectService;
   bukit: BukitService;
   changes: ChangeService;
 }
@@ -90,7 +90,7 @@ export interface AiBukitOptions {
 export class AiBukit {
   /** Keyed by path and version: Bukit may be replaced in place at a custom path. */
   private schema: { key: string; value: Promise<unknown> } | null = null;
-  /** siteId -> checks and builds still running there (the site lock must outlive them). */
+  /** project -> checks and builds still running there (the site lock must outlive them). */
   private readonly inflight = new Map<string, Set<Promise<unknown>>>();
 
   constructor(private readonly opts: AiBukitOptions) {}
@@ -100,9 +100,9 @@ export class AiBukit {
    * this before it lets go of the site lock: stopping a run aborts its tools, and Pi may finish the prompt
    * before an aborted Bukit has exited (it gets SIGINT, then is killed after a grace period).
    */
-  async settled(siteId: string): Promise<void> {
+  async settled(project: ProjectKey): Promise<void> {
     for (;;) {
-      const calls = this.inflight.get(siteId);
+      const calls = this.inflight.get(project);
       if (!calls || calls.size === 0) return;
       await Promise.allSettled([...calls]);
     }
@@ -113,14 +113,15 @@ export class AiBukit {
    * `commit`, `cwd` is a checkout of that commit that is not the AI's: it is guarded as it is, not
    * snapshotted (a partial apply, plan 7.5).
    */
-  check(siteId: string, cwd: string, signal?: AbortSignal, commit?: string): Promise<CheckResult> {
-    return this.guarded(siteId, cwd, commit, async (runner, { commit, removed }, offline) => {
+  check(project: ProjectKey, cwd: string, signal?: AbortSignal, commit?: string): Promise<CheckResult> {
+    return this.guarded(project, cwd, commit, async (runner, { commit, removed }, offline) => {
       const steps: CheckStep[] = [];
       const extra = offline?.checkArgs ?? [];
+      const { configFile } = this.opts.projects.get(project);
       const results: BukitRunResult[] = [];
       for (const [command, args] of [
-        ["config check", ["config", "check", "--config", "site.yaml", ...extra]],
-        ["doctor", ["doctor", "--config", "site.yaml", ...extra]],
+        ["config check", ["config", "check", "--config", configFile, ...extra]],
+        ["doctor", ["doctor", "--config", configFile, ...extra]],
       ] as const) {
         const result = await runner.run(command === "doctor" ? "doctor" : "check", args, {
           cwd,
@@ -146,9 +147,9 @@ export class AiBukit {
    * The check before applying a change set (plan 7.2), with the site lock held by the caller: like
    * bukit_check, but a refusal (no Bukit, the pre-build guard) is a failed check the user may override.
    */
-  async checkForApply(siteId: string, cwd: string, commit?: string): Promise<ApplyCheck> {
+  async checkForApply(project: ProjectKey, cwd: string, commit?: string): Promise<ApplyCheck> {
     try {
-      const { passed, steps, notion } = await this.check(siteId, cwd, undefined, commit);
+      const { passed, steps, notion } = await this.check(project, cwd, undefined, commit);
       // A snapshot that cannot answer for this commit leaves it unchecked, like a Notion site without one.
       const unchecked = notion?.problem ? NOTION_TEXT[notion.problem] : null;
       return {
@@ -164,10 +165,11 @@ export class AiBukit {
   }
 
   /** Build into a fresh .bukitjalil-build/ai-<id>/ and report, with its SEO / GEO summary; the output is deleted. */
-  build(siteId: string, cwd: string, signal?: AbortSignal): Promise<BuildResult> {
-    return this.guarded(siteId, cwd, undefined, async (runner, { commit, removed }, offline) => {
+  build(project: ProjectKey, cwd: string, signal?: AbortSignal): Promise<BuildResult> {
+    return this.guarded(project, cwd, undefined, async (runner, { commit, removed }, offline) => {
       // Built under the site's own baseUrl, as the preview of the change will be (plan 16 #8).
-      const base = checkoutBasePath(cwd);
+      const { configFile } = this.opts.projects.get(project);
+      const base = checkoutBasePath(cwd, configFile);
       if (!base.ok) {
         const msg = `${base.detail}; the preview cannot be served, fix site.baseUrl`;
         return {
@@ -184,7 +186,7 @@ export class AiBukit {
       const name = `ai-${crypto.randomBytes(6).toString("hex")}`;
       const out = path.join(cwd, BUILD_OUTPUT_PARENT, name);
       try {
-        const args = [...buildArgs(name, base.basePath), ...(offline?.buildArgs ?? [])];
+        const args = [...buildArgs(name, base.basePath, configFile), ...(offline?.buildArgs ?? [])];
         const result = await runner.run("build", args, { cwd, signal, redact: this.redact });
         const report = buildReport(result);
         const outcome = buildOutcome(result);
@@ -223,7 +225,7 @@ export class AiBukit {
   // --- internals ---
 
   private get redact() {
-    return this.opts.sites.notionSnapshots.redact;
+    return this.opts.projects.sites.notionSnapshots.redact;
   }
 
   /**
@@ -231,34 +233,34 @@ export class AiBukit {
    * refusal is an AiBukitError.
    */
   private guarded<T>(
-    siteId: string,
+    project: ProjectKey,
     cwd: string,
     commit: string | undefined,
     fn: (runner: BukitRunner, snapshot: Snapshot, offline: OfflineNotion | null) => Promise<T>,
   ): Promise<T> {
-    const call = this.guardedCall(siteId, cwd, commit, fn);
-    const calls = this.inflight.get(siteId) ?? new Set();
-    this.inflight.set(siteId, calls);
+    const call = this.guardedCall(project, cwd, commit, fn);
+    const calls = this.inflight.get(project) ?? new Set();
+    this.inflight.set(project, calls);
     calls.add(call);
     const done = () => {
       calls.delete(call);
-      if (calls.size === 0 && this.inflight.get(siteId) === calls) this.inflight.delete(siteId);
+      if (calls.size === 0 && this.inflight.get(project) === calls) this.inflight.delete(project);
     };
     call.then(done, done);
     return call;
   }
 
   private async guardedCall<T>(
-    siteId: string,
+    project: ProjectKey,
     cwd: string,
     commit: string | undefined,
     fn: (runner: BukitRunner, snapshot: Snapshot, offline: OfflineNotion | null) => Promise<T>,
   ): Promise<T> {
-    const site = this.opts.sites.get(siteId);
+    const site = this.opts.projects.get(project);
     if (site.readOnly) throw new AiBukitError("read_only", "The site is read-only, so Bukit cannot run on it.");
     const runner = await this.runner();
-    const snapshot = commit ? { commit, removed: [] } : await this.opts.changes.snapshot(siteId, cwd);
-    const guard = await guardCommit(this.opts.git, site.path, snapshot.commit);
+    const snapshot = commit ? { commit, removed: [] } : await this.opts.changes.snapshot(project, cwd);
+    const guard = await guardCommit(this.opts.git, site.path, snapshot.commit, site.configFile);
     if (!guard.ok) {
       throw new AiBukitError(
         "guard",
@@ -270,7 +272,8 @@ export class AiBukit {
     // formal build instead, with no token and no network (plan 5.5).
     let offline: OfflineNotion | null = null;
     if (guard.usesNotion) {
-      offline = this.opts.sites.notionSnapshots.offline(siteId);
+      // Snapshots are kept per site; a theme project has none, so its Notion config cannot build offline.
+      offline = site.ref.kind === "site" ? this.opts.projects.sites.notionSnapshots.offline(site.id) : null;
       if (!offline) throw new AiBukitError("notion", NOTION_TEXT.missing);
     }
     return fn(runner, snapshot, offline);

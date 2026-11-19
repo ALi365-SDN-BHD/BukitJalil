@@ -131,7 +131,7 @@ describe("opening and joining a change set", () => {
     const two = ctx.agent.create(s.id);
 
     // A stray file and an edit from before (e.g. M3) are gone once a change set opens.
-    const stale = await ctx.sites.aiWorktree(s.id, head, { reset: false });
+    const stale = await ctx.projects.aiWorktree(s.id, head, { reset: false });
     fs.writeFileSync(path.join(stale, "stray.txt"), "x");
     fs.appendFileSync(path.join(stale, "site.yaml"), "\n# edited\n");
 
@@ -139,7 +139,7 @@ describe("opening and joining a change set", () => {
     expect(cwd).toBe(stale);
     expect(fs.existsSync(path.join(cwd, "stray.txt"))).toBe(false);
     expect(fs.readFileSync(path.join(cwd, "site.yaml"), "utf8")).not.toContain("# edited");
-    expect(change).toMatchObject({ siteId: s.id, status: "open", baseCommit: head, snapshotCommit: head });
+    expect(change).toMatchObject({ project: s.id, status: "open", baseCommit: head, snapshotCommit: head });
     expect(change.createdBySessionId).toBe(one.id);
     expect(s.git("rev-parse", changeRef(change.id))).toBe(head);
 
@@ -1052,7 +1052,7 @@ describe("the change set API and events", () => {
     const sub = ctx.events.subscribe(
       undefined,
       (e: ServerEvent) => {
-        if (e.type === "change" && e.siteId === siteId) got.push(e.data.change);
+        if (e.type === "change" && e.project === siteId) got.push(e.data.change);
       },
       () => {},
     );

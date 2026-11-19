@@ -1,4 +1,4 @@
-import type { ChangeView } from "@bukitjalil/shared";
+import { type ChangeView, isThemeKey, type ProjectKey } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -17,9 +17,9 @@ import { type Notice, NoticeView, ReviewActions } from "./ReviewActions";
 import { canPick, reviewKey, useSelection } from "./selection";
 
 /** The "Changes" panel (plan 10.2): the open change set's files and one file's diff at a time. */
-export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: boolean }) {
+export function ChangesPanel({ project, readOnly }: { project: ProjectKey; readOnly: boolean }) {
   const { m, t } = useI18n();
-  const current = useCurrentChange(siteId);
+  const current = useCurrentChange(project);
   const [params, setParams] = useSearchParams();
   const [notice, setNotice] = useState<Notice | null>(null);
   const change = current.change;
@@ -73,19 +73,21 @@ export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: b
           >
             {shown ? shown.summary?.trim() || m.changes.noSummary : change ? m.changes.noChanges : m.changes.none}
           </p>
-          <MediaUpload
-            ref={uploader}
-            siteId={siteId}
-            disabled={readOnly}
-            disabledReason={m.conversation.readOnlyHint}
-            trigger={
-              <>
-                <Upload /> {m.media.upload}
-              </>
-            }
-            ariaLabel={m.media.upload}
-            size="xs"
-          />
+          {!isThemeKey(project) && (
+            <MediaUpload
+              ref={uploader}
+              siteId={project}
+              disabled={readOnly}
+              disabledReason={m.conversation.readOnlyHint}
+              trigger={
+                <>
+                  <Upload /> {m.media.upload}
+                </>
+              }
+              ariaLabel={m.media.upload}
+              size="xs"
+            />
+          )}
         </div>
         {shown && (
           <>
@@ -96,7 +98,7 @@ export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: b
             {!shown.reviewable && <p className="text-xs text-muted-foreground">{m.changes.working}</p>}
             {canPick(shown) && <p className="text-xs text-muted-foreground">{m.changes.selectionHint}</p>}
             {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
-            <ReviewActions siteId={siteId} change={shown} onNotice={setNotice} />
+            <ReviewActions project={project} change={shown} onNotice={setNotice} />
           </>
         )}
       </div>
@@ -135,7 +137,7 @@ function DiffView({ change, path }: { change: ChangeView; path: string }) {
   const preview = image ? (
     <div className="flex max-h-80 shrink-0 items-center justify-center overflow-auto border-b bg-muted/20 p-3">
       <img
-        src={fileUrl(change.siteId, "change", path, "raw")}
+        src={fileUrl(change.project, "change", path, "raw")}
         alt={path}
         className="max-h-72 max-w-full object-contain"
         data-testid="media-preview"
@@ -145,7 +147,7 @@ function DiffView({ change, path }: { change: ChangeView; path: string }) {
     <div className="shrink-0 border-b p-3">
       <a
         className="inline-flex items-center gap-1 text-sm underline"
-        href={fileUrl(change.siteId, "change", path, "download")}
+        href={fileUrl(change.project, "change", path, "download")}
         download
       >
         <Download className="size-4" /> {m.media.download}

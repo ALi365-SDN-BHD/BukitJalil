@@ -146,6 +146,9 @@ export function createGatedTools({ pi }: PiModules, opts: ToolOptions): ToolDefi
         await writeChecked(real, content);
       },
       mkdir: async (dir) => {
+        // Pi makes the parent of every file it writes. An existing directory needs no write, so a file at the
+        // top of a theme project (the config file) can be written though the root itself cannot.
+        if (fs.statSync(gate.check(dir, "list"), { throwIfNoEntry: false })?.isDirectory()) return;
         await fsp.mkdir(gate.check(dir, "write"), { recursive: true });
       },
     },

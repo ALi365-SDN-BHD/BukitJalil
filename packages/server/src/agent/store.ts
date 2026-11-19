@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import type { ProjectKey } from "@bukitjalil/shared";
+import { ownerOf, rowProject } from "../projects/owner.ts";
 
 export interface SessionRecord {
   id: string;
-  siteId: string;
-  /** Pi's session file, sessions/<siteId>/<id>.jsonl. */
+  project: ProjectKey;
+  /** Pi's session file, sessions/<project>/<id>.jsonl. */
   file: string;
   title: string | null;
   createdAt: string;
@@ -13,7 +15,8 @@ export interface SessionRecord {
 
 interface SessionRow {
   id: string;
-  site_id: string;
+  site_id: string | null;
+  theme_id: string | null;
   pi_session_file: string;
   title: string | null;
   created_at: string;
@@ -22,14 +25,14 @@ interface SessionRow {
 
 const toRecord = (row: SessionRow): SessionRecord => ({
   id: row.id,
-  siteId: row.site_id,
+  project: rowProject(row),
   file: row.pi_session_file,
   title: row.title,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
 
-/** Session ids are file names (sessions/<siteId>/<id>.jsonl) and URL segments. */
+/** Session ids are file names (sessions/<project>/<id>.jsonl) and URL segments. */
 export const newSessionId = () => crypto.randomBytes(8).toString("hex");
 export const isSessionId = (id: string) => /^[0-9a-f]{16}$/.test(id);
 
@@ -40,13 +43,14 @@ export const isSessionId = (id: string) => /^[0-9a-f]{16}$/.test(id);
 export class SessionStore {
   constructor(private readonly db: DatabaseSync) {}
 
-  insert(session: { id: string; siteId: string; file: string }): SessionRecord {
+  insert(session: { id: string; project: ProjectKey; file: string }): SessionRecord {
     const now = new Date().toISOString();
+    const owner = ownerOf(session.project);
     this.db
       .prepare(
-        "INSERT INTO sessions (id, site_id, pi_session_file, title, created_at, updated_at, status) VALUES (?, ?, ?, NULL, ?, ?, 'idle')",
+        `INSERT INTO sessions (id, ${owner.column}, pi_session_file, title, created_at, updated_at, status) VALUES (?, ?, ?, NULL, ?, ?, 'idle')`,
       )
-      .run(session.id, session.siteId, session.file, now, now);
+      .run(session.id, owner.id, session.file, now, now);
     return { ...session, title: null, createdAt: now, updatedAt: now };
   }
 
@@ -56,10 +60,11 @@ export class SessionStore {
   }
 
   /** Most recently used first. */
-  list(siteId: string): SessionRecord[] {
+  list(project: ProjectKey): SessionRecord[] {
+    const owner = ownerOf(project);
     const rows = this.db
-      .prepare("SELECT * FROM sessions WHERE site_id = ? ORDER BY updated_at DESC, id")
-      .all(siteId) as unknown as SessionRow[];
+      .prepare(`SELECT * FROM sessions WHERE ${owner.column} = ? ORDER BY updated_at DESC, id`)
+      .all(owner.id) as unknown as SessionRow[];
     return rows.map(toRecord);
   }
 

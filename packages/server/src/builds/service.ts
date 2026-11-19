@@ -11,7 +11,7 @@ import type {
   NotionOfflineData,
   PanelRef,
   PreviewResponse,
-  Site,
+  ProjectKey,
   SourceCounts,
 } from "@bukitjalil/shared";
 import { guardCommit, isRecord } from "../bukit/guard.ts";
@@ -27,10 +27,10 @@ import { parseYaml } from "../panels/yaml.ts";
 import type { AppPaths } from "../paths.ts";
 import { checkoutBasePath } from "../preview/base-path.ts";
 import { NoPreviewPortError, PreviewPool, previewUrl } from "../preview/pool.ts";
+import type { Project, ProjectService } from "../projects/service.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { OfflineNotion } from "../sites/notion-snapshots.ts";
-import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
 import { compareAudits, readAudit, readIssues } from "./audit.ts";
 import { type BuildRecord, BuildStore, newBuildId } from "./store.ts";
@@ -40,13 +40,13 @@ export interface BuildServiceOptions {
   db: DatabaseSync;
   git: GitRunner;
   paths: AppPaths;
-  sites: SiteService;
+  projects: ProjectService;
   bukit: BukitService;
   locks: SiteLocks;
   previews: PreviewPool;
   changes: ChangeService;
-  /** The Notion token of the site's saved data source, or null when it has none. */
-  notionToken: (siteId: string) => string | null;
+  /** The Notion token of the site's saved data source, or null when it has none (and for theme projects). */
+  notionToken: (project: ProjectKey) => string | null;
   logger: Logger;
 }
 
@@ -64,10 +64,10 @@ export const BUILD_OUTPUT_PARENT = ".bukitjalil-build";
  * `bukit build` into BUILD_OUTPUT_PARENT/<name> for a preview served under `basePath` (plan 8.3, 16 #8): the
  * site's own baseUrl, checked by previewBasePath, so a subpath site previews as it publishes.
  */
-export const buildArgs = (name: string, basePath: string) => [
+export const buildArgs = (name: string, basePath: string, configFile: string) => [
   "build",
   "--config",
-  "site.yaml",
+  configFile,
   "--output",
   `${BUILD_OUTPUT_PARENT}/${name}`,
   "--base-url",
@@ -84,12 +84,12 @@ export interface BuildEvent {
 }
 
 /**
- * Builds and previews (plan 8.3, 8.4). A main build runs in worktrees/<siteId>/main at the default
+ * Builds and previews (plan 8.3, 8.4). A main build runs in worktrees/<project>/main at the default
  * branch head, never in the site directory: the commit passes the pre-build guard, Bukit writes into a
  * fresh .bukitjalil-build/<buildId>/ with --no-clean, and a successful output without symlinks moves to
- * previews/<siteId>/<buildId>/. The site lock is held for the whole build.
+ * previews/<project>/<buildId>/. The site lock is held for the whole build.
  *
- * A change build previews the site's open change set (plan 8.4): it runs in worktrees/<siteId>/ai at a
+ * A change build previews the site's open change set (plan 8.4): it runs in worktrees/<project>/ai at a
  * fresh snapshot, always passes the guard first and never gets secrets (plan 8.5). Its preview only ever
  * shows builds of the open change set; once that closes, its preview port is let go.
  */
@@ -107,12 +107,12 @@ export class BuildService {
     const interrupted = this.store.closeInterrupted();
     if (interrupted > 0) opts.logger.log("warn", "build.interrupted", { count: interrupted });
     // The first preview build of a new or imported site (plan 5.2 step 5), whoever adds the site.
-    opts.sites.onAdded((site) => this.startAfterAdd(site));
-    opts.changes.subscribe((siteId) => {
-      if (opts.changes.store.open(siteId)) return;
+    opts.projects.onAdded((project) => this.startAfterAdd(project));
+    opts.changes.subscribe((project) => {
+      if (opts.changes.store.open(project)) return;
       opts.previews
-        .close(PreviewPool.key(siteId, "change"))
-        .catch((err) => opts.logger.log("warn", "build.preview_close_failed", { siteId, error: String(err) }));
+        .close(PreviewPool.key(project, "change"))
+        .catch((err) => opts.logger.log("warn", "build.preview_close_failed", { project, error: String(err) }));
     });
   }
 
@@ -136,16 +136,16 @@ export class BuildService {
   }
 
   /** Newest first, without reports (they can be large and the UI polls this); see `get`. */
-  list(siteId: string): Build[] {
-    this.opts.sites.get(siteId);
-    return this.store.list(siteId, LIST_LIMIT).map((b) => ({ ...publicBuild(b), report: null }));
+  list(project: ProjectKey): Build[] {
+    this.opts.projects.get(project);
+    return this.store.list(project, LIST_LIMIT).map((b) => ({ ...publicBuild(b), report: null }));
   }
 
   /** One build with its report. */
-  get(siteId: string, buildId: string): Build {
-    this.opts.sites.get(siteId);
+  get(project: ProjectKey, buildId: string): Build {
+    this.opts.projects.get(project);
     const build = this.store.get(buildId);
-    if (!build || build.siteId !== siteId) throw new SiteError("build.not_found", 404);
+    if (!build || build.project !== project) throw new SiteError("build.not_found", 404);
     return publicBuild(build);
   }
 
@@ -154,18 +154,18 @@ export class BuildService {
    * full issue list from the kept output, and how it compares with the previous main build (for `change`:
    * the newest main build). Reads files only; never runs Bukit.
    */
-  auditReport(siteId: string, ref: PanelRef): AuditReportResponse {
-    this.opts.sites.get(siteId);
-    const changeSetId = ref === "change" ? (this.opts.changes.store.open(siteId)?.id ?? null) : null;
+  auditReport(project: ProjectKey, ref: PanelRef): AuditReportResponse {
+    this.opts.projects.get(project);
+    const changeSetId = ref === "change" ? (this.opts.changes.store.open(project)?.id ?? null) : null;
     if (ref === "change" && changeSetId === null) throw new SiteError("change.not_found", 404);
     const audited = (b: BuildRecord): b is BuildRecord & { report: { audit: BuildAudit } } =>
       b.status === "succeeded" && !!b.report?.audit;
-    const mains = this.store.finishedOf(siteId, null, KEEP_RECORDS);
-    const own = ref === "main" ? mains : this.store.finishedOf(siteId, changeSetId, KEEP_RECORDS);
+    const mains = this.store.finishedOf(project, null, KEEP_RECORDS);
+    const own = ref === "main" ? mains : this.store.finishedOf(project, changeSetId, KEEP_RECORDS);
     const build = own.find(audited);
     if (!build) throw new SiteError("audit.not_built", 404);
     const previous = ref === "main" ? mains.filter(audited)[1] : mains.find(audited);
-    const read = this.issuesOf(siteId, build);
+    const read = this.issuesOf(project, build);
     const summary = build.report.audit;
     const at = (b: BuildRecord) => ({ buildId: b.id, commit: b.commit, finishedAt: b.finishedAt });
     return {
@@ -184,10 +184,10 @@ export class BuildService {
   }
 
   /** Entries per content source of the newest successful build of `ref` (plan 5.5), for the data panel. */
-  sourceCounts(siteId: string, ref: PanelRef): SourceCounts | null {
-    const changeSetId = ref === "change" ? (this.opts.changes.store.open(siteId)?.id ?? null) : null;
+  sourceCounts(project: ProjectKey, ref: PanelRef): SourceCounts | null {
+    const changeSetId = ref === "change" ? (this.opts.changes.store.open(project)?.id ?? null) : null;
     if (ref === "change" && changeSetId === null) return null;
-    const build = this.store.finishedOf(siteId, changeSetId, KEEP_RECORDS).find((b) => b.status === "succeeded");
+    const build = this.store.finishedOf(project, changeSetId, KEEP_RECORDS).find((b) => b.status === "succeeded");
     if (!build?.report?.sources) return null;
     return { buildId: build.id, commit: build.commit, finishedAt: build.finishedAt, sources: build.report.sources };
   }
@@ -195,7 +195,7 @@ export class BuildService {
   /** Full issue lists by output directory: an output never changes, and the report can be 16 MiB of JSON. */
   private readonly issueCache = new Map<string, NonNullable<ReturnType<typeof readIssues>>>();
 
-  private issuesOf(siteId: string, build: BuildRecord): ReturnType<typeof readIssues> {
+  private issuesOf(project: ProjectKey, build: BuildRecord): ReturnType<typeof readIssues> {
     if (!build.outputDir || !fs.existsSync(build.outputDir)) return null;
     const cached = this.issueCache.get(build.outputDir);
     if (cached) return cached;
@@ -211,7 +211,7 @@ export class BuildService {
       }
       return read;
     } catch (err) {
-      this.opts.logger.log("warn", "build.audit_unreadable", { siteId, buildId: build.id, error: String(err) });
+      this.opts.logger.log("warn", "build.audit_unreadable", { project, buildId: build.id, error: String(err) });
       return null;
     }
   }
@@ -220,30 +220,30 @@ export class BuildService {
    * Start a build and return it as `running`; it finishes in the background (poll the list).
    * `guardedCommit`: a commit the pre-build guard passed moments ago, so it is not scanned twice.
    */
-  async start(siteId: string, ref: PanelRef, opts: { guardedCommit?: string } = {}): Promise<Build> {
+  async start(project: ProjectKey, ref: PanelRef, opts: { guardedCommit?: string } = {}): Promise<Build> {
     this.assertOpen();
-    const site = this.opts.sites.get(siteId);
+    const site = this.opts.projects.get(project);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
-    if (ref === "change" && !this.opts.changes.store.open(siteId)) throw new SiteError("change.not_found", 404);
+    if (ref === "change" && !this.opts.changes.store.open(project)) throw new SiteError("change.not_found", 404);
     const runner = await usableRunner(this.opts.bukit, this.runnerOpts());
     if (!runner) throw new SiteError("build.bukit_missing", 409);
 
-    const release = this.opts.locks.acquire(siteId, "build");
+    const release = this.opts.locks.acquire(project, "build");
     try {
       let target: Target;
       if (ref === "change") {
         // Under the lock: the change set may have closed, and the checkout is snapshotted as it is.
-        const change = this.opts.changes.store.open(siteId);
+        const change = this.opts.changes.store.open(project);
         if (!change) throw new SiteError("change.not_found", 404);
-        const cwd = await this.opts.sites.aiWorktree(siteId, change.snapshotCommit, { reset: false });
-        const { commit } = await this.opts.changes.snapshot(siteId, cwd);
+        const cwd = await this.opts.projects.aiWorktree(project, change.snapshotCommit, { reset: false });
+        const { commit } = await this.opts.changes.snapshot(project, cwd);
         target = { ref, commit, cwd, changeSetId: change.id };
       } else {
-        target = { ref, commit: await this.opts.sites.headOf(site), cwd: null, changeSetId: null };
+        target = { ref, commit: await this.opts.projects.headOf(site), cwd: null, changeSetId: null };
       }
       this.assertOpen(); // shutdown may have begun while the branch was resolved
       const id = newBuildId();
-      this.store.insert({ id, siteId, commit: target.commit, changeSetId: target.changeSetId });
+      this.store.insert({ id, project, commit: target.commit, changeSetId: target.changeSetId });
       const abort = new AbortController();
       const guarded = ref === "main" && opts.guardedCommit === target.commit;
       const promise = this.execute(site, id, target, runner, abort.signal, guarded)
@@ -272,25 +272,27 @@ export class BuildService {
    * site whose `config check` passed (a Notion site passes it only with a bound data source); a busy site
    * or a missing Bukit is not an error for the caller.
    */
-  async startAfterAdd(site: Site): Promise<void> {
-    if (site.readOnly !== null || site.configCheck !== "ok") return;
+  async startAfterAdd(project: ProjectKey): Promise<void> {
     try {
-      // The site check that just finished guarded checkedCommit; a newer head is guarded as usual. The guard
+      const site = this.opts.projects.get(project);
+      if (site.readOnly !== null || site.configCheck !== "ok") return;
+      // The check that just finished guarded checkedCommit; a newer head is guarded as usual. The guard
       // also decides whether the build gets the Notion token, so a site with a bound source is guarded again
       // (a new site from the starter, so it costs little).
-      const guardedCommit = site.notionDataSourceId === null ? (site.checkedCommit ?? undefined) : undefined;
-      await this.start(site.id, "main", { guardedCommit });
+      const guardedCommit =
+        this.opts.projects.notionDataSourceId(project) === null ? (site.checkedCommit ?? undefined) : undefined;
+      await this.start(project, "main", { guardedCommit });
     } catch (err) {
-      this.opts.logger.log("warn", "build.after_add_skipped", { siteId: site.id, error: String(err) });
+      this.opts.logger.log("warn", "build.after_add_skipped", { project, error: String(err) });
     }
   }
 
   /** Open (or re-point) the site's preview port at its newest kept build. */
-  async openPreview(siteId: string, ref: PanelRef): Promise<PreviewResponse> {
-    const site = this.opts.sites.get(siteId);
-    if (ref === "change" && !this.opts.changes.store.open(siteId)) throw new SiteError("change.not_found", 404);
-    const key = PreviewPool.key(siteId, ref);
-    let build = this.newestOutput(siteId, ref);
+  async openPreview(project: ProjectKey, ref: PanelRef): Promise<PreviewResponse> {
+    const site = this.opts.projects.get(project);
+    if (ref === "change" && !this.opts.changes.store.open(project)) throw new SiteError("change.not_found", 404);
+    const key = PreviewPool.key(project, ref);
+    let build = this.newestOutput(project, ref);
     if (!build) throw new SiteError("preview.not_built", 404);
     let port: number;
     let url: string;
@@ -298,7 +300,7 @@ export class BuildService {
       ({ port, url } = await this.opts.previews.open(
         key,
         build.outputDir,
-        await this.entryOf(site.path, build),
+        await this.entryOf(site.path, site.configFile, build),
         build.report?.basePath,
       ));
     } catch (err) {
@@ -307,9 +309,9 @@ export class BuildService {
     }
     // A build that succeeded while the port was being bound (or the entry looked up) could not re-point the
     // slot yet. Re-point only if it is still the newest after the lookup, so an older build never wins.
-    for (let newest = this.newestOutput(siteId, ref); newest && newest.id !== build.id; ) {
-      const entry = await this.entryOf(site.path, newest);
-      const now = this.newestOutput(siteId, ref);
+    for (let newest = this.newestOutput(project, ref); newest && newest.id !== build.id; ) {
+      const entry = await this.entryOf(site.path, site.configFile, newest);
+      const now = this.newestOutput(project, ref);
       if (now?.id === newest.id) {
         this.opts.previews.repoint(key, newest.outputDir, entry, newest.report?.basePath);
         build = newest;
@@ -332,10 +334,10 @@ export class BuildService {
    * The newest kept output of `ref` that is still on disk; outputs deleted from outside are forgotten.
    * For `change`, only builds of the open change set count.
    */
-  private newestOutput(siteId: string, ref: PanelRef): (BuildRecord & { outputDir: string }) | null {
-    const changeSetId = ref === "change" ? (this.opts.changes.store.open(siteId)?.id ?? null) : null;
+  private newestOutput(project: ProjectKey, ref: PanelRef): (BuildRecord & { outputDir: string }) | null {
+    const changeSetId = ref === "change" ? (this.opts.changes.store.open(project)?.id ?? null) : null;
     if (ref === "change" && changeSetId === null) return null;
-    for (const build of this.store.withOutput(siteId)) {
+    for (const build of this.store.withOutput(project)) {
       if (build.ref !== ref || !build.outputDir) continue;
       if (ref === "change" && build.changeSetId !== changeSetId) continue;
       if (fs.existsSync(build.outputDir)) return { ...build, outputDir: build.outputDir };
@@ -344,9 +346,9 @@ export class BuildService {
     return null;
   }
 
-  /** A site was removed: give back its preview ports (its records go with the site row). */
-  forgetSite(siteId: string): Promise<void> {
-    return this.opts.previews.closeSite(siteId);
+  /** A project was removed: give back its preview ports (its records go with the project row). */
+  forgetProject(project: ProjectKey): Promise<void> {
+    return this.opts.previews.closeProject(project);
   }
 
   /** Wait for the running builds. */
@@ -372,7 +374,7 @@ export class BuildService {
   }
 
   private async execute(
-    site: Site,
+    site: Project,
     id: string,
     target: Target,
     runner: BukitRunner,
@@ -394,44 +396,46 @@ export class BuildService {
     let passNotionToken = false;
     // A change build of a Notion site reads the snapshot of the last formal build instead (plan 5.5).
     let offline: OfflineNotion | null = null;
-    const snapshots = this.opts.sites.notionSnapshots;
+    const snapshots = this.opts.projects.sites.notionSnapshots;
+    // Notion snapshots are kept per site (plan 5.5); a theme project has none, so it never reads or drops one.
+    const notionSite = site.ref.kind === "site" ? site.id : null;
     try {
       // The guard reads the commit's git objects, so it judges exactly what the checkout will hold.
       if (!guarded) {
-        const guard = await guardCommit(this.opts.git, site.path, commit);
+        const guard = await guardCommit(this.opts.git, site.path, commit, site.configFile);
         // The site's state follows what the guard found on the default branch, so the UI stops offering
         // builds; what the AI changed only fails its own build (the review shows why).
         if (target.ref === "main" && (!guard.ok || guard.usesNotion))
-          this.opts.sites.applyGuard(site.id, commit, guard);
+          this.opts.projects.applyGuard(site.key, commit, guard);
         if (!guard.ok) return finish("failed", "refused", null, { reasons: guard.reasons });
         if (guard.usesNotion && target.ref !== "main") {
           // Unreviewed change builds never get the Notion token: they build offline, from the snapshot.
-          offline = snapshots.offline(site.id);
+          offline = notionSite === null ? null : snapshots.offline(notionSite);
           if (!offline) return finish("failed", "notion", null, { notionSnapshotProblem: "missing" });
         } else if (guard.usesNotion) {
           try {
-            notionToken = this.opts.notionToken(site.id);
+            notionToken = this.opts.notionToken(site.key);
           } catch {
             return finish("failed", "error", null, { detail: "the saved Notion token cannot be read" });
           }
           if (notionToken === null) return finish("failed", "notion", null, {});
           passNotionToken = true;
-        } else if (target.ref === "main") {
+        } else if (target.ref === "main" && notionSite !== null) {
           // The default branch no longer uses Notion: its snapshot only keeps data nothing shows.
-          snapshots.remove(site.id);
+          snapshots.remove(notionSite);
         }
       }
 
-      const checkout = target.cwd ?? (await this.opts.sites.mainCheckout(site.id, site.path, commit));
-      const base = checkoutBasePath(checkout);
+      const checkout = target.cwd ?? (await this.opts.projects.mainCheckout(site.key, commit));
+      const base = checkoutBasePath(checkout, site.configFile);
       if (!base.ok) return finish("failed", "base_url", null, { detail: base.detail });
       const { basePath } = base;
       temp = path.join(checkout, BUILD_OUTPUT_PARENT, id);
       fs.rmSync(temp, { recursive: true, force: true });
-      const record = passNotionToken && notionToken !== null;
+      const record = passNotionToken && notionToken !== null && notionSite !== null;
       const args = [
-        ...buildArgs(id, basePath),
-        ...(record ? snapshots.recordArgs(site.id) : offline ? offline.buildArgs : []),
+        ...buildArgs(id, basePath, site.configFile),
+        ...(record && notionSite !== null ? snapshots.recordArgs(notionSite) : offline ? offline.buildArgs : []),
       ];
       const result = await runner.run("build", args, {
         cwd: checkout,
@@ -448,16 +452,16 @@ export class BuildService {
           if (problem) report.notionSnapshotProblem = problem;
         }
       }
-      if (record && result.stdout.includes("event=notion.snapshot.saved")) {
+      if (record && notionSite !== null && result.stdout.includes("event=notion.snapshot.saved")) {
         // Bukit replaced the snapshot as its last step and said so. Record it even when the run was stopped
         // after that (outcome not ok): otherwise the new data would sit under the old record and media cache.
         try {
-          snapshots.recorded(site.id, commit, checkout);
+          snapshots.recorded(notionSite, commit, checkout, site.configFile);
         } catch (err) {
           // A record that names another build than the data, or a media cache that does not go with it, is
           // worse than none: the next formal build records again.
-          this.opts.logger.log("warn", "build.notion_snapshot_failed", { siteId: site.id, error: String(err) });
-          snapshots.tryRemove(site.id, "record_failed");
+          this.opts.logger.log("warn", "build.notion_snapshot_failed", { project: site.key, error: String(err) });
+          snapshots.tryRemove(notionSite, "record_failed");
         }
       }
       if (outcome !== "ok") {
@@ -476,12 +480,12 @@ export class BuildService {
         report.messages.push({ level: "warn", msg: `upload prefix: ${problem.url} in ${problem.page}` });
       }
 
-      const dest = path.join(this.opts.paths.previews, site.id, id);
+      const dest = path.join(this.opts.paths.previews, site.key, id);
       fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
       moveDir(temp, dest);
       temp = null;
-      const audit = this.audit(site.id, id, dest);
-      const entry = previewEntry(dest, checkoutLanguage(checkout));
+      const audit = this.audit(site.key, id, dest);
+      const entry = previewEntry(dest, checkoutLanguage(checkout, site.configFile));
       finish(
         "succeeded",
         "ok",
@@ -495,8 +499,8 @@ export class BuildService {
         dest,
       );
       // An open preview switches to the new build at once (a change preview: while its change set is open).
-      if (target.ref === "main" || this.opts.changes.store.open(site.id)?.id === target.changeSetId) {
-        this.opts.previews.repoint(PreviewPool.key(site.id, target.ref), dest, entry, basePath);
+      if (target.ref === "main" || this.opts.changes.store.open(site.key)?.id === target.changeSetId) {
+        this.opts.previews.repoint(PreviewPool.key(site.key, target.ref), dest, entry, basePath);
       }
     } catch (err) {
       const problem = storageErrorCode(err) ?? undefined;
@@ -506,21 +510,25 @@ export class BuildService {
       });
     } finally {
       if (temp) fs.rmSync(temp, { recursive: true, force: true });
-      this.prune(site.id);
+      this.prune(site.key);
     }
   }
 
   /**
    * Where the preview of `build` opens. Builds from before BuildReport.entry existed work it out from the
-   * site.yaml of the built commit; git is asked only when the output has no root home page, once per build.
+   * config file of the built commit; git is asked only when the output has no root home page, once per build.
    */
-  private async entryOf(repo: string, build: BuildRecord & { outputDir: string }): Promise<string | undefined> {
+  private async entryOf(
+    repo: string,
+    configFile: string,
+    build: BuildRecord & { outputDir: string },
+  ): Promise<string | undefined> {
     if (build.report?.entry) return build.report.entry;
     const homes = homePages(build.outputDir);
     if (homes.length === 0) return undefined;
     let lang = this.languages.get(build.id);
     if (lang === undefined) {
-      lang = await this.languageAt(repo, build.commit);
+      lang = await this.languageAt(repo, build.commit, configFile);
       if (this.languages.size >= MAX_CACHED_LANGUAGES) this.languages.clear();
       this.languages.set(build.id, lang);
     }
@@ -528,9 +536,9 @@ export class BuildService {
   }
 
   /** The default language in site.yaml at `commit`, or null when it cannot be read. */
-  private async languageAt(repo: string, commit: string): Promise<string | null> {
+  private async languageAt(repo: string, commit: string, configFile: string): Promise<string | null> {
     try {
-      const text = await readBlobAt(this.opts.git, repo, commit, "site.yaml", MAX_SITE_YAML);
+      const text = await readBlobAt(this.opts.git, repo, commit, configFile, MAX_SITE_YAML);
       return text ? siteLanguage(text.toString("utf8")) : null;
     } catch {
       return null;
@@ -538,11 +546,11 @@ export class BuildService {
   }
 
   /** The SEO / GEO summary of a kept output (M4 layer 7); a report that cannot be read never fails the build. */
-  private audit(siteId: string, buildId: string, outputDir: string): BuildAudit | null {
+  private audit(project: ProjectKey, buildId: string, outputDir: string): BuildAudit | null {
     try {
       return readAudit(outputDir);
     } catch (err) {
-      this.opts.logger.log("warn", "build.audit_unreadable", { siteId, buildId, error: String(err) });
+      this.opts.logger.log("warn", "build.audit_unreadable", { project, buildId, error: String(err) });
       return null;
     }
   }
@@ -551,27 +559,27 @@ export class BuildService {
    * Keep the newest KEEP_OUTPUTS outputs, plus the newest of each ref and whatever an open preview
    * serves; delete the others and forget old records.
    */
-  private prune(siteId: string): void {
+  private prune(project: ProjectKey): void {
     try {
       const keep = new Set<string>();
       for (const ref of ["main", "change"] as const) {
-        const latest = this.store.latestWithOutput(siteId, ref);
+        const latest = this.store.latestWithOutput(project, ref);
         if (latest) keep.add(latest.id);
       }
       const served = new Set(
-        (["main", "change"] as const).map((ref) => this.opts.previews.rootOf(PreviewPool.key(siteId, ref))),
+        (["main", "change"] as const).map((ref) => this.opts.previews.rootOf(PreviewPool.key(project, ref))),
       );
-      const siteDir = path.join(this.opts.paths.previews, siteId);
-      for (const [i, build] of this.store.withOutput(siteId).entries()) {
+      const siteDir = path.join(this.opts.paths.previews, project);
+      for (const [i, build] of this.store.withOutput(project).entries()) {
         if (i < KEEP_OUTPUTS || keep.has(build.id) || served.has(build.outputDir)) continue;
         if (build.outputDir && path.dirname(build.outputDir) === siteDir) {
           fs.rmSync(build.outputDir, { recursive: true, force: true });
         }
         this.store.dropOutput(build.id);
       }
-      this.store.pruneRecords(siteId, KEEP_RECORDS);
+      this.store.pruneRecords(project, KEEP_RECORDS);
     } catch (err) {
-      this.opts.logger.log("warn", "build.prune_failed", { siteId, error: String(err) });
+      this.opts.logger.log("warn", "build.prune_failed", { project, error: String(err) });
     }
   }
 }
@@ -721,9 +729,9 @@ export function siteLanguage(yaml: string): string | null {
 }
 
 /** The default language of the checkout that was just built. */
-export function checkoutLanguage(checkout: string): string | null {
+export function checkoutLanguage(checkout: string, configFile: string): string | null {
   try {
-    const file = path.join(checkout, "site.yaml");
+    const file = path.join(checkout, configFile);
     const stat = fs.lstatSync(file, { throwIfNoEntry: false });
     if (!stat?.isFile() || stat.size > MAX_SITE_YAML) return null;
     return siteLanguage(fs.readFileSync(file, "utf8"));

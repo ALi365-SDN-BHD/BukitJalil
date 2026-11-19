@@ -249,7 +249,7 @@ describe("guardCommit", () => {
 
   it("passes a clean site", async () => {
     const dir = siteRepo("clean", { "site.yaml": SITE, "content/a.md": "# a\n" });
-    expect(await guardCommit(git, dir, head(dir))).toEqual({ ok: true, reasons: [], usesNotion: false });
+    expect(await guardCommit(git, dir, head(dir), "site.yaml")).toEqual({ ok: true, reasons: [], usesNotion: false });
   });
 
   it("rejects symlinks, plugin files and LFS", async () => {
@@ -264,7 +264,7 @@ describe("guardCommit", () => {
       },
       { "content/link.md": "/etc/passwd" },
     );
-    const result = await guardCommit(git, dir, head(dir));
+    const result = await guardCommit(git, dir, head(dir), "site.yaml");
     expect(result.ok).toBe(false);
     expect(result.reasons.map((r) => `${r.code}@${r.where}`).sort()).toEqual(
       [
@@ -284,25 +284,33 @@ describe("guardCommit", () => {
       "Plugins/x/PLUGIN.YAML": "id: x\n",
       ".BUKIT/Plugins.yaml": "x: 1\n",
     });
-    const codes = (await guardCommit(git, dir, head(dir))).reasons.map((r) => `${r.code}@${r.where}`).sort();
+    const codes = (await guardCommit(git, dir, head(dir), "site.yaml")).reasons
+      .map((r) => `${r.code}@${r.where}`)
+      .sort();
     expect(codes).toEqual(
       ["case_collision@site.yaml", "plugin_files@.BUKIT/Plugins.yaml", "plugin_files@Plugins/x/PLUGIN.YAML"].sort(),
     );
     // JavaScript's toLowerCase leaves "ſ" (U+017F) alone, but APFS folds it to "s": the second file would
     // land on site.yaml at checkout.
     const folded = treeRepo("fold", { "site.yaml": SITE, "\u017fite.yaml": "theme:\n  static: /etc\n" });
-    expect((await guardCommit(git, folded, head(folded))).reasons.map((r) => r.code)).toContain("case_collision");
+    expect((await guardCommit(git, folded, head(folded), "site.yaml")).reasons.map((r) => r.code)).toContain(
+      "case_collision",
+    );
     const upper = siteRepo("upper", { "Site.yaml": SITE });
-    expect((await guardCommit(git, upper, head(upper))).reasons.map((r) => r.code)).toEqual(["missing_site_yaml"]);
+    expect((await guardCommit(git, upper, head(upper), "site.yaml")).reasons.map((r) => r.code)).toEqual([
+      "missing_site_yaml",
+    ]);
   });
 
   it("refuses files too large to check instead of skipping them", async () => {
     const big = siteRepo("bigattrs", { "site.yaml": SITE, ".gitattributes": `${"#".repeat(300 * 1024)}\n` });
-    expect((await guardCommit(git, big, head(big))).reasons).toEqual([
+    expect((await guardCommit(git, big, head(big), "site.yaml")).reasons).toEqual([
       { code: "lfs", where: ".gitattributes", detail: `larger than ${256 * 1024} bytes` },
     ]);
     const bigSite = siteRepo("bigsite", { "site.yaml": `# ${"x".repeat(1024 * 1024)}\n${SITE}` });
-    expect((await guardCommit(git, bigSite, head(bigSite))).reasons.map((r) => r.code)).toEqual(["invalid_site_yaml"]);
+    expect((await guardCommit(git, bigSite, head(bigSite), "site.yaml")).reasons.map((r) => r.code)).toEqual([
+      "invalid_site_yaml",
+    ]);
   });
 
   it("ignores filter= in comments", () => {
@@ -313,9 +321,11 @@ describe("guardCommit", () => {
 
   it("reports a missing or symlinked site.yaml", async () => {
     const none = siteRepo("nosite", { "a.md": "a\n" });
-    expect((await guardCommit(git, none, head(none))).reasons.map((r) => r.code)).toEqual(["missing_site_yaml"]);
+    expect((await guardCommit(git, none, head(none), "site.yaml")).reasons.map((r) => r.code)).toEqual([
+      "missing_site_yaml",
+    ]);
     const linked = siteRepo("linksite", { "real.yaml": SITE }, { "site.yaml": "real.yaml" });
-    expect((await guardCommit(git, linked, head(linked))).reasons.map((r) => r.code).sort()).toEqual([
+    expect((await guardCommit(git, linked, head(linked), "site.yaml")).reasons.map((r) => r.code).sort()).toEqual([
       "missing_site_yaml",
       "symlink",
     ]);
@@ -325,18 +335,18 @@ describe("guardCommit", () => {
     const dir = siteRepo("worktree", { "site.yaml": "build:\n  output: /etc\n" });
     const commit = head(dir);
     fs.writeFileSync(path.join(dir, "site.yaml"), SITE); // a clean working tree does not hide the commit
-    expect((await guardCommit(git, dir, commit)).reasons.map((r) => r.code)).toEqual(["unsafe_path"]);
+    expect((await guardCommit(git, dir, commit, "site.yaml")).reasons.map((r) => r.code)).toEqual(["unsafe_path"]);
 
     const ok = siteRepo("worktree-ok", { "site.yaml": SITE });
     fs.writeFileSync(path.join(ok, "site.yaml"), "build:\n  output: /etc\n");
     fs.symlinkSync("/etc/passwd", path.join(ok, "untracked-link"));
-    expect((await guardCommit(git, ok, head(ok))).ok).toBe(true);
+    expect((await guardCommit(git, ok, head(ok), "site.yaml")).ok).toBe(true);
   });
 
   it("refuses an unsafe repository before reading anything", async () => {
     const dir = siteRepo("hostile", { "site.yaml": SITE });
     raw(dir, "config", "core.fsmonitor", "/bin/false");
-    await expect(guardCommit(git, dir, head(dir))).rejects.toMatchObject({ kind: "unsafe_repo" });
+    await expect(guardCommit(git, dir, head(dir), "site.yaml")).rejects.toMatchObject({ kind: "unsafe_repo" });
   });
 });
 

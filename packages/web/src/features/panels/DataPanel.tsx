@@ -1,4 +1,4 @@
-import type { DataResponse, DataSource, PanelRef } from "@bukitjalil/shared";
+import type { DataResponse, DataSource, PanelRef, ProjectKey } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,10 +10,10 @@ import { formatTime, shortOid } from "@/lib/format";
 import { Facts, PanelError, PanelLoading, RefSwitch, Section, Table } from "./common";
 
 /** Data panel (plan 5.3): content sources as cards; `mode: data` sources also as a table. */
-export function DataPanel({ siteId }: { siteId: string }) {
-  const [ref] = usePanelRef(siteId);
+export function DataPanel({ project }: { project: ProjectKey }) {
+  const [ref] = usePanelRef(project);
   const { m } = useI18n();
-  const data = useQuery({ queryKey: keys.panel(siteId, "data", ref), queryFn: () => api.data(siteId, ref) });
+  const data = useQuery({ queryKey: keys.panel(project, "data", ref), queryFn: () => api.data(project, ref) });
 
   let body: React.ReactNode;
   if (data.isPending) body = <PanelLoading />;
@@ -26,19 +26,19 @@ export function DataPanel({ siteId }: { siteId: string }) {
         {data.data.truncated && <p className="text-sm text-muted-foreground">{m.data.truncated}</p>}
         {data.data.sources.some((s) => s.type === "notion") && (
           <>
-            <NotionBinding siteId={siteId} />
+            <NotionBinding siteId={project} />
             <NotionSnapshotNote snapshot={data.data.notionSnapshot} />
           </>
         )}
         {data.data.sources.map((s) => (
-          <SourceCard key={s.index} siteId={siteId} refName={ref} source={s} counts={data.data.counts} />
+          <SourceCard key={s.index} siteId={project} refName={ref} source={s} counts={data.data.counts} />
         ))}
       </div>
     );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <RefSwitch siteId={siteId} />
+      <RefSwitch project={project} />
       <div className="min-h-0 flex-1 overflow-auto" data-testid="data-panel">
         {body}
       </div>

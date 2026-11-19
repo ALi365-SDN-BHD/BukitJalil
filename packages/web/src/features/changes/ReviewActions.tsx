@@ -1,4 +1,4 @@
-import type { ApplyResult, ChangeView } from "@bukitjalil/shared";
+import type { ApplyResult, ChangeView, ProjectKey } from "@bukitjalil/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { useState } from "react";
@@ -14,11 +14,11 @@ export type Notice = { tone: "ok" | "warn" | "error"; text: string; detail?: str
  * in words, and a failed check can be overridden. The change set itself is refreshed by `change` events.
  */
 export function ReviewActions({
-  siteId,
+  project,
   change,
   onNotice,
 }: {
-  siteId: string;
+  project: ProjectKey;
   change: ChangeView;
   onNotice: (notice: Notice | null) => void;
 }) {
@@ -26,7 +26,7 @@ export function ReviewActions({
   const queryClient = useQueryClient();
   const [confirmReject, setConfirmReject] = useState(false);
   const [failed, setFailed] = useState<{ result: ApplyResult; picked: string } | null>(null);
-  const refresh = () => queryClient.invalidateQueries({ queryKey: keys.change(siteId) });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: keys.change(project) });
   // Only part of it, when the user left some files or hunks out (plan 7.5).
   const selection = useSelection(change);
   const picked = selection.request();

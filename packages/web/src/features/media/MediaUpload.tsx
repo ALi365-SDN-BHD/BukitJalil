@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { useSessions } from "@/features/chat/sessions";
 import { useI18n } from "@/i18n";
 import { ApiRequestError, api, keys } from "@/lib/api";
+import { fileToBase64 } from "@/lib/files";
 
 type ItemStatus = "pending" | "uploading" | "done" | "error" | "skipped";
 interface Item {
@@ -246,14 +247,3 @@ export const MediaUpload = forwardRef<MediaUploadHandle, Props>(function MediaUp
     </section>
   );
 });
-
-async function fileToBase64(file: File): Promise<string> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error("Cannot read the file"));
-    reader.readAsDataURL(file);
-  });
-  const comma = dataUrl.indexOf(",");
-  return comma < 0 ? "" : dataUrl.slice(comma + 1);
-}

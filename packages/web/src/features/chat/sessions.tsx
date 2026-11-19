@@ -1,4 +1,4 @@
-import type { SessionDetail, SessionInfo, SessionStatus } from "@bukitjalil/shared";
+import type { ProjectKey, SessionDetail, SessionInfo, SessionStatus } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -15,28 +15,29 @@ import {
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { projectPath } from "@/lib/project";
 import { setComposerDraft } from "./drafts";
 import { liveStore } from "./store";
 
-export const sessionPath = (siteId: string, sessionId: string) => `/sites/${siteId}/sessions/${sessionId}`;
+export const sessionPath = (project: ProjectKey, sessionId: string) => `${projectPath(project)}/sessions/${sessionId}`;
 
-export function useSessions(siteId: string) {
-  return useQuery({ queryKey: keys.sessions(siteId), queryFn: () => api.sessions(siteId) });
+export function useSessions(project: ProjectKey) {
+  return useQuery({ queryKey: keys.sessions(project), queryFn: () => api.sessions(project) });
 }
 
 /** Create a session and open it. */
-export function useCreateSession(siteId: string) {
+export function useCreateSession(project: ProjectKey) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   return useMutation({
     /** `draft`: text to put in the new conversation's input, for the user to read, change and send. */
-    mutationFn: (_draft?: string) => api.createSession(siteId),
+    mutationFn: (_draft?: string) => api.createSession(project),
     onSuccess: (session, draft) => {
       if (draft) setComposerDraft(session.id, draft);
-      queryClient.setQueryData<SessionInfo[]>(keys.sessions(siteId), (list) =>
+      queryClient.setQueryData<SessionInfo[]>(keys.sessions(project), (list) =>
         list ? [session, ...list.filter((s) => s.id !== session.id)] : [session],
       );
-      navigate(sessionPath(siteId, session.id));
+      navigate(sessionPath(project, session.id));
     },
   });
 }
@@ -56,18 +57,18 @@ export function StatusDot({ status }: { status: SessionStatus }) {
   );
 }
 
-/** The open site's sessions in the sidebar (plan 10.1), most recently used first. */
-export function SessionList({ siteId, readOnly }: { siteId: string; readOnly: boolean }) {
+/** The open project's sessions in the sidebar (plan 10.1), most recently used first. */
+export function SessionList({ project, readOnly }: { project: ProjectKey; readOnly: boolean }) {
   const { m, errorOf } = useI18n();
   const { sessionId } = useParams();
-  const sessions = useSessions(siteId);
-  const create = useCreateSession(siteId);
+  const sessions = useSessions(project);
+  const create = useCreateSession(project);
   return (
     <div className="ml-3 flex flex-col gap-0.5 border-l py-1 pl-2" data-testid="session-list">
       {sessions.error && <p className="px-2 text-xs text-destructive">{errorOf(sessions.error)}</p>}
       {sessions.data?.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">{m.chat.noSessions}</p>}
       {sessions.data?.map((s) => (
-        <SessionItem key={s.id} siteId={siteId} session={s} selected={sessionId === s.id} />
+        <SessionItem key={s.id} project={project} session={s} selected={sessionId === s.id} />
       ))}
       {!readOnly && (
         <button
@@ -85,25 +86,25 @@ export function SessionList({ siteId, readOnly }: { siteId: string; readOnly: bo
   );
 }
 
-function SessionItem({ siteId, session, selected }: { siteId: string; session: SessionInfo; selected: boolean }) {
+function SessionItem({ project, session, selected }: { project: ProjectKey; session: SessionInfo; selected: boolean }) {
   const { m } = useI18n();
   return (
     <div className={`group flex items-center rounded-md ${selected ? "bg-accent" : "hover:bg-accent/60"}`}>
       <NavLink
-        to={sessionPath(siteId, session.id)}
+        to={sessionPath(project, session.id)}
         data-testid="session-item"
         className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-sm ${selected ? "font-medium" : ""}`}
       >
         <StatusDot status={session.status} />
         <span className="min-w-0 flex-1 truncate">{session.title ?? m.chat.untitled}</span>
       </NavLink>
-      <SessionMenu siteId={siteId} session={session} />
+      <SessionMenu project={project} session={session} />
     </div>
   );
 }
 
 /** Manual rename lives in the session row's menu; automatic titles only fill an empty title. */
-function SessionMenu({ siteId, session }: { siteId: string; session: SessionInfo }) {
+function SessionMenu({ project, session }: { project: ProjectKey; session: SessionInfo }) {
   const { m, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -115,7 +116,7 @@ function SessionMenu({ siteId, session }: { siteId: string; session: SessionInfo
       queryClient.setQueryData(keys.session(session.id), (d: SessionDetail | undefined) =>
         d ? { ...d, session: updated } : d,
       );
-      void queryClient.invalidateQueries({ queryKey: keys.sessions(siteId) });
+      void queryClient.invalidateQueries({ queryKey: keys.sessions(project) });
       setOpen(false);
     },
   });
@@ -124,7 +125,7 @@ function SessionMenu({ siteId, session }: { siteId: string; session: SessionInfo
     onSuccess: () => {
       setConfirmDelete(false);
       liveStore.markDeleted(session.id);
-      queryClient.setQueryData<SessionInfo[]>(keys.sessions(siteId), (list) =>
+      queryClient.setQueryData<SessionInfo[]>(keys.sessions(project), (list) =>
         list?.filter((item) => item.id !== session.id),
       );
       queryClient.removeQueries({ queryKey: keys.session(session.id) });

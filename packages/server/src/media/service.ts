@@ -65,9 +65,9 @@ export class MediaService {
         // app home may be reached through /var -> /private/var; resolve once so every path check and git
         // call uses the same form (the worktree path itself can stay a symlinked path).
         const root = fs.realpathSync.native(cwd);
-        const config = await this.readConfig(site.path, change.snapshotCommit);
+        const config = await this.readConfig(site.path, change.snapshotCommit, site.configFile);
         // The URL follows the default branch: deploy settings commit there directly (design 4.2).
-        const base = await this.readConfig(site.path, await this.opts.sites.headOf(site));
+        const base = await this.readConfig(site.path, await this.opts.sites.repos.headOf(site), site.configFile);
         const uploadDir = mediaDir(root, config);
         assertSafePath(root, uploadDir);
         const gate = new PathGate(root);
@@ -170,9 +170,9 @@ export class MediaService {
     }
   }
 
-  private async readConfig(repo: string, commit: string): Promise<Record<string, unknown>> {
+  private async readConfig(repo: string, commit: string, configFile: string): Promise<Record<string, unknown>> {
     try {
-      const raw = await readBlobAt(this.opts.git, repo, commit, "site.yaml", MAX_SITE_YAML);
+      const raw = await readBlobAt(this.opts.git, repo, commit, configFile, MAX_SITE_YAML);
       if (!raw) throw configInvalid();
       const parsed = parseYaml(raw.toString("utf8"));
       if (parsed.error !== null || !isRecord(parsed.value)) throw configInvalid();

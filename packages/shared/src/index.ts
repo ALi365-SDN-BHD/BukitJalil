@@ -12,6 +12,7 @@ export * from "./models.ts";
 export * from "./panels.ts";
 export * from "./pi.ts";
 export * from "./plugins.ts";
+export * from "./projects.ts";
 export * from "./publish.ts";
 export * from "./rg.ts";
 export * from "./secrets.ts";

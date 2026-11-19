@@ -1,7 +1,18 @@
-import type { ErrorCode, SessionInfo, Site } from "@bukitjalil/shared";
+import { type ErrorCode, isThemeKey, MAX_REFERENCE_IMAGES, type SessionInfo } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitFork, Loader2, Paperclip, Send, Square } from "lucide-react";
-import { type KeyboardEvent, memo, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { GitFork, ImagePlus, Loader2, Paperclip, Send, Square, X } from "lucide-react";
+import {
+  type KeyboardEvent,
+  memo,
+  type Ref,
+  type RefObject,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { ReviewCard } from "@/features/changes/ReviewCard";
@@ -9,7 +20,16 @@ import { MediaUpload, type MediaUploadHandle } from "@/features/media/MediaUploa
 import { MarkdownView } from "@/features/panels/MarkdownView";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
-import { takeComposerDraft } from "./drafts";
+import { type ProjectInfo, projectPath } from "@/lib/project";
+import {
+  ATTACH_ACCEPT,
+  type Attachment,
+  type AttachProblem,
+  imageUrl,
+  readAttachments,
+  selectedModelReadsImages,
+} from "./attachments";
+import { composerDraft, composerImages, saveComposer } from "./drafts";
 import { type PendingMessage, unseen } from "./live";
 import { type ChatItem, chatItems, latestSummary, mergeMessages, modelErrorKind, tailSignature } from "./model";
 import { sessionPath } from "./sessions";
@@ -17,7 +37,7 @@ import { liveStore, useDeleted, useLive } from "./store";
 import { ToolCard } from "./ToolCard";
 
 /** A conversation (plan 10.1): its messages, streamed reply and tool cards, and the composer. */
-export function ChatView({ site, sessionId }: { site: Site; sessionId: string }) {
+export function ChatView({ project, sessionId }: { project: ProjectInfo; sessionId: string }) {
   const { m, errorOf } = useI18n();
   const navigate = useNavigate();
   const deleted = useDeleted(sessionId);
@@ -29,11 +49,12 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
   });
   const live = useLive(sessionId);
   const uploader = useRef<MediaUploadHandle>(null);
+  const composer = useRef<ComposerHandle>(null);
 
-  // Deleted here or in another tab: back to the site home.
+  // Deleted here or in another tab: back to the project's home.
   useEffect(() => {
-    if (deleted) navigate(`/sites/${site.id}`, { replace: true });
-  }, [deleted, navigate, site.id]);
+    if (deleted) navigate(projectPath(project.key), { replace: true });
+  }, [deleted, navigate, project.key]);
 
   // Messages that ended live are dropped once the stored session has them.
   useEffect(() => {
@@ -83,11 +104,14 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
-        if (e.dataTransfer.files.length > 0) uploader.current?.addFiles(e.dataTransfer.files);
+        if (e.dataTransfer.files.length === 0) return;
+        // A theme project has no media upload: files become the message's reference images.
+        if (isThemeKey(project.key)) composer.current?.addImages(Array.from(e.dataTransfer.files));
+        else uploader.current?.addFiles(e.dataTransfer.files);
       }}
     >
       <MessageList
-        site={site}
+        project={project}
         session={session}
         items={items}
         streaming={live.text}
@@ -95,15 +119,15 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
         error={live.error}
         summary={summary}
       />
-      <ReviewCard siteId={site.id} />
-      <Composer site={site} session={session} uploader={uploader} />
+      <ReviewCard project={project.key} />
+      <Composer ref={composer} project={project} session={session} uploader={uploader} />
     </section>
   );
 }
 
 /** Messages, newest at the bottom; follows new output while the user is at the bottom. */
 function MessageList({
-  site,
+  project,
   session,
   items,
   streaming,
@@ -111,7 +135,7 @@ function MessageList({
   error,
   summary,
 }: {
-  site: Site;
+  project: ProjectInfo;
   session: SessionInfo;
   items: ChatItem[];
   streaming: string | null;
@@ -127,8 +151,8 @@ function MessageList({
   const fork = useMutation({
     mutationFn: (entryId: string) => api.forkSession(session.id, entryId),
     onSuccess: (created) => {
-      void queryClient.invalidateQueries({ queryKey: keys.sessions(site.id) });
-      navigate(sessionPath(site.id, created.id));
+      void queryClient.invalidateQueries({ queryKey: keys.sessions(project.key) });
+      navigate(sessionPath(project.key, created.id));
     },
   });
   // Whatever adds output: a message, streamed text, a tool result, a waiting message, an error, a summary.
@@ -139,7 +163,7 @@ function MessageList({
     if (el && atBottom.current && contentSize) el.scrollTop = el.scrollHeight;
   }, [contentSize]);
 
-  const onFork = canForkSite(site) ? fork.mutate : null;
+  const onFork = project.readOnly ? null : fork.mutate;
   return (
     <div
       ref={scroller}
@@ -196,8 +220,6 @@ function MessageList({
   );
 }
 
-const canForkSite = (site: Site) => !site.readOnly;
-
 /**
  * One message with its fork button. Memoized: the list re-renders on every streamed delta, and parsing
  * every message's Markdown again each time would make long conversations stutter.
@@ -237,8 +259,17 @@ function UserMessage({ item }: { item: Extract<ChatItem, { kind: "user" }> }) {
   return (
     <div className="ml-auto w-fit max-w-[85%] rounded-lg bg-primary/10 px-3 py-2 text-sm">
       <p className="whitespace-pre-wrap break-words">{item.text}</p>
-      {item.images > 0 && (
-        <p className="mt-1 text-xs text-muted-foreground">{t(m.chat.images, { count: item.images })}</p>
+      {item.images.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-1" aria-label={t(m.chat.images, { count: item.images.length })}>
+          {item.images
+            .flatMap((image) => imageUrl(image) ?? [])
+            .map((src, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: images of one message in order
+              <li key={i}>
+                <img src={src} alt="" className="size-16 rounded border object-cover" data-testid="message-image" />
+              </li>
+            ))}
+        </ul>
       )}
     </div>
   );
@@ -268,38 +299,80 @@ function AssistantMessage({ item }: { item: Extract<ChatItem, { kind: "assistant
   );
 }
 
+interface ComposerHandle {
+  /** Attach images dropped on the conversation. */
+  addImages: (files: File[]) => void;
+}
+
 /**
  * The input (plan 10.1). Idle: Enter sends. While the session runs, a message is added to the run right
- * away (steer) or after it (follow-up), and the run can be stopped.
+ * away (steer) or after it (follow-up), and the run can be stopped. Images can be pasted, dropped or
+ * picked as reference images when the selected model reads images (theme development design 4.2).
  */
 function Composer({
-  site,
+  ref,
+  project,
   session,
   uploader,
 }: {
-  site: Site;
+  ref: Ref<ComposerHandle>;
+  project: ProjectInfo;
   session: SessionInfo;
   uploader: RefObject<MediaUploadHandle | null>;
 }) {
   const { m, t, errorOf } = useI18n();
-  const [text, setText] = useState(() => takeComposerDraft(session.id) ?? "");
-  const [failedText, setFailedText] = useState<string | null>(null);
+  const [text, setText] = useState(() => composerDraft(session.id));
+  const [failed, setFailed] = useState<{ text: string; images: Attachment[] } | null>(null);
   const textRef = useRef(text);
+  const [images, setImages] = useState<Attachment[]>(() => composerImages(session.id));
+  // The box survives leaving the conversation (the view is keyed by session) until the message is sent.
+  useEffect(() => saveComposer(session.id, text, images), [session.id, text, images]);
+  const imagesRef = useRef(images);
+  const [attachProblem, setAttachProblem] = useState<AttachProblem | "model" | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const models = useQuery({ queryKey: keys.models, queryFn: api.models });
+  const readsImages = selectedModelReadsImages(models.data);
   const running = session.status === "running";
+  const theme = isThemeKey(project.key);
+  const updateImages = (next: Attachment[]) => {
+    imagesRef.current = next;
+    setImages(next);
+  };
+  const addImages = async (files: File[]) => {
+    if (files.length === 0) return;
+    if (readsImages === false) {
+      setAttachProblem("model");
+      return;
+    }
+    const { added, problem } = await readAttachments(files, imagesRef.current.length);
+    setAttachProblem(problem);
+    if (added.length > 0) updateImages([...imagesRef.current, ...added].slice(0, MAX_REFERENCE_IMAGES));
+  };
+  useImperativeHandle(ref, () => ({ addImages: (files) => void addImages(files) }));
   // The message leaves the box at once and shows as waiting until the session takes it in (the events
   // remove it); on failure it comes back to the box, unless something new was typed meanwhile.
   const send = useMutation({
-    mutationFn: (vars: { mode: "prompt" | "steer" | "followUp"; text: string; pendingId: number }) =>
-      api.sendMessage(session.id, { text: vars.text, mode: vars.mode }),
+    mutationFn: (vars: {
+      mode: "prompt" | "steer" | "followUp";
+      text: string;
+      images: Attachment[];
+      pendingId: number;
+    }) =>
+      api.sendMessage(session.id, {
+        text: vars.text,
+        mode: vars.mode,
+        ...(vars.images.length > 0 && { images: vars.images.map(({ mimeType, data }) => ({ mimeType, data })) }),
+      }),
     onError: (_err, vars) => {
       liveStore.removePending(session.id, vars.pendingId);
-      // With an empty box, put the message back as before. If the user has typed something else, keep it and
-      // offer the failed text as a retry instead of overwriting what they typed.
-      if (textRef.current === "") {
+      // With an empty box, put the message and its images back as before. If the user has typed or attached
+      // something else, keep it and offer the failed message as a retry instead of overwriting it.
+      if (textRef.current === "" && imagesRef.current.length === 0) {
         textRef.current = vars.text;
         setText(vars.text);
+        updateImages(vars.images);
       } else {
-        setFailedText(vars.text);
+        setFailed({ text: vars.text, images: vars.images });
       }
     },
   });
@@ -308,10 +381,13 @@ function Composer({
     const pendingId = liveStore.addPending(session.id, text);
     textRef.current = "";
     setText("");
-    send.mutate({ mode, text, pendingId });
+    const attached = imagesRef.current;
+    updateImages([]);
+    setAttachProblem(null);
+    send.mutate({ mode, text, images: attached, pendingId });
   };
   const stop = useMutation({ mutationFn: () => api.abortSession(session.id) });
-  const disabled = !!site.readOnly;
+  const disabled = !!project.readOnly;
   const empty = text.trim() === "";
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -338,8 +414,45 @@ function Composer({
             e.preventDefault();
             submit(running ? "steer" : "prompt");
           }}
+          onDrop={(e) => {
+            // Images dropped on the input are attached; anything else goes on to the conversation's drop.
+            const files = Array.from(e.dataTransfer.files);
+            if (files.length === 0 || !files.every((f) => f.type.startsWith("image/"))) return;
+            e.preventDefault();
+            e.stopPropagation();
+            void addImages(files);
+          }}
         >
           {session.status === "queued" && <p className="text-xs text-amber-600 dark:text-amber-400">{m.chat.queued}</p>}
+          {images.length > 0 && (
+            <ul className="flex flex-wrap gap-2" aria-label={t(m.chat.images, { count: images.length })}>
+              {images.map((image) => (
+                <li key={image.id} className="relative" data-testid="attached-image">
+                  <img
+                    src={imageUrl(image) ?? undefined}
+                    alt={image.name}
+                    className="size-14 rounded border object-cover"
+                  />
+                  <button
+                    type="button"
+                    className="absolute -top-1.5 -right-1.5 rounded-full border bg-background p-0.5 text-muted-foreground hover:text-foreground"
+                    aria-label={t(m.chat.attach.remove, { name: image.name })}
+                    onClick={() => {
+                      updateImages(imagesRef.current.filter((x) => x.id !== image.id));
+                      setAttachProblem(null);
+                    }}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {attachProblem && (
+            <p role="alert" className="text-xs text-destructive" data-testid="attach-problem">
+              {attachProblem === "model" ? m.chat.attach.modelUnsupported : m.chat.attach[attachProblem]}
+            </p>
+          )}
           <textarea
             className="min-h-16 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             rows={3}
@@ -353,6 +466,12 @@ function Composer({
               setText(e.target.value);
             }}
             onKeyDown={onKeyDown}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+              if (files.length === 0) return;
+              e.preventDefault();
+              void addImages(files);
+            }}
           />
           <div className="flex items-center gap-2">
             {(send.error || stop.error) && (
@@ -360,7 +479,7 @@ function Composer({
                 {errorOf(send.error ?? stop.error)}
               </p>
             )}
-            {failedText && (
+            {failed && (
               <p className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
                 <span className="min-w-0 flex-1">{m.chat.sendFailed}</span>
                 <Button
@@ -369,37 +488,65 @@ function Composer({
                   variant="outline"
                   data-testid="restore-failed-message"
                   onClick={() => {
-                    textRef.current = failedText;
-                    setText(failedText);
-                    setFailedText(null);
+                    textRef.current = failed.text;
+                    setText(failed.text);
+                    updateImages(failed.images);
+                    setFailed(null);
                   }}
                 >
                   {m.common.retry}
                 </Button>
-                <Button type="button" size="xs" variant="ghost" onClick={() => setFailedText(null)}>
+                <Button type="button" size="xs" variant="ghost" onClick={() => setFailed(null)}>
                   {m.common.cancel}
                 </Button>
               </p>
             )}
             <div className="ml-auto flex items-center gap-2">
-              <MediaUpload
-                ref={uploader}
-                siteId={site.id}
-                disabled={session.status !== "idle"}
-                disabledReason={m.media.busy}
-                trigger={<Paperclip />}
-                ariaLabel={m.media.upload}
-                size="icon-sm"
-                variant="ghost"
-                onUploaded={(result, file) => {
-                  const line = t(m.media.uploadedLine, { name: file.name, url: result.url });
-                  setText((current) => {
-                    const next = current.trim() === "" ? line : `${current}\n${line}`;
-                    textRef.current = next;
-                    return next;
-                  });
+              <input
+                ref={fileInput}
+                type="file"
+                accept={ATTACH_ACCEPT}
+                multiple
+                hidden
+                data-testid="attach-images-input"
+                onChange={(e) => {
+                  void addImages(Array.from(e.target.files ?? []));
+                  e.target.value = "";
                 }}
               />
+              <span title={readsImages === false ? m.chat.attach.modelUnsupported : m.chat.attach.add}>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={m.chat.attach.add}
+                  data-testid="attach-images"
+                  disabled={readsImages === false || images.length >= MAX_REFERENCE_IMAGES}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <ImagePlus />
+                </Button>
+              </span>
+              {!theme && (
+                <MediaUpload
+                  ref={uploader}
+                  siteId={project.key}
+                  disabled={session.status !== "idle"}
+                  disabledReason={m.media.busy}
+                  trigger={<Paperclip />}
+                  ariaLabel={m.media.upload}
+                  size="icon-sm"
+                  variant="ghost"
+                  onUploaded={(result, file) => {
+                    const line = t(m.media.uploadedLine, { name: file.name, url: result.url });
+                    setText((current) => {
+                      const next = current.trim() === "" ? line : `${current}\n${line}`;
+                      textRef.current = next;
+                      return next;
+                    });
+                  }}
+                />
+              )}
               {session.status !== "idle" && (
                 <Button
                   type="button"

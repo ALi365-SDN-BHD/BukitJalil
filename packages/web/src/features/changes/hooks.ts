@@ -1,12 +1,12 @@
-import type { ChangedFileStatus, PanelRef } from "@bukitjalil/shared";
+import type { ChangedFileStatus, PanelRef, ProjectKey } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 import { api, keys } from "@/lib/api";
 
-/** The site's open change set (plan 7.2); kept current by `change` events. */
-export function useCurrentChange(siteId: string) {
-  const query = useQuery({ queryKey: keys.change(siteId), queryFn: () => api.currentChange(siteId) });
+/** The project's open change set (plan 7.2); kept current by `change` events. */
+export function useCurrentChange(project: ProjectKey) {
+  const query = useQuery({ queryKey: keys.change(project), queryFn: () => api.currentChange(project) });
   return { ...query, change: query.data?.change ?? null };
 }
 
@@ -14,9 +14,9 @@ export function useCurrentChange(siteId: string) {
  * Which version the read-only panels show (plan 10.2), from ?ref= in the URL so all panels agree.
  * "change" only while a change set is open; otherwise the main version.
  */
-export function usePanelRef(siteId: string): [PanelRef, (ref: PanelRef) => void] {
+export function usePanelRef(project: ProjectKey): [PanelRef, (ref: PanelRef) => void] {
   const [params, setParams] = useSearchParams();
-  const { change, data } = useCurrentChange(siteId);
+  const { change, data } = useCurrentChange(project);
   const wanted = params.get("ref") === "change";
   const ref: PanelRef = wanted && change ? "change" : "main";
   // Once no change set is open, forget the choice, so the next one does not switch the panels by itself.

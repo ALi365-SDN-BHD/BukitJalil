@@ -13,8 +13,8 @@ import {
   type FileDiff,
   type HistoryResponse,
   isBukitPluginId,
+  type ProjectKey,
   type RestoreResult,
-  type Site,
   type VersionDiff,
 } from "@bukitjalil/shared";
 import { parseDocument } from "yaml";
@@ -22,9 +22,10 @@ import { guardCommit } from "../bukit/guard.ts";
 import { pluginStateFromDocument, setPluginInDocument } from "../bukit/plugins.ts";
 import { GitError, type GitRunner } from "../git/run.ts";
 import type { Logger } from "../log.ts";
+import { REFERENCE_DIR } from "../media/reference.ts";
+import type { Project, ProjectService } from "../projects/service.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
-import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode } from "../storage-errors.ts";
 import { changedFiles, fileDiff } from "./diff.ts";
 import {
@@ -122,13 +123,13 @@ export function diffSummary({ files, truncated }: { files: ChangedFile[]; trunca
 export interface ChangeServiceOptions {
   db: DatabaseSync;
   git: GitRunner;
-  sites: SiteService;
+  projects: ProjectService;
   locks: SiteLocks;
   /**
    * The check before applying: Bukit on the AI checkout (AiBukit.checkForApply), with the site lock held.
    * With `commit`, `cwd` is the main checkout at that commit (a partial apply, plan 7.5).
    */
-  check: (siteId: string, cwd: string, commit?: string) => Promise<ApplyCheck>;
+  check: (project: ProjectKey, cwd: string, commit?: string) => Promise<ApplyCheck>;
   /** Temporary files (the index a partial apply builds its tree in). */
   tmpDir: string;
   logger: Logger;
@@ -144,14 +145,14 @@ export interface ChangeServiceOptions {
  */
 export class ChangeService {
   readonly store: ChangeStore;
-  private readonly listeners = new Set<(siteId: string) => void>();
+  private readonly listeners = new Set<(project: ProjectKey) => void>();
 
   constructor(private readonly opts: ChangeServiceOptions) {
     this.store = new ChangeStore(opts.db);
   }
 
   /** Called with the site id whenever a site's change set changes (for the event stream). */
-  subscribe(listener: (siteId: string) => void): () => void {
+  subscribe(listener: (project: ProjectKey) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -164,19 +165,19 @@ export class ChangeService {
    * then, which the AI is told once per change set (plan 6.2).
    */
   async begin(
-    siteId: string,
+    project: string,
     sessionId: string,
   ): Promise<{ cwd: string; change: ChangeRecord; previous: Exclude<ChangeStatus, "open"> | null }> {
-    const { cwd, change } = await this.openChangeSet(siteId, sessionId);
+    const { cwd, change } = await this.openChangeSet(project, sessionId);
     const previous = this.store.lastJoined(sessionId, change.id);
     this.store.addSession(change.id, sessionId);
-    this.emit(siteId);
+    this.emit(project);
     return { cwd, change, previous };
   }
 
   /** Open the site's change set for a user write (Settings, upload), without a conversation. */
-  async beginUserChange(siteId: string): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
-    return this.openChangeSet(siteId, null);
+  async beginUserChange(project: ProjectKey): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
+    return this.openChangeSet(project, null);
   }
 
   /** Close a change set this request created, after a later step failed. The caller holds the site lock. */
@@ -186,23 +187,23 @@ export class ChangeService {
   }
 
   private async openChangeSet(
-    siteId: string,
+    project: string,
     sessionId: string | null,
   ): Promise<{ cwd: string; change: ChangeRecord; created: boolean }> {
-    const { sites, git } = this.opts;
-    const site = sites.get(siteId);
+    const { projects: sites, git } = this.opts;
+    const site = sites.get(project);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
-    const open = this.store.open(siteId);
+    const open = this.store.open(project);
     if (open) {
       // Keep the files as the last run left them; a checkout that went missing comes back at the snapshot.
-      const cwd = await sites.aiWorktree(siteId, open.snapshotCommit, { reset: false });
+      const cwd = await sites.aiWorktree(project, open.snapshotCommit, { reset: false });
       return { cwd, change: open, created: false };
     }
     const head = await sites.headOf(site);
-    const cwd = await sites.aiWorktree(siteId, head, { reset: true });
+    const cwd = await sites.aiWorktree(project, head, { reset: true });
     const id = newChangeId();
     await git.run(["update-ref", changeRef(id), head], { cwd: site.path });
-    const change = this.store.insert({ id, siteId, sessionId, baseCommit: head });
+    const change = this.store.insert({ id, project, sessionId, baseCommit: head });
     return { cwd, change, created: true };
   }
 
@@ -216,53 +217,57 @@ export class ChangeService {
    * Once a conversation joins a change set a user action started, the files it changes are recorded, so the
    * commit message can name them under the user's line (plan 7.2).
    */
-  async snapshot(siteId: string, cwd: string, opts: { byUser?: boolean } = {}): Promise<Snapshot> {
+  async snapshot(project: ProjectKey, cwd: string, opts: { byUser?: boolean } = {}): Promise<Snapshot> {
     const snap = await snapshotCheckout(this.opts.git, cwd);
-    const change = this.store.open(siteId);
+    const change = this.store.open(project);
     if (change && change.snapshotCommit !== snap.commit) {
-      const site = this.opts.sites.get(siteId);
+      const site = this.opts.projects.get(project);
       await this.opts.git.run(["update-ref", changeRef(change.id), snap.commit], { cwd: site.path });
       this.store.setSnapshot(change.id, snap.commit);
       if (!opts.byUser && change.aiJoined && change.userSummary !== null) {
         // Only the commit message depends on it: a failed diff must not fail the snapshot.
         try {
           const { files } = await changedFiles(this.opts.git, site.path, change.snapshotCommit, snap.commit);
-          const paths = new Set([...change.aiPaths, ...files.map((f) => f.path)]);
+          // In a theme project the AI cannot write _reference/: what is there came with the user's message.
+          const reference = site.themeName !== null ? `${REFERENCE_DIR}/` : null;
+          const ai = files.map((f) => f.path).filter((p) => reference === null || !p.startsWith(reference));
+          const paths = new Set([...change.aiPaths, ...ai]);
           if (paths.size > change.aiPaths.length) this.store.setAiPaths(change.id, [...paths]);
         } catch (err) {
           this.opts.logger.log("warn", "changes.ai_paths_failed", { changeId: change.id, error: String(err) });
         }
       }
-      this.emit(siteId);
+      this.emit(project);
     }
     return snap;
   }
 
   /** Tell listeners the site's change set may look different (e.g. a run ended, so it can be reviewed). */
-  notify(siteId: string): void {
-    if (this.store.open(siteId)) this.emit(siteId);
+  notify(project: ProjectKey): void {
+    if (this.store.open(project)) this.emit(project);
   }
 
   /** The AI's summary (summarize_changes) goes to the site's open change set. */
-  setSummary(siteId: string, summary: string): void {
-    const change = this.store.open(siteId);
+  setSummary(project: ProjectKey, summary: string): void {
+    const change = this.store.open(project);
     if (!change) return;
     this.store.setSummary(change.id, summary);
-    this.emit(siteId);
+    this.emit(project);
   }
 
   /**
    * Turn a built-in Bukit plugin on or off for one site. It edits the AI checkout and snapshots it, so
    * the switch becomes a normal reviewable change set; nothing is written to the default branch here.
    */
-  async setPlugin(siteId: string, pluginId: string, enabled: boolean): Promise<CurrentChange> {
+  async setPlugin(project: ProjectKey, pluginId: string, enabled: boolean): Promise<CurrentChange> {
     if (!isBukitPluginId(pluginId)) throw new SiteError("plugin.unknown", 400);
-    return this.opts.locks.run(siteId, "config", async () => {
-      const site = this.opts.sites.get(siteId);
+    return this.opts.locks.run(project, "config", async () => {
+      // Plugins are a site setting (theme development design 3.3); a theme key is 404 here.
+      const site = this.opts.projects.site(project);
       if (site.readOnly) throw new SiteError("site.read_only", 409);
-      const { cwd, change, created } = await this.beginUserChange(siteId);
+      const { cwd, change, created } = await this.beginUserChange(project);
       try {
-        const file = path.join(cwd, "site.yaml");
+        const file = path.join(cwd, site.configFile);
         let raw: string;
         try {
           const stat = fs.lstatSync(file);
@@ -282,7 +287,7 @@ export class ChangeService {
         if (current.enabled === enabled) {
           // A click that changes nothing: do not leave an empty change set behind.
           if (created) await this.close(change, "rejected");
-          return { change: await this.current(siteId, false) };
+          return { change: await this.current(project, false) };
         }
 
         try {
@@ -295,26 +300,26 @@ export class ChangeService {
         } catch (err) {
           throw new SiteError(storageErrorCode(err) ?? "config.write_failed", 409);
         }
-        await this.snapshot(siteId, cwd, { byUser: true });
+        await this.snapshot(project, cwd, { byUser: true });
         // The user's line only for a change set no conversation has joined (an AI change set keeps its
         // summary) and that is not a restore (its line says which version it brings back).
         if (!change.aiJoined && change.restoreCommit === null) {
           this.store.setUserSummary(change.id, `Plugin settings: ${pluginId} ${enabled ? "on" : "off"}`);
         }
-        this.emit(siteId);
-        return { change: await this.current(siteId, false) };
+        this.emit(project);
+        return { change: await this.current(project, false) };
       } catch (err) {
         // Do not strand a change set this request created; an existing AI change set is left untouched.
-        if (created && this.store.open(siteId)?.id === change.id) await this.close(change, "rejected");
+        if (created && this.store.open(project)?.id === change.id) await this.close(change, "rejected");
         throw err;
       }
     });
   }
 
   /** A site bound to a Notion data source whose default branch (at `main`) already uses Notion. */
-  private async notionSite(site: Site, main: string): Promise<boolean> {
-    if (this.opts.sites.notionDataSourceId(site.id) === null) return false;
-    const guard = await guardCommit(this.opts.git, site.path, main);
+  private async notionSite(site: Project, main: string): Promise<boolean> {
+    if (this.opts.projects.notionDataSourceId(site.key) === null) return false;
+    const guard = await guardCommit(this.opts.git, site.path, main, site.configFile);
     return guard.ok && guard.usesNotion;
   }
 
@@ -327,18 +332,18 @@ export class ChangeService {
    * 7.5): see applyPartial.
    */
   async apply(id: string, req: ApplyRequest): Promise<ApplyResult> {
-    const { siteId } = this.get(id);
-    return this.opts.locks.run(siteId, "apply", async () => {
-      const { git, sites } = this.opts;
+    const { project } = this.get(id);
+    return this.opts.locks.run(project, "apply", async () => {
+      const { git, projects: sites } = this.opts;
       const open = this.openChange(id);
-      const site = sites.get(siteId);
+      const site = sites.get(project);
       if (site.readOnly) throw new SiteError("site.read_only", 409);
       // A restore brings back version V as a whole; its trailer would say so of a part too (plan 7.5).
       if (req.selection && open.restoreCommit !== null) throw new SiteError("change.partial_restore", 400);
       const identity = sites.commitIdentity();
-      const cwd = await sites.aiWorktree(siteId, open.snapshotCommit, { reset: false });
+      const cwd = await sites.aiWorktree(project, open.snapshotCommit, { reset: false });
       // The checkout can only differ from the snapshot if something touched it outside a run.
-      await this.snapshot(siteId, cwd);
+      await this.snapshot(project, cwd);
       let change = this.openChange(id);
       const tree = await this.treeOf(site.path, change.snapshotCommit);
       if (tree !== req.treeHash) throw new SiteError("change.fingerprint_mismatch", 409);
@@ -367,7 +372,7 @@ export class ChangeService {
         await git.run(["reset", "-q", "--hard", commit], { cwd });
         await git.run(["update-ref", changeRef(change.id), commit], { cwd: site.path });
         this.store.rebase(change.id, main, commit);
-        this.emit(siteId);
+        this.emit(project);
         return { outcome: "rebased", change: await this.toChangeSet(this.get(id)), check: null };
       }
 
@@ -386,7 +391,7 @@ export class ChangeService {
         if (selected !== tree) return this.applyPartial(change, site, cwd, main, selected, req);
       }
 
-      const check = await this.opts.check(siteId, cwd);
+      const check = await this.opts.check(project, cwd);
       // The check snapshots too; it must still be what the user reviewed.
       change = this.openChange(id);
       if ((await this.treeOf(site.path, change.snapshotCommit)) !== req.treeHash) {
@@ -437,7 +442,7 @@ export class ChangeService {
    * (summarize_changes), else what changed (plan 6.3). With one: that line first; once a conversation has
    * joined, the AI's summary below it, else the files the AI changed that are still in the change set.
    */
-  private async applyText(change: ChangeRecord, site: Site): Promise<string> {
+  private async applyText(change: ChangeRecord, site: Project): Promise<string> {
     const all = () => changedFiles(this.opts.git, site.path, change.baseCommit, change.snapshotCommit);
     const ai = change.summary?.trim() || null;
     const user = change.userSummary?.trim() || null;
@@ -469,13 +474,13 @@ export class ChangeService {
    */
   private async applyPartial(
     change: ChangeRecord,
-    site: Site,
+    site: Project,
     cwd: string,
     main: string,
     selected: string,
     req: ApplyRequest,
   ): Promise<ApplyResult> {
-    const { git, sites } = this.opts;
+    const { git, projects: sites } = this.opts;
     const identity = sites.commitIdentity();
     const sessions = this.store.sessions(change.id);
     const author = this.authorOf(change, identity);
@@ -489,8 +494,8 @@ export class ChangeService {
       })
     ).trim();
 
-    const checkout = await sites.mainCheckout(site.id, site.path, result);
-    const check = await this.opts.check(site.id, checkout, result);
+    const checkout = await sites.mainCheckout(site.key, result);
+    const check = await this.opts.check(site.key, checkout, result);
     const unchecked = check.problemCode === "notion" && (await this.notionSite(site, main));
     if (!check.passed && !req.force && !unchecked) {
       // Bukit's caches in the main checkout survive its resets; content that was not applied must not seed
@@ -543,30 +548,30 @@ export class ChangeService {
     } catch (err) {
       this.opts.logger.log("warn", "changes.partial_followup_failed", { changeId: change.id, error: String(err) });
     }
-    this.emit(site.id);
+    this.emit(site.key);
     return { outcome: "partial", change: await this.toChangeSet(this.get(change.id)), check };
   }
 
   /** Reject a change set (plan 7.2): it is closed; the checkout is reset when the next change set opens. */
   async reject(id: string): Promise<ChangeSet> {
-    const { siteId } = this.get(id);
-    return this.opts.locks.run(siteId, "reject", async () => {
+    const { project } = this.get(id);
+    return this.opts.locks.run(project, "reject", async () => {
       await this.close(this.openChange(id), "rejected");
       return this.toChangeSet(this.get(id));
     });
   }
 
   /** A page of the default branch's history (plan 7.4), newest first. */
-  async history(siteId: string, skip: number): Promise<HistoryResponse> {
-    const site = this.opts.sites.get(siteId);
+  async history(project: ProjectKey, skip: number): Promise<HistoryResponse> {
+    const site = this.opts.projects.get(project);
     return listHistory(this.opts.git, site.path, site.defaultBranch, { skip });
   }
 
   /** What a version changed against its first parent: the file list, or one file's diff with `path`. */
-  async versionDiff(siteId: string, commit: string): Promise<VersionDiff>;
-  async versionDiff(siteId: string, commit: string, path: string): Promise<FileDiff>;
-  async versionDiff(siteId: string, commit: string, path?: string): Promise<VersionDiff | FileDiff> {
-    const site = this.opts.sites.get(siteId);
+  async versionDiff(project: ProjectKey, commit: string): Promise<VersionDiff>;
+  async versionDiff(project: ProjectKey, commit: string, path: string): Promise<FileDiff>;
+  async versionDiff(project: ProjectKey, commit: string, path?: string): Promise<VersionDiff | FileDiff> {
+    const site = this.opts.projects.get(project);
     const { git } = this.opts;
     if (!(await onBranch(git, site.path, commit, site.defaultBranch))) throw new SiteError("history.not_found", 404);
     if (path === undefined) {
@@ -589,12 +594,12 @@ export class ChangeService {
    * nothing) is closed instead. The pre-build guard's verdict on that version is returned; it does not
    * stop the restore. The caller makes sure no run is active or queued.
    */
-  async restore(siteId: string, commit: string): Promise<RestoreResult> {
-    return this.opts.locks.run(siteId, "restore", async () => {
-      const { git, sites } = this.opts;
-      const site = sites.get(siteId);
+  async restore(project: ProjectKey, commit: string): Promise<RestoreResult> {
+    return this.opts.locks.run(project, "restore", async () => {
+      const { git, projects: sites } = this.opts;
+      const site = sites.get(project);
       if (site.readOnly) throw new SiteError("site.read_only", 409);
-      const open = this.store.open(siteId);
+      const open = this.store.open(project);
       if (
         open &&
         (await this.treeOf(site.path, open.snapshotCommit)) !== (await this.treeOf(site.path, open.baseCommit))
@@ -604,7 +609,7 @@ export class ChangeService {
       const main = await sites.headOf(site);
       const tree = await this.treeOf(site.path, commit);
       if (tree === (await this.treeOf(site.path, main))) throw new SiteError("change.same_version", 409);
-      const guard = await guardCommit(git, site.path, commit);
+      const guard = await guardCommit(git, site.path, commit, site.configFile);
       const entry = await historyEntry(git, site.path, commit);
 
       if (open) await this.close(open, "rejected");
@@ -615,26 +620,26 @@ export class ChangeService {
         })
       ).trim();
       // The AI checkout holds the restored version, so a conversation can go on from it.
-      await sites.aiWorktree(siteId, snapshot, { reset: true });
+      await sites.aiWorktree(project, snapshot, { reset: true });
       const id = newChangeId();
       await git.run(["update-ref", changeRef(id), snapshot], { cwd: site.path });
       const change = this.store.insert({
         id,
-        siteId,
+        project,
         sessionId: null,
         baseCommit: main,
         snapshotCommit: snapshot,
         restoreCommit: commit,
         userSummary: `Restore to ${commit.slice(0, 7)}${entry.subject ? `: ${entry.subject}` : ""}`,
       });
-      this.emit(siteId);
+      this.emit(project);
       return { change: await this.toChangeSet(change), guard: { ok: guard.ok, reasons: guard.reasons } };
     });
   }
 
   /** The snapshot commit of the site's open change set (what ref=change shows), or null. */
-  openSnapshot(siteId: string): string | null {
-    return this.store.open(siteId)?.snapshotCommit ?? null;
+  openSnapshot(project: ProjectKey): string | null {
+    return this.store.open(project)?.snapshotCommit ?? null;
   }
 
   get(id: string): ChangeRecord {
@@ -644,9 +649,9 @@ export class ChangeService {
   }
 
   /** The site's open change set with its files, or null; `running` says whether a session is running. */
-  async current(siteId: string, running: boolean): Promise<ChangeView | null> {
-    const site = this.opts.sites.get(siteId);
-    const change = this.store.open(siteId);
+  async current(project: ProjectKey, running: boolean): Promise<ChangeView | null> {
+    const site = this.opts.projects.get(project);
+    const change = this.store.open(project);
     if (!change) return null;
     const { git } = this.opts;
     const [info, { files, truncated }, baseTree] = await Promise.all([
@@ -657,8 +662,8 @@ export class ChangeService {
     // A Notion source the change adds or points elsewhere is read with the bound token once applied (plan 5.4).
     // A cut list may leave site.yaml out (it is in path order), so then compare the configs anyway.
     const notion =
-      truncated || files.some((f) => f.path === "site.yaml")
-        ? await notionChangesBetween(git, site.path, change.baseCommit, change.snapshotCommit)
+      truncated || files.some((f) => f.path === site.configFile)
+        ? await notionChangesBetween(git, site.path, site.configFile, change.baseCommit, change.snapshotCommit)
         : [];
     return {
       ...info,
@@ -672,7 +677,7 @@ export class ChangeService {
   /** One file's diff in a change set; 404 when the file is not part of it. */
   async diff(id: string, file: string): Promise<FileDiff> {
     const change = this.get(id);
-    const site = this.opts.sites.get(change.siteId);
+    const site = this.opts.projects.get(change.project);
     const { git } = this.opts;
     // Look only at this path, so files past the list's cap can be diffed too.
     const { files } = await changedFiles(git, site.path, change.baseCommit, change.snapshotCommit, { path: file });
@@ -689,10 +694,10 @@ export class ChangeService {
   }
 
   async toChangeSet(change: ChangeRecord): Promise<ChangeSet> {
-    const site = this.opts.sites.get(change.siteId);
+    const site = this.opts.projects.get(change.project);
     return {
       id: change.id,
-      siteId: change.siteId,
+      project: change.project,
       status: change.status,
       baseCommit: change.baseCommit,
       snapshotCommit: change.snapshotCommit,
@@ -723,18 +728,18 @@ export class ChangeService {
     this.store.resolve(change.id, status, result ?? null);
     if (status !== "applied") {
       try {
-        const site = this.opts.sites.get(change.siteId);
+        const site = this.opts.projects.get(change.project);
         await this.opts.git.run(["update-ref", "-d", changeRef(change.id)], { cwd: site.path });
       } catch (err) {
         // Closing must not fail because the ref was already gone or the repository is no longer writable.
         this.opts.logger.log("warn", "changes.ref_delete_failed", { changeId: change.id, error: String(err) });
       }
     }
-    this.emit(change.siteId);
+    this.emit(change.project);
   }
 
   /** The site folder must be on its default branch with nothing uncommitted (plan 7.2). */
-  private async assertSiteReady(site: Site): Promise<void> {
+  private async assertSiteReady(site: Project): Promise<void> {
     const { git } = this.opts;
     const head = (await git.run(["symbolic-ref", "-q", "HEAD"], { cwd: site.path, okCodes: [1] })).stdout
       .toString("utf8")
@@ -772,10 +777,10 @@ export class ChangeService {
     ).trim();
   }
 
-  private emit(siteId: string): void {
+  private emit(project: ProjectKey): void {
     for (const listener of this.listeners) {
       try {
-        listener(siteId);
+        listener(project);
       } catch (err) {
         this.opts.logger.log("error", "changes.listener_failed", { error: String(err) });
       }

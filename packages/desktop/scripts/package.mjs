@@ -9,7 +9,7 @@
 //   server.mjs, migrations/            BukitJalil's server code, bundled; npm packages stay outside the
 //                                      bundle because Pi SDK reads files next to its own modules
 //   node_modules/                      the server's production dependencies (pnpm deploy, lockfile versions)
-//   skills/, web/  read through BUKITJALIL_RESOURCES
+//   skills/, web/, theme-demo/         read through BUKITJALIL_RESOURCES
 //   bukit/                             the pinned Bukit (plan 8.1), checked against the SHA-256 in the
 //                                      server's bukit/install.ts; the app never installs another
 import { execFileSync } from "node:child_process";
@@ -98,6 +98,9 @@ fs.rmSync(deployed, { recursive: true, force: true });
 
 // Files the server reads.
 fs.cpSync(path.join(repo, "skills"), path.join(stage, "skills"), { recursive: true });
+fs.cpSync(path.join(repo, "packages", "server", "assets", "theme-demo"), path.join(stage, "theme-demo"), {
+  recursive: true,
+});
 // Bukit ships with the app (plan 8.1): the release pinned in install.ts, fetched and checked (SHA-256, strict
 // unpacking, `bukit version`) by the server's own script.
 const fetched = fs.mkdtempSync(path.join(os.tmpdir(), "bukitjalil-bukit-"));
