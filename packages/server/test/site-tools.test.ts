@@ -100,6 +100,7 @@ async function setup(opts: { bin?: string | null; files?: Record<string, string>
     createSiteTools({
       project: site.id,
       configFile: site.configFile,
+      themeName: null,
       cwd,
       gate: new PathGate(cwd, [SKILLS]),
       bukit: ai,

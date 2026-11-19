@@ -3,6 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import type { CurrentChange, SessionInfo, Theme, TreeResponse } from "@bukitjalil/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { PathGate } from "../src/agent/gate.ts";
+import { themeCoverage } from "../src/agent/site-tools.ts";
+import { parseYaml } from "../src/panels/yaml.ts";
 import { SettingsStore } from "../src/store/settings.ts";
 import { themeKey } from "../src/themes/service.ts";
 import { writeStarter } from "./fixtures/starter.ts";
@@ -195,6 +198,32 @@ describe("new theme projects (T1)", () => {
     expect(rawGit(base, dir, "rev-list", "--count", "HEAD").trim()).toBe("1");
     expect(rawGit(base, dir, "status", "--porcelain").trim()).toBe("");
     expect(ctx.themes.get(t.id).readOnly).toBeNull();
+  });
+
+  it("reports what a theme lacks: page types, template files and includes (theme_coverage)", async () => {
+    const dir = path.join(base, "home", `new-theme-${++count}`);
+    const res = await create({ name: "Gaps", themeName: "gaps", path: dir, language: "en-US" });
+    expect(res.status).toBe(201);
+    await ctx.builds.settled();
+    const root = path.join(dir, "themes", "gaps");
+    fs.rmSync(path.join(root, "layouts", "partials", "footer.html"));
+    fs.rmSync(path.join(root, "layouts", "pages", "pagination.html"));
+    const manifest = path.join(root, "theme.yaml");
+    fs.writeFileSync(manifest, fs.readFileSync(manifest, "utf8").replace(/^ {2}archive:\n(?: {4}.*\n)+/m, ""));
+    fs.mkdirSync(path.join(root, "static"), { recursive: true });
+    fs.writeFileSync(path.join(root, "static", "404.html"), "<!doctype html><title>Not found</title>");
+    const config = parseYaml(fs.readFileSync(path.join(dir, "site.yaml"), "utf8")).value as Record<string, unknown>;
+    const report = themeCoverage(config, "gaps", dir, new PathGate(dir));
+    expect(report).toMatchObject({
+      missingPageTypes: ["archive"],
+      missingTemplateFiles: ["pages/pagination.html"],
+      notFoundPage: true,
+      tokens: false,
+    });
+    expect(report.missingIncludes?.map((m) => m.include)).toContain("partials/footer.html");
+    expect(themeCoverage(config, "missing", dir, new PathGate(dir))).toMatchObject({
+      error: expect.stringContaining("themes/missing/theme.yaml"),
+    });
   });
 
   it("keeps the starter directory when the theme is called starter", async () => {

@@ -85,10 +85,17 @@ function realPathOf(abs: string): string {
 export class PathGate {
   readonly root: string;
   private readonly readOnlyRoots: string[];
+  private readonly writeOnly: { shown: string; keys: string[] }[] | null;
 
-  constructor(root: string, readOnlyRoots: readonly string[] = []) {
+  /**
+   * `writeOnly`: when set, writes must also be at or below one of these paths (segments relative to the
+   * root). A theme project's AI writes only its theme, the sample content and the config file (theme
+   * development design 4.1); reading is not narrowed.
+   */
+  constructor(root: string, readOnlyRoots: readonly string[] = [], writeOnly?: readonly (readonly string[])[]) {
     this.root = fs.realpathSync.native(root);
     this.readOnlyRoots = readOnlyRoots.map((r) => fs.realpathSync.native(r));
+    this.writeOnly = writeOnly ? writeOnly.map((p) => ({ shown: p.join("/"), keys: p.map(segmentKey) })) : null;
   }
 
   /** The real path to use for `abs`, or a GateError. */
@@ -122,6 +129,10 @@ export class PathGate {
         name.startsWith(".env")
       ) {
         throw new GateError(`Path not allowed: ${parts.join("/")} is protected and cannot be written`);
+      }
+      if (this.writeOnly && !this.writeOnly.some((p) => p.keys.every((key, i) => keys[i] === key))) {
+        const allowed = this.writeOnly.map((p) => p.shown).join(", ");
+        throw new GateError(`Path not allowed: ${parts.join("/")} cannot be written here; only ${allowed}`);
       }
     }
     return real;

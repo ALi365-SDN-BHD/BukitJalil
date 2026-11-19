@@ -7,6 +7,7 @@ import {
   projectKey,
   type Site,
   type SiteReason,
+  type Theme,
 } from "@bukitjalil/shared";
 import type { GuardResult } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
@@ -26,6 +27,21 @@ export interface Project extends RepoProject {
   readOnly: SiteReason[] | null;
   checkedCommit: string | null;
   configCheck: ConfigCheck | null;
+  /** A theme project's deliverable is `themes/<themeName>/`; null for a site. */
+  themeName: string | null;
+}
+
+function projectOf(key: ProjectKey, ref: ProjectRef, record: Site | Theme, themeName: string | null): Project {
+  const { id, name, path, defaultBranch, configFile, readOnly, checkedCommit, configCheck } = record;
+  return { key, ref, id, name, path, defaultBranch, configFile, readOnly, checkedCommit, configCheck, themeName };
+}
+
+/**
+ * Where the AI may write in the project (theme development design 4.1), as path segments: anywhere the
+ * gate allows for a site (null); in a theme project only its theme, the sample content and the config file.
+ */
+export function aiWriteScope(project: Project): string[][] | null {
+  return project.themeName === null ? null : [["themes", project.themeName], ["content"], [project.configFile]];
 }
 
 /**
@@ -43,9 +59,9 @@ export class ProjectService {
   /** The project `key` names; 404 site.not_found / theme.not_found when there is none. */
   get(key: ProjectKey): Project {
     const ref = this.ref(key);
-    const { id, name, path, defaultBranch, configFile, readOnly, checkedCommit, configCheck } =
-      ref.kind === "site" ? this.sites.get(ref.id) : this.themes.get(ref.id);
-    return { key, ref, id, name, path, defaultBranch, configFile, readOnly, checkedCommit, configCheck };
+    if (ref.kind === "site") return projectOf(key, ref, this.sites.get(ref.id), null);
+    const theme = this.themes.get(ref.id);
+    return projectOf(key, ref, theme, theme.themeName);
   }
 
   /** What `key` names, without reading the project; 404 when the key is malformed. */

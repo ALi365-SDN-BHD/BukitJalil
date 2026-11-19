@@ -14,7 +14,7 @@ import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from
 import type { ChangeService } from "../changes/service.ts";
 import type { Logger } from "../log.ts";
 import type { AppPaths } from "../paths.ts";
-import type { ProjectService } from "../projects/service.ts";
+import { aiWriteScope, type ProjectService } from "../projects/service.ts";
 import { asSiteError, SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import { storageErrorCode } from "../storage-errors.ts";
@@ -24,7 +24,7 @@ import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
 import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
 import type { SecretCredentialStore } from "./secret-credentials.ts";
-import { createSiteTools, SITE_TOOLS } from "./site-tools.ts";
+import { createSiteTools, SITE_TOOLS, THEME_TOOLS } from "./site-tools.ts";
 import { listSkills, skillReadRoots } from "./skills.ts";
 import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./store.ts";
 import { autoTitle } from "./title.ts";
@@ -639,6 +639,7 @@ export class AgentService {
       piDir,
       settings: settingsManager,
       systemPrompt: buildSystemPrompt(site),
+      projectKind: site.ref.kind,
       skillsDir: this.opts.skillsDir,
       disabledSkills: this.opts.disabledSkills?.() ?? [],
     });
@@ -649,6 +650,7 @@ export class AgentService {
       skillReadRoots(resourceLoader.getSkills().skills, this.opts.skillsDir, (name, reason) =>
         this.opts.logger.log("warn", "agent.skill_read_root_skipped", { skill: name, reason }),
       ),
+      aiWriteScope(site) ?? undefined,
     );
     if (gone()) return null;
     const dir = this.sessionDir(site.key);
@@ -662,12 +664,13 @@ export class AgentService {
       model,
       thinkingLevel: this.opts.thinkingLevel?.(),
       // An allowlist that the custom tools must be in too (plan 6.3).
-      tools: [...BUILTIN_TOOLS, ...SITE_TOOLS],
+      tools: [...BUILTIN_TOOLS, ...SITE_TOOLS, ...(site.themeName === null ? [] : THEME_TOOLS)],
       customTools: [
         ...createGatedTools(pi, { cwd, gate, rgReady: this.opts.rgReady }),
         ...createSiteTools({
           project: site.key,
           configFile: site.configFile,
+          themeName: site.themeName,
           cwd,
           gate,
           bukit: this.opts.bukit,

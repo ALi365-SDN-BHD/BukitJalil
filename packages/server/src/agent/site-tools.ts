@@ -25,7 +25,24 @@ export const SITE_TOOLS = [
   "summarize_changes",
 ] as const;
 
+/** Tools only theme projects get (theme development design 4.1). */
+export const THEME_TOOLS = ["theme_coverage"] as const;
+
+/** Page types (theme.yaml `templates` keys) a theme should cover; the sample content has every one. */
+export const PAGE_TYPES = [
+  "home",
+  "post",
+  "page",
+  "list",
+  "pagination",
+  "archive",
+  "taxonomy_index",
+  "taxonomy_term",
+] as const;
+
 const MAX_CONFIG_BYTES = 256 * 1024;
+const MARKDOWN_FILE = /\.(md|markdown)$/i;
+const TEMPLATE_FILE = /\.html$/i;
 const MAX_CONTENT_FILES = 500;
 const MAX_CONTENT_FILE_BYTES = 256 * 1024;
 const MAX_SCHEMA_CHARS = 60_000;
@@ -35,6 +52,8 @@ export interface SiteToolOptions {
   project: ProjectKey;
   /** The site config's file name in the working copy (found by content when the site was imported). */
   configFile: string;
+  /** A theme project's theme (adds theme_coverage); null for a site. */
+  themeName: string | null;
   /** The working copy (the session's cwd). */
   cwd: string;
   gate: PathGate;
@@ -143,7 +162,85 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       },
     },
   ];
+  const { themeName } = opts;
+  if (themeName !== null) {
+    tools.push({
+      name: "theme_coverage",
+      label: "Theme coverage",
+      description:
+        "What the theme covers: the templates theme.yaml declares and whether their files exist, the page types with no template, includes that point at missing files, and whether tokens.yaml, a search page and static/404.html exist.",
+      parameters: object({}),
+      async execute() {
+        const { config, error } = readConfig();
+        if (!config) return json({ error });
+        return json(themeCoverage(config, themeName, cwd, gate));
+      },
+    });
+  }
   return tools;
+}
+
+/** theme_coverage (design 4.1): read through the gate; reports problems instead of throwing. */
+export function themeCoverage(config: Record<string, unknown>, themeName: string, cwd: string, gate: PathGate) {
+  const root = path.posix.join("themes", themeName);
+  const theme = isRecord(config.theme) ? config.theme : {};
+  const layouts = typeof theme.layouts === "string" && pathProblem(theme.layouts) === null ? theme.layouts : "layouts";
+  const layoutsDir = path.posix.join(root, layouts);
+  const exists = (rel: string) => {
+    try {
+      return fs.statSync(gate.check(path.join(cwd, rel), "read"), { throwIfNoEntry: false })?.isFile() ?? false;
+    } catch (err) {
+      if (err instanceof GateError) return false;
+      throw err;
+    }
+  };
+  const readText = (rel: string): string | null => {
+    try {
+      const real = gate.check(path.join(cwd, rel), "read");
+      const st = fs.statSync(real, { throwIfNoEntry: false });
+      return st?.isFile() && st.size <= MAX_CONTENT_FILE_BYTES ? fs.readFileSync(real, "utf8") : null;
+    } catch (err) {
+      if (err instanceof GateError) return null;
+      throw err;
+    }
+  };
+
+  const manifestFile = path.posix.join(root, "theme.yaml");
+  const manifestText = readText(manifestFile);
+  const manifest = manifestText === null ? null : parseYaml(manifestText);
+  if (manifest === null || manifest.error !== null || !isRecord(manifest.value)) {
+    return {
+      theme: root,
+      error: `${manifestFile} is missing or not valid YAML${manifest?.error ? `: ${manifest.error}` : ""}`,
+    };
+  }
+  const declared = isRecord(manifest.value.templates) ? manifest.value.templates : {};
+  const templates = Object.entries(declared).map(([pageType, entry]) => {
+    const template = isRecord(entry) && typeof entry.template === "string" ? entry.template : null;
+    const file = template !== null && pathProblem(template) === null ? path.posix.join(layoutsDir, template) : null;
+    return { pageType, template, exists: file !== null && exists(file) };
+  });
+  const missingIncludes: { file: string; include: string }[] = [];
+  for (const file of filesUnder(cwd, layoutsDir, gate, TEMPLATE_FILE)) {
+    const source = readText(file);
+    if (source === null) continue;
+    for (const match of source.matchAll(/\binclude\s+["']([^"']+)["']/g)) {
+      const include = match[1] ?? "";
+      const target = pathProblem(include) === null ? path.posix.join(layoutsDir, include) : null;
+      if (target === null || !exists(target)) missingIncludes.push({ file, include });
+    }
+  }
+  return {
+    theme: root,
+    layouts: layoutsDir,
+    templates,
+    missingPageTypes: PAGE_TYPES.filter((type) => !(type in declared)),
+    missingTemplateFiles: templates.filter((t) => !t.exists).map((t) => t.template ?? t.pageType),
+    missingIncludes,
+    tokens: exists(path.posix.join(root, "tokens.yaml")),
+    searchPage: exists(path.posix.join(layoutsDir, "pages", "search.html")),
+    notFoundPage: exists(path.posix.join(root, "static", "404.html")),
+  };
 }
 
 // --- results the model reads ---
@@ -305,7 +402,7 @@ export function listContent(
       continue;
     }
     const files: ContentFile[] = [];
-    for (const rel of markdownFiles(cwd, dir, gate)) {
+    for (const rel of filesUnder(cwd, dir, gate, MARKDOWN_FILE)) {
       if (budget === 0) {
         truncated = true;
         break;
@@ -321,8 +418,8 @@ export function listContent(
   return { sources: out, truncated };
 }
 
-/** .md / .markdown files under `dir`, relative to the working copy, sorted; no symlinks, no .git. */
-function markdownFiles(cwd: string, dir: string, gate: PathGate): string[] {
+/** Files under `dir` whose names match `pattern`, relative to the working copy, sorted; no symlinks, no .git. */
+function filesUnder(cwd: string, dir: string, gate: PathGate, pattern: RegExp): string[] {
   const start = path.join(cwd, dir);
   let root: string;
   try {
@@ -344,7 +441,7 @@ function markdownFiles(cwd: string, dir: string, gate: PathGate): string[] {
       if (found.length > MAX_CONTENT_FILES || e.isSymbolicLink() || segmentKey(e.name) === ".git") continue;
       const childRel = path.posix.join(rel, e.name);
       if (e.isDirectory()) walk(path.join(abs, e.name), childRel);
-      else if (e.isFile() && /\.(md|markdown)$/i.test(e.name)) found.push(childRel);
+      else if (e.isFile() && pattern.test(e.name)) found.push(childRel);
     }
   };
   walk(root, path.posix.normalize(dir).replace(/\/+$/, ""));

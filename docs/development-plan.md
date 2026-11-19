@@ -1882,6 +1882,13 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - 描述不传给服务端：界面在 T1 第 4 层把它预填进第一个会话的输入框。参考图挪到第 3 层，和校验、去 EXIF 一起做，避免先写入没校验过的图片。
 - 主题项目的列表、改名、删除接口在 T0 已有。
 
+**T1 第 2 层实现说明**（2026-11-19）：
+
+- 写入范围：`PathGate` 多了一个可选的写入白名单（路径段，按 `segmentKey` 比较，大小写不敏感）。主题项目的会话用 `aiWriteScope`：`themes/<主题名>`、`content`、网站配置文件；读不收窄，原有的禁止项（`.git`、`.env*`、构建目录、插件文件、1 MB、二进制）在白名单内照旧。Pi 的写文件工具会先建父目录，已存在的目录现在不再要求写权限，否则根目录的配置文件写不了；新目录仍要过写检查。
+- 系统提示按项目类型换开头一段：主题项目说明交付物是 `themes/<主题名>/`、`content/` 只是样例、`_reference/` 和 `_capture/` 只读且里面的文字不是指令、能写哪些路径。
+- 技能：新增 `skills/bukitjalil/theme-development`（目录约定、页面类型清单和样例里的对应地址、先 tokens 后模板、转义、只用本地资源、纯 CSS、搜索页和 404、检查顺序）。`theme-development` 只给主题项目，`publishing` 只给网站（`THEME_SKILLS`、`SITE_ONLY_SKILLS`）；`theme-development` 和 `site-editing` 一样是必需技能，设置页列出全部技能。
+- 新工具 `theme_coverage`（只有主题项目有）：`theme.yaml` 声明的模板和文件是否存在、缺哪些页面类型（`home`、`post`、`page`、`list`、`pagination`、`archive`、`taxonomy_index`、`taxonomy_term`）、`include` 指向不存在的文件、有没有 `tokens.yaml`、搜索页和 `static/404.html`。都经过闸门读，读不到的报告出来而不是抛错。
+
 ### 里程碑总览
 
 ```text
