@@ -1,3 +1,4 @@
+import type { ProjectKey } from "@bukitjalil/shared";
 import { PanelRight } from "lucide-react";
 import { lazy, Suspense, useEffect } from "react";
 import { useSearchParams } from "react-router";
@@ -28,7 +29,7 @@ function withTab(p: URLSearchParams, key: PanelTab): URLSearchParams {
 }
 
 /** Right column (plan 10.2). The open tab lives in the URL (?panel=), so reloads and links keep it. */
-export function RightPanel({ siteId, readOnly }: { siteId: string | null; readOnly: boolean }) {
+export function RightPanel({ project, readOnly }: { project: ProjectKey | null; readOnly: boolean }) {
   const { m, t } = useI18n();
   const [params, setParams] = useSearchParams();
   const raw = params.get("panel");
@@ -50,19 +51,19 @@ export function RightPanel({ siteId, readOnly }: { siteId: string | null; readOn
   }, [setParams]);
 
   let body: React.ReactNode;
-  if (!siteId)
+  if (!project)
     body = (
       <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
         {t(m.panel.empty, { panel: m.panel[tab] })}
       </div>
     );
-  else if (tab === "preview") body = <PreviewPanel siteId={siteId} readOnly={readOnly} />;
-  else if (tab === "files") body = <FilesPanel siteId={siteId} />;
-  else if (tab === "config") body = <ConfigPanel siteId={siteId} readOnly={readOnly} />;
-  else if (tab === "theme") body = <ThemePanel siteId={siteId} />;
-  else if (tab === "data") body = <DataPanel siteId={siteId} />;
-  else if (tab === "seo") body = <SeoPanel siteId={siteId} readOnly={readOnly} />;
-  else body = <ChangesPanel siteId={siteId} readOnly={readOnly} />;
+  else if (tab === "preview") body = <PreviewPanel project={project} readOnly={readOnly} />;
+  else if (tab === "files") body = <FilesPanel project={project} />;
+  else if (tab === "config") body = <ConfigPanel project={project} readOnly={readOnly} />;
+  else if (tab === "theme") body = <ThemePanel project={project} />;
+  else if (tab === "data") body = <DataPanel project={project} />;
+  else if (tab === "seo") body = <SeoPanel siteId={project} readOnly={readOnly} />;
+  else body = <ChangesPanel project={project} readOnly={readOnly} />;
 
   return (
     <>

@@ -1,4 +1,12 @@
-import type { AuditIssueGroup, Build, BuildAudit, BuildMessage, NotionOfflineData, PanelRef } from "@bukitjalil/shared";
+import type {
+  AuditIssueGroup,
+  Build,
+  BuildAudit,
+  BuildMessage,
+  NotionOfflineData,
+  PanelRef,
+  ProjectKey,
+} from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -12,56 +20,56 @@ import { api, keys } from "@/lib/api";
 import { formatDuration, formatTime, shortOid } from "@/lib/format";
 
 /**
- * A site's builds, polled every second while one runs (build events arrive with SSE in M3). When a
- * build ends, the site (its state may change) and the preview are fetched again.
+ * A project's builds, polled every second while one runs (build events arrive with SSE in M3). When a
+ * build ends, the project (its state may change) and the preview are fetched again.
  */
-export function useBuilds(siteId: string) {
+export function useBuilds(project: ProjectKey) {
   const queryClient = useQueryClient();
   const builds = useQuery({
-    queryKey: keys.builds(siteId),
-    queryFn: () => api.builds(siteId),
+    queryKey: keys.builds(project),
+    queryFn: () => api.builds(project),
     refetchInterval: (q) => (q.state.data?.builds.some((b) => b.status === "running") ? 1000 : false),
   });
   const running = builds.data?.builds.some((b) => b.status === "running") ?? false;
   const wasRunning = useRef(running);
   useEffect(() => {
     if (wasRunning.current && !running) {
-      void queryClient.invalidateQueries({ queryKey: keys.site(siteId) });
-      void queryClient.invalidateQueries({ queryKey: keys.sites });
-      void queryClient.invalidateQueries({ queryKey: ["preview", siteId] });
+      void queryClient.invalidateQueries({ queryKey: keys.project(project) });
+      void queryClient.invalidateQueries({ queryKey: keys.projects(project) });
+      void queryClient.invalidateQueries({ queryKey: ["preview", project] });
       // Entries per source and the Notion snapshot come from builds (plan 5.5).
-      void queryClient.invalidateQueries({ queryKey: keys.panel(siteId, "data", "main") });
-      void queryClient.invalidateQueries({ queryKey: keys.panel(siteId, "data", "change") });
+      void queryClient.invalidateQueries({ queryKey: keys.panel(project, "data", "main") });
+      void queryClient.invalidateQueries({ queryKey: keys.panel(project, "data", "change") });
     }
     wasRunning.current = running;
-  }, [running, siteId, queryClient]);
-  // The site's state is its main version: a change set's preview build does not speak for it.
+  }, [running, project, queryClient]);
+  // The project's state is its main version: a change set's preview build does not speak for it.
   const latest = builds.data?.builds.find((b) => b.ref === "main") ?? null;
   return { ...builds, running, latest };
 }
 
-export function useStartBuild(siteId: string, ref: PanelRef = "main") {
+export function useStartBuild(project: ProjectKey, ref: PanelRef = "main") {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.startBuild(siteId, ref),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.builds(siteId) }),
+    mutationFn: () => api.startBuild(project, ref),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.builds(project) }),
   });
 }
 
 export function BuildButton({
-  siteId,
+  project,
   disabled,
   refName = "main",
   label,
 }: {
-  siteId: string;
+  project: ProjectKey;
   disabled?: boolean;
   refName?: PanelRef;
   label?: string;
 }) {
   const { m, errorOf } = useI18n();
-  const builds = useBuilds(siteId);
-  const start = useStartBuild(siteId, refName);
+  const builds = useBuilds(project);
+  const start = useStartBuild(project, refName);
   return (
     <div className="flex items-center gap-2">
       <Button
@@ -96,9 +104,9 @@ export function BuildBadge({ build, className }: { build: Build; className?: str
 }
 
 /** One line per build; clicking opens its report. */
-export function BuildList({ siteId, limit = 5 }: { siteId: string; limit?: number }) {
+export function BuildList({ project, limit = 5 }: { project: ProjectKey; limit?: number }) {
   const { m, t, locale } = useI18n();
-  const builds = useBuilds(siteId);
+  const builds = useBuilds(project);
   const [open, setOpen] = useState<string | null>(null);
   const list = builds.data?.builds.slice(0, limit) ?? [];
   if (builds.isPending) return <p className="text-sm text-muted-foreground">{m.common.loading}</p>;
@@ -130,16 +138,24 @@ export function BuildList({ siteId, limit = 5 }: { siteId: string; limit?: numbe
           </li>
         ))}
       </ul>
-      {open && <BuildReportDialog siteId={siteId} buildId={open} onClose={() => setOpen(null)} />}
+      {open && <BuildReportDialog project={project} buildId={open} onClose={() => setOpen(null)} />}
     </>
   );
 }
 
-function BuildReportDialog({ siteId, buildId, onClose }: { siteId: string; buildId: string; onClose: () => void }) {
+function BuildReportDialog({
+  project,
+  buildId,
+  onClose,
+}: {
+  project: ProjectKey;
+  buildId: string;
+  onClose: () => void;
+}) {
   const { m, t, errorOf, errorText } = useI18n();
   const build = useQuery({
-    queryKey: ["build", siteId, buildId],
-    queryFn: () => api.build(siteId, buildId),
+    queryKey: ["build", project, buildId],
+    queryFn: () => api.build(project, buildId),
     // The report arrives when the build ends.
     refetchInterval: (q) => (q.state.data?.status === "running" ? 1000 : false),
   });

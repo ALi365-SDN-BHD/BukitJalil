@@ -76,7 +76,7 @@ export function SiteHome({ site }: { site: Site }) {
         {!site.readOnly && <p className="text-xs text-muted-foreground">{m.conversation.startHint}</p>}
         <div className="flex flex-wrap items-start gap-2">
           <StartConversation site={site} />
-          <BuildButton siteId={site.id} disabled={site.readOnly !== null} />
+          <BuildButton project={site.id} disabled={site.readOnly !== null} />
           <Button
             size="sm"
             variant="outline"
@@ -96,7 +96,7 @@ export function SiteHome({ site }: { site: Site }) {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium">{m.site.recentBuilds}</h2>
-        <BuildList siteId={site.id} />
+        <BuildList project={site.id} />
       </section>
 
       <DeploySection site={site} />

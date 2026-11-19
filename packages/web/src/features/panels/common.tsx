@@ -1,4 +1,4 @@
-import type { PanelRef } from "@bukitjalil/shared";
+import type { PanelRef, ProjectKey } from "@bukitjalil/shared";
 import { useCurrentChange, usePanelRef } from "@/features/changes/hooks";
 import { useI18n } from "@/i18n";
 
@@ -20,10 +20,10 @@ export function PanelError({ error }: { error: unknown }) {
  * Version switch at the top of the read-only panels (plan 10.2): the main version, or the open change
  * set's snapshot. The choice is in the URL, so every panel shows the same version.
  */
-export function RefSwitch({ siteId }: { siteId: string }) {
+export function RefSwitch({ project }: { project: ProjectKey }) {
   const { m } = useI18n();
-  const { change } = useCurrentChange(siteId);
-  const [ref, setRef] = usePanelRef(siteId);
+  const { change } = useCurrentChange(project);
+  const [ref, setRef] = usePanelRef(project);
   const button = (value: PanelRef, label: string, disabled = false) => (
     <button
       type="button"

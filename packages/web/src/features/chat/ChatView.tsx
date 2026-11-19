@@ -1,4 +1,4 @@
-import type { ErrorCode, SessionInfo, Site } from "@bukitjalil/shared";
+import type { ErrorCode, SessionInfo } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitFork, Loader2, Paperclip, Send, Square } from "lucide-react";
 import { type KeyboardEvent, memo, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +9,7 @@ import { MediaUpload, type MediaUploadHandle } from "@/features/media/MediaUploa
 import { MarkdownView } from "@/features/panels/MarkdownView";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { type ProjectInfo, projectPath } from "@/lib/project";
 import { takeComposerDraft } from "./drafts";
 import { type PendingMessage, unseen } from "./live";
 import { type ChatItem, chatItems, latestSummary, mergeMessages, modelErrorKind, tailSignature } from "./model";
@@ -17,7 +18,7 @@ import { liveStore, useDeleted, useLive } from "./store";
 import { ToolCard } from "./ToolCard";
 
 /** A conversation (plan 10.1): its messages, streamed reply and tool cards, and the composer. */
-export function ChatView({ site, sessionId }: { site: Site; sessionId: string }) {
+export function ChatView({ project, sessionId }: { project: ProjectInfo; sessionId: string }) {
   const { m, errorOf } = useI18n();
   const navigate = useNavigate();
   const deleted = useDeleted(sessionId);
@@ -30,10 +31,10 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
   const live = useLive(sessionId);
   const uploader = useRef<MediaUploadHandle>(null);
 
-  // Deleted here or in another tab: back to the site home.
+  // Deleted here or in another tab: back to the project's home.
   useEffect(() => {
-    if (deleted) navigate(`/sites/${site.id}`, { replace: true });
-  }, [deleted, navigate, site.id]);
+    if (deleted) navigate(projectPath(project.key), { replace: true });
+  }, [deleted, navigate, project.key]);
 
   // Messages that ended live are dropped once the stored session has them.
   useEffect(() => {
@@ -87,7 +88,7 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
       }}
     >
       <MessageList
-        site={site}
+        project={project}
         session={session}
         items={items}
         streaming={live.text}
@@ -95,15 +96,15 @@ export function ChatView({ site, sessionId }: { site: Site; sessionId: string })
         error={live.error}
         summary={summary}
       />
-      <ReviewCard siteId={site.id} />
-      <Composer site={site} session={session} uploader={uploader} />
+      <ReviewCard project={project.key} />
+      <Composer project={project} session={session} uploader={uploader} />
     </section>
   );
 }
 
 /** Messages, newest at the bottom; follows new output while the user is at the bottom. */
 function MessageList({
-  site,
+  project,
   session,
   items,
   streaming,
@@ -111,7 +112,7 @@ function MessageList({
   error,
   summary,
 }: {
-  site: Site;
+  project: ProjectInfo;
   session: SessionInfo;
   items: ChatItem[];
   streaming: string | null;
@@ -127,8 +128,8 @@ function MessageList({
   const fork = useMutation({
     mutationFn: (entryId: string) => api.forkSession(session.id, entryId),
     onSuccess: (created) => {
-      void queryClient.invalidateQueries({ queryKey: keys.sessions(site.id) });
-      navigate(sessionPath(site.id, created.id));
+      void queryClient.invalidateQueries({ queryKey: keys.sessions(project.key) });
+      navigate(sessionPath(project.key, created.id));
     },
   });
   // Whatever adds output: a message, streamed text, a tool result, a waiting message, an error, a summary.
@@ -139,7 +140,7 @@ function MessageList({
     if (el && atBottom.current && contentSize) el.scrollTop = el.scrollHeight;
   }, [contentSize]);
 
-  const onFork = canForkSite(site) ? fork.mutate : null;
+  const onFork = project.readOnly ? null : fork.mutate;
   return (
     <div
       ref={scroller}
@@ -195,8 +196,6 @@ function MessageList({
     </div>
   );
 }
-
-const canForkSite = (site: Site) => !site.readOnly;
 
 /**
  * One message with its fork button. Memoized: the list re-renders on every streamed delta, and parsing
@@ -273,11 +272,11 @@ function AssistantMessage({ item }: { item: Extract<ChatItem, { kind: "assistant
  * away (steer) or after it (follow-up), and the run can be stopped.
  */
 function Composer({
-  site,
+  project,
   session,
   uploader,
 }: {
-  site: Site;
+  project: ProjectInfo;
   session: SessionInfo;
   uploader: RefObject<MediaUploadHandle | null>;
 }) {
@@ -311,7 +310,7 @@ function Composer({
     send.mutate({ mode, text, pendingId });
   };
   const stop = useMutation({ mutationFn: () => api.abortSession(session.id) });
-  const disabled = !!site.readOnly;
+  const disabled = !!project.readOnly;
   const empty = text.trim() === "";
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -384,7 +383,7 @@ function Composer({
             <div className="ml-auto flex items-center gap-2">
               <MediaUpload
                 ref={uploader}
-                siteId={site.id}
+                siteId={project.key}
                 disabled={session.status !== "idle"}
                 disabledReason={m.media.busy}
                 trigger={<Paperclip />}

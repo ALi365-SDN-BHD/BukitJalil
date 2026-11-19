@@ -1,4 +1,4 @@
-import type { ChangeView } from "@bukitjalil/shared";
+import type { ChangeView, ProjectKey } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -17,9 +17,9 @@ import { type Notice, NoticeView, ReviewActions } from "./ReviewActions";
 import { canPick, reviewKey, useSelection } from "./selection";
 
 /** The "Changes" panel (plan 10.2): the open change set's files and one file's diff at a time. */
-export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: boolean }) {
+export function ChangesPanel({ project, readOnly }: { project: ProjectKey; readOnly: boolean }) {
   const { m, t } = useI18n();
-  const current = useCurrentChange(siteId);
+  const current = useCurrentChange(project);
   const [params, setParams] = useSearchParams();
   const [notice, setNotice] = useState<Notice | null>(null);
   const change = current.change;
@@ -75,7 +75,7 @@ export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: b
           </p>
           <MediaUpload
             ref={uploader}
-            siteId={siteId}
+            siteId={project}
             disabled={readOnly}
             disabledReason={m.conversation.readOnlyHint}
             trigger={
@@ -96,7 +96,7 @@ export function ChangesPanel({ siteId, readOnly }: { siteId: string; readOnly: b
             {!shown.reviewable && <p className="text-xs text-muted-foreground">{m.changes.working}</p>}
             {canPick(shown) && <p className="text-xs text-muted-foreground">{m.changes.selectionHint}</p>}
             {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
-            <ReviewActions siteId={siteId} change={shown} onNotice={setNotice} />
+            <ReviewActions project={project} change={shown} onNotice={setNotice} />
           </>
         )}
       </div>

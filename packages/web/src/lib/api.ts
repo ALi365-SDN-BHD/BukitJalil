@@ -32,6 +32,7 @@ import {
   type HistoryResponse,
   type ImportInspection,
   type ImportSiteRequest,
+  isThemeKey,
   type MediaUploadRequest,
   type MediaUploadResult,
   type ModelsResponse,
@@ -40,11 +41,13 @@ import {
   type PanelRef,
   type PiStatus,
   type PreviewResponse,
+  type ProjectKey,
   type ProviderKey,
   type ProviderLoginStatus,
   type ProviderTestResult,
   type PublishAccount,
   type PublishAccountRequest,
+  parseProjectKey,
   type RestoreResult,
   type RgResponse,
   type SavedDataSource,
@@ -63,6 +66,7 @@ import {
   type VersionDiff,
 } from "@bukitjalil/shared";
 import type { z } from "zod";
+import { projectPath } from "./project.ts";
 
 export type ErrorParams = Record<string, string | number | boolean>;
 
@@ -141,19 +145,25 @@ export const api = {
   openSite: (id: string) => post<null>(`/sites/${id}/open`),
   removeSite: (id: string) => request<{ leftovers: string[] }>(`/sites/${id}`, { method: "DELETE" }),
 
-  tree: (id: string, ref: PanelRef, path: string) => request<TreeResponse>(`/sites/${id}/tree?${query({ ref, path })}`),
-  file: (id: string, ref: PanelRef, path: string) => request<FileResponse>(`/sites/${id}/file?${query({ ref, path })}`),
-  config: (id: string, ref: PanelRef) => request<ConfigResponse>(`/sites/${id}/config?${query({ ref })}`),
-  theme: (id: string, ref: PanelRef) => request<ThemeResponse>(`/sites/${id}/theme?${query({ ref })}`),
-  data: (id: string, ref: PanelRef) => request<DataResponse>(`/sites/${id}/data?${query({ ref })}`),
+  // Project routes (theme development design 3.3): a site's or a theme project's, by project key.
+  tree: (project: ProjectKey, ref: PanelRef, path: string) =>
+    request<TreeResponse>(`${projectPath(project)}/tree?${query({ ref, path })}`),
+  file: (project: ProjectKey, ref: PanelRef, path: string) =>
+    request<FileResponse>(`${projectPath(project)}/file?${query({ ref, path })}`),
+  config: (project: ProjectKey, ref: PanelRef) =>
+    request<ConfigResponse>(`${projectPath(project)}/config?${query({ ref })}`),
+  theme: (project: ProjectKey, ref: PanelRef) =>
+    request<ThemeResponse>(`${projectPath(project)}/theme?${query({ ref })}`),
+  data: (project: ProjectKey, ref: PanelRef) => request<DataResponse>(`${projectPath(project)}/data?${query({ ref })}`),
 
-  builds: (id: string) => request<BuildListResponse>(`/sites/${id}/builds`),
+  builds: (project: ProjectKey) => request<BuildListResponse>(`${projectPath(project)}/builds`),
   audit: (id: string, ref: PanelRef) => request<AuditReportResponse>(`/sites/${id}/audit?ref=${ref}`),
-  build: (id: string, buildId: string) => request<Build>(`/sites/${id}/builds/${buildId}`),
-  startBuild: (id: string, ref: PanelRef = "main") => post<Build>(`/sites/${id}/builds`, { ref }),
-  openPreview: (id: string, ref: PanelRef = "main") => post<PreviewResponse>(`/sites/${id}/preview`, { ref }),
+  build: (project: ProjectKey, buildId: string) => request<Build>(`${projectPath(project)}/builds/${buildId}`),
+  startBuild: (project: ProjectKey, ref: PanelRef = "main") => post<Build>(`${projectPath(project)}/builds`, { ref }),
+  openPreview: (project: ProjectKey, ref: PanelRef = "main") =>
+    post<PreviewResponse>(`${projectPath(project)}/preview`, { ref }),
 
-  currentChange: (siteId: string) => request<CurrentChange>(`/sites/${siteId}/changes/current`),
+  currentChange: (project: ProjectKey) => request<CurrentChange>(`${projectPath(project)}/changes/current`),
   setSitePlugin: (siteId: string, pluginId: string, enabled: boolean) =>
     request<CurrentChange>(`/sites/${siteId}/plugins/${pluginId}`, {
       method: "PUT",
@@ -162,15 +172,17 @@ export const api = {
   changeDiff: (changeId: string, path: string) => request<FileDiff>(`/changes/${changeId}/diff?${query({ path })}`),
   applyChange: (changeId: string, req: ApplyRequest) => post<ApplyResult>(`/changes/${changeId}/apply`, req),
   rejectChange: (changeId: string) => post<ChangeSet>(`/changes/${changeId}/reject`),
-  history: (siteId: string, skip: number) =>
-    request<HistoryResponse>(`/sites/${siteId}/history?${query({ skip: String(skip) })}`),
-  versionDiff: (siteId: string, commit: string) => request<VersionDiff>(`/sites/${siteId}/history/${commit}/diff`),
-  versionFileDiff: (siteId: string, commit: string, path: string) =>
-    request<FileDiff>(`/sites/${siteId}/history/${commit}/diff?${query({ path })}`),
-  restore: (siteId: string, commit: string) => post<RestoreResult>(`/sites/${siteId}/history/${commit}/restore`),
+  history: (project: ProjectKey, skip: number) =>
+    request<HistoryResponse>(`${projectPath(project)}/history?${query({ skip: String(skip) })}`),
+  versionDiff: (project: ProjectKey, commit: string) =>
+    request<VersionDiff>(`${projectPath(project)}/history/${commit}/diff`),
+  versionFileDiff: (project: ProjectKey, commit: string, path: string) =>
+    request<FileDiff>(`${projectPath(project)}/history/${commit}/diff?${query({ path })}`),
+  restore: (project: ProjectKey, commit: string) =>
+    post<RestoreResult>(`${projectPath(project)}/history/${commit}/restore`),
 
-  sessions: (siteId: string) => request<SessionInfo[]>(`/sites/${siteId}/sessions`),
-  createSession: (siteId: string) => post<SessionInfo>(`/sites/${siteId}/sessions`),
+  sessions: (project: ProjectKey) => request<SessionInfo[]>(`${projectPath(project)}/sessions`),
+  createSession: (project: ProjectKey) => post<SessionInfo>(`${projectPath(project)}/sessions`),
   uploadMedia: (siteId: string, req: MediaUploadRequest) => post<MediaUploadResult>(`/sites/${siteId}/media`, req),
   deployStatus: (siteId: string) => request<DeployStatusResponse>(`/sites/${siteId}/deploy`),
   saveDeployConfig: (siteId: string, req: DeployConfigRequest) =>
@@ -241,8 +253,8 @@ export const api = {
 };
 
 /** Address of a file as bytes: `raw` for verified bitmaps (an <img> source), `download` for any file. */
-export function fileUrl(siteId: string, ref: PanelRef, path: string, as: "raw" | "download"): string {
-  return `/api/sites/${siteId}/file?${query({ ref, path, as })}`;
+export function fileUrl(project: ProjectKey, ref: PanelRef, path: string, as: "raw" | "download"): string {
+  return `/api${projectPath(project)}/file?${query({ ref, path, as })}`;
 }
 
 /** Query keys, so mutations can invalidate exactly what they change. */
@@ -252,20 +264,27 @@ export const keys = {
   skills: ["skills"] as const,
   sites: ["sites"] as const,
   site: (id: string) => ["site", id] as const,
+  /** The project's own record: `site` for a site, `theme` for a theme project. */
+  project: (key: ProjectKey) => {
+    const ref = parseProjectKey(key);
+    return ref?.kind === "theme" ? (["theme", ref.id] as const) : (["site", key] as const);
+  },
+  /** The list the project's record is in. */
+  projects: (key: ProjectKey) => (isThemeKey(key) ? (["themes"] as const) : (["sites"] as const)),
   deploy: (siteId: string) => ["deploy", siteId] as const,
   /** Under "panel": whatever moves the default branch (applying a change, deploy settings) refreshes it too. */
   deploys: (siteId: string) => ["deploys", siteId] as const,
-  panel: (id: string, panel: string, ...rest: string[]) => ["panel", id, panel, ...rest] as const,
-  builds: (id: string) => ["builds", id] as const,
+  panel: (project: ProjectKey, panel: string, ...rest: string[]) => ["panel", project, panel, ...rest] as const,
+  builds: (project: ProjectKey) => ["builds", project] as const,
   audit: (id: string, ref: PanelRef) => ["audit", id, ref] as const,
-  change: (siteId: string) => ["change", siteId] as const,
+  change: (project: ProjectKey) => ["change", project] as const,
   /** A diff never changes for one snapshot tree, so the tree is part of the key. */
   changeDiff: (changeId: string, tree: string, path: string) => ["changeDiff", changeId, tree, path] as const,
-  history: (siteId: string) => ["history", siteId] as const,
+  history: (project: ProjectKey) => ["history", project] as const,
   /** A version never changes, so its diffs are kept for as long as the page lives. */
-  versionDiff: (siteId: string, commit: string, path?: string) =>
-    ["versionDiff", siteId, commit, ...(path === undefined ? [] : [path])] as const,
-  sessions: (siteId: string) => ["sessions", siteId] as const,
+  versionDiff: (project: ProjectKey, commit: string, path?: string) =>
+    ["versionDiff", project, commit, ...(path === undefined ? [] : [path])] as const,
+  sessions: (project: ProjectKey) => ["sessions", project] as const,
   session: (id: string) => ["session", id] as const,
   bukit: ["bukit"] as const,
   models: ["models"] as const,

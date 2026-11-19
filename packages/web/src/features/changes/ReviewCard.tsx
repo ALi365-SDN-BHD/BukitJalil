@@ -1,3 +1,4 @@
+import type { ProjectKey } from "@bukitjalil/shared";
 import { ChevronDown, ChevronUp, FileDiff } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
@@ -13,12 +14,12 @@ const LISTED = 8;
 
 /**
  * The review card under the conversation (plan 10.2): the AI's summary, the changed files, apply and
- * reject. It belongs to the site's change set, so every session of the site shows the same one; while a
+ * reject. It belongs to the project's change set, so every session of the project shows the same one; while a
  * session runs the buttons wait for the run to end and its snapshot.
  */
-export function ReviewCard({ siteId }: { siteId: string }) {
+export function ReviewCard({ project }: { project: ProjectKey }) {
   const { m, t } = useI18n();
-  const { change } = useCurrentChange(siteId);
+  const { change } = useCurrentChange(project);
   const [collapsed, setCollapsed] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [, setParams] = useSearchParams();
@@ -83,7 +84,7 @@ export function ReviewCard({ siteId }: { siteId: string }) {
             </p>
           )}
           {notice && <NoticeView notice={notice} onDismiss={() => setNotice(null)} />}
-          <ReviewActions siteId={siteId} change={change} onNotice={setNotice} />
+          <ReviewActions project={project} change={change} onNotice={setNotice} />
         </>
       )}
     </section>

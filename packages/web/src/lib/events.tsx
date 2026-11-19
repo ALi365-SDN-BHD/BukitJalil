@@ -143,7 +143,7 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
         queryClient.removeQueries({ queryKey: ["audit", project, "change"] });
         void queryClient.invalidateQueries({ queryKey: ["audit", project] });
         void queryClient.invalidateQueries({ predicate: (q) => ofProject(q.queryKey) });
-        void queryClient.invalidateQueries({ queryKey: keys.site(project) });
+        void queryClient.invalidateQueries({ queryKey: keys.project(project) });
         void queryClient.invalidateQueries({ queryKey: keys.history(project) });
         void queryClient.invalidateQueries({ queryKey: keys.deploy(project) });
       }

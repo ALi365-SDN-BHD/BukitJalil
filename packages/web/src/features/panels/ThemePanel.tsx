@@ -1,3 +1,4 @@
+import type { ProjectKey } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { usePanelRef } from "@/features/changes/hooks";
 import { useI18n } from "@/i18n";
@@ -6,10 +7,10 @@ import { CodeView } from "./CodeView";
 import { PanelError, PanelLoading, RefSwitch, Section } from "./common";
 
 /** Theme panel (plan 5.3): theme.yaml, the theme's files and the theme parameters in site.yaml. */
-export function ThemePanel({ siteId }: { siteId: string }) {
-  const [ref] = usePanelRef(siteId);
+export function ThemePanel({ project }: { project: ProjectKey }) {
+  const [ref] = usePanelRef(project);
   const { m, t } = useI18n();
-  const theme = useQuery({ queryKey: keys.panel(siteId, "theme", ref), queryFn: () => api.theme(siteId, ref) });
+  const theme = useQuery({ queryKey: keys.panel(project, "theme", ref), queryFn: () => api.theme(project, ref) });
 
   let body: React.ReactNode;
   if (theme.isPending) body = <PanelLoading />;
@@ -56,7 +57,7 @@ export function ThemePanel({ siteId }: { siteId: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <RefSwitch siteId={siteId} />
+      <RefSwitch project={project} />
       <div className="min-h-0 flex-1 overflow-auto" data-testid="theme-panel">
         {body}
       </div>

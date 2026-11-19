@@ -146,7 +146,7 @@ function SiteItem({ site }: { site: Site }) {
         </NavLink>
         <SiteMenu site={site} />
       </div>
-      {selected && <SessionList siteId={site.id} readOnly={!!site.readOnly} />}
+      {selected && <SessionList project={site.id} readOnly={!!site.readOnly} />}
     </li>
   );
 }

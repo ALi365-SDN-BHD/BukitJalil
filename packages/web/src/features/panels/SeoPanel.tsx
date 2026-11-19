@@ -27,7 +27,7 @@ export function SeoPanel({ siteId, readOnly }: { siteId: string; readOnly: boole
   const [ref] = usePanelRef(siteId);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <RefSwitch siteId={siteId} />
+      <RefSwitch project={siteId} />
       <SeoBody key={ref} siteId={siteId} refName={ref} readOnly={readOnly} />
     </div>
   );
@@ -42,7 +42,7 @@ function SeoBody({ siteId, refName, readOnly }: { siteId: string; refName: Panel
       return (
         <div className="flex flex-col items-start gap-3 p-4 text-sm" data-testid="seo-not-built">
           <p className="text-muted-foreground">{refName === "change" ? m.seo.changeNotBuilt : m.seo.notBuilt}</p>
-          {!readOnly && <BuildButton siteId={siteId} refName={refName} />}
+          {!readOnly && <BuildButton project={siteId} refName={refName} />}
         </div>
       );
     }

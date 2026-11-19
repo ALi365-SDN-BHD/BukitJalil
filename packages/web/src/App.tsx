@@ -16,6 +16,7 @@ import { detectLocale, I18nProvider, useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { desktopBridge } from "@/lib/desktop";
 import { useConnection } from "@/lib/events";
+import { siteProject } from "@/lib/project";
 import { setAppearance } from "@/lib/theme";
 
 export function App() {
@@ -96,7 +97,7 @@ function Shell() {
             {errorOf(site.error)}
           </p>
         ) : sessionId ? (
-          <ChatView key={sessionId} site={site.data} sessionId={sessionId} />
+          <ChatView key={sessionId} project={siteProject(site.data)} sessionId={sessionId} />
         ) : (
           <SiteHome site={site.data} />
         )}
@@ -104,7 +105,7 @@ function Shell() {
     </>
   );
   const panelsColumn = (
-    <RightPanel key={siteId ?? ""} siteId={site.data?.id ?? null} readOnly={!!site.data?.readOnly} />
+    <RightPanel key={siteId ?? ""} project={site.data?.id ?? null} readOnly={!!site.data?.readOnly} />
   );
 
   return (

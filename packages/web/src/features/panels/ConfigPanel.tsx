@@ -5,6 +5,7 @@ import {
   type BukitPluginState,
   type ConfigSummary,
   type PanelRef,
+  type ProjectKey,
 } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -18,14 +19,14 @@ import { CodeView } from "./CodeView";
 import { Facts, PanelError, PanelLoading, RefSwitch, Section, Table } from "./common";
 
 /** Config panel (plan 5.3): a summary of site.yaml, its source, and the per-site plugin switches. */
-export function ConfigPanel({ siteId, readOnly }: { siteId: string; readOnly: boolean }) {
-  const [ref, setRef] = usePanelRef(siteId);
+export function ConfigPanel({ project, readOnly }: { project: ProjectKey; readOnly: boolean }) {
+  const [ref, setRef] = usePanelRef(project);
   const { m, t } = useI18n();
   const config = useQuery({
-    queryKey: keys.panel(siteId, "config", ref),
-    queryFn: () => api.config(siteId, ref),
+    queryKey: keys.panel(project, "config", ref),
+    queryFn: () => api.config(project, ref),
   });
-  const current = useCurrentChange(siteId);
+  const current = useCurrentChange(project);
   const [, setParams] = useSearchParams();
   const [view, setView] = useState<"summary" | "plugins" | "raw">("summary");
 
@@ -53,7 +54,7 @@ export function ConfigPanel({ siteId, readOnly }: { siteId: string; readOnly: bo
   else if (view === "plugins")
     body = (
       <PluginsEditor
-        siteId={siteId}
+        siteId={project}
         states={config.data.summary.pluginStates}
         readOnly={readOnly}
         ref={ref}
@@ -67,7 +68,7 @@ export function ConfigPanel({ siteId, readOnly }: { siteId: string; readOnly: bo
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <RefSwitch siteId={siteId} />
+      <RefSwitch project={project} />
       <div className="flex shrink-0 gap-1 border-b px-2 py-1 text-xs" role="tablist">
         {(["summary", "plugins", "raw"] as const).map((v) => (
           <button

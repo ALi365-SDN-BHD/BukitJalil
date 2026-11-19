@@ -1,3 +1,4 @@
+import type { ProjectKey } from "@bukitjalil/shared";
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, RotateCw, Upload } from "lucide-react";
 import { useState } from "react";
@@ -15,21 +16,29 @@ import { PanelError, PanelLoading, RefSwitch } from "./common";
  * served on its own preview port and shown in a sandboxed iframe. The version follows the panels' switch;
  * the preview query is invalidated when a build ends, so a new build shows by itself.
  */
-export function PreviewPanel({ siteId, readOnly }: { siteId: string; readOnly: boolean }) {
-  const [ref] = usePanelRef(siteId);
+export function PreviewPanel({ project, readOnly }: { project: ProjectKey; readOnly: boolean }) {
+  const [ref] = usePanelRef(project);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <RefSwitch siteId={siteId} />
+      <RefSwitch project={project} />
       {/* Keyed by version, so switching never shows the other version's frame while loading. */}
-      <PreviewBody key={ref} siteId={siteId} refName={ref} readOnly={readOnly} />
+      <PreviewBody key={ref} project={project} refName={ref} readOnly={readOnly} />
     </div>
   );
 }
 
-function PreviewBody({ siteId, refName, readOnly }: { siteId: string; refName: "main" | "change"; readOnly: boolean }) {
+function PreviewBody({
+  project,
+  refName,
+  readOnly,
+}: {
+  project: ProjectKey;
+  refName: "main" | "change";
+  readOnly: boolean;
+}) {
   const { m, t } = useI18n();
-  const { change } = useCurrentChange(siteId);
-  const builds = useBuilds(siteId);
+  const { change } = useCurrentChange(project);
+  const builds = useBuilds(project);
   // The open change set's newest build ended without Notion data (plan 5.5)...
   const notionBlocked =
     refName === "change" &&
@@ -37,13 +46,13 @@ function PreviewBody({ siteId, refName, readOnly }: { siteId: string; refName: "
     builds.data?.builds.find((b) => b.ref === "change" && b.changeSetId === change.id)?.outcome === "notion";
   // ...and still no formal build has recorded any.
   const data = useQuery({
-    queryKey: keys.panel(siteId, "data", "main"),
-    queryFn: () => api.data(siteId, "main"),
+    queryKey: keys.panel(project, "data", "main"),
+    queryFn: () => api.data(project, "main"),
     enabled: notionBlocked,
   });
   const preview = useQuery({
-    queryKey: ["preview", siteId, refName],
-    queryFn: () => api.openPreview(siteId, refName),
+    queryKey: ["preview", project, refName],
+    queryFn: () => api.openPreview(project, refName),
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -77,7 +86,7 @@ function PreviewBody({ siteId, refName, readOnly }: { siteId: string; refName: "
             </p>
           )}
           <BuildButton
-            siteId={siteId}
+            project={project}
             refName={refName}
             disabled={readOnly || (isChange && !change?.reviewable)}
             label={isChange ? m.preview.buildChange : undefined}
@@ -126,7 +135,7 @@ function PreviewBody({ siteId, refName, readOnly }: { siteId: string; refName: "
         >
           <span className="min-w-0 flex-1">{m.preview.changeOutdated}</span>
           <BuildButton
-            siteId={siteId}
+            project={project}
             refName="change"
             disabled={readOnly || !change.reviewable}
             label={m.preview.rebuild}
