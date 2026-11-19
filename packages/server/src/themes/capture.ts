@@ -175,8 +175,8 @@ export function cleanSvg(text: string): string {
       .replace(/<script\b[\s\S]*?<\/script\s*>/gi, "")
       .replace(/<foreignObject\b[\s\S]*?<\/foreignObject\s*>/gi, "")
       // Animation elements can set href (or any attribute) to javascript:; a captured asset does not need them.
-      .replace(/<(set|animate|animateMotion|animateTransform|discard|handler|listener)\b[^>]*\/>/gi, "")
-      .replace(/<(set|animate|animateMotion|animateTransform|discard|handler|listener)\b[\s\S]*?<\/\1\s*>/gi, "")
+      // Every tag of them goes, opening, closing or self-closing: an HTML parser also takes an unclosed one.
+      .replace(/<\/?(?:set|animate|animateMotion|animateTransform|discard|handler|listener)\b[^>]*>/gi, "")
       .replace(/@import[^;]+;/gi, "")
       // Only fragments stay as links; quoted, unquoted and entity-encoded external values are all removed.
       .replace(

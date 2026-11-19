@@ -30,7 +30,7 @@ describe("captured SVGs (design 6.2)", () => {
 
   it("removes handlers after a slash and animation elements that can set a link", () => {
     const svg = cleanSvg(
-      '<svg/onload=alert(1)><a><set attributeName="href" to="javascript:alert(1)"/><animate attributeName="href" values="javascript:alert(2)"></animate><circle/></a></svg>',
+      '<svg/onload=alert(1)><a><set attributeName="href" to="javascript:alert(1)"/><animate attributeName="href" values="javascript:alert(2)"></animate><set attributeName="href" to="javascript:alert(3)"><circle/></a></svg>',
     );
     expect(svg).not.toContain("onload");
     expect(svg).not.toContain("javascript:");
