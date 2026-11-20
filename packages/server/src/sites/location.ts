@@ -9,7 +9,7 @@ import type { SettingsStore } from "../store/settings.ts";
 export class SiteError extends Error {
   constructor(
     readonly code: ErrorCode,
-    readonly status: 400 | 404 | 409 | 500 | 503,
+    readonly status: 400 | 403 | 404 | 409 | 423 | 429 | 500 | 503,
     readonly params: Record<string, string> = {},
   ) {
     super(code);

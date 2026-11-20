@@ -6,6 +6,7 @@ import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panel
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { ChatView } from "@/features/chat/ChatView";
 import { RightPanel } from "@/features/panels/RightPanel";
+import { rememberLocale } from "@/features/security/LockGate";
 import { useSecretsSettled } from "@/features/settings/SecretsNotice";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { ShortcutsDialog, useShortcutsKey } from "@/features/settings/ShortcutsDialog";
@@ -31,6 +32,7 @@ export function App() {
   useEffect(() => {
     document.documentElement.lang = locale;
     desktopBridge()?.setLocale?.(locale);
+    rememberLocale(locale);
   }, [locale]);
   useEffect(() => {
     if (appearance) setAppearance(appearance);

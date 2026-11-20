@@ -61,6 +61,20 @@ test("the packaged app runs its bundled server and creates a site from its own f
   });
   const page = await electron.firstWindow();
   // When the server does not start, the window shows the status page with its error and last output lines.
+  // Otherwise the first start asks for a PIN (plan 6.9), which creates the encrypted database.
+  await expect(page.getByTestId("lock-screen"))
+    .toBeVisible({ timeout: 30_000 })
+    .catch(async (err: Error) => {
+      const shown = await page
+        .locator("body")
+        // biome-ignore lint/performance/useDomNodeTextContent: the text as shown, not hidden template text
+        .innerText()
+        .catch(() => "(no page)");
+      throw new Error(`${err.message}\n\nThe window shows:\n${shown}`);
+    });
+  await page.getByTestId("pin").fill("1234");
+  await page.getByTestId("pin-confirm").fill("1234");
+  await page.getByTestId("lock-submit").click();
   await expect(page.getByTestId("new-site"))
     .toBeVisible({ timeout: 30_000 })
     .catch(async (err: Error) => {

@@ -12,7 +12,7 @@ import { settingsModel } from "./agent/models.ts";
 import { RgService } from "./agent/rg.ts";
 import { SecretCredentialStore } from "./agent/secret-credentials.ts";
 import { AgentService } from "./agent/service.ts";
-import { createAdminApp } from "./app.ts";
+import { createAdminApp, createLockedApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
 import { BukitService, removeOldAppCopies } from "./bukit/locate.ts";
 import { ChangeService } from "./changes/service.ts";
@@ -36,12 +36,13 @@ import { ProjectRepos } from "./projects/repo.ts";
 import { ProjectService } from "./projects/service.ts";
 import { PublishAccountService } from "./publish/accounts.ts";
 import { SecretStore } from "./secrets/store.ts";
+import { SecurityService } from "./security/pin.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
 import { SiteLocks } from "./sites/locks.ts";
 import { NotionSnapshots } from "./sites/notion-snapshots.ts";
 import { SiteService } from "./sites/service.ts";
 import { bukitNewSite } from "./sites/template.ts";
-import { openDatabase } from "./store/db.ts";
+import { type Db, openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
 import { ThemeDeliverService } from "./themes/deliver.ts";
 import { ThemeService } from "./themes/service.ts";
@@ -119,12 +120,10 @@ process.on("exit", () => releaseLock());
 // Before anything can load Pi: it reads these when its modules load (plan 6.1).
 preparePiEnvironment(paths.pi);
 const logger = createLogger(paths.logs);
-const db = openDatabase(paths.db);
 
 // git is resolved once; every later call uses this absolute path (plan 7.3).
 const gitPath = resolveGitPath() ?? appGitPath(paths.home);
 
-const settingsStore = new SettingsStore(db);
 const offline = process.env.BUKITJALIL_OFFLINE === "1";
 
 // Without a Developer ID macOS cannot install an update itself, so this only downloads the installer and
@@ -142,33 +141,6 @@ const updates = new UpdateService({
   linuxPackage: process.env.APPIMAGE ? "appimage" : "deb",
 });
 
-// Tokens and model keys (plan 6.7): the desktop app hands over the key its keychain protects; `pnpm dev`
-// and tests keep plain 0600 files. The desktop server does not wait for the key: the app asks the keychain
-// once its window shows the app, so its prompt comes over the app rather than over "starting". Until then
-// the store is pending; see `whenSecretsSettled` below.
-const secrets = desktop ? SecretStore.pending() : SecretStore.plain();
-const dataSources = new DataSourceService({
-  db,
-  tokenFile: secrets.file({
-    plain: paths.dataSourceTokens,
-    encrypted: paths.dataSourceTokensEnc,
-    purpose: "data-source-tokens",
-    maxBytes: MAX_TOKEN_FILE,
-    mergeByKey: true,
-  }),
-  fetchImpl: offline ? null : fetch,
-});
-const publishAccounts = new PublishAccountService({
-  db,
-  tokenFile: secrets.file({
-    plain: paths.publishAccountTokens,
-    encrypted: paths.publishAccountTokensEnc,
-    purpose: "publish-account-tokens",
-    maxBytes: MAX_TOKEN_FILE,
-    mergeByKey: true,
-  }),
-  fetchImpl: offline ? null : fetch,
-});
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const resources = resolveResources(repoRoot);
 // Bukit ships with the app (plan 8.1); copies earlier versions installed in ~/.bukitjalil/bin are removed.
@@ -187,34 +159,6 @@ const gitStatus = new GitService({
   appHome: paths.home,
   applyPath: (path) => git.usePath(path),
 });
-const locks = new SiteLocks();
-// Sites and theme projects share the repository work, and neither may overlap the other (theme design 3).
-const repos = new ProjectRepos({ db, git, paths, bukit });
-const sites = new SiteService({
-  db,
-  git,
-  paths,
-  settings: settingsStore,
-  bukit,
-  locks,
-  dataSources,
-  newSite: bukitNewSite(bukit, { git, home: paths.home, tmpDir: paths.bukitTmp }),
-  notionSnapshots: new NotionSnapshots({ db, root: paths.notionSnapshots, logger }),
-  repos,
-  otherProjects: () => themes.list(),
-});
-const themes = new ThemeService({
-  db,
-  paths,
-  settings: settingsStore,
-  locks,
-  repos,
-  otherProjects: () => sites.list(),
-  newSite: bukitNewSite(bukit, { git, home: paths.home, tmpDir: paths.bukitTmp }),
-  themeDemo: resources.themeDemo,
-});
-const projects = new ProjectService(sites, themes, repos);
-
 const previews = new PreviewPool(previewBase, new Set([port]), logger);
 const rg = new RgService({ piBin: paths.piBin });
 // Every session gives the AI these skills and the gate reads them, so a missing directory stops startup.
@@ -226,162 +170,262 @@ if (!fs.existsSync(path.join(skillsDir, "bukitjalil", "site-editing", "SKILL.md"
 if (!fs.existsSync(path.join(resources.themeDemo, "content", "posts"))) {
   fail(`BukitJalil's theme sample content is missing: ${resources.themeDemo}`);
 }
-const changes = new ChangeService({
-  db,
-  git,
-  projects,
-  locks,
-  check: (project, cwd, commit) => aiBukit.checkForApply(project, cwd, commit),
-  tmpDir: paths.tmp,
-  logger,
-});
-const media = new MediaService({ git, sites, changes, locks, paths, logger });
-const deliver = new ThemeDeliverService({ git, paths, projects, changes, locks, logger });
-const aiBukit = new AiBukit({ git, paths, projects, bukit, changes });
-const builds = new BuildService({
-  db,
-  git,
-  paths,
-  projects,
-  bukit,
-  locks,
-  previews,
-  changes,
-  notionToken: (project) => projects.notionToken(project),
-  logger,
-});
-const customModels = new CustomModelStore(
-  secrets.file({
-    plain: path.join(paths.pi, "custom-models.json"),
-    encrypted: path.join(paths.pi, "custom-models.enc.json"),
-    purpose: "custom-models",
-  }),
-);
-// Pi keeps its own auth.json only when keys are not encrypted.
-const credentials =
-  secrets.mode === "plain"
-    ? undefined
-    : new SecretCredentialStore(
-        secrets.file({
-          plain: path.join(paths.pi, "auth.json"),
-          encrypted: path.join(paths.pi, "auth.enc.json"),
-          purpose: "pi-auth",
-          maxBytes: 1024 * 1024,
-          mergeByKey: true,
-        }),
-      );
-
-const secretsApi = {
-  status: () => secrets.status(),
-  reset: () => {
-    secrets.reset();
-    desktop?.send({ type: "secrets", reset: true });
-    logger.log("warn", "secrets.reset", {});
-  },
-};
-/**
- * Once the store's mode is settled (at once for plain files, when the desktop app answers otherwise), in
- * one synchronous step so no request reads a store in between: plain files from an earlier version are
- * encrypted, temp files of killed writes and token entries with no account are removed.
- */
-function whenSecretsSettled(): void {
-  secrets.migrate((event, data) => logger.log(event === "secrets.migrated" ? "info" : "warn", event, data));
-  const staleTemps =
-    publishAccounts.cleanupTempFiles() + dataSources.cleanupTempFiles() + customModels.cleanupTempFiles();
-  if (staleTemps > 0) logger.log("warn", "storage.temps_removed", { count: staleTemps });
-  try {
-    const accounts = publishAccounts.pruneUnknownTokens();
-    const sources = dataSources.pruneUnknownTokens();
-    if (accounts + sources > 0) logger.log("warn", "tokens.orphans_removed", { accounts, sources });
-  } catch (err) {
-    logger.log("warn", "tokens.orphans_cleanup_failed", { error: String(err) });
-  }
-}
-
-const agent = new AgentService({
-  db,
-  paths,
-  projects,
-  locks,
-  changes,
-  logger,
-  // The model chosen in the settings (plan 6.5), looked up again before every run.
-  ...(credentials ? { credentials } : {}),
-  resolveModel: settingsModel(settingsStore),
-  thinkingLevel: () => settingsStore.get().thinkingLevel,
-  // A scripted model for end-to-end tests (agent/fake-model.ts); never set in normal use.
-  setupRuntime: (runtime, pi) => {
-    if (process.env.BUKITJALIL_FAKE_MODEL === "1") registerFakeModel(runtime, pi);
-    customModels.registerAll(runtime);
-  },
-  rgReady: () => rg.ready(),
-  bukit: aiBukit,
-  skillsDir,
-  disabledSkills: () => settingsStore.get().disabledSkills,
-});
-// After the agent exists: the answer refreshes its model runtime.
-if (desktop) {
-  void requestSecretKey(desktop, null).then((answer) => {
-    if ("key" in answer) {
-      secrets.unlock(answer.key);
-      answer.key.fill(0);
-    } else {
-      secrets.fail(answer.reason);
-      logger.log("warn", "secrets.unavailable", { reason: answer.reason });
-    }
-    whenSecretsSettled();
-    agent.refreshModelRuntime();
-  });
-} else {
-  whenSecretsSettled();
-}
-const panels = new PanelService({
-  git,
-  projects,
-  changeCommit: (id) => changes.openSnapshot(id),
-  sourceCounts: (id, ref) => builds.sourceCounts(id, ref),
-});
-const deploys = new DeployService({ sites, panels, accounts: publishAccounts, git, bukit, locks, paths, logger, db });
-const events = new EventHub();
-connectEvents(events, { agent, builds, changes, deploys, logger });
 const webDist = resources.web;
 const loginToken = new LoginToken();
 const dev = values["dev-origin"] !== undefined;
-
-const app = createAdminApp({
+/** Login, the UI and health: the same before and after the database opens (plan 6.9). */
+const base = {
   port,
   allowedOrigin,
   loginToken,
   sessionValue: randomSecret(),
-  db,
   webDist: !dev && fs.existsSync(path.join(webDist, "index.html")) ? webDist : null,
   checkGit: () => checkGit(git.opts.gitPath),
-  bukit,
-  rg,
-  sites,
-  themes,
-  deliver,
-  panels,
-  media,
-  builds,
-  agent,
-  gitStatus,
-  changes,
-  customModels,
-  dataSources,
-  publishAccounts,
-  deploys,
-  // Tests set BUKITJALIL_OFFLINE=1; the Pi row then shows only the bundled version.
-  piFetch: offline ? null : fetch,
-  events,
-  readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
   version: VERSION,
-  updates,
-  secrets: secretsApi,
   logger,
+};
+
+/** The services that keep their data in app.db, started once it is open (plan 6.9). */
+interface Runtime {
+  app: ReturnType<typeof createAdminApp>;
+  events: EventHub;
+  agent: AgentService;
+  builds: BuildService;
+  deploys: DeployService;
+  locks: SiteLocks;
+  db: Db;
+}
+let runtime: Runtime | null = null;
+// The desktop app's database is encrypted with the PIN and opens when it is set up or entered; `pnpm dev`
+// and tests open a plain one at once and are never locked.
+const security = new SecurityService({
+  file: desktop ? paths.db : null,
+  logger,
+  onOpen: (db) => {
+    try {
+      runtime = startServices(db);
+    } catch (err) {
+      // Half started is worse than stopped: the desktop app shows that the server stopped and offers a restart.
+      logger.log("error", "server.start_failed", { error: String(err) });
+      fail(`Cannot start the services: ${(err as Error).message}`);
+    }
+  },
+  onLock: () => runtime?.events.closeAll(),
 });
 
-const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
+function startServices(db: Db): Runtime {
+  const settingsStore = new SettingsStore(db);
+
+  // Tokens and model keys (plan 6.7): the desktop app hands over the key its keychain protects; `pnpm dev`
+  // and tests keep plain 0600 files. The desktop server does not wait for the key: the app asks the keychain
+  // once its window shows the app, so its prompt comes over the app rather than over "starting". Until then
+  // the store is pending; see `whenSecretsSettled` below.
+  const secrets = desktop ? SecretStore.pending() : SecretStore.plain();
+  const dataSources = new DataSourceService({
+    db,
+    tokenFile: secrets.file({
+      plain: paths.dataSourceTokens,
+      encrypted: paths.dataSourceTokensEnc,
+      purpose: "data-source-tokens",
+      maxBytes: MAX_TOKEN_FILE,
+      mergeByKey: true,
+    }),
+    fetchImpl: offline ? null : fetch,
+  });
+  const publishAccounts = new PublishAccountService({
+    db,
+    tokenFile: secrets.file({
+      plain: paths.publishAccountTokens,
+      encrypted: paths.publishAccountTokensEnc,
+      purpose: "publish-account-tokens",
+      maxBytes: MAX_TOKEN_FILE,
+      mergeByKey: true,
+    }),
+    fetchImpl: offline ? null : fetch,
+  });
+  const locks = new SiteLocks();
+  // Sites and theme projects share the repository work, and neither may overlap the other (theme design 3).
+  const repos = new ProjectRepos({ db, git, paths, bukit });
+  const sites = new SiteService({
+    db,
+    git,
+    paths,
+    settings: settingsStore,
+    bukit,
+    locks,
+    dataSources,
+    newSite: bukitNewSite(bukit, { git, home: paths.home, tmpDir: paths.bukitTmp }),
+    notionSnapshots: new NotionSnapshots({ db, root: paths.notionSnapshots, logger }),
+    repos,
+    otherProjects: () => themes.list(),
+  });
+  const themes = new ThemeService({
+    db,
+    paths,
+    settings: settingsStore,
+    locks,
+    repos,
+    otherProjects: () => sites.list(),
+    newSite: bukitNewSite(bukit, { git, home: paths.home, tmpDir: paths.bukitTmp }),
+    themeDemo: resources.themeDemo,
+  });
+  const projects = new ProjectService(sites, themes, repos);
+
+  const changes = new ChangeService({
+    db,
+    git,
+    projects,
+    locks,
+    check: (project, cwd, commit) => aiBukit.checkForApply(project, cwd, commit),
+    tmpDir: paths.tmp,
+    logger,
+  });
+  const media = new MediaService({ git, sites, changes, locks, paths, logger });
+  const deliver = new ThemeDeliverService({ git, paths, projects, changes, locks, logger });
+  const aiBukit = new AiBukit({ git, paths, projects, bukit, changes });
+  const builds = new BuildService({
+    db,
+    git,
+    paths,
+    projects,
+    bukit,
+    locks,
+    previews,
+    changes,
+    notionToken: (project) => projects.notionToken(project),
+    logger,
+  });
+  const customModels = new CustomModelStore(
+    secrets.file({
+      plain: path.join(paths.pi, "custom-models.json"),
+      encrypted: path.join(paths.pi, "custom-models.enc.json"),
+      purpose: "custom-models",
+    }),
+  );
+  // Pi keeps its own auth.json only when keys are not encrypted.
+  const credentials =
+    secrets.mode === "plain"
+      ? undefined
+      : new SecretCredentialStore(
+          secrets.file({
+            plain: path.join(paths.pi, "auth.json"),
+            encrypted: path.join(paths.pi, "auth.enc.json"),
+            purpose: "pi-auth",
+            maxBytes: 1024 * 1024,
+            mergeByKey: true,
+          }),
+        );
+
+  const secretsApi = {
+    status: () => secrets.status(),
+    reset: () => {
+      secrets.reset();
+      desktop?.send({ type: "secrets", reset: true });
+      logger.log("warn", "secrets.reset", {});
+    },
+  };
+  /**
+   * Once the store's mode is settled (at once for plain files, when the desktop app answers otherwise), in
+   * one synchronous step so no request reads a store in between: plain files from an earlier version are
+   * encrypted, temp files of killed writes and token entries with no account are removed.
+   */
+  function whenSecretsSettled(): void {
+    secrets.migrate((event, data) => logger.log(event === "secrets.migrated" ? "info" : "warn", event, data));
+    const staleTemps =
+      publishAccounts.cleanupTempFiles() + dataSources.cleanupTempFiles() + customModels.cleanupTempFiles();
+    if (staleTemps > 0) logger.log("warn", "storage.temps_removed", { count: staleTemps });
+    try {
+      const accounts = publishAccounts.pruneUnknownTokens();
+      const sources = dataSources.pruneUnknownTokens();
+      if (accounts + sources > 0) logger.log("warn", "tokens.orphans_removed", { accounts, sources });
+    } catch (err) {
+      logger.log("warn", "tokens.orphans_cleanup_failed", { error: String(err) });
+    }
+  }
+
+  const agent = new AgentService({
+    db,
+    paths,
+    projects,
+    locks,
+    changes,
+    logger,
+    // The model chosen in the settings (plan 6.5), looked up again before every run.
+    ...(credentials ? { credentials } : {}),
+    resolveModel: settingsModel(settingsStore),
+    thinkingLevel: () => settingsStore.get().thinkingLevel,
+    // A scripted model for end-to-end tests (agent/fake-model.ts); never set in normal use.
+    setupRuntime: (runtime, pi) => {
+      if (process.env.BUKITJALIL_FAKE_MODEL === "1") registerFakeModel(runtime, pi);
+      customModels.registerAll(runtime);
+    },
+    rgReady: () => rg.ready(),
+    bukit: aiBukit,
+    skillsDir,
+    disabledSkills: () => settingsStore.get().disabledSkills,
+  });
+  // After the agent exists: the answer refreshes its model runtime.
+  if (desktop) {
+    void requestSecretKey(desktop, null).then((answer) => {
+      if ("key" in answer) {
+        secrets.unlock(answer.key);
+        answer.key.fill(0);
+      } else {
+        secrets.fail(answer.reason);
+        logger.log("warn", "secrets.unavailable", { reason: answer.reason });
+      }
+      whenSecretsSettled();
+      agent.refreshModelRuntime();
+    });
+  } else {
+    whenSecretsSettled();
+  }
+  const panels = new PanelService({
+    git,
+    projects,
+    changeCommit: (id) => changes.openSnapshot(id),
+    sourceCounts: (id, ref) => builds.sourceCounts(id, ref),
+  });
+  const deploys = new DeployService({ sites, panels, accounts: publishAccounts, git, bukit, locks, paths, logger, db });
+  const events = new EventHub();
+  connectEvents(events, { agent, builds, changes, deploys, logger });
+  const app = createAdminApp({
+    ...base,
+    db,
+    bukit,
+    rg,
+    sites,
+    themes,
+    deliver,
+    panels,
+    media,
+    builds,
+    agent,
+    gitStatus,
+    changes,
+    customModels,
+    dataSources,
+    publishAccounts,
+    deploys,
+    // Tests set BUKITJALIL_OFFLINE=1; the Pi row then shows only the bundled version.
+    piFetch: offline ? null : fetch,
+    events,
+    readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
+    updates,
+    secrets: secretsApi,
+    security,
+  });
+  return { app, events, agent, builds, deploys, locks, db };
+}
+
+if (!desktop) runtime = startServices(openDatabase(paths.db));
+const lockedApp = createLockedApp({ ...base, security });
+
+const server = serve({
+  fetch: (request, env) => (runtime?.app ?? lockedApp).fetch(request, env),
+  port,
+  hostname: "127.0.0.1",
+});
 server.on("error", (err: NodeJS.ErrnoException) => {
   // EACCES: Windows reserves port ranges (Hyper-V, WSL, Docker) that no program may listen on. Either way the
   // port cannot be used, and the desktop app moves on to the next one.
@@ -457,15 +501,19 @@ async function shutdown(signal = false) {
   closingSince = Date.now();
   try {
     server.close();
-    events.closeAll();
-    // All at once: each may wait for a Bukit process to stop. The services refuse new work first, then the
-    // locks refuse every other site operation, and operations already running get to finish.
-    const stopping = Promise.all([agent.shutdown(), builds.shutdown(), deploys.shutdown()]);
-    locks.close();
-    await stopping;
-    if (!(await locks.idle(SHUTDOWN_WAIT_MS))) logger.log("warn", "server.shutdown_timeout", {});
+    // Before the PIN opens the database there are no services to stop.
+    if (runtime) {
+      const { events, agent, builds, deploys, locks } = runtime;
+      events.closeAll();
+      // All at once: each may wait for a Bukit process to stop. The services refuse new work first, then the
+      // locks refuse every other site operation, and operations already running get to finish.
+      const stopping = Promise.all([agent.shutdown(), builds.shutdown(), deploys.shutdown()]);
+      locks.close();
+      await stopping;
+      if (!(await locks.idle(SHUTDOWN_WAIT_MS))) logger.log("warn", "server.shutdown_timeout", {});
+    }
     await previews.closeAll();
-    db.close();
+    runtime?.db.close();
   } catch (err) {
     logger.log("error", "server.shutdown_failed", { error: String(err) });
   }

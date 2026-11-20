@@ -27,6 +27,7 @@ import { modelRoutes } from "./api/models.ts";
 import { panelRoutes } from "./api/panels.ts";
 import { pluginRoutes } from "./api/plugins.ts";
 import { publishAccountRoutes } from "./api/publish-accounts.ts";
+import { openWhileLocked, securityRoutes } from "./api/security.ts";
 import { sessionRoutes } from "./api/sessions.ts";
 import { siteRoutes } from "./api/sites.ts";
 import { skillRoutes } from "./api/skills.ts";
@@ -47,6 +48,7 @@ import type { PanelService } from "./panels/service.ts";
 import type { PublishAccountService } from "./publish/accounts.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
 import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./security/headers.ts";
+import type { SecurityService } from "./security/pin.ts";
 import type { LoginToken } from "./security/token.ts";
 import type { Db } from "./store/db.ts";
 
@@ -103,84 +105,38 @@ export interface AdminAppOptions {
   /** How tokens and model keys are kept (plan 6.7); plain files when absent (tests). */
   secrets?: { status(): SecretsStatus; reset(): void };
   logger: Logger;
+  /** The app lock (plan 6.9); absent in tests, which run like `pnpm dev`. */
+  security?: SecurityService;
 }
+
+/** What the app needs before the database is open: login, the UI, health and the lock (plan 6.9). */
+export type LockedAppOptions = Pick<
+  AdminAppOptions,
+  "port" | "allowedOrigin" | "loginToken" | "sessionValue" | "webDist" | "checkGit" | "version" | "logger"
+> & { security: SecurityService };
 
 export type AppEnv = {
   /** cspSandbox: a route serving site content (images, downloads) adds `sandbox` to the CSP (plan 9.1). */
   Variables: { cspNonce: string | undefined; cspSandbox: boolean | undefined };
 };
 
+/**
+ * The desktop app before the first correct PIN (plan 6.9): the database is still closed, so only login, the
+ * UI, health and the lock answer; every other /api request is 423. It shares login token and session cookie
+ * with the full app that replaces it once the PIN opens the database.
+ */
+export function createLockedApp(opts: LockedAppOptions) {
+  const { app, api } = baseApp(opts);
+  return finishApp(app, api, opts);
+}
+
 export function createAdminApp(opts: AdminAppOptions) {
   const settings = new SettingsStore(opts.db);
-  const cookieName = sessionCookieName(opts.port);
-  const app = new Hono<AppEnv>();
   const piStatus = new PiStatusService({
     modules: () => opts.agent.piModules(),
     fetchImpl: opts.piFetch ?? null,
   });
-
-  app.use("*", async (c, next) => {
-    await next();
-    for (const [k, v] of Object.entries(adminHeaders)) c.header(k, v);
-    const sandbox = c.get("cspSandbox") === true;
-    c.header("Content-Security-Policy", `${adminCsp(c.get("cspNonce") ?? null)}${sandbox ? "; sandbox" : ""}`);
-  });
-  app.use("*", hostCheck([`127.0.0.1:${opts.port}`, `localhost:${opts.port}`]));
-
-  // Errors never leak details: /api answers with a code (plan 10.1), the log gets the stack (plan 13).
-  app.onError((err, c) => {
-    const known = new URL(c.req.url).pathname.startsWith("/api/") ? asSiteError(err) : null;
-    if (known) return apiError(c, known.status, known.code, known.params);
-    opts.logger.log("error", "request.failed", {
-      method: c.req.method,
-      path: new URL(c.req.url).pathname,
-      error: err.message,
-      stack: err.stack,
-    });
-    if (new URL(c.req.url).pathname.startsWith("/api/")) {
-      // A full or read-only disk is something the user can fix, so it gets its own message.
-      const storage = storageErrorCode(err);
-      if (storage) return apiError(c, storage === "fs.disk_full" ? 507 : 500, storage);
-      return apiError(c, 500, "server.internal");
-    }
-    return c.body(null, 500);
-  });
-
-  // The session cookie is bound to the host 127.0.0.1, so pages opened via localhost are sent there.
-  app.use("*", async (c, next) => {
-    const url = new URL(c.req.url);
-    if (c.req.header("host") === `localhost:${opts.port}` && !url.pathname.startsWith("/api/")) {
-      return c.redirect(`http://127.0.0.1:${opts.port}${url.pathname}${url.search}`, 307);
-    }
-    await next();
-  });
-
-  // Token login (plan 11): a correct, unused token sets the cookie. Either way the browser goes to a URL
-  // without the token; without a session the UI explains how to get a new link (in the user's language).
-  app.get("/", async (c, next) => {
-    const token = c.req.query("token");
-    if (token === undefined) return next();
-    if (opts.loginToken.consume(token)) {
-      setCookie(c, cookieName, opts.sessionValue, { httpOnly: true, sameSite: "Strict", path: "/api" });
-      opts.logger.log("info", "auth.login", {});
-    } else {
-      opts.logger.log("warn", "auth.bad_token", {});
-    }
-    return c.redirect("/", 303);
-  });
-
-  const api = new Hono<AppEnv>();
-  api.use("*", apiGuard({ allowedOrigin: opts.allowedOrigin, cookieName, sessionValue: opts.sessionValue }));
-
-  api.get("/health", async (c) => {
-    const git = await opts.checkGit();
-    const body: HealthResponse = {
-      ok: git.ok,
-      version: opts.version,
-      git,
-    };
-    return c.json(body);
-  });
+  const { app, api } = baseApp(opts);
 
   api.get("/settings", (c) => c.json(settings.get()));
   api.put("/settings", async (c) => {
@@ -263,6 +219,90 @@ export function createAdminApp(opts: AdminAppOptions) {
   customModelRoutes(api, opts.customModels, () => opts.agent.models());
   eventRoutes(api, opts.events, opts.eventStream);
 
+  return finishApp(app, api, opts);
+}
+
+/** Headers, host check, errors, login, the API guard, health and the lock: shared by both apps. */
+function baseApp(opts: LockedAppOptions | AdminAppOptions) {
+  const cookieName = sessionCookieName(opts.port);
+  const app = new Hono<AppEnv>();
+  app.use("*", async (c, next) => {
+    await next();
+    for (const [k, v] of Object.entries(adminHeaders)) c.header(k, v);
+    const sandbox = c.get("cspSandbox") === true;
+    c.header("Content-Security-Policy", `${adminCsp(c.get("cspNonce") ?? null)}${sandbox ? "; sandbox" : ""}`);
+  });
+  app.use("*", hostCheck([`127.0.0.1:${opts.port}`, `localhost:${opts.port}`]));
+
+  // Errors never leak details: /api answers with a code (plan 10.1), the log gets the stack (plan 13).
+  app.onError((err, c) => {
+    const known = new URL(c.req.url).pathname.startsWith("/api/") ? asSiteError(err) : null;
+    if (known) return apiError(c, known.status, known.code, known.params);
+    opts.logger.log("error", "request.failed", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      error: err.message,
+      stack: err.stack,
+    });
+    if (new URL(c.req.url).pathname.startsWith("/api/")) {
+      // A full or read-only disk is something the user can fix, so it gets its own message.
+      const storage = storageErrorCode(err);
+      if (storage) return apiError(c, storage === "fs.disk_full" ? 507 : 500, storage);
+      return apiError(c, 500, "server.internal");
+    }
+    return c.body(null, 500);
+  });
+
+  // The session cookie is bound to the host 127.0.0.1, so pages opened via localhost are sent there.
+  app.use("*", async (c, next) => {
+    const url = new URL(c.req.url);
+    if (c.req.header("host") === `localhost:${opts.port}` && !url.pathname.startsWith("/api/")) {
+      return c.redirect(`http://127.0.0.1:${opts.port}${url.pathname}${url.search}`, 307);
+    }
+    await next();
+  });
+
+  // Token login (plan 11): a correct, unused token sets the cookie. Either way the browser goes to a URL
+  // without the token; without a session the UI explains how to get a new link (in the user's language).
+  app.get("/", async (c, next) => {
+    const token = c.req.query("token");
+    if (token === undefined) return next();
+    if (opts.loginToken.consume(token)) {
+      setCookie(c, cookieName, opts.sessionValue, { httpOnly: true, sameSite: "Strict", path: "/api" });
+      opts.logger.log("info", "auth.login", {});
+    } else {
+      opts.logger.log("warn", "auth.bad_token", {});
+    }
+    return c.redirect("/", 303);
+  });
+
+  const api = new Hono<AppEnv>();
+  api.use("*", apiGuard({ allowedOrigin: opts.allowedOrigin, cookieName, sessionValue: opts.sessionValue }));
+
+  api.get("/health", async (c) => {
+    const git = await opts.checkGit();
+    const body: HealthResponse = {
+      ok: git.ok,
+      version: opts.version,
+      git,
+    };
+    return c.json(body);
+  });
+
+  // The app lock (plan 6.9). While locked, only health and the lock itself answer.
+  const security = opts.security;
+  if (security) {
+    api.use("*", async (c, next) => {
+      if (security.isLocked() && !openWhileLocked(new URL(c.req.url).pathname)) return apiError(c, 423, "app.locked");
+      await next();
+    });
+    securityRoutes(api, security);
+  }
+  return { app, api };
+}
+
+/** The 404 for unknown API paths, and the built UI. */
+function finishApp(app: Hono<AppEnv>, api: Hono<AppEnv>, opts: Pick<AdminAppOptions, "webDist">) {
   api.all("*", (c) => apiError(c, 404, "request.not_found"));
   app.route("/api", api);
 

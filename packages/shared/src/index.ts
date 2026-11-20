@@ -16,6 +16,7 @@ export * from "./projects.ts";
 export * from "./publish.ts";
 export * from "./rg.ts";
 export * from "./secrets.ts";
+export * from "./security.ts";
 export * from "./sessions.ts";
 export * from "./settings.ts";
 export * from "./sites.ts";

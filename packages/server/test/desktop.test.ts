@@ -146,6 +146,23 @@ function startDesktop(
   return { child, next, exited, stdout: () => stdout };
 }
 
+/** Log in with a link from the desktop channel; returns the session cookie. */
+async function login(s: ReturnType<typeof startDesktop>): Promise<string> {
+  s.child.send({ type: "login" });
+  const link = (await s.next("login")) as { url: string };
+  const res = await fetch(link.url, { redirect: "manual" });
+  return (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+}
+
+/** The first PIN (plan 6.9): the desktop server opens its database and starts its services then. */
+async function setupPin(port: number, cookie: string): Promise<Response> {
+  return fetch(`http://127.0.0.1:${port}/api/security/setup`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json", "x-bukitjalil": "1", origin: `http://127.0.0.1:${port}` },
+    body: JSON.stringify({ pin: "1234" }),
+  });
+}
+
 describe("desktop mode (plan M7)", () => {
   it("reports ready, hands out login links on request and shuts down when asked", async () => {
     const home = tmp();
@@ -171,12 +188,21 @@ describe("desktop mode (plan M7)", () => {
 
   it("asks for the secret key and starts without saving when there is none", async () => {
     const home = tmp();
+    const asked: unknown[] = [];
     const s = startDesktop(home, 46750, { key: null, reason: "no_keyring" });
+    s.child.on("message", (m: DesktopOutbound) => {
+      if (m.type === "secrets") asked.push(m);
+    });
     expect(await s.next("ready")).toMatchObject({ type: "ready" });
-    s.child.send({ type: "login" });
-    const login = (await s.next("login")) as { url: string };
-    const res = await fetch(login.url, { redirect: "manual" });
-    const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const cookie = await login(s);
+    // Locked until the first PIN (plan 6.9): the database stays closed and the keychain is not asked yet.
+    const security = await fetch("http://127.0.0.1:46750/api/security", { headers: { cookie } });
+    expect(await security.json()).toEqual({ mode: "pin", pinSet: false, locked: true, retryAfterSeconds: 0 });
+    expect((await fetch("http://127.0.0.1:46750/api/secrets", { headers: { cookie } })).status).toBe(423);
+    expect(fs.statSync(path.join(home, "app.db")).size).toBe(0);
+    expect(asked).toHaveLength(0);
+    expect((await setupPin(46750, cookie)).status).toBe(200);
+    expect(fs.readFileSync(path.join(home, "app.db")).subarray(0, 15).toString()).not.toBe("SQLite format 3");
     const status = await fetch("http://127.0.0.1:46750/api/secrets", { headers: { cookie } });
     expect(await status.json()).toEqual({ mode: "unavailable", reason: "no_keyring", plainFiles: false });
     s.child.send({ type: "shutdown" });
@@ -187,10 +213,8 @@ describe("desktop mode (plan M7)", () => {
     const home = tmp();
     const s = startDesktop(home, 46760, null);
     expect(await s.next("ready")).toMatchObject({ type: "ready" });
-    s.child.send({ type: "login" });
-    const login = (await s.next("login")) as { url: string };
-    const res = await fetch(login.url, { redirect: "manual" });
-    const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const cookie = await login(s);
+    expect((await setupPin(46760, cookie)).status).toBe(200);
     const status = async () =>
       (await fetch("http://127.0.0.1:46760/api/secrets", { headers: { cookie } })).json() as Promise<unknown>;
     expect(await status()).toEqual({ mode: "unavailable", reason: "pending", plainFiles: false });

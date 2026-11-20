@@ -28,6 +28,7 @@ import { PreviewPool } from "../src/preview/pool.ts";
 import { ProjectRepos } from "../src/projects/repo.ts";
 import { ProjectService } from "../src/projects/service.ts";
 import { PublishAccountService } from "../src/publish/accounts.ts";
+import type { SecurityService } from "../src/security/pin.ts";
 import { LoginToken } from "../src/security/token.ts";
 import { SiteLocks } from "../src/sites/locks.ts";
 import { SiteService } from "../src/sites/service.ts";
@@ -95,6 +96,8 @@ export function makeApp(
     gitRunBrew?: GitServiceOptions["runBrew"];
     gitResolvePath?: () => string | null;
     gitCheck?: GitServiceOptions["check"];
+    /** The app lock (plan 6.9); none by default, like `pnpm dev`. */
+    security?: SecurityService;
   } = {},
 ) {
   const db = openDatabase(":memory:");
@@ -250,6 +253,7 @@ export function makeApp(
     version: "test",
     updates,
     logger,
+    security: overrides.security,
   });
   return {
     app,

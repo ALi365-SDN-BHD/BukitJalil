@@ -8,6 +8,7 @@ export const SETTINGS_SECTIONS = [
   "data",
   "extensions",
   "environment",
+  "security",
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
