@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import type { PublishAccount, PublishAccountRequest } from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
+import type { Db } from "../store/db.ts";
 import { JsonFile, JsonFileError, type StoredJson } from "../store/json-file.ts";
 
 interface Row {
@@ -25,7 +25,7 @@ export class PublishAccountService {
 
   constructor(
     private readonly opts: {
-      db: DatabaseSync;
+      db: Db;
       /** A path (plain 0600 file) or the secret store's file (plan 6.7). */
       tokenFile: string | StoredJson;
       /** null in tests and offline mode: repository access cannot be checked. */

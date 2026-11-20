@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import {
   type BukitResponse,
   type HealthResponse,
@@ -49,6 +48,7 @@ import type { PublishAccountService } from "./publish/accounts.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
 import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./security/headers.ts";
 import type { LoginToken } from "./security/token.ts";
+import type { Db } from "./store/db.ts";
 
 const PLAIN_SECRETS: SecretsStatus = { mode: "plain", reason: null, plainFiles: false };
 
@@ -69,7 +69,7 @@ export interface AdminAppOptions {
   loginToken: LoginToken;
   /** Value of the session cookie handed out after a correct token. */
   sessionValue: string;
-  db: DatabaseSync;
+  db: Db;
   /** Built web UI to serve; null in dev, where Vite serves the UI. */
   webDist: string | null;
   checkGit: () => Promise<GitHealth>;

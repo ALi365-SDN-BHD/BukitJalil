@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import { type ConfigCheck, isProjectId, type SiteReason, type Theme, type ThemeOrigin } from "@bukitjalil/shared";
 import type { ProjectState } from "../projects/repo.ts";
+import type { Db } from "../store/db.ts";
 
 interface ThemeRow {
   id: string;
@@ -50,7 +50,7 @@ export const newThemeId = () => crypto.randomBytes(8).toString("hex");
 
 /** The `themes` table (migration 013, theme development design 3.2). */
 export class ThemeStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Db) {}
 
   list(): Theme[] {
     const rows = this.db

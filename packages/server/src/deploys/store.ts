@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import type { Deploy, DeployOutcome, DeployReport, DeployStatus, DeployStep } from "@bukitjalil/shared";
+import type { Db } from "../store/db.ts";
 
 interface DeployRow {
   id: string;
@@ -46,7 +46,7 @@ export const newDeployId = () => `dep_${crypto.randomBytes(8).toString("hex")}`;
 
 /** Publish records (plan 14 M6); the newest KEEP per site are kept. */
 export class DeployStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Db) {}
 
   insert(d: { id: string; siteId: string; commit: string; repo: string; branch: string; url: string | null }): void {
     this.db

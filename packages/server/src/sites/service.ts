@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import {
   type CreateSiteRequest,
   DEFAULT_CONFIG_FILE,
@@ -18,6 +17,7 @@ import { resolveBranch } from "../git/objects.ts";
 import type { GitRunner } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
 import { gitSymlink, type Prechecked, ProjectRepos, type ProjectState } from "../projects/repo.ts";
+import type { Db } from "../store/db.ts";
 import type { SettingsStore } from "../store/settings.ts";
 import { findConfigCandidates } from "./config-candidates.ts";
 import { EXCLUDE_PATTERNS, IMPORT_INIT_PATTERNS, writeExcludeBlock } from "./exclude.ts";
@@ -35,7 +35,7 @@ import { isSiteId, newSiteId, SiteStore } from "./store.ts";
 import { type NewSite, type StarterSource, writeSources } from "./template.ts";
 
 export interface SiteServiceOptions {
-  db: DatabaseSync;
+  db: Db;
   git: GitRunner;
   paths: AppPaths;
   settings: SettingsStore;

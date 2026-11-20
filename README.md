@@ -99,7 +99,7 @@ Pi 的工作方式（模型请求、工具执行、会话树、技能、扩展�
 | 只读查看 | Shiki，以及 Markdown / 图片 / PDF 预览                                                     | 只能看，不能改                                                     |
 | 改动审核 | 差异查看组件                                                                               | 显示每次 AI 改动                                                   |
 | 版本     | 每个网站一个 git 仓库                                                                      | 差异、历史、恢复；直接调用系统 git（≥ 2.38，统一加固），不用封装库 |
-| 系统数据 | SQLite（`node:sqlite`）                                                                    | 网站列表、设置等；和网站自己的数据分开                             |
+| 系统数据 | SQLite（`better-sqlite3-multiple-ciphers`）                                                | 网站列表、设置等；和网站自己的数据分开                             |
 | 构建     | Bukit（.NET Native AOT）子进程                                                             | 构建、预览、发布                                                   |
 | 测试     | Vitest + Playwright                                                                        | 单元测试和端到端测试                                               |
 | 桌面版   | Electron 45.2.3                                                                            | 启动同一个本地服务并加载同一个界面                                 |

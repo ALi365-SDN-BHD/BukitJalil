@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import Database from "better-sqlite3-multiple-ciphers";
+
+/** The open app database (better-sqlite3-multiple-ciphers, SQLCipher-capable; plan 6.9). */
+export type Db = Database.Database;
 
 const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations");
 const MIGRATION_FILE = /^(\d{3})_[a-z0-9_]+\.sql$/;
@@ -25,8 +28,8 @@ export function loadMigrations(dir = MIGRATIONS_DIR): Migration[] {
 }
 
 /** Open (or create) app.db and apply pending migrations in order, each in its own transaction. */
-export function openDatabase(file: string, migrations = loadMigrations()): DatabaseSync {
-  const db = new DatabaseSync(file);
+export function openDatabase(file: string, migrations = loadMigrations()): Db {
+  const db = new Database(file);
   // Foreign keys stay off while migrations run: a table rebuild (013) drops and recreates referenced tables,
   // and with them on, DROP TABLE would run the ON DELETE actions of the rows it removes. PRAGMA foreign_keys
   // has no effect inside a transaction, so it is set here, and each migration checks the keys before commit.

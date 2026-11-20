@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import type {
   ProjectKey,
   ReferenceImageRequest,
@@ -20,6 +19,7 @@ import { aiWriteScope, type ProjectService } from "../projects/service.ts";
 import { asSiteError, SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import { storageErrorCode } from "../storage-errors.ts";
+import type { Db } from "../store/db.ts";
 import type { AiBukit } from "./ai-bukit.ts";
 import { PathGate } from "./gate.ts";
 import { hasAuth } from "./models.ts";
@@ -50,7 +50,7 @@ export type AgentEvent = { project: ProjectKey; sessionId: string } & (
 );
 
 export interface AgentServiceOptions {
-  db: DatabaseSync;
+  db: Db;
   paths: AppPaths;
   projects: ProjectService;
   /** The site lock: a run holds it from start to end; while another operation holds it, runs wait. */

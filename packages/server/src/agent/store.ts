@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import type { ProjectKey } from "@bukitjalil/shared";
 import { ownerOf, rowProject } from "../projects/owner.ts";
+import type { Db } from "../store/db.ts";
 
 export interface SessionRecord {
   id: string;
@@ -41,7 +41,7 @@ export const isSessionId = (id: string) => /^[0-9a-f]{16}$/.test(id);
  * memory only, so the status column always holds "idle".
  */
 export class SessionStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Db) {}
 
   insert(session: { id: string; project: ProjectKey; file: string }): SessionRecord {
     const now = new Date().toISOString();

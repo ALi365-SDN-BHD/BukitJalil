@@ -1,10 +1,10 @@
-import type { DatabaseSync } from "node:sqlite";
 import { defaultSettings, Settings, type SettingsPatch } from "@bukitjalil/shared";
 import type { z } from "zod";
+import type { Db } from "../store/db.ts";
 
 /** Global settings stored as one JSON value per key (plan 4.2). Unknown or invalid values fall back to defaults. */
 export class SettingsStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Db) {}
 
   get(): Settings {
     const rows = this.db.prepare("SELECT key, value_json FROM settings").all() as { key: string; value_json: string }[];

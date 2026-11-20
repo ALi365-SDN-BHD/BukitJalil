@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import {
   type DataSourceRequest,
   type ErrorCode,
@@ -10,6 +9,7 @@ import {
 } from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
+import type { Db } from "../store/db.ts";
 import { JsonFile, JsonFileError, type StoredJson } from "../store/json-file.ts";
 
 interface Row {
@@ -33,7 +33,7 @@ export class DataSourceService {
 
   constructor(
     private readonly opts: {
-      db: DatabaseSync;
+      db: Db;
       /** Per-data-source Notion tokens (0600); never the database and never an API response. */
       /** A path (plain 0600 file) or the secret store's file (plan 6.7). */
       tokenFile: string | StoredJson;

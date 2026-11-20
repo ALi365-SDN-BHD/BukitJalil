@@ -2,9 +2,9 @@ import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import type { Logger } from "../log.ts";
 import { parseYaml } from "../panels/yaml.ts";
+import type { Db } from "../store/db.ts";
 import { notionPinFrom } from "./notion-pin.ts";
 import { isSiteId } from "./store.ts";
 
@@ -44,7 +44,7 @@ export const SNAPSHOT_MASK = "[notion-snapshot]";
 export class NotionSnapshots {
   constructor(
     private readonly opts: {
-      db: DatabaseSync;
+      db: Db;
       root: string;
       logger?: Logger;
       /** Keeps a directory out of backups; tmutil on macOS by default. */

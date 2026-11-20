@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import type {
   AuditReportResponse,
   Build,
@@ -32,12 +31,13 @@ import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { OfflineNotion } from "../sites/notion-snapshots.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
+import type { Db } from "../store/db.ts";
 import { compareAudits, readAudit, readIssues } from "./audit.ts";
 import { type BuildRecord, BuildStore, newBuildId } from "./store.ts";
 import { findUploadUrlProblems } from "./upload-urls.ts";
 
 export interface BuildServiceOptions {
-  db: DatabaseSync;
+  db: Db;
   git: GitRunner;
   paths: AppPaths;
   projects: ProjectService;

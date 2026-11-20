@@ -95,6 +95,17 @@ fs.renameSync(path.join(deployed, "node_modules"), path.join(stage, "node_module
 for (const name of ["@bukitjalil", "tsx", ".bin"])
   fs.rmSync(path.join(stage, "node_modules", name), { recursive: true, force: true });
 fs.rmSync(deployed, { recursive: true, force: true });
+// The SQLite driver (plan 6.9) is Node-API with prebuilt binaries for every platform, so Electron loads the
+// same file as Node and nothing is rebuilt. Only this platform's binary is kept; the C sources (deps/, src/)
+// are for building from source, which the app never does. Linux packages are glibc (AppImage, deb).
+const sqlite = path.join(stage, "node_modules", "better-sqlite3-multiple-ciphers");
+const sqliteBinary = `${process.platform}-${target.arch}.node`;
+if (!fs.existsSync(path.join(sqlite, "prebuilds", sqliteBinary))) {
+  throw new Error(`better-sqlite3-multiple-ciphers has no prebuilt ${sqliteBinary}`);
+}
+for (const file of fs.readdirSync(path.join(sqlite, "prebuilds")))
+  if (file !== sqliteBinary) fs.rmSync(path.join(sqlite, "prebuilds", file));
+for (const name of ["deps", "src", "binding.gyp"]) fs.rmSync(path.join(sqlite, name), { recursive: true, force: true });
 
 // Files the server reads.
 fs.cpSync(path.join(repo, "skills"), path.join(stage, "skills"), { recursive: true });
