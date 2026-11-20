@@ -4,8 +4,8 @@ name: Release
 # Silicon and Intel), an NSIS setup for Windows (x64), an AppImage and a deb for Linux (x64 and arm64). Electron
 # apps with native npm packages cannot be cross-built, so each platform builds on its own runner.
 #
-# Pushing a tag v1.2.3 builds version 1.2.3 and creates a draft GitHub Release with the installers and
-# SHA256SUMS.txt; publishing the draft is left to a person. Running the workflow by hand builds the
+# Pushing a tag v1.2.3 builds version 1.2.3 and publishes a GitHub Release with the installers and
+# SHA256SUMS.txt (decided 2026-11-20: no draft left for a person to publish). Running the workflow by hand builds the
 # installers as workflow artifacts only, with the version entered (default 0.0.0-dev).
 on:
   push:
@@ -142,8 +142,9 @@ jobs:
         run: |
           sha256sum -- * > SHA256SUMS.txt
           cat SHA256SUMS.txt
-      # A draft: nothing is public until someone reviews and publishes it on GitHub.
-      - name: Create the draft release
+      # Created as a draft and published once every file is uploaded, so the update check never sees a
+      # release with some installers or SHA256SUMS.txt still missing.
+      - name: Create and publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -159,3 +160,4 @@ jobs:
 
           Check downloads against SHA256SUMS.txt."
           gh release create "$TAG" dist/* --draft $prerelease --verify-tag --title "BukitJalil ${TAG}" --notes "$notes"
+          gh release edit "$TAG" --draft=false
