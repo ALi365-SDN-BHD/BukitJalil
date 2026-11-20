@@ -178,6 +178,43 @@ describe("UpdateService", () => {
     expect(fs.existsSync(versionDir)).toBe(false);
   });
 
+  it("downloads only after the startup cleanup, which would otherwise delete the new .part file", async () => {
+    // An interrupted download of the same version is left over, and the installer arrives slowly: without
+    // waiting, the cleanup reaches that folder while the new .part file is being written and deletes it.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bj-update-"));
+    dirs.push(dir);
+    fs.mkdirSync(path.join(dir, "0.1.0-beta.5"));
+    fs.writeFileSync(path.join(dir, "0.1.0-beta.5", `${DMG}.part`), "partial");
+    const quick = fakeFetch([release("0.1.0-beta.5")]);
+    const slow = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (!url.endsWith(DMG)) return quick(input, init);
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(BYTES.subarray(0, 1));
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          controller.enqueue(BYTES.subarray(1));
+          controller.close();
+        },
+      });
+      return new Response(body);
+    }) as typeof fetch;
+    const updates = new UpdateService({
+      currentVersion: "0.1.0-beta.4",
+      dir,
+      fetchImpl: slow,
+      logger: silentLogger,
+      openInstaller: null,
+      platform: "darwin",
+      arch: "arm64",
+    });
+    await updates.check(true);
+    updates.startDownload();
+    await updates.waitForDownload();
+    expect(updates.status().state).toMatchObject({ phase: "downloaded" });
+    expect(fs.readFileSync(path.join(dir, "0.1.0-beta.5", DMG))).toEqual(BYTES);
+  });
+
   it("reuses a verified installer through its sidecar without downloading again", async () => {
     const first = service({});
     await first.updates.check(true);
