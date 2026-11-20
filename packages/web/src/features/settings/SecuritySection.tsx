@@ -1,4 +1,4 @@
-import { IDLE_MINUTES, PIN_PATTERN } from "@bukitjalil/shared";
+import { IDLE_MINUTES, type IdleMinutes, PIN_PATTERN } from "@bukitjalil/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ export function SecuritySection() {
     },
   });
   const idle = useMutation({
-    mutationFn: (minutes: number | null) => api.setIdleMinutes(minutes),
+    mutationFn: (minutes: IdleMinutes | null) => api.setIdleMinutes(minutes),
     onSuccess: (data) => queryClient.setQueryData(keys.security, data),
   });
   if (!status.data) return null;
@@ -93,7 +93,7 @@ export function SecuritySection() {
             className={settingsSelectClass}
             value={status.data.idleMinutes ?? ""}
             disabled={idle.isPending}
-            onChange={(e) => idle.mutate(e.target.value === "" ? null : Number(e.target.value))}
+            onChange={(e) => idle.mutate(e.target.value === "" ? null : (Number(e.target.value) as IdleMinutes))}
           >
             <option value="">{m.lock.idleOff}</option>
             {IDLE_MINUTES.map((minutes) => (

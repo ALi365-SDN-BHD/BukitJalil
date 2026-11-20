@@ -4,6 +4,11 @@ import { z } from "zod";
 export const PIN_PATTERN = /^[0-9]{4,8}$/;
 export const Pin = z.string().regex(PIN_PATTERN);
 
+/** The idle lock's choices (plan 6.9): the settings page offers exactly these, so no stored value is hidden. */
+export const IDLE_MINUTES = [1, 5, 10, 15, 30] as const;
+export const IdleMinutes = z.literal(IDLE_MINUTES);
+export type IdleMinutes = z.infer<typeof IdleMinutes>;
+
 /**
  * The app lock (plan 6.9):
  * - pin: the desktop app; the database is encrypted with the PIN and opened only once it is entered;
@@ -19,7 +24,7 @@ export const SecurityStatus = z.object({
   /** app.db is a plain database from an earlier test version: it cannot be unlocked, only reset. */
   legacy: z.boolean(),
   /** Lock after this many minutes without use; null when idle locking is off (the default). */
-  idleMinutes: z.number().int().min(1).max(30).nullable(),
+  idleMinutes: IdleMinutes.nullable(),
 });
 export type SecurityStatus = z.infer<typeof SecurityStatus>;
 
@@ -29,6 +34,5 @@ export type PinRequest = z.infer<typeof PinRequest>;
 export const ChangePinRequest = z.object({ currentPin: Pin, nextPin: Pin });
 export type ChangePinRequest = z.infer<typeof ChangePinRequest>;
 
-export const IDLE_MINUTES = [1, 5, 10, 15, 30] as const;
-export const IdleRequest = z.object({ minutes: z.number().int().min(1).max(30).nullable() });
+export const IdleRequest = z.object({ minutes: IdleMinutes.nullable() });
 export type IdleRequest = z.infer<typeof IdleRequest>;

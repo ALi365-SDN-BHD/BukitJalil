@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import type { SecurityStatus } from "@bukitjalil/shared";
+import { IdleMinutes, type SecurityStatus } from "@bukitjalil/shared";
 import type { Logger } from "../log.ts";
 import { SiteError } from "../sites/location.ts";
 import { type Db, openDatabase, rekeyDatabase, WrongPinError } from "../store/db.ts";
+import { SettingsStore } from "../store/settings.ts";
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 5 * 60 * 1000;
@@ -43,12 +44,15 @@ export class SecurityService {
   private failures = 0;
   private retryAt = 0;
   private verifier: Verifier | null = null;
-  private idleMinutes: number | null = null;
+  private idleMinutes: IdleMinutes | null = null;
+  /** Read once: only a new server started with --reset changes what the file is. */
+  private readonly legacyFile: boolean;
   private lastActive = 0;
   private readonly now: () => number;
 
   constructor(private readonly opts: SecurityOptions) {
     this.now = opts.now ?? Date.now;
+    this.legacyFile = opts.file !== null && isPlainSqlite(opts.file);
   }
 
   get mode(): SecurityStatus["mode"] {
@@ -64,16 +68,7 @@ export class SecurityService {
 
   /** A plain SQLite file left by an earlier test version, which no PIN opens. */
   private legacy(): boolean {
-    const file = this.opts.file;
-    if (this.db || file === null || !this.pinSet()) return false;
-    const header = Buffer.alloc(PLAIN_SQLITE.length);
-    const fd = fs.openSync(file, "r");
-    try {
-      fs.readSync(fd, header, 0, header.length, 0);
-    } finally {
-      fs.closeSync(fd);
-    }
-    return header.equals(PLAIN_SQLITE);
+    return this.legacyFile && this.db === null;
   }
 
   isLocked(): boolean {
@@ -147,7 +142,7 @@ export class SecurityService {
     return this.status();
   }
 
-  /** The user did something in the app (at most once a minute): the idle lock starts counting again. */
+  /** The user did something in the app (the UI sends this at most every 15 seconds): the idle lock starts over. */
   touch(): SecurityStatus {
     this.requireFile();
     if (!this.isLocked()) this.lastActive = this.now();
@@ -160,14 +155,12 @@ export class SecurityService {
     if (this.now() - this.lastActive >= this.idleMinutes * 60_000) this.lock("idle");
   }
 
-  /** Turn idle locking off (null) or on after 1–30 minutes; kept in the database. */
-  setIdleMinutes(minutes: number | null): SecurityStatus {
+  /** Turn idle locking off (null) or on after one of IDLE_MINUTES; kept in the database. */
+  setIdleMinutes(minutes: IdleMinutes | null): SecurityStatus {
     this.requireFile();
     const db = this.db;
     if (!db || this.locked) throw new SiteError("app.locked", 423);
-    db.prepare(
-      "INSERT INTO settings (key, value_json) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json",
-    ).run(IDLE_KEY, JSON.stringify(minutes));
+    new SettingsStore(db).setValue(IDLE_KEY, minutes);
     this.idleMinutes = minutes;
     this.lastActive = this.now();
     return this.status();
@@ -209,7 +202,8 @@ export class SecurityService {
     this.verifier = hashPin(pin);
     this.locked = false;
     this.lastActive = this.now();
-    this.idleMinutes = readIdleMinutes(db);
+    const stored = IdleMinutes.safeParse(new SettingsStore(db).getValue(IDLE_KEY));
+    this.idleMinutes = stored.success ? stored.data : null;
     this.opts.onOpen(db);
   }
 
@@ -236,16 +230,21 @@ export class SecurityService {
   }
 }
 
-function readIdleMinutes(db: Db): number | null {
-  const row = db.prepare("SELECT value_json FROM settings WHERE key = ?").get(IDLE_KEY) as
-    | { value_json: string }
-    | undefined;
-  if (!row) return null;
+/**
+ * The file starts with the plain SQLite header. One that cannot be read is not called legacy: unlocking then
+ * reports the real error, and the lock screen (with its reset) still shows.
+ */
+function isPlainSqlite(file: string): boolean {
   try {
-    const value: unknown = JSON.parse(row.value_json);
-    return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 30 ? (value as number) : null;
+    const fd = fs.openSync(file, "r");
+    try {
+      const header = Buffer.alloc(PLAIN_SQLITE.length);
+      return fs.readSync(fd, header, 0, header.length, 0) === header.length && header.equals(PLAIN_SQLITE);
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch {
-    return null;
+    return false;
   }
 }
 

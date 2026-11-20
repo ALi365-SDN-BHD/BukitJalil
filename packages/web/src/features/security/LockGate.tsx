@@ -61,8 +61,10 @@ export function LockGate({ children }: { children: ReactNode }) {
 const TOUCH_EVERY_MS = 15_000;
 
 /**
- * While idle locking is on, tell the server the app is in use (plan 6.9): keys, clicks, scrolling and
- * touches, at most every 15 seconds. Background requests do not count, so an open but unused window locks.
+ * While idle locking is on, tell the server the app is in use (plan 6.9): keys, clicks, scrolling, touches
+ * and the pointer moving over the page, at most every 15 seconds. The preview is another origin, so what
+ * happens inside it never reaches this window; focus moving into it and the pointer entering or leaving it
+ * do count. Background requests do not, so an open but unused window locks.
  */
 function useActivity(enabled: boolean): void {
   const last = useRef(0);
@@ -75,10 +77,16 @@ function useActivity(enabled: boolean): void {
       // A failure (locked meanwhile, server gone) shows up through the other requests.
       api.touch().catch(() => {});
     };
-    const events = ["keydown", "pointerdown", "wheel", "touchstart"] as const;
+    // The window loses focus to the preview iframe when the user clicks into it.
+    const onBlur = () => {
+      if (document.activeElement instanceof HTMLIFrameElement) onActivity();
+    };
+    const events = ["keydown", "pointerdown", "pointerover", "wheel", "touchstart"] as const;
     for (const type of events) window.addEventListener(type, onActivity, { passive: true });
+    window.addEventListener("blur", onBlur);
     return () => {
       for (const type of events) window.removeEventListener(type, onActivity);
+      window.removeEventListener("blur", onBlur);
     };
   }, [enabled]);
 }

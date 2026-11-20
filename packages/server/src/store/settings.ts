@@ -25,13 +25,10 @@ export class SettingsStore {
   }
 
   update(patch: SettingsPatch): Settings {
-    const stmt = this.db.prepare(
-      "INSERT INTO settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
-    );
     this.db.exec("BEGIN");
     try {
       for (const [key, value] of Object.entries(patch)) {
-        if (value !== undefined) stmt.run(key, JSON.stringify(value));
+        if (value !== undefined) this.setValue(key, value);
       }
       this.db.exec("COMMIT");
     } catch (err) {
@@ -39,5 +36,29 @@ export class SettingsStore {
       throw err;
     }
     return this.get();
+  }
+
+  /**
+   * One row that is not one of the app's settings (the idle lock's minutes, plan 6.9): `get` and the settings
+   * API never see it. Undefined when missing or not JSON; the caller checks the value.
+   */
+  getValue(key: string): unknown {
+    const row = this.db.prepare("SELECT value_json FROM settings WHERE key = ?").get(key) as
+      | { value_json: string }
+      | undefined;
+    if (!row) return undefined;
+    try {
+      return JSON.parse(row.value_json) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+
+  setValue(key: string, value: unknown): void {
+    this.db
+      .prepare(
+        "INSERT INTO settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
+      )
+      .run(key, JSON.stringify(value));
   }
 }

@@ -31,6 +31,7 @@ import {
   type GitResponse,
   HealthResponse,
   type HistoryResponse,
+  type IdleMinutes,
   type ImportInspection,
   type ImportSiteRequest,
   type ImportThemeRequest,
@@ -147,7 +148,7 @@ export const api = {
   lock: () => post<SecurityStatus>("/security/lock"),
   changePin: (currentPin: string, nextPin: string) =>
     post<SecurityStatus>("/security/change-pin", { currentPin, nextPin }),
-  setIdleMinutes: (minutes: number | null) => post<SecurityStatus>("/security/idle", { minutes }),
+  setIdleMinutes: (minutes: IdleMinutes | null) => post<SecurityStatus>("/security/idle", { minutes }),
   touch: () => post<SecurityStatus>("/security/touch"),
   resetApp: () => post<SecurityStatus>("/security/reset"),
   dirs: (path: string | null, hidden = false) =>

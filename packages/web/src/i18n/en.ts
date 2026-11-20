@@ -1186,7 +1186,7 @@ const en: Messages = {
     forgot: "Forgot your PIN?",
     resetTitle: "Reset the app",
     resetHint:
-      "Without the PIN the database cannot be opened; the only way back is a reset. It deletes all settings, the tokens of publishing accounts and data sources, model keys, AI conversations, change and build history, and the working copies, previews and Notion snapshots. Your site and theme folders are not deleted; add them again after the reset. This cannot be undone.",
+      "Without the PIN the database cannot be opened; the only way back is a reset. It deletes all settings, the tokens of publishing accounts and data sources, model keys, AI conversations, change and build history, and the working copies, previews and Notion snapshots; AI runs, builds and publishing in progress are stopped. Your site and theme folders are not deleted; add them again after the reset. This cannot be undone.",
     resetConfirm: "Delete and reset",
     resetCancel: "Cancel",
     resetting: "Resetting; the app opens again in a moment…",

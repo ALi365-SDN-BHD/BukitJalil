@@ -1202,7 +1202,7 @@ const ms: Messages = {
     forgot: "Terlupa PIN?",
     resetTitle: "Tetapkan semula aplikasi",
     resetHint:
-      "Tanpa PIN, pangkalan data tidak boleh dibuka; satu-satunya cara ialah menetapkan semula. Ini memadam semua tetapan, token akaun penerbitan dan sumber data, kunci model, perbualan AI, sejarah perubahan dan binaan, serta salinan kerja, pratonton dan petikan Notion. Folder laman dan tema anda tidak dipadam; tambah semula selepas tetapan semula. Ini tidak boleh dibatalkan.",
+      "Tanpa PIN, pangkalan data tidak boleh dibuka; satu-satunya cara ialah menetapkan semula. Ini memadam semua tetapan, token akaun penerbitan dan sumber data, kunci model, perbualan AI, sejarah perubahan dan binaan, serta salinan kerja, pratonton dan petikan Notion; AI, binaan dan penerbitan yang sedang berjalan akan dihentikan. Folder laman dan tema anda tidak dipadam; tambah semula selepas tetapan semula. Ini tidak boleh dibatalkan.",
     resetConfirm: "Padam dan tetapkan semula",
     resetCancel: "Batal",
     resetting: "Sedang menetapkan semula; aplikasi akan dibuka semula sebentar lagi…",

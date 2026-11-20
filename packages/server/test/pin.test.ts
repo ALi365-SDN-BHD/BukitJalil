@@ -182,6 +182,36 @@ describe("SecurityService (plan 6.9)", () => {
     expect(resets()).toBe(1);
   });
 
+  // chmod does not take read access away on Windows, nor from root.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "still answers when app.db cannot be read, so the lock screen and its reset show",
+    () => {
+      const file = emptyDb();
+      fs.writeFileSync(file, Buffer.concat([Buffer.from("SQLite format 3\0", "latin1"), Buffer.alloc(84)]));
+      fs.chmodSync(file, 0o000);
+      try {
+        const { security } = service(file);
+        expect(security.status()).toMatchObject({ pinSet: true, locked: true, legacy: false });
+      } finally {
+        fs.chmodSync(file, 0o600);
+      }
+    },
+  );
+
+  it("keeps only the offered idle minutes", () => {
+    const file = emptyDb();
+    const first = service(file).security;
+    first.setup("1234");
+    first.setIdleMinutes(10);
+    first.lock();
+    // A value the settings page does not offer (written by hand) reads as off.
+    const db = (first as unknown as { db: Db }).db;
+    db.prepare("UPDATE settings SET value_json = '7' WHERE key = 'security.idleMinutes'").run();
+    const again = service(file).security;
+    again.unlock("1234");
+    expect(again.status().idleMinutes).toBeNull();
+  });
+
   it("resets only in the desktop app", () => {
     const dev = service(null).security;
     expect(codeOf(() => dev.reset())).toMatchObject({ code: "security.dev_mode", status: 409 });
@@ -238,5 +268,9 @@ describe("the API while locked (plan 6.9)", () => {
 
     const change = await app.fetch(req("/api/security/change-pin", jsonPost({ currentPin: "1234", nextPin: "8765" })));
     expect(change.status).toBe(200);
+
+    expect((await app.fetch(req("/api/security/idle", jsonPost({ minutes: 7 })))).status).toBe(400);
+    const idle = await app.fetch(req("/api/security/idle", jsonPost({ minutes: 15 })));
+    expect(await idle.json()).toMatchObject({ idleMinutes: 15 });
   });
 });
