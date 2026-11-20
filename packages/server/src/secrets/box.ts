@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
-/** The stored form of an encrypted file (plan 6.7). */
+/** The stored form of an encrypted value (plan 6.9). */
 export interface SealedText {
   v: 1;
   iv: string;
@@ -15,8 +15,8 @@ const IV_BYTES = 12;
 const TAG_BYTES = 16;
 
 /**
- * AES-256-GCM with the key the desktop app keeps in the system keychain. The purpose (which file it is)
- * is authenticated, so one encrypted file cannot stand in for another.
+ * AES-256-GCM with the field key kept in the database (plan 6.9). The purpose (which table and row it is)
+ * is authenticated, so one ciphertext cannot stand in for another.
  */
 export class SecretBox {
   private readonly key: Buffer;

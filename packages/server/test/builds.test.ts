@@ -409,15 +409,10 @@ it.skipIf(process.platform === "win32")(
     });
     expect(fs.existsSync(tokenFile)).toBe(false);
 
-    // An unreadable token file fails the config check but leaves the site usable.
+    // A token that cannot be decrypted fails the config check but leaves the site usable.
     await bind(source.id);
-    const tokens = path.join(ctx.paths.home, "data-source-tokens.json");
-    fs.chmodSync(tokens, 0o000);
-    try {
-      expect(await ctx.sites.recheck(site.id)).toMatchObject({ readOnly: null, configCheck: "failed" });
-    } finally {
-      fs.chmodSync(tokens, 0o600);
-    }
+    ctx.db.prepare("UPDATE data_sources SET token_ciphertext = 'broken' WHERE id = ?").run(source.id);
+    expect(await ctx.sites.recheck(site.id)).toMatchObject({ readOnly: null, configCheck: "failed" });
   },
 );
 

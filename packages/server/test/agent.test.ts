@@ -90,6 +90,7 @@ function service(
     locks: ctx.locks,
     changes: ctx.changes,
     logger: silentLogger,
+    credentials: ctx.agent.credentials,
     resolveModel: () => {
       if (opts.model === false) return undefined;
       const model = faux.getModel() as Model<Api>;
@@ -277,10 +278,8 @@ describe("AgentService", () => {
     expect(statuses(session.id)).toEqual(["running", "idle"]);
     expect(events.some((e) => e.type === "pi" && e.event.type === "agent_end")).toBe(true);
     expect(fetchSpy).not.toHaveBeenCalled();
-    // Pi writes only into the app's Pi directory: keys, and its cache of model lists.
-    for (const name of fs.readdirSync(ctx.paths.pi)) expect(["auth.json", "bin", "models-store.json"]).toContain(name);
-    const auth = path.join(ctx.paths.pi, "auth.json");
-    if (fs.existsSync(auth)) expectMode(auth, 0o600);
+    // Pi writes only its cache of model lists into the app's Pi directory; keys are in the database.
+    for (const name of fs.readdirSync(ctx.paths.pi)) expect(["bin", "models-store.json"]).toContain(name);
   });
 
   it("cannot read a disabled skill in a new conversation, and re-enabling restores it", async () => {

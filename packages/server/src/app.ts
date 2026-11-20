@@ -4,7 +4,6 @@ import {
   type BukitResponse,
   type HealthResponse,
   type RgResponse,
-  type SecretsStatus,
   SettingsPatch,
   sessionCookieName,
 } from "@bukitjalil/shared";
@@ -50,14 +49,11 @@ import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
 import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./security/headers.ts";
 import type { SecurityService } from "./security/pin.ts";
 import type { LoginToken } from "./security/token.ts";
-import type { Db } from "./store/db.ts";
-
-const PLAIN_SECRETS: SecretsStatus = { mode: "plain", reason: null, plainFiles: false };
-
 import { asSiteError } from "./sites/location.ts";
 import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
 import { storageErrorCode } from "./storage-errors.ts";
+import type { Db } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
 import type { ThemeDeliverService } from "./themes/deliver.ts";
 import type { ThemeService } from "./themes/service.ts";
@@ -102,8 +98,6 @@ export interface AdminAppOptions {
   userHome?: string;
   version: string;
   updates: UpdateService;
-  /** How tokens and model keys are kept (plan 6.7); plain files when absent (tests). */
-  secrets?: { status(): SecretsStatus; reset(): void };
   logger: Logger;
   /** The app lock (plan 6.9); absent in tests, which run like `pnpm dev`. */
   security?: SecurityService;
@@ -171,15 +165,6 @@ export function createAdminApp(opts: AdminAppOptions) {
     return c.json({ install: opts.rg.installer.progress }, 202);
   });
 
-  // How tokens and model keys are kept, and forgetting them all when the key is lost (plan 6.7).
-  api.get("/secrets", (c) => c.json(opts.secrets?.status() ?? PLAIN_SECRETS));
-  api.post("/secrets/reset", (c) => {
-    if (!opts.secrets) return apiError(c, 409, "secrets.reset_unsupported");
-    // A SiteError (plain mode) becomes its API error in the error handler.
-    opts.secrets.reset();
-    return c.json(opts.secrets.status());
-  });
-
   // The Pi runtime bundled with the app (plan 6.1); the settings page refreshes npm's latest release.
   api.get("/pi", async (c) => c.json(await piStatus.status(c.req.query("refresh") === "1")));
 
@@ -208,10 +193,9 @@ export function createAdminApp(opts: AdminAppOptions) {
     api,
     new ModelService({
       runtime: () => opts.agent.models(),
-      pi: () => opts.agent.piModules(),
       settings,
       piDir: opts.agent.piDir,
-      ...(opts.agent.credentials ? { storedCredential: (id: string) => opts.agent.credentials?.readNow(id) } : {}),
+      storedCredential: (id) => opts.agent.credentials.readNow(id),
       testTimeoutMs: opts.modelTestTimeoutMs,
       customProviderIds: () => opts.customModels.ids(),
     }),

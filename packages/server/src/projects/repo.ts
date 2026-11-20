@@ -107,7 +107,7 @@ export class ProjectRepos {
       try {
         token = notionToken ? notionToken() : null;
       } catch {
-        // An unreadable token file fails the check, not the site: builds say why when they run.
+        // A token that cannot be read fails the check, not the site: builds say why when they run.
         token = "";
       }
       configCheck =

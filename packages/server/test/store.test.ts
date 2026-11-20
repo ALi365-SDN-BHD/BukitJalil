@@ -20,15 +20,18 @@ describe("SQLite store (plan 4.2)", () => {
         "builds",
         "change_set_sessions",
         "change_sets",
+        "custom_models",
         "data_sources",
         "deploys",
         "notion_snapshots",
+        "pi_credentials",
         "publish_accounts",
         "schema_migrations",
         "sessions",
         "settings",
         "sites",
         "themes",
+        "vault_keys",
       ].sort(),
     );
     const versions = db.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];

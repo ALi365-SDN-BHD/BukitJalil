@@ -53,7 +53,6 @@ import {
   type RestoreResult,
   type RgResponse,
   type SavedDataSource,
-  type SecretsStatus,
   type SecurityStatus,
   type SendMessageRequest,
   type SessionDetail,
@@ -142,14 +141,12 @@ export const api = {
   git: (refresh = false) => request<GitResponse>(`/git${refresh ? "?refresh=1" : ""}`),
   installGit: () => post<unknown>("/git/install"),
   pi: (refresh = false) => request<PiStatus>(`/pi${refresh ? "?refresh=1" : ""}`),
-  secrets: () => request<SecretsStatus>("/secrets"),
   security: () => request<SecurityStatus>("/security"),
   setupPin: (pin: string) => post<SecurityStatus>("/security/setup", { pin }),
   unlock: (pin: string) => post<SecurityStatus>("/security/unlock", { pin }),
   lock: () => post<SecurityStatus>("/security/lock"),
   changePin: (currentPin: string, nextPin: string) =>
     post<SecurityStatus>("/security/change-pin", { currentPin, nextPin }),
-  resetSecrets: () => post<SecretsStatus>("/secrets/reset"),
   dirs: (path: string | null, hidden = false) =>
     request<FsDirsResponse>(`/fs/dirs?${query({ ...(path ? { path } : {}), ...(hidden ? { hidden: "1" } : {}) })}`),
 
@@ -332,7 +329,6 @@ export const keys = {
   rg: ["rg"] as const,
   git: ["git"] as const,
   pi: ["pi"] as const,
-  secrets: ["secrets"] as const,
   security: ["security"] as const,
   dataSources: ["data-sources"] as const,
   publishAccounts: ["publish-accounts"] as const,

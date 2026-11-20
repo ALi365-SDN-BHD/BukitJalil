@@ -1119,23 +1119,6 @@ const zhCN = {
     change: "修改 PIN",
     changed: "PIN 已修改",
   },
-  secrets: {
-    plain: "开发模式：token 和模型密钥以未加密文件保存（权限 600）。桌面版会用系统钥匙串加密。",
-    plainLeft: "有旧版本留下的未加密 token 或密钥文件没能加密，请查看日志。",
-    plainUsed: "正在使用旧版本留下的未加密文件；在能加密之前，不能保存新的 token 或密钥。",
-    unavailable: {
-      no_keyring:
-        "找不到系统钥匙串，token 和模型密钥不能安全保存，所以暂时不能保存。在 Linux 上请安装并解锁 gnome-keyring 或 KWallet，然后重新启动 BukitJalil。",
-      locked:
-        '无法解开钥匙串里的密钥（可能拒绝了访问、删除了钥匙串项目，或者数据目录来自另一台电脑），已保存的 token 和模型密钥暂时不能用。可以重新启动后在提示里点"允许"，或者重置后重新输入。',
-      no_answer: "钥匙串一直没有回应（可能没有回答访问提示）。请重新启动 BukitJalil。",
-      reset: "已清除所有保存的 token 和模型密钥。请重新启动 BukitJalil，之后重新输入。",
-      pending:
-        '正在等待钥匙串授权：请在系统弹出的提示里点"允许"，之后才能使用保存的 token 和模型密钥。没看到提示的话，请重新启动 BukitJalil。',
-    },
-    reset: "重置密钥",
-    resetConfirm: "会删除所有保存的 token 和模型密钥，需要重新输入。确定吗？",
-  },
   errors: {
     "auth.required": "登录已失效：在运行 BukitJalil 的终端里按回车，打开新打印的地址",
     "request.bad_host": "请求的地址不被允许",
@@ -1178,9 +1161,6 @@ const zhCN = {
     "server.shutting_down": "BukitJalil 正在关闭",
     "storage.unreadable": "保存的设置文件读不出来；请修复或删除它后再保存",
     "storage.too_large": "要保存的数据太多；请先删除一些已保存的条目再试",
-    "secrets.unavailable": "没有安全的地方保存 token 和密钥，所以现在不能保存；请看设置页最上面的说明",
-    "secrets.pending": '还在等待钥匙串授权：请先在系统提示里点"允许"，再试一次',
-    "secrets.reset_unsupported": "开发模式下没有加密密钥，不需要重置",
     "app.locked": "应用已锁定，请输入 PIN 解锁",
     "security.dev_mode": "开发模式没有 PIN",
     "security.pin_set": "PIN 已经设置过了",

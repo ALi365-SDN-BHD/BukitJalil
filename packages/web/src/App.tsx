@@ -7,7 +7,6 @@ import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { ChatView } from "@/features/chat/ChatView";
 import { RightPanel } from "@/features/panels/RightPanel";
 import { rememberLocale } from "@/features/security/LockGate";
-import { useSecretsSettled } from "@/features/settings/SecretsNotice";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { ShortcutsDialog, useShortcutsKey } from "@/features/settings/ShortcutsDialog";
 import { SetupGuide } from "@/features/sites/SetupGuide";
@@ -27,7 +26,6 @@ export function App() {
   const settings = useQuery({ queryKey: keys.settings, queryFn: api.settings, retry: false });
   const locale: Locale = settings.data?.locale ?? detectLocale(navigator.languages);
   const appearance: Appearance | undefined = settings.data?.appearance;
-  useSecretsSettled();
 
   useEffect(() => {
     document.documentElement.lang = locale;

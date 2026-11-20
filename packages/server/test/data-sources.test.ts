@@ -4,7 +4,7 @@ import path from "node:path";
 import type { NotionDatabasesResponse, NotionSourceSchema, SavedDataSource } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { ADMIN, commitAllAs, expectMode, makeApp, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, makeApp, req } from "./helpers.ts";
 
 // Saved Notion sources (plan 6.5): Markdown is the built-in default, so only Notion tokens are
 // stored here. Nothing calls the real Notion API in these tests.
@@ -77,17 +77,17 @@ describe("/api/data-sources", () => {
     ctx.db.close();
   });
 
-  it("removes token entries whose data source no longer exists", async () => {
-    const ctx = makeApp({ appHome: path.join(base, "app-notion-orphan") });
-    const created = (await (await call(ctx, "POST", "/api/data-sources", notion("Kept"))).json()) as SavedDataSource;
-    const file = ctx.paths.dataSourceTokens;
-    const tokens = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, string>;
-    tokens.ds_000000000000 = "ntn_orphan123456";
-    fs.writeFileSync(file, JSON.stringify(tokens), { mode: 0o600 });
+  it("keeps the token encrypted in its own row, which no other row can borrow", async () => {
+    const ctx = makeApp({ appHome: path.join(base, "app-notion-vault") });
+    const a = (await (await call(ctx, "POST", "/api/data-sources", notion("A"))).json()) as SavedDataSource;
+    const b = (await (await call(ctx, "POST", "/api/data-sources", notion("B"))).json()) as SavedDataSource;
+    const sealed = (id: string) =>
+      (ctx.db.prepare("SELECT token_ciphertext AS c FROM data_sources WHERE id = ?").get(id) as { c: string }).c;
+    expect(sealed(a.id)).not.toContain("ntn_example");
+    expect(fs.readdirSync(ctx.paths.home).filter((name) => name.includes("token"))).toEqual([]);
 
-    expect(ctx.dataSources.pruneUnknownTokens()).toBe(1);
-    expect(ctx.dataSources.token(created.id)).toBe("ntn_exampleexample1234");
-    expect(JSON.parse(fs.readFileSync(file, "utf8"))).not.toHaveProperty("ds_000000000000");
+    ctx.db.prepare("UPDATE data_sources SET token_ciphertext = ? WHERE id = ?").run(sealed(a.id), b.id);
+    expect(() => ctx.dataSources.token(b.id)).toThrow("storage.unreadable");
     ctx.db.close();
   });
 
@@ -113,7 +113,6 @@ describe("/api/data-sources", () => {
     const created = (await (
       await call(ctx, "POST", "/api/data-sources", notion("Work Notion"))
     ).json()) as SavedDataSource;
-    expectMode(ctx.paths.dataSourceTokens, 0o600);
 
     const databases = (await (
       await call(ctx, "GET", `/api/data-sources/${created.id}/notion/databases`)

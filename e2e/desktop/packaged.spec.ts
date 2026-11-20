@@ -50,7 +50,7 @@ test("the packaged app runs its bundled server and creates a site from its own f
   const electron = await _electron.launch({
     executablePath: app,
     // CI's Linux runners do not allow Chromium's sandbox (no user namespaces, no setuid helper).
-    // Chromium's stand-in keychain on macOS: tests never touch the user's real one (plan 6.7).
+    // Chromium's stand-in keychain on macOS for its own cookie store: tests never touch the user's real one.
     args:
       process.platform === "linux" && process.env.CI
         ? ["--no-sandbox"]

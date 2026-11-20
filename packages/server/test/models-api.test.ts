@@ -8,7 +8,7 @@ import { ModelService, redact, settingsModel } from "../src/agent/models.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { SettingsStore } from "../src/store/settings.ts";
 import { writeStarter } from "./fixtures/starter.ts";
-import { ADMIN, commitAllAs, expectMode, makeApp, rawGit, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
 
 // M3 layer 7 (plan 6.5, 9.1): model settings. No request leaves the machine: connection tests and runs
 // use Pi's faux provider; keys are saved for real providers but never used.
@@ -115,7 +115,7 @@ describe("model catalog and keys", () => {
     expect((await call("POST", "/api/providers/anthropic/oauth/not-a-login/answer", { value: "x" })).status).toBe(404);
   });
 
-  it("saves a key in Pi's auth.json, shows only its last four characters, and removes it", async () => {
+  it("saves a key encrypted in the database, shows only its last four characters, and removes it", async () => {
     const secret = "csk-test-secret-value-9f3a";
     const res = await call("PUT", "/api/providers/cerebras/key", { apiKey: `  ${secret}  ` });
     expect(res.status).toBe(200);
@@ -126,16 +126,20 @@ describe("model catalog and keys", () => {
       label: null,
     });
 
-    const auth = path.join(ctx.paths.pi, "auth.json");
-    expect(JSON.parse(fs.readFileSync(auth, "utf8")).cerebras).toEqual({ type: "api_key", key: secret });
-    expectMode(auth, 0o600);
+    const row = () =>
+      ctx.db.prepare("SELECT credential_ciphertext AS c FROM pi_credentials WHERE provider = 'cerebras'").get() as
+        | { c: string }
+        | undefined;
+    expect(row()?.c).not.toContain(secret);
+    expect(ctx.agent.credentials.readNow("cerebras")).toEqual({ type: "api_key", key: secret });
+    expect(fs.existsSync(path.join(ctx.paths.pi, "auth.json"))).toBe(false);
     const listed = await (await get("/api/models")).text();
     expect(listed).not.toContain(secret);
     expect((await provider("cerebras"))?.key).toMatchObject({ source: "stored", last4: "9f3a" });
 
     const removed = await call("DELETE", "/api/providers/cerebras/key");
     expect(((await removed.json()) as ProviderKey).configured).toBe(false);
-    expect(JSON.parse(fs.readFileSync(auth, "utf8")).cerebras).toBeUndefined();
+    expect(row()).toBeUndefined();
   });
 
   it("refuses keys it cannot save: several values needed, unknown provider, bad key", async () => {
@@ -163,7 +167,7 @@ describe("model catalog and keys", () => {
     };
     const service = new ModelService({
       runtime: async () => runtime as never,
-      pi: async () => ({ pi: { readStoredCredential: () => undefined } }) as unknown as PiModules,
+      storedCredential: () => undefined,
       settings: new SettingsStore(ctx.db),
       piDir: ctx.paths.pi,
     });
@@ -189,11 +193,7 @@ describe("model catalog and keys", () => {
     expect(put.status).toBe(409);
     expect(await put.json()).toEqual({ code: "model.key_from_environment" });
     expect((await call("DELETE", "/api/providers/groq/key")).status).toBe(409);
-    expect(
-      fs.existsSync(path.join(ctx.paths.pi, "auth.json"))
-        ? fs.readFileSync(path.join(ctx.paths.pi, "auth.json"), "utf8")
-        : "",
-    ).not.toContain("gsk_");
+    expect(ctx.agent.credentials.readNow("groq")).toBeUndefined();
   });
 });
 

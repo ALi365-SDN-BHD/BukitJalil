@@ -18,7 +18,6 @@ import type { Api, AuthEvent, AuthInteraction, AuthPrompt, Model, Provider } fro
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { SiteError } from "../sites/location.ts";
 import type { SettingsStore } from "../store/settings.ts";
-import type { PiModules } from "./pi.ts";
 
 /**
  * Providers whose API-key setup asks for more than one key (a choice of method, an account id), which the
@@ -50,19 +49,18 @@ interface LoginJob {
 
 export interface ModelServiceOptions {
   runtime: () => Promise<ModelRuntime>;
-  pi: () => Promise<PiModules>;
   settings: SettingsStore;
-  /** Pi's directory, holding auth.json. */
+  /** Pi's directory, holding device-id. */
   piDir: string;
-  /** The saved credential of a provider when keys are encrypted (plan 6.7); read from auth.json otherwise. */
-  storedCredential?: (providerId: string) => unknown;
+  /** The saved credential of a provider, from the database (plan 6.9). */
+  storedCredential: (providerId: string) => unknown;
   testTimeoutMs?: number;
   /** Provider ids created by the local/self-hosted model settings. */
   customProviderIds?: () => Set<string>;
 }
 
 /**
- * Model settings (plan 6.5): Pi's catalog of providers and models, API keys stored in Pi's auth.json
+ * Model settings (plan 6.5): Pi's catalog of providers and models, API keys stored in the database (plan 6.9)
  * through Pi's own login flow, and a connection test. Keys never leave the server: the UI sees whether a
  * key is set, where it comes from, and its last four characters.
  */
@@ -72,7 +70,7 @@ export class ModelService {
   constructor(private readonly opts: ModelServiceOptions) {}
 
   async list(): Promise<ModelsResponse> {
-    const [runtime, { pi }] = await Promise.all([this.opts.runtime(), this.opts.pi()]);
+    const runtime = await this.opts.runtime();
     const customIds = this.opts.customProviderIds?.() ?? new Set<string>();
     // Checked side by side: a provider without a key in Pi's snapshot is asked directly.
     const withModels = runtime.getProviders().filter((p) => runtime.getModels(p.id).length > 0 || !!p.auth.oauth);
@@ -84,7 +82,7 @@ export class ModelService {
           name: provider.name,
           keyEditable: keyEditable(provider),
           envKey: !!provider.auth.apiKey,
-          key: await keyOf(runtime, provider.id, () => this.stored(pi, provider.id)),
+          key: await keyOf(runtime, provider.id, () => this.opts.storedCredential(provider.id)),
           oauth: oauthOf(provider),
           auth: { configured: !!auth, type: auth?.type ?? null, source: auth?.source ?? null } as ProviderAuth,
           custom: customIds.has(provider.id),
@@ -101,7 +99,7 @@ export class ModelService {
     };
   }
 
-  /** Save a key in auth.json through Pi's API-key login, which also refreshes Pi's view of the provider. */
+  /** Save a key through Pi's API-key login, which also refreshes Pi's view of the provider. */
   async setKey(providerId: string, apiKey: string): Promise<ProviderKey> {
     const runtime = await this.opts.runtime();
     const provider = this.provider(runtime, providerId);
@@ -341,13 +339,7 @@ export class ModelService {
   }
 
   private async key(runtime: ModelRuntime, providerId: string): Promise<ProviderKey> {
-    const { pi } = await this.opts.pi();
-    return keyOf(runtime, providerId, () => this.stored(pi, providerId));
-  }
-
-  private stored(pi: PiModules["pi"], providerId: string): unknown {
-    if (this.opts.storedCredential) return this.opts.storedCredential(providerId);
-    return pi.readStoredCredential(providerId, path.join(this.opts.piDir, "auth.json"));
+    return keyOf(runtime, providerId, () => this.opts.storedCredential(providerId));
   }
 
   /** The key a request to this model would use, to keep it out of error messages. */

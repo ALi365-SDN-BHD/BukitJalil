@@ -1,5 +1,4 @@
 import { type ChildProcess, execFileSync, fork, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -107,16 +106,7 @@ afterEach(() => {
  * Tests here use ports 46700-46769, apart from the preview pools of the other test files (48810+, 49500+),
  * which run in parallel.
  */
-function startDesktop(
-  home: string,
-  port: number,
-  // What the desktop app answers when the server asks for the secret key (plan 6.7).
-  // null: answer nothing (the test answers itself, like the app once its window shows the app).
-  secrets: { key: string | null; reason: string | null } | null = {
-    key: randomBytes(32).toString("base64"),
-    reason: null,
-  },
-) {
+function startDesktop(home: string, port: number) {
   const child = fork(MAIN, ["--desktop", "--port", String(port), "--preview-port-base", String(port + 1)], {
     cwd: SERVER_DIR,
     execArgv: ["--import", "tsx", "--no-warnings"],
@@ -124,9 +114,6 @@ function startDesktop(
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   children.push(child);
-  child.on("message", (m: DesktopOutbound) => {
-    if (m.type === "secrets" && !m.reset && secrets) child.send({ type: "secrets", ...secrets });
-  });
   let stdout = "";
   child.stdout?.on("data", (d) => {
     stdout += d;
@@ -186,42 +173,40 @@ describe("desktop mode (plan M7)", () => {
     expect(fs.existsSync(path.join(home, "server.lock"))).toBe(false);
   }, 30_000);
 
-  it("asks for the secret key and starts without saving when there is none", async () => {
+  it("stays locked until the first PIN, then keeps tokens only in the encrypted database", async () => {
     const home = tmp();
-    const asked: unknown[] = [];
-    const s = startDesktop(home, 46750, { key: null, reason: "no_keyring" });
-    s.child.on("message", (m: DesktopOutbound) => {
-      if (m.type === "secrets") asked.push(m);
-    });
+    const s = startDesktop(home, 46750);
     expect(await s.next("ready")).toMatchObject({ type: "ready" });
     const cookie = await login(s);
-    // Locked until the first PIN (plan 6.9): the database stays closed and the keychain is not asked yet.
+    const headers = {
+      cookie,
+      "content-type": "application/json",
+      "x-bukitjalil": "1",
+      origin: "http://127.0.0.1:46750",
+    };
+    // Locked until the first PIN (plan 6.9): the database stays closed.
     const security = await fetch("http://127.0.0.1:46750/api/security", { headers: { cookie } });
     expect(await security.json()).toEqual({ mode: "pin", pinSet: false, locked: true, retryAfterSeconds: 0 });
-    expect((await fetch("http://127.0.0.1:46750/api/secrets", { headers: { cookie } })).status).toBe(423);
+    expect((await fetch("http://127.0.0.1:46750/api/publish-accounts", { headers: { cookie } })).status).toBe(423);
     expect(fs.statSync(path.join(home, "app.db")).size).toBe(0);
-    expect(asked).toHaveLength(0);
-    expect((await setupPin(46750, cookie)).status).toBe(200);
-    expect(fs.readFileSync(path.join(home, "app.db")).subarray(0, 15).toString()).not.toBe("SQLite format 3");
-    const status = await fetch("http://127.0.0.1:46750/api/secrets", { headers: { cookie } });
-    expect(await status.json()).toEqual({ mode: "unavailable", reason: "no_keyring", plainFiles: false });
-    s.child.send({ type: "shutdown" });
-    expect(await s.exited).toBe(0);
-  }, 30_000);
 
-  it("starts before the key arrives and encrypts once it does", async () => {
-    const home = tmp();
-    const s = startDesktop(home, 46760, null);
-    expect(await s.next("ready")).toMatchObject({ type: "ready" });
-    const cookie = await login(s);
-    expect((await setupPin(46760, cookie)).status).toBe(200);
-    const status = async () =>
-      (await fetch("http://127.0.0.1:46760/api/secrets", { headers: { cookie } })).json() as Promise<unknown>;
-    expect(await status()).toEqual({ mode: "unavailable", reason: "pending", plainFiles: false });
-    s.child.send({ type: "secrets", key: randomBytes(32).toString("base64"), reason: null });
-    await expect.poll(status).toEqual({ mode: "encrypted", reason: null, plainFiles: false });
+    expect((await setupPin(46750, cookie)).status).toBe(200);
+    const token = "ghp_desktoptoken123456";
+    const created = await fetch("http://127.0.0.1:46750/api/publish-accounts", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ platform: "github", name: "Work", token }),
+    });
+    expect(created.status).toBe(200);
     s.child.send({ type: "shutdown" });
     expect(await s.exited).toBe(0);
+
+    // Nothing outside the database holds the token, and the database is not plain SQLite.
+    const files = fs.readdirSync(home, { recursive: true, withFileTypes: true }).filter((d) => d.isFile());
+    for (const file of files) {
+      expect(fs.readFileSync(path.join(file.parentPath, file.name)).includes(token), file.name).toBe(false);
+    }
+    expect(fs.readFileSync(path.join(home, "app.db")).subarray(0, 15).toString()).not.toBe("SQLite format 3");
   }, 30_000);
 
   it("shuts down when the desktop app goes away without asking", async () => {

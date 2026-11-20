@@ -144,7 +144,7 @@ describe("the API while locked (plan 6.9)", () => {
     });
     expect((await app.fetch(req("/api/health"))).status).toBe(200);
     expect(await (await app.fetch(req("/api/security"))).json()).toMatchObject({ pinSet: false, locked: true });
-    for (const p of ["/api/settings", "/api/sites", "/api/events", "/api/secrets"]) {
+    for (const p of ["/api/settings", "/api/sites", "/api/events", "/api/publish-accounts"]) {
       const res = await app.fetch(req(p));
       expect(res.status).toBe(423);
       expect(await res.json()).toEqual({ code: "app.locked" });

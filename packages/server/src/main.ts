@@ -16,9 +16,9 @@ import { createAdminApp, createLockedApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
 import { BukitService, removeOldAppCopies } from "./bukit/locate.ts";
 import { ChangeService } from "./changes/service.ts";
-import { DataSourceService, MAX_TOKEN_FILE } from "./data-sources/service.ts";
+import { DataSourceService } from "./data-sources/service.ts";
 import { DeployService } from "./deploys/service.ts";
-import { type DesktopChannel, desktopChannel, requestOpenInstaller, requestSecretKey } from "./desktop.ts";
+import { type DesktopChannel, desktopChannel, requestOpenInstaller } from "./desktop.ts";
 import { connectEvents } from "./events/bridge.ts";
 import { EventHub } from "./events/hub.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
@@ -35,9 +35,9 @@ import { PreviewPool } from "./preview/pool.ts";
 import { ProjectRepos } from "./projects/repo.ts";
 import { ProjectService } from "./projects/service.ts";
 import { PublishAccountService } from "./publish/accounts.ts";
-import { SecretStore } from "./secrets/store.ts";
 import { SecurityService } from "./security/pin.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
+import { FieldVault } from "./security/vault.ts";
 import { SiteLocks } from "./sites/locks.ts";
 import { NotionSnapshots } from "./sites/notion-snapshots.ts";
 import { SiteService } from "./sites/service.ts";
@@ -216,33 +216,10 @@ const security = new SecurityService({
 function startServices(db: Db): Runtime {
   const settingsStore = new SettingsStore(db);
 
-  // Tokens and model keys (plan 6.7): the desktop app hands over the key its keychain protects; `pnpm dev`
-  // and tests keep plain 0600 files. The desktop server does not wait for the key: the app asks the keychain
-  // once its window shows the app, so its prompt comes over the app rather than over "starting". Until then
-  // the store is pending; see `whenSecretsSettled` below.
-  const secrets = desktop ? SecretStore.pending() : SecretStore.plain();
-  const dataSources = new DataSourceService({
-    db,
-    tokenFile: secrets.file({
-      plain: paths.dataSourceTokens,
-      encrypted: paths.dataSourceTokensEnc,
-      purpose: "data-source-tokens",
-      maxBytes: MAX_TOKEN_FILE,
-      mergeByKey: true,
-    }),
-    fetchImpl: offline ? null : fetch,
-  });
-  const publishAccounts = new PublishAccountService({
-    db,
-    tokenFile: secrets.file({
-      plain: paths.publishAccountTokens,
-      encrypted: paths.publishAccountTokensEnc,
-      purpose: "publish-account-tokens",
-      maxBytes: MAX_TOKEN_FILE,
-      mergeByKey: true,
-    }),
-    fetchImpl: offline ? null : fetch,
-  });
+  // Tokens and model keys (plan 6.9): in the database, encrypted again with its field key.
+  const vault = new FieldVault(db);
+  const dataSources = new DataSourceService({ db, vault, fetchImpl: offline ? null : fetch });
+  const publishAccounts = new PublishAccountService({ db, vault, fetchImpl: offline ? null : fetch });
   const locks = new SiteLocks();
   // Sites and theme projects share the repository work, and neither may overlap the other (theme design 3).
   const repos = new ProjectRepos({ db, git, paths, bukit });
@@ -295,53 +272,8 @@ function startServices(db: Db): Runtime {
     notionToken: (project) => projects.notionToken(project),
     logger,
   });
-  const customModels = new CustomModelStore(
-    secrets.file({
-      plain: path.join(paths.pi, "custom-models.json"),
-      encrypted: path.join(paths.pi, "custom-models.enc.json"),
-      purpose: "custom-models",
-    }),
-  );
-  // Pi keeps its own auth.json only when keys are not encrypted.
-  const credentials =
-    secrets.mode === "plain"
-      ? undefined
-      : new SecretCredentialStore(
-          secrets.file({
-            plain: path.join(paths.pi, "auth.json"),
-            encrypted: path.join(paths.pi, "auth.enc.json"),
-            purpose: "pi-auth",
-            maxBytes: 1024 * 1024,
-            mergeByKey: true,
-          }),
-        );
-
-  const secretsApi = {
-    status: () => secrets.status(),
-    reset: () => {
-      secrets.reset();
-      desktop?.send({ type: "secrets", reset: true });
-      logger.log("warn", "secrets.reset", {});
-    },
-  };
-  /**
-   * Once the store's mode is settled (at once for plain files, when the desktop app answers otherwise), in
-   * one synchronous step so no request reads a store in between: plain files from an earlier version are
-   * encrypted, temp files of killed writes and token entries with no account are removed.
-   */
-  function whenSecretsSettled(): void {
-    secrets.migrate((event, data) => logger.log(event === "secrets.migrated" ? "info" : "warn", event, data));
-    const staleTemps =
-      publishAccounts.cleanupTempFiles() + dataSources.cleanupTempFiles() + customModels.cleanupTempFiles();
-    if (staleTemps > 0) logger.log("warn", "storage.temps_removed", { count: staleTemps });
-    try {
-      const accounts = publishAccounts.pruneUnknownTokens();
-      const sources = dataSources.pruneUnknownTokens();
-      if (accounts + sources > 0) logger.log("warn", "tokens.orphans_removed", { accounts, sources });
-    } catch (err) {
-      logger.log("warn", "tokens.orphans_cleanup_failed", { error: String(err) });
-    }
-  }
+  const customModels = new CustomModelStore({ db, vault });
+  const credentials = new SecretCredentialStore({ db, vault });
 
   const agent = new AgentService({
     db,
@@ -351,7 +283,7 @@ function startServices(db: Db): Runtime {
     changes,
     logger,
     // The model chosen in the settings (plan 6.5), looked up again before every run.
-    ...(credentials ? { credentials } : {}),
+    credentials,
     resolveModel: settingsModel(settingsStore),
     thinkingLevel: () => settingsStore.get().thinkingLevel,
     // A scripted model for end-to-end tests (agent/fake-model.ts); never set in normal use.
@@ -364,22 +296,6 @@ function startServices(db: Db): Runtime {
     skillsDir,
     disabledSkills: () => settingsStore.get().disabledSkills,
   });
-  // After the agent exists: the answer refreshes its model runtime.
-  if (desktop) {
-    void requestSecretKey(desktop, null).then((answer) => {
-      if ("key" in answer) {
-        secrets.unlock(answer.key);
-        answer.key.fill(0);
-      } else {
-        secrets.fail(answer.reason);
-        logger.log("warn", "secrets.unavailable", { reason: answer.reason });
-      }
-      whenSecretsSettled();
-      agent.refreshModelRuntime();
-    });
-  } else {
-    whenSecretsSettled();
-  }
   const panels = new PanelService({
     git,
     projects,
@@ -412,7 +328,6 @@ function startServices(db: Db): Runtime {
     events,
     readIdentity: () => (gitPath ? readGlobalIdentity(gitPath) : Promise.resolve({ name: null, email: null })),
     updates,
-    secrets: secretsApi,
     security,
   });
   return { app, events, agent, builds, deploys, locks, db };

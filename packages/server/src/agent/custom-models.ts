@@ -1,10 +1,11 @@
 import type { CustomModelProvider, CustomModelRequest, CustomModelsResponse } from "@bukitjalil/shared";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "../bukit/guard.ts";
+import type { FieldVault } from "../security/vault.ts";
 import { SiteError } from "../sites/location.ts";
-import { JsonFile, JsonFileError, type StoredJson } from "../store/json-file.ts";
+import type { Db } from "../store/db.ts";
 
-/** What is stored on disk; the response type hides the key. */
+/** What is stored; the response type hides the key. */
 export interface StoredProvider {
   id: string;
   name: string;
@@ -16,19 +17,25 @@ export interface StoredProvider {
 
 const DEFAULT_CONTEXT = 32_768;
 const DEFAULT_MAX_TOKENS = 4_096;
+const TABLE = "custom_models";
+
+interface Row {
+  id: string;
+  name: string;
+  base_url: string;
+  api: string;
+  model_json: string;
+  api_key_ciphertext: string | null;
+}
 
 /**
- * Local and self-hosted OpenAI-compatible models (Ollama, LM Studio, vLLM, llama.cpp, ...). The config
- * lives in the app's Pi directory (mode 600) and is registered into Pi's runtime on startup and after
- * every change. A local server usually needs no key; a dummy one lets Pi's auth layer make requests.
+ * Local and self-hosted OpenAI-compatible models (Ollama, LM Studio, vLLM, llama.cpp, ...). One row per
+ * provider in `custom_models`, the key encrypted with the field key (plan 6.9); registered into Pi's
+ * runtime on startup and after every change. A local server usually needs no key; a dummy one lets Pi's
+ * auth layer make requests.
  */
 export class CustomModelStore {
-  private readonly json: StoredJson;
-
-  /** A path (plain 0600 file) or the secret store's file (plan 6.7). */
-  constructor(file: string | StoredJson) {
-    this.json = typeof file === "string" ? new JsonFile(file) : file;
-  }
+  constructor(private readonly opts: { db: Db; vault: FieldVault }) {}
 
   list(): CustomModelsResponse {
     return this.read().map(view);
@@ -54,16 +61,16 @@ export class CustomModelStore {
       apiKey: req.apiKey?.trim() || null,
       model: modelOf(req),
     };
-    this.write([...providers, provider]);
+    this.opts.db
+      .prepare(
+        "INSERT INTO custom_models (id, name, base_url, api, model_json, api_key_ciphertext, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(...this.columns(provider), new Date().toISOString());
     return view(provider);
   }
 
   update(id: string, req: CustomModelRequest, beforeWrite?: (provider: StoredProvider) => void): CustomModelProvider {
-    const providers = this.read();
-    const index = providers.findIndex((provider) => provider.id === id);
-    if (index < 0) throw new SiteError("custom.not_found", 404);
-    const previous = providers[index];
-    if (!previous) throw new SiteError("custom.not_found", 404);
+    const previous = this.get(id);
     const provider: StoredProvider = {
       ...previous,
       name: req.name,
@@ -73,17 +80,20 @@ export class CustomModelStore {
       apiKey: req.apiKey === undefined ? previous.apiKey : req.apiKey.trim() || null,
       model: modelOf(req),
     };
-    // Register first: if the runtime rejects the provider, the old file stays in place.
+    // Register first: if the runtime rejects the provider, the old row stays as it was.
     beforeWrite?.(provider);
-    providers[index] = provider;
-    this.write(providers);
+    const [, ...rest] = this.columns(provider);
+    this.opts.db
+      .prepare(
+        "UPDATE custom_models SET name = ?, base_url = ?, api = ?, model_json = ?, api_key_ciphertext = ? WHERE id = ?",
+      )
+      .run(...rest, id);
     return view(provider);
   }
 
   remove(id: string): void {
-    const providers = this.read();
-    if (!providers.some((provider) => provider.id === id)) throw new SiteError("custom.not_found", 404);
-    this.write(providers.filter((provider) => provider.id !== id));
+    const { changes } = this.opts.db.prepare("DELETE FROM custom_models WHERE id = ?").run(id);
+    if (changes === 0) throw new SiteError("custom.not_found", 404);
   }
 
   registerAll(runtime: ModelRuntime): void {
@@ -96,7 +106,7 @@ export class CustomModelStore {
         }
       }
     } catch {
-      // An unreadable file is reported when the settings page asks for it; startup still works.
+      // An unreadable row is reported when the settings page asks for it; startup still works.
     }
   }
 
@@ -121,76 +131,55 @@ export class CustomModelStore {
     });
   }
 
-  /** Remove temporary files left by a killed write; returns the number removed. */
-  cleanupTempFiles(): number {
-    return this.json.cleanupTempFiles();
+  private columns(provider: StoredProvider): [string, string, string, string, string, string | null] {
+    return [
+      provider.id,
+      provider.name,
+      provider.baseUrl,
+      provider.api,
+      JSON.stringify(provider.model),
+      provider.apiKey === null ? null : this.opts.vault.seal(provider.apiKey, TABLE, provider.id),
+    ];
   }
 
   private read(): StoredProvider[] {
-    let raw: unknown;
-    try {
-      raw = this.json.read();
-    } catch (err) {
-      if (err instanceof JsonFileError) throw new SiteError("storage.unreadable", 500);
-      throw err;
-    }
-    if (raw === undefined) return [];
-    if (!isRecord(raw) || !Array.isArray(raw.providers)) throw new SiteError("storage.unreadable", 500);
-    const ids = new Set<string>();
-    return raw.providers.map((entry) => {
-      if (!isRecord(entry)) throw new SiteError("storage.unreadable", 500);
-      const model = entry.model;
+    const rows = this.opts.db.prepare("SELECT * FROM custom_models ORDER BY rowid").all() as Row[];
+    return rows.map((row) => {
+      let model: unknown;
+      try {
+        model = JSON.parse(row.model_json);
+      } catch {
+        throw new SiteError("storage.unreadable", 500);
+      }
       if (
-        typeof entry.id !== "string" ||
-        entry.id === "" ||
-        ids.has(entry.id) ||
-        typeof entry.name !== "string" ||
-        typeof entry.baseUrl !== "string" ||
-        (entry.api !== "openai-completions" &&
-          entry.api !== "openai-responses" &&
-          entry.api !== "anthropic-messages") ||
+        (row.api !== "openai-completions" && row.api !== "openai-responses" && row.api !== "anthropic-messages") ||
         !isRecord(model) ||
         typeof model.id !== "string" ||
         model.id === "" ||
         typeof model.name !== "string" ||
-        (entry.apiKey !== undefined && entry.apiKey !== null && typeof entry.apiKey !== "string")
+        (model.reasoning !== undefined && typeof model.reasoning !== "boolean")
       ) {
         throw new SiteError("storage.unreadable", 500);
       }
-      const contextWindow = count(model.contextWindow, DEFAULT_CONTEXT);
-      const maxTokens = count(model.maxTokens, DEFAULT_MAX_TOKENS);
-      if (model.reasoning !== undefined && typeof model.reasoning !== "boolean") {
-        throw new SiteError("storage.unreadable", 500);
-      }
-      ids.add(entry.id);
       return {
-        id: entry.id,
-        name: entry.name,
-        baseUrl: entry.baseUrl,
-        api: entry.api,
-        apiKey: entry.apiKey ?? null,
+        id: row.id,
+        name: row.name,
+        baseUrl: row.base_url,
+        api: row.api,
+        apiKey: row.api_key_ciphertext === null ? null : this.opts.vault.open(row.api_key_ciphertext, TABLE, row.id),
         model: {
           id: model.id,
           name: model.name,
-          contextWindow,
-          maxTokens,
+          contextWindow: count(model.contextWindow, DEFAULT_CONTEXT),
+          maxTokens: count(model.maxTokens, DEFAULT_MAX_TOKENS),
           reasoning: model.reasoning ?? false,
         },
       };
     });
   }
-
-  private write(providers: StoredProvider[]): void {
-    try {
-      this.json.write({ providers });
-    } catch (err) {
-      if (err instanceof JsonFileError) throw new SiteError(err.code, 500);
-      throw err;
-    }
-  }
 }
 
-/** A positive integer from the file, or the default when the field is absent. */
+/** A positive integer from the stored model, or the default when the field is absent. */
 function count(value: unknown, fallback: number): number {
   if (value === undefined) return fallback;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {

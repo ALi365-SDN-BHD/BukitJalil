@@ -1200,28 +1200,6 @@ const ms: Messages = {
     change: "Tukar PIN",
     changed: "PIN telah ditukar",
   },
-  secrets: {
-    plain:
-      "Mod pembangunan: token dan kunci model disimpan sebagai fail tidak disulitkan (mod 600). Aplikasi desktop menyulitkannya dengan rantai kunci sistem.",
-    plainLeft:
-      "Sesetengah fail token atau kunci tidak disulitkan daripada versi terdahulu tidak dapat disulitkan; lihat log.",
-    plainUsed:
-      "Fail tidak disulitkan daripada versi terdahulu sedang digunakan; token dan kunci baharu tidak boleh disimpan sehingga fail itu dapat disulitkan.",
-    unavailable: {
-      no_keyring:
-        "Tiada rantai kunci sistem ditemui, jadi token dan kunci model tidak dapat disimpan dengan selamat dan penyimpanan dimatikan. Pada Linux, pasang dan buka kunci gnome-keyring atau KWallet, kemudian mulakan semula BukitJalil.",
-      locked:
-        "Kunci dalam rantai kunci tidak dapat dibuka (akses ditolak, item rantai kunci telah dibuang, atau folder data datang dari komputer lain), jadi token dan kunci model yang disimpan tidak dapat digunakan. Mulakan semula dan pilih Benarkan apabila diminta, atau set semula dan masukkannya sekali lagi.",
-      no_answer: "Rantai kunci tidak menjawab (mungkin gesaan aksesnya tidak dijawab). Mulakan semula BukitJalil.",
-      reset:
-        "Semua token dan kunci model yang disimpan telah dibuang. Mulakan semula BukitJalil, kemudian masukkannya sekali lagi.",
-      pending:
-        'Menunggu rantai kunci: klik "Benarkan" dalam gesaan sistem untuk menggunakan token dan kunci model yang disimpan. Jika tiada gesaan muncul, mulakan semula BukitJalil.',
-    },
-    reset: "Set semula kunci",
-    resetConfirm:
-      "Ini akan membuang setiap token dan kunci model yang disimpan; anda perlu memasukkannya sekali lagi. Teruskan?",
-  },
   errors: {
     "auth.required":
       "Sesi anda telah tamat. Tekan Enter dalam terminal yang menjalankan BukitJalil dan buka pautan baharu.",
@@ -1268,10 +1246,6 @@ const ms: Messages = {
     "storage.unreadable":
       "Satu fail tetapan yang disimpan tidak boleh dibaca; betulkan atau buangnya sebelum menyimpan semula",
     "storage.too_large": "Data terlalu banyak untuk disimpan; buang beberapa entri yang disimpan dan cuba lagi",
-    "secrets.unavailable":
-      "Tiada tempat selamat untuk menyimpan token dan kunci, jadi ia tidak boleh disimpan sekarang; lihat nota di bahagian atas tetapan",
-    "secrets.pending": 'Masih menunggu rantai kunci: klik "Benarkan" dalam gesaan sistem, kemudian cuba lagi',
-    "secrets.reset_unsupported": "Mod pembangunan tiada kunci penyulitan untuk ditetapkan semula",
     "app.locked": "BukitJalil dikunci. Masukkan PIN anda untuk membukanya",
     "security.dev_mode": "Mod pembangunan tiada PIN",
     "security.pin_set": "PIN sudah ditetapkan",

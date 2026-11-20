@@ -46,7 +46,8 @@ async function launch(
   };
   const app = await _electron.launch({
     executablePath: electronBin,
-    // Chromium's stand-in keychain: tests never touch the user's real one (plan 6.7).
+    // Chromium's stand-in keychain: BukitJalil no longer uses the keychain (plan 6.9), but Chromium's own
+    // cookie store does, and tests never touch the user's real one.
     args: [...MOCK_KEYCHAIN, desktopDir],
     env: env as Record<string, string>,
   });
@@ -163,24 +164,6 @@ test("the menus and the About panel follow the language chosen in settings", asy
     await expect.poll(helpLabels).toContain(label);
   }
   await app.close();
-});
-
-test("keeps tokens encrypted with a key the keychain protects", async () => {
-  const { app, page, home } = await launch();
-  await enterPin(page);
-  // The app asks the keychain once its window shows the app; the key file is made at the first start and
-  // the settings show nothing while secrets are encrypted.
-  const status = () => page.evaluate(async () => (await fetch("/api/secrets")).json());
-  await expect.poll(status).toEqual({ mode: "encrypted", reason: null, plainFiles: false });
-  expect(fs.existsSync(path.join(home, "secret-key.enc"))).toBe(true);
-  await app.close();
-  // A plain token file from an earlier version is encrypted at the next start and removed.
-  fs.writeFileSync(path.join(home, "publish-account-tokens.json"), JSON.stringify({}), { mode: 0o600 });
-  const again = await launch(home);
-  await enterPin(again.page);
-  await expect.poll(() => fs.existsSync(path.join(home, "publish-account-tokens.json"))).toBe(false);
-  expect(fs.existsSync(path.join(home, "publish-account-tokens.enc.json"))).toBe(true);
-  await again.app.close();
 });
 
 test("sends web links to the system browser and keeps the window on the app", async () => {
