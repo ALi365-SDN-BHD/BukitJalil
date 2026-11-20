@@ -267,7 +267,6 @@ export class ProjectRepos {
       ).includes(common);
     if (common && !shared) removeExcludeBlock(common);
     else if (!common) leftovers.push("exclude_block");
-    fs.rmSync(path.join(this.opts.paths.sessions, key), { recursive: true, force: true });
     fs.rmSync(path.join(this.opts.paths.previews, key), { recursive: true, force: true });
     return leftovers;
   }

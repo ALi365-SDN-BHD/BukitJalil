@@ -6,8 +6,6 @@ import type { Db } from "../store/db.ts";
 export interface SessionRecord {
   id: string;
   project: ProjectKey;
-  /** Pi's session file, sessions/<project>/<id>.jsonl. */
-  file: string;
   title: string | null;
   createdAt: string;
   updatedAt: string;
@@ -17,7 +15,6 @@ interface SessionRow {
   id: string;
   site_id: string | null;
   theme_id: string | null;
-  pi_session_file: string;
   title: string | null;
   created_at: string;
   updated_at: string;
@@ -26,31 +23,34 @@ interface SessionRow {
 const toRecord = (row: SessionRow): SessionRecord => ({
   id: row.id,
   project: rowProject(row),
-  file: row.pi_session_file,
   title: row.title,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
 
-/** Session ids are file names (sessions/<project>/<id>.jsonl) and URL segments. */
+/** Session ids are URL segments. */
 export const newSessionId = () => crypto.randomBytes(8).toString("hex");
 export const isSessionId = (id: string) => /^[0-9a-f]{16}$/.test(id);
 
 /**
- * The `sessions` table (plan 4.2), an index of Pi's session files. Whether a session is running lives in
- * memory only, so the status column always holds "idle".
+ * The `sessions` table (plan 4.2) and each session's Pi entries in `session_entries` (plan 6.9). Whether a
+ * session is running lives in memory only, so the status column always holds "idle".
  */
 export class SessionStore {
   constructor(private readonly db: Db) {}
 
-  insert(session: { id: string; project: ProjectKey; file: string }): SessionRecord {
+  /** A new session, with its first entries (a fork's branch) in the same transaction. */
+  insert(session: { id: string; project: ProjectKey }, entries: readonly unknown[] = []): SessionRecord {
     const now = new Date().toISOString();
     const owner = ownerOf(session.project);
-    this.db
-      .prepare(
-        `INSERT INTO sessions (id, ${owner.column}, pi_session_file, title, created_at, updated_at, status) VALUES (?, ?, ?, NULL, ?, ?, 'idle')`,
-      )
-      .run(session.id, owner.id, session.file, now, now);
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO sessions (id, ${owner.column}, title, created_at, updated_at, status) VALUES (?, ?, NULL, ?, ?, 'idle')`,
+        )
+        .run(session.id, owner.id, now, now);
+      if (entries.length > 0) this.saveEntries(session.id, entries);
+    })();
     return { ...session, title: null, createdAt: now, updatedAt: now };
   }
 
@@ -78,7 +78,46 @@ export class SessionStore {
     this.db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), id);
   }
 
+  /** Deleting the row deletes its entries (ON DELETE CASCADE). */
   delete(id: string): void {
     this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
   }
+
+  /** The session's Pi entries in order, header first; empty before its first message. */
+  entries(id: string): unknown[] {
+    const rows = this.db
+      .prepare("SELECT entry_json FROM session_entries WHERE session_id = ? ORDER BY seq")
+      .all(id) as { entry_json: string }[];
+    return rows.map((row) => JSON.parse(row.entry_json) as unknown);
+  }
+
+  /**
+   * Save the session's entries, header first (plan 6.9). Pi only appends, so normally only the new tail is
+   * written; if the saved entries are not where they were (another order, another header), all are written
+   * again. One transaction either way. Returns the number of entries saved.
+   */
+  saveEntries(id: string, entries: readonly unknown[]): number {
+    const saved = this.db
+      .prepare("SELECT seq, entry_id FROM session_entries WHERE session_id = ? ORDER BY seq")
+      .all(id) as { seq: number; entry_id: string }[];
+    const prefix =
+      saved.length <= entries.length && saved.every((row, i) => row.seq === i && row.entry_id === entryId(entries[i]));
+    const insert = this.db.prepare(
+      "INSERT INTO session_entries (session_id, seq, entry_id, entry_json) VALUES (?, ?, ?, ?)",
+    );
+    this.db.transaction(() => {
+      if (!prefix) this.db.prepare("DELETE FROM session_entries WHERE session_id = ?").run(id);
+      for (let i = prefix ? saved.length : 0; i < entries.length; i++) {
+        insert.run(id, i, entryId(entries[i]), JSON.stringify(entries[i]));
+      }
+    })();
+    return entries.length;
+  }
+}
+
+/** Every Pi entry has a string id, the header too (its session id). */
+function entryId(entry: unknown): string {
+  const id = (entry as { id?: unknown } | null)?.id;
+  if (typeof id !== "string") throw new Error("a session entry has no id");
+  return id;
 }

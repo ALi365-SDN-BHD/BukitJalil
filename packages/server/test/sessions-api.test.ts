@@ -311,10 +311,10 @@ describe("session API", () => {
     expect(fork.id).not.toBe(session.id);
     const forked = (await (await get(`/api/sessions/${fork.id}`)).json()) as SessionDetail;
     expect(forked.messages).toEqual(messages.slice(0, 2));
-    // The fork's file is the session's own, not one of Pi's naming.
-    expect(fs.readdirSync(path.join(ctx.paths.sessions, s.id)).sort()).toEqual(
-      [`${session.id}.jsonl`, `${fork.id}.jsonl`].sort(),
-    );
+    // The fork's entries are its own: a Pi session of its own, saved under the fork's id.
+    const header = (id: string) => (ctx.agent.store.entries(id)[0] as { type: string; id: string }) ?? null;
+    expect(header(fork.id)?.type).toBe("session");
+    expect(header(fork.id)?.id).not.toBe(header(session.id)?.id);
     // The fork carries on by itself; the original is unchanged.
     faux.setResponses([pi.ai.fauxAssistantMessage("fork reply")]);
     await call("POST", `/api/sessions/${fork.id}/messages`, { text: "third" });
@@ -344,24 +344,26 @@ describe("session API", () => {
     expect(stream.of(created.id)[0]?.data).toEqual({ session: created });
   });
 
-  it("says when a session file is damaged", async () => {
+  it("says when a session's saved entries are damaged", async () => {
     const s = await site();
     const session = ctx.agent.create(s.id);
-    const file = path.join(ctx.paths.sessions, s.id, `${session.id}.jsonl`);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, "not a session\n");
+    ctx.db
+      .prepare("INSERT INTO session_entries (session_id, seq, entry_id, entry_json) VALUES (?, 0, 'x', 'not json')")
+      .run(session.id);
     const res = await get(`/api/sessions/${session.id}`);
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ code: "session.unreadable" });
     expect(await (await call("POST", `/api/sessions/${session.id}/fork`, { entryId: "abc" })).json()).toEqual({
       code: "session.unreadable",
     });
-    // A run ends with the same code, and the file is left as it was.
+    // A run ends with the same code, and the saved entries are left as they were.
     const stream = await openEvents();
     await call("POST", `/api/sessions/${session.id}/messages`, { text: "Hi" });
     await idleAfterRun(stream, session.id);
     expect(stream.of(session.id).at(-1)?.data).toEqual({ status: "idle", error: "session.unreadable" });
-    expect(fs.readFileSync(file, "utf8")).toBe("not a session\n");
+    expect(ctx.db.prepare("SELECT entry_json AS e FROM session_entries WHERE session_id = ?").all(session.id)).toEqual([
+      { e: "not json" },
+    ]);
   });
 
   it("steers a running session, and queues follow-ups after it", async () => {

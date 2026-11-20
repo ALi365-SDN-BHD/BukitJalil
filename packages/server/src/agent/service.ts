@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import type {
   ProjectKey,
   ReferenceImageRequest,
@@ -10,7 +8,13 @@ import type {
   ThinkingLevel,
 } from "@bukitjalil/shared";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
-import type { AgentSession, AgentSessionEvent, ModelRuntime, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentSession,
+  AgentSessionEvent,
+  ModelRuntime,
+  SessionEntry,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import type { ChangeService } from "../changes/service.ts";
 import type { Logger } from "../log.ts";
 import { cleanReferenceImage, type ReferenceImage, writeReferenceImages } from "../media/reference.ts";
@@ -88,6 +92,8 @@ interface Live {
   session: AgentSession;
   unsubscribe: () => void;
   idleTimer: NodeJS.Timeout | null;
+  /** Entries in the database, header included (plan 6.9). */
+  saved: number;
 }
 
 /** A message from the user: its text and its checked reference images (theme development design 4.2). */
@@ -137,7 +143,8 @@ export function resetNote(previous: keyof typeof RESET_OUTCOME, restoring = fals
 }
 
 /**
- * AI sessions (plan 6.2). A session is a row in `sessions` and a Pi session file; its AgentSession is made
+ * AI sessions (plan 6.2). A session is a row in `sessions` and its Pi entries in `session_entries` (plan
+ * 6.9), held by an in-memory Pi session manager and saved as they are added; its AgentSession is made
  * when a message arrives and disposed after a while unused. One session per site runs at a time: messages
  * for other sessions of that site wait in order.
  */
@@ -219,7 +226,7 @@ export class AgentService {
     return this.running.has(project) || (this.pending.get(project)?.length ?? 0) > 0;
   }
 
-  private toInfo({ file: _, ...record }: SessionRecord): SessionInfo {
+  private toInfo(record: SessionRecord): SessionInfo {
     const run = this.running.get(record.project);
     const queued = this.pending.get(record.project)?.some((p) => p.sessionId === record.id);
     return { ...record, status: run?.sessionId === record.id ? "running" : queued ? "queued" : "idle" };
@@ -227,7 +234,7 @@ export class AgentService {
 
   /**
    * The messages of the session's current branch (plan 9.1), from its AgentSession when in memory (it
-   * also has the messages of the run in progress), else from its file. A session without a file has none.
+   * also has the messages of the run in progress), else from the database. A new session has none.
    */
   async messages(id: string): Promise<SessionMessage[]> {
     const record = this.get(id);
@@ -236,8 +243,9 @@ export class AgentService {
     if (live) {
       entries = live.session.sessionManager.getBranch();
     } else {
-      if (!fs.existsSync(record.file)) return [];
-      entries = (await this.openFile(record)).getBranch();
+      const manager = await this.openEntries(record);
+      if (!manager) return [];
+      entries = manager.getBranch();
     }
     // The system prompt is stored as a message too; it is not part of the conversation the user sees.
     return entries.flatMap((e) =>
@@ -246,35 +254,34 @@ export class AgentService {
   }
 
   /**
-   * A new session with the path from the start to `entryId` of this one (plan 6.2). Pi writes the branch
-   * to a file of its own naming in the site's session directory; it is renamed to the new session's file.
-   * The source is read from its file, where Pi appends each message as it ends, even while it runs.
+   * A new session with the path from the start to `entryId` of this one (plan 6.2). The source is read from
+   * the database, where each entry is saved as Pi adds it, even while it runs; Pi's in-memory manager
+   * replaces its entries with the branch, which is saved as the new session's.
    */
   async fork(id: string, entryId: string): Promise<SessionRecord> {
     this.assertOpen();
     const source = this.get(id);
     const site = this.opts.projects.get(source.project);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
-    if (!fs.existsSync(source.file)) throw new SiteError("session.entry_not_found", 404);
-    const dir = this.sessionDir(site.key);
-    const manager = await this.openFile(source);
-    if (!manager.getEntry(entryId)) throw new SiteError("session.entry_not_found", 404);
+    const manager = await this.openEntries(source);
+    if (!manager?.getEntry(entryId)) throw new SiteError("session.entry_not_found", 404);
     this.assertOpen();
     const newId = newSessionId();
-    const file = path.join(dir, `${newId}.jsonl`);
-    const written = manager.createBranchedSession(entryId);
-    // Pi writes the file only when the branch holds a conversation; otherwise the new session starts empty.
-    if (written && fs.existsSync(written)) fs.renameSync(written, file);
-    this.store.insert({ id: newId, project: site.key, file });
+    manager.createBranchedSession(entryId);
+    this.store.insert({ id: newId, project: site.key }, entriesOf(manager));
     if (source.title) this.store.rename(newId, source.title);
     return this.announce(newId);
   }
 
-  /** A session's file in a Pi session manager; a file Pi cannot read is reported as such. */
-  private async openFile(record: SessionRecord, cwd?: string) {
+  /**
+   * A session's saved entries in Pi's in-memory session manager, or null when nothing is saved yet (Pi keeps
+   * a session only once it has a conversation). Entries Pi cannot read are reported as such.
+   */
+  private async openEntries(record: SessionRecord, cwd?: string): Promise<SessionManager | null> {
     const pi = await this.pi();
     try {
-      return pi.pi.SessionManager.open(record.file, this.sessionDir(record.project), cwd);
+      const entries = this.store.entries(record.id);
+      return entries.length === 0 ? null : pi.pi.SessionManager.inMemory(cwd, undefined, entries as never);
     } catch (err) {
       this.opts.logger.log("warn", "agent.session_unreadable", { sessionId: record.id, error: String(err) });
       throw new SiteError("session.unreadable", 409);
@@ -288,13 +295,13 @@ export class AgentService {
     return record;
   }
 
-  /** Record a new session; its AgentSession and file are made with the first message. */
+  /** Record a new session; its AgentSession and entries are made with the first message. */
   create(project: ProjectKey): SessionRecord {
     this.assertOpen();
     const site = this.opts.projects.get(project);
     if (site.readOnly) throw new SiteError("site.read_only", 409);
     const id = newSessionId();
-    this.store.insert({ id, project, file: path.join(this.sessionDir(project), `${id}.jsonl`) });
+    this.store.insert({ id, project });
     return this.announce(id);
   }
 
@@ -304,7 +311,7 @@ export class AgentService {
     return this.announce(id);
   }
 
-  /** Stop the session and wait for its run to end, then delete its record and file. */
+  /** Stop the session and wait for its run to end, then delete its record and entries. */
   async delete(id: string): Promise<void> {
     const session = this.get(id);
     await this.stop(id);
@@ -312,7 +319,6 @@ export class AgentService {
     if (run?.sessionId === id) await run.done;
     this.dispose(id);
     this.store.delete(id);
-    fs.rmSync(session.file, { force: true });
     this.emit({ project: session.project, sessionId: id, type: "deleted" });
   }
 
@@ -414,10 +420,6 @@ export class AgentService {
 
   private assertOpen(): void {
     if (this.closing) throw new SiteError("server.shutting_down", 503);
-  }
-
-  private sessionDir(project: ProjectKey): string {
-    return path.join(this.opts.paths.sessions, project);
   }
 
   private emit(event: AgentEvent): void {
@@ -642,6 +644,7 @@ export class AgentService {
       return runErrorCode(err);
     } finally {
       if (live && this.live.get(id) === live) {
+        this.save(id, live);
         if (this.store.get(id) && !this.closing) {
           this.store.touch(id);
           live.idleTimer = setTimeout(() => this.dispose(id), this.opts.idleMs ?? IDLE_MS);
@@ -654,7 +657,7 @@ export class AgentService {
   }
 
   /**
-   * The session's AgentSession, made from its file when not in memory (plan 6.2); null when the run was
+   * The session's AgentSession, made from its saved entries when not in memory (plan 6.2); null when the run was
    * cancelled or the session deleted meanwhile, so nothing is written for it.
    */
   private async open(run: Run): Promise<Live | null> {
@@ -691,10 +694,9 @@ export class AgentService {
       aiWriteScope(site) ?? undefined,
     );
     if (gone()) return null;
-    const dir = this.sessionDir(site.key);
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    // open() starts a new session when the file does not exist yet, and keeps this path.
-    const sessionManager = await this.openFile(record, cwd);
+    // A session with nothing saved yet starts a new Pi session.
+    const sessionManager = (await this.openEntries(record, cwd)) ?? pi.pi.SessionManager.inMemory(cwd);
+    const saved = sessionManager.getEntryCount() === 0 ? 0 : sessionManager.getEntryCount() + 1;
     const { session } = await pi.pi.createAgentSession({
       cwd,
       agentDir: piDir,
@@ -722,10 +724,12 @@ export class AgentService {
       sessionManager,
       settingsManager,
     });
-    const unsubscribe = session.subscribe((event) =>
-      this.emit({ project: site.key, sessionId: id, type: "pi", event }),
-    );
-    const live: Live = { project: site.key, session, unsubscribe, idleTimer: null };
+    const live: Live = { project: site.key, session, unsubscribe: () => {}, idleTimer: null, saved };
+    live.unsubscribe = session.subscribe((event) => {
+      // Saved as Pi adds entries (plan 6.9), before anyone hears of them.
+      this.save(id, live);
+      this.emit({ project: site.key, sessionId: id, type: "pi", event });
+    });
     this.live.set(id, live);
     if (gone()) {
       this.dispose(id);
@@ -734,11 +738,27 @@ export class AgentService {
     return live;
   }
 
+  /**
+   * Save the entries Pi added since the last save (plan 6.9). Cheap when nothing changed, so it runs on every
+   * event. A failure is logged and tried again at the next event; it must not stop the run, nor dispose().
+   */
+  private save(id: string, live: Live): void {
+    try {
+      const manager = live.session.sessionManager;
+      const count = manager.getEntryCount();
+      if (count === 0 || count + 1 === live.saved || !this.store.get(id)) return;
+      live.saved = this.store.saveEntries(id, entriesOf(manager));
+    } catch (err) {
+      this.opts.logger.log("error", "agent.session_save_failed", { sessionId: id, error: String(err) });
+    }
+  }
+
   private dispose(id: string): void {
     const live = this.live.get(id);
     if (!live) return;
     this.live.delete(id);
     if (live.idleTimer) clearTimeout(live.idleTimer);
+    this.save(id, live);
     // This runs from an idle timer and during shutdown: a throw here must not take the process down.
     try {
       live.unsubscribe();
@@ -751,6 +771,11 @@ export class AgentService {
       this.opts.logger.log("error", "agent.dispose_failed", { sessionId: id, error: String(err) });
     }
   }
+}
+
+/** What is saved of a Pi session: its header, then its entries in order. */
+function entriesOf(manager: SessionManager): unknown[] {
+  return [manager.getHeader(), ...manager.getEntries()];
 }
 
 /** The error code a failed run reports in its idle status. */

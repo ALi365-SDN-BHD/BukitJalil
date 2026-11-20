@@ -70,8 +70,6 @@ export interface AppPaths {
   bukitTmp: string;
   /** worktrees/<siteId>/{ai,main} (plan 4.1). */
   worktrees: string;
-  /** Pi session files, sessions/<siteId>/<sessionId>.jsonl (plan 4.1). */
-  sessions: string;
   previews: string;
   /** Notion offline snapshots and their media caches, notion-snapshots/<siteId>/ (plan 5.5). */
   notionSnapshots: string;
@@ -96,7 +94,6 @@ export function ensureAppHome(home: string): AppPaths {
     emptyHooks: path.join(home, "empty-hooks"),
     bukitTmp: path.join(home, "tmp", "bukit"),
     worktrees: path.join(home, "worktrees"),
-    sessions: path.join(home, "sessions"),
     previews: path.join(home, "previews"),
     notionSnapshots: path.join(home, "notion-snapshots"),
     pi: path.join(home, "pi"),
@@ -113,7 +110,6 @@ export function ensureAppHome(home: string): AppPaths {
   for (const dir of [
     paths.bukitTmp,
     paths.worktrees,
-    paths.sessions,
     paths.previews,
     paths.notionSnapshots,
     paths.piBin,

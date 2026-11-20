@@ -163,7 +163,11 @@ describe("theme projects (T0)", () => {
     const removed = await call("DELETE", `/api/themes/${t.id}`);
     expect(removed.status).toBe(200);
     expect(fs.existsSync(path.join(ctx.paths.worktrees, "themes", t.id))).toBe(false);
-    expect(fs.existsSync(path.join(ctx.paths.sessions, "themes", t.id))).toBe(false);
+    expect(
+      ctx.db
+        .prepare("SELECT COUNT(*) AS n FROM session_entries WHERE session_id NOT IN (SELECT id FROM sessions)")
+        .get(),
+    ).toEqual({ n: 0 });
     expect((await call("GET", `/api/themes/${t.id}`)).status).toBe(404);
     expect(ctx.db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE theme_id = ?").get(t.id)).toEqual({ n: 0 });
     // The theme project's folder stays, and so does the site.
