@@ -136,7 +136,35 @@ test("locks with a PIN that encrypts the database, and opens again only with it"
   await enterPin(again.page);
   const settings = await again.page.evaluate(async () => (await fetch("/api/settings")).json());
   expect(settings.commitName).toBe("Locked Test");
+
+  // A forgotten PIN: the reset says what goes, can be cancelled, and opens the app again empty.
+  await again.page.getByTestId("lock-app").click();
+  await again.page.getByTestId("lock-forgot").click();
+  await expect(again.page.getByTestId("lock-reset")).toBeVisible();
+  await again.page.getByTestId("lock-reset-cancel").click();
+  await expect(again.page.getByTestId("lock-submit")).toBeVisible();
+  await again.page.getByTestId("lock-forgot").click();
+  await again.page.getByTestId("lock-reset").click();
+  await expect(again.page.getByTestId("pin-confirm")).toBeVisible({ timeout: 30_000 });
+  await enterPin(again.page);
+  const fresh = await again.page.evaluate(async () => (await fetch("/api/settings")).json());
+  expect(fresh.commitName).not.toBe("Locked Test");
   await again.app.close();
+});
+
+test("an old plain database can only be reset", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-home-"));
+  fs.writeFileSync(
+    path.join(home, "app.db"),
+    Buffer.concat([Buffer.from("SQLite format 3\0", "latin1"), Buffer.alloc(84)]),
+  );
+  const { app, page } = await launch(home);
+  await expect(page.getByTestId("lock-reset")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("pin")).toHaveCount(0);
+  await expect(page.getByTestId("lock-reset-cancel")).toHaveCount(0);
+  await page.getByTestId("lock-reset").click();
+  await enterPin(page);
+  await app.close();
 });
 
 test("the menus and the About panel follow the language chosen in settings", async () => {

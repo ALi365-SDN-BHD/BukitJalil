@@ -1183,6 +1183,20 @@ const en: Messages = {
     confirmNextPin: "Enter the new PIN again",
     change: "Change PIN",
     changed: "PIN changed",
+    forgot: "Forgot your PIN?",
+    resetTitle: "Reset the app",
+    resetHint:
+      "Without the PIN the database cannot be opened; the only way back is a reset. It deletes all settings, the tokens of publishing accounts and data sources, model keys, AI conversations, change and build history, and the working copies, previews and Notion snapshots. Your site and theme folders are not deleted; add them again after the reset. This cannot be undone.",
+    resetConfirm: "Delete and reset",
+    resetCancel: "Cancel",
+    resetting: "Resetting; the app opens again in a moment…",
+    legacyTitle: "This is data from an earlier version",
+    legacyHint:
+      "This data directory comes from an earlier test version without a PIN. Its data is not encrypted and this version cannot open it. Reset to start again; your site and theme folders are not deleted.",
+    idleTitle: "Lock when idle",
+    idleHint: "Lock the app after a while without use. Running AI turns, builds and publishes carry on.",
+    idleOff: "Off",
+    idleMinutes: "{minutes} min",
   },
   errors: {
     "auth.required": "Your session has expired. Press Enter in the terminal running BukitJalil and open the new link.",
@@ -1233,6 +1247,7 @@ const en: Messages = {
     "security.pin_not_set": "No PIN has been set yet",
     "security.wrong_pin": "Wrong PIN",
     "security.retry_later": "Too many wrong PINs. Try again in {seconds} seconds",
+    "security.legacy_database": "This is unencrypted data from an earlier version; the app can only be reset",
     "build.not_found": "Build not found",
     "site.read_only": "Read-only because it does not meet the safety rules",
     "site.create_failed": "Bukit could not create the site: {detail}",

@@ -152,6 +152,22 @@ test("the packaged app runs its bundled server and creates a site from its own f
     async () => (await fetch("/api/models").then((r) => r.json())).providers.length,
   );
   expect(providers).toBeGreaterThan(5);
+
+  // The whole lock (plan 6.9): lock, a wrong PIN, unlock; then a forgotten PIN resets the app, which opens
+  // again asking for a new PIN, with the user's site folder untouched.
+  await page.getByTestId("lock-app").click();
+  await page.getByTestId("pin").fill("9999");
+  await page.getByTestId("lock-submit").click();
+  await expect(page.getByTestId("lock-error")).toBeVisible();
+  await page.getByTestId("pin").fill("1234");
+  await page.getByTestId("lock-submit").click();
+  await expect(page.getByTestId("new-site")).toBeVisible();
+  await page.getByTestId("lock-app").click();
+  await page.getByTestId("lock-forgot").click();
+  await page.getByTestId("lock-reset").click();
+  await expect(page.getByTestId("pin-confirm")).toBeVisible({ timeout: 30_000 });
+  expect(fs.statSync(path.join(home, ".bukitjalil/app.db")).size).toBe(0);
+  expect(fs.existsSync(path.join(home, "packaged-site/site.yaml"))).toBe(true);
   await electron.close();
   expect(fs.existsSync(path.join(home, ".bukitjalil/server.lock"))).toBe(false);
 });

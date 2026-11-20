@@ -106,8 +106,8 @@ afterEach(() => {
  * Tests here use ports 46700-46769, apart from the preview pools of the other test files (48810+, 49500+),
  * which run in parallel.
  */
-function startDesktop(home: string, port: number) {
-  const child = fork(MAIN, ["--desktop", "--port", String(port), "--preview-port-base", String(port + 1)], {
+function startDesktop(home: string, port: number, extra: string[] = []) {
+  const child = fork(MAIN, ["--desktop", "--port", String(port), "--preview-port-base", String(port + 1), ...extra], {
     cwd: SERVER_DIR,
     execArgv: ["--import", "tsx", "--no-warnings"],
     env: { PATH: process.env.PATH, HOME: home, BUKITJALIL_HOME: home },
@@ -186,7 +186,14 @@ describe("desktop mode (plan M7)", () => {
     };
     // Locked until the first PIN (plan 6.9): the database stays closed.
     const security = await fetch("http://127.0.0.1:46750/api/security", { headers: { cookie } });
-    expect(await security.json()).toEqual({ mode: "pin", pinSet: false, locked: true, retryAfterSeconds: 0 });
+    expect(await security.json()).toEqual({
+      mode: "pin",
+      pinSet: false,
+      locked: true,
+      retryAfterSeconds: 0,
+      legacy: false,
+      idleMinutes: null,
+    });
     expect((await fetch("http://127.0.0.1:46750/api/publish-accounts", { headers: { cookie } })).status).toBe(423);
     expect(fs.statSync(path.join(home, "app.db")).size).toBe(0);
 
@@ -207,6 +214,43 @@ describe("desktop mode (plan M7)", () => {
       expect(fs.readFileSync(path.join(file.parentPath, file.name)).includes(token), file.name).toBe(false);
     }
     expect(fs.readFileSync(path.join(home, "app.db")).subarray(0, 15).toString()).not.toBe("SQLite format 3");
+  }, 30_000);
+
+  it("asks the desktop app for a restart with --reset, which deletes the data before anything opens it", async () => {
+    const home = tmp();
+    const site = path.join(home, "..", `${path.basename(home)}-site`);
+    fs.mkdirSync(site);
+    fs.writeFileSync(path.join(site, "site.yaml"), "title: Kept\n");
+    const s = startDesktop(home, 46760);
+    expect(await s.next("ready")).toMatchObject({ type: "ready" });
+    const cookie = await login(s);
+    expect((await setupPin(46760, cookie)).status).toBe(200);
+    fs.mkdirSync(path.join(home, "worktrees", "x"), { recursive: true });
+    // Allowed while locked: a forgotten PIN is the reason for it.
+    const headers = {
+      cookie,
+      "content-type": "application/json",
+      "x-bukitjalil": "1",
+      origin: "http://127.0.0.1:46760",
+    };
+    expect((await fetch("http://127.0.0.1:46760/api/security/lock", { method: "POST", headers })).status).toBe(200);
+    const asked = s.next("reset");
+    expect((await fetch("http://127.0.0.1:46760/api/security/reset", { method: "POST", headers })).status).toBe(202);
+    expect(await asked).toEqual({ type: "reset" });
+    s.child.send({ type: "shutdown" });
+    expect(await s.exited).toBe(0);
+    expect(fs.statSync(path.join(home, "app.db")).size).toBeGreaterThan(0);
+
+    const again = startDesktop(home, 46760, ["--reset"]);
+    expect(await again.next("ready")).toMatchObject({ type: "ready" });
+    expect(fs.statSync(path.join(home, "app.db")).size).toBe(0);
+    expect(fs.readdirSync(path.join(home, "worktrees"))).toEqual([]);
+    expect(fs.readFileSync(path.join(site, "site.yaml"), "utf8")).toBe("title: Kept\n");
+    const fresh = await login(again);
+    const status = await fetch("http://127.0.0.1:46760/api/security", { headers: { cookie: fresh } });
+    expect(await status.json()).toMatchObject({ pinSet: false, locked: true });
+    again.child.send({ type: "shutdown" });
+    expect(await again.exited).toBe(0);
   }, 30_000);
 
   it("shuts down when the desktop app goes away without asking", async () => {

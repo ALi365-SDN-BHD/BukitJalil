@@ -1,7 +1,7 @@
 import { type Locale, PIN_PATTERN, type SecurityStatus, SUPPORTED_LOCALES } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LockKeyhole } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { detectLocale, I18nProvider, useI18n } from "@/i18n";
@@ -43,6 +43,7 @@ export function LockGate({ children }: { children: ReactNode }) {
   // Looked at again whenever the server answers "locked".
   useEffect(() => onAppLocked(() => void queryClient.invalidateQueries({ queryKey: keys.security })), [queryClient]);
   const status = useSecurityStatus();
+  useActivity(status.data?.mode === "pin" && !status.data.locked && status.data.idleMinutes !== null);
   // Only before the first answer: a refetch after an error is pending again, and hiding the app then would
   // unmount and remount it over and over.
   if (status.isPending && !status.isFetched) return null;
@@ -56,6 +57,32 @@ export function LockGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Well under the shortest idle time (1 minute), so a check between two touches never finds active use idle. */
+const TOUCH_EVERY_MS = 15_000;
+
+/**
+ * While idle locking is on, tell the server the app is in use (plan 6.9): keys, clicks, scrolling and
+ * touches, at most every 15 seconds. Background requests do not count, so an open but unused window locks.
+ */
+function useActivity(enabled: boolean): void {
+  const last = useRef(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - last.current < TOUCH_EVERY_MS) return;
+      last.current = now;
+      // A failure (locked meanwhile, server gone) shows up through the other requests.
+      api.touch().catch(() => {});
+    };
+    const events = ["keydown", "pointerdown", "wheel", "touchstart"] as const;
+    for (const type of events) window.addEventListener(type, onActivity, { passive: true });
+    return () => {
+      for (const type of events) window.removeEventListener(type, onActivity);
+    };
+  }, [enabled]);
+}
+
 /** Seconds left of a wait that ends at `until` (ms), ticking once a second. */
 function useCountdown(until: number): number {
   const [now, setNow] = useState(Date.now);
@@ -67,7 +94,49 @@ function useCountdown(until: number): number {
   return Math.max(0, Math.ceil((until - now) / 1000));
 }
 
+/** The lock screen: set up or enter the PIN; a forgotten PIN or an old plain database leads to the reset. */
 function LockScreen({ status }: { status: SecurityStatus }) {
+  const [forgot, setForgot] = useState(false);
+  if (status.legacy || forgot) {
+    return <ResetScreen legacy={status.legacy} onCancel={status.legacy ? undefined : () => setForgot(false)} />;
+  }
+  return <PinScreen status={status} onForgot={() => setForgot(true)} />;
+}
+
+/** The centred card every lock screen state is shown in. */
+function LockCard({
+  title,
+  hint,
+  onSubmit,
+  children,
+}: {
+  title: string;
+  hint: string;
+  onSubmit?: (event: FormEvent) => void;
+  children: ReactNode;
+}) {
+  const titleId = useId();
+  return (
+    <main className="flex h-dvh items-center justify-center bg-muted/30 p-4 text-foreground" data-testid="lock-screen">
+      <form
+        onSubmit={onSubmit ?? ((event) => event.preventDefault())}
+        className="flex w-full max-w-sm flex-col gap-4 rounded-xl border bg-background p-6 shadow-lg"
+        aria-labelledby={titleId}
+      >
+        <div className="flex flex-col items-center gap-2 text-center">
+          <LockKeyhole className="size-8 text-muted-foreground" aria-hidden />
+          <h1 id={titleId} className="text-lg font-semibold">
+            {title}
+          </h1>
+          <p className="text-sm text-muted-foreground">{hint}</p>
+        </div>
+        {children}
+      </form>
+    </main>
+  );
+}
+
+function PinScreen({ status, onForgot }: { status: SecurityStatus; onForgot: () => void }) {
   const { m, t, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const setup = !status.pinSet;
@@ -110,39 +179,74 @@ function LockScreen({ status }: { status: SecurityStatus }) {
       : null;
 
   return (
-    <main className="flex h-dvh items-center justify-center bg-muted/30 p-4 text-foreground" data-testid="lock-screen">
-      <form
-        onSubmit={onSubmit}
-        className="flex w-full max-w-sm flex-col gap-4 rounded-xl border bg-background p-6 shadow-lg"
-        aria-labelledby={`${pinId}-title`}
-      >
-        <div className="flex flex-col items-center gap-2 text-center">
-          <LockKeyhole className="size-8 text-muted-foreground" aria-hidden />
-          <h1 id={`${pinId}-title`} className="text-lg font-semibold">
-            {setup ? m.lock.setupTitle : m.lock.lockedTitle}
-          </h1>
-          <p className="text-sm text-muted-foreground">{setup ? m.lock.setupHint : m.lock.lockedHint}</p>
-        </div>
-        <PinField id={pinId} label={m.lock.pin} value={pin} onChange={setPin} autoFocus testId="pin" />
-        {setup && (
-          <PinField
-            id={confirmId}
-            label={m.lock.confirmPin}
-            value={confirm}
-            onChange={setConfirm}
-            testId="pin-confirm"
-          />
-        )}
-        {(error ?? apiError) && (
-          <p role="alert" className="text-sm text-destructive" data-testid="lock-error">
-            {error ?? apiError}
-          </p>
-        )}
-        <Button type="submit" disabled={!valid || waiting > 0 || submit.isPending} data-testid="lock-submit">
-          {submit.isPending ? m.lock.working : setup ? m.lock.setup : m.lock.unlock}
+    <LockCard
+      title={setup ? m.lock.setupTitle : m.lock.lockedTitle}
+      hint={setup ? m.lock.setupHint : m.lock.lockedHint}
+      onSubmit={onSubmit}
+    >
+      <PinField id={pinId} label={m.lock.pin} value={pin} onChange={setPin} autoFocus testId="pin" />
+      {setup && (
+        <PinField id={confirmId} label={m.lock.confirmPin} value={confirm} onChange={setConfirm} testId="pin-confirm" />
+      )}
+      {(error ?? apiError) && (
+        <p role="alert" className="text-sm text-destructive" data-testid="lock-error">
+          {error ?? apiError}
+        </p>
+      )}
+      <Button type="submit" disabled={!valid || waiting > 0 || submit.isPending} data-testid="lock-submit">
+        {submit.isPending ? m.lock.working : setup ? m.lock.setup : m.lock.unlock}
+      </Button>
+      {/* Also during the wait after wrong PINs: the reset is the way out when the PIN is gone. */}
+      {!setup && (
+        <Button type="button" variant="link" size="sm" onClick={onForgot} data-testid="lock-forgot">
+          {m.lock.forgot}
         </Button>
-      </form>
-    </main>
+      )}
+    </LockCard>
+  );
+}
+
+/**
+ * Reset after a forgotten PIN, or for a plain database from an earlier version (plan 6.9): says what is
+ * deleted and that it cannot be undone. The desktop app restarts the server and opens the app again.
+ */
+function ResetScreen({ legacy, onCancel }: { legacy: boolean; onCancel?: () => void }) {
+  const { m, errorOf } = useI18n();
+  const reset = useMutation({ mutationFn: api.resetApp });
+  return (
+    <LockCard
+      title={legacy ? m.lock.legacyTitle : m.lock.resetTitle}
+      hint={legacy ? m.lock.legacyHint : m.lock.resetHint}
+    >
+      {legacy && <p className="text-sm text-muted-foreground">{m.lock.resetHint}</p>}
+      {reset.isSuccess ? (
+        <p role="status" className="text-sm text-muted-foreground" data-testid="lock-resetting">
+          {m.lock.resetting}
+        </p>
+      ) : (
+        <>
+          {reset.error && (
+            <p role="alert" className="text-sm text-destructive" data-testid="lock-error">
+              {errorOf(reset.error)}
+            </p>
+          )}
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={reset.isPending}
+            onClick={() => reset.mutate()}
+            data-testid="lock-reset"
+          >
+            {m.lock.resetConfirm}
+          </Button>
+          {onCancel && (
+            <Button type="button" variant="ghost" onClick={onCancel} data-testid="lock-reset-cancel">
+              {m.lock.resetCancel}
+            </Button>
+          )}
+        </>
+      )}
+    </LockCard>
   );
 }
 

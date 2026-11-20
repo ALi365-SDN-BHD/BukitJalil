@@ -7,6 +7,8 @@
 export type DesktopOutbound =
   | { type: "ready"; port: number }
   | { type: "login"; url: string }
+  /** Forgotten PIN (plan 6.9): stop this server and start it again with --reset. */
+  | { type: "reset" }
   /** Open a downloaded installer with the desktop app (the app checks the path is inside its data directory). */
   | { type: "open-update"; id: number; path: string }
   | { type: "error"; code: "port_in_use" | "home_in_use" | "start_failed"; message: string };

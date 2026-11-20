@@ -102,6 +102,7 @@ const server = new ServerProcess({
     BUKITJALIL_VERSION: appVersion,
   },
   firstPort: Number(process.env.BUKITJALIL_DESKTOP_PORT) || DEFAULT_PORT,
+  onReset: () => void resetApp(),
   openUpdate,
 });
 
@@ -141,6 +142,14 @@ async function open() {
   const url = await server.login();
   if (!url) return showError(text.failed(), "", server.output());
   await win?.loadURL(url);
+}
+
+/** Forgotten PIN (plan 6.9): the server asked to be started again with --reset, then the app opens anew. */
+async function resetApp() {
+  showStatus({ title: text.starting(), text: text.starting() });
+  const result = await server.restartWithReset();
+  if (!result.ok) return explain(result);
+  await open();
 }
 
 server.onExit = (_code, tail) => {

@@ -36,6 +36,7 @@ import { ProjectRepos } from "./projects/repo.ts";
 import { ProjectService } from "./projects/service.ts";
 import { PublishAccountService } from "./publish/accounts.ts";
 import { SecurityService } from "./security/pin.ts";
+import { resetAppData } from "./security/reset.ts";
 import { LoginToken, randomSecret } from "./security/token.ts";
 import { FieldVault } from "./security/vault.ts";
 import { SiteLocks } from "./sites/locks.ts";
@@ -83,6 +84,7 @@ const { values } = parseArgs({
     "dev-origin": { type: "string" },
     "no-open": { type: "boolean", default: false },
     desktop: { type: "boolean", default: false },
+    reset: { type: "boolean", default: false },
   },
   strict: true,
 });
@@ -91,6 +93,7 @@ if (values.desktop) {
   desktop = desktopChannel();
   if (!desktop) fail("--desktop is only for the desktop app");
 }
+if (values.reset && !desktop) fail("--reset is only for the desktop app");
 
 const port = parsePort(values.port, DEFAULT_ADMIN_PORT, "--port");
 const previewBase = parsePort(values["preview-port-base"], DEFAULT_PREVIEW_PORT_BASE, "--preview-port-base");
@@ -117,6 +120,12 @@ try {
   throw err;
 }
 process.on("exit", () => releaseLock());
+// A forgotten PIN (plan 6.9): the desktop app stopped the old server and started this one to delete the data,
+// before anything opens the database. The emptied directory is set up again as on a first start.
+if (values.reset) {
+  resetAppData(paths);
+  ensureAppHome(paths.home);
+}
 // Before anything can load Pi: it reads these when its modules load (plan 6.1).
 preparePiEnvironment(paths.pi);
 const logger = createLogger(paths.logs);
@@ -211,7 +220,10 @@ const security = new SecurityService({
     }
   },
   onLock: () => runtime?.events.closeAll(),
+  ...(desktop ? { onReset: () => desktop?.send({ type: "reset" }) } : {}),
 });
+// Idle locking (plan 6.9), off unless the user turned it on.
+setInterval(() => security.checkIdle(), 30_000).unref();
 
 function startServices(db: Db): Runtime {
   const settingsStore = new SettingsStore(db);

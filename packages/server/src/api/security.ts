@@ -1,4 +1,4 @@
-import { ChangePinRequest, PinRequest } from "@bukitjalil/shared";
+import { ChangePinRequest, IdleRequest, PinRequest } from "@bukitjalil/shared";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
 import { apiError } from "../security/guard.ts";
@@ -10,7 +10,10 @@ export function openWhileLocked(pathname: string): boolean {
   return pathname === "/api/health" || pathname === "/api/security" || pathname.startsWith("/api/security/");
 }
 
-/** The app lock (plan 6.9): status, first PIN, unlock, lock, change PIN. SiteErrors reach onError. */
+/**
+ * The app lock (plan 6.9): status, first PIN, unlock, lock, change PIN, idle lock, activity, reset after a
+ * forgotten PIN. SiteErrors reach onError.
+ */
 export function securityRoutes(api: Hono<AppEnv>, security: SecurityService) {
   api.get("/security", (c) => c.json(security.status()));
   api.post("/security/setup", async (c) => {
@@ -26,4 +29,10 @@ export function securityRoutes(api: Hono<AppEnv>, security: SecurityService) {
     const req = await body(c, ChangePinRequest);
     return req ? c.json(security.changePin(req.currentPin, req.nextPin)) : apiError(c, 400, "request.invalid_body");
   });
+  api.post("/security/idle", async (c) => {
+    const req = await body(c, IdleRequest);
+    return req ? c.json(security.setIdleMinutes(req.minutes)) : apiError(c, 400, "request.invalid_body");
+  });
+  api.post("/security/touch", (c) => c.json(security.touch()));
+  api.post("/security/reset", (c) => c.json(security.reset(), 202));
 }

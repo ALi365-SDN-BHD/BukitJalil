@@ -25,6 +25,7 @@ export const errorCodes = [
   "security.pin_not_set",
   "security.wrong_pin",
   "security.retry_later",
+  "security.legacy_database",
   "fs.not_found",
   "fs.not_directory",
   "fs.permission_denied",

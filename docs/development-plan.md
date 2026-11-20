@@ -1,6 +1,6 @@
 # BukitJalil 开发方案与实施计划
 
-> 版本：v2.85（2026-11-21，PIN 锁定 P3：会话记录进库；v2.84：2026-11-21，PIN 锁定 P2：密钥进库，去掉钥匙串；v2.83：2026-11-21，PIN 锁定 P1：PIN 和整库加密已实现；v2.82：2026-11-21，PIN 锁定 P0：数据库驱动换成 `better-sqlite3-multiple-ciphers` 13.2.0，Node-API 预编译文件不需要按 Electron 重新编译；v2.81：2026-11-20，新增 6.9 PIN 锁定和数据库加密的设计，14 新增"PIN 锁定"分层 P0–P4，6.7 实施后由 6.9 取代；v2.80：2026-11-18，11 安全表补 Windows 上的 PATH 回退和 lstat 取舍；v2.79：2026-11-18，14 M7 之后：Windows 移植第 1、2、3、6、9 项的代码已写完，类型检查和 macOS 单元测试通过，待实机验证；v2.78：2026-11-18，14 M7 之后：Windows 移植的测试修好（单元 538 通过、132 跳过、0 失败，e2e 43 通过、5 跳过、0 失败），新增 `O_NOFOLLOW` 缺口和真 Bukit 测试两项，总工作量改为 4–6 天；v2.77：2026-11-18，Windows 移植加了 `.gitattributes`，单元测试失败 252 → 138，第 5 项的剩余原因归类；v2.76：2026-11-18，Windows 移植第 0 项补跑结果（全套测试失败归类、普通用户链接），总工作量改为 4–7 天；v2.75：2026-11-18，Windows 移植第 0 项的首次实测（runner 上打包后的桌面版冒烟测试通过，修订第 1–4 项和总工作量）；v2.74：2026-11-18，新增 Windows 移植估算（阻塞项、工作量、顺序、验收），Linux 无钥匙串的"应用主密码"另列；v2.73：2026-11-16，5.2：Bukit 2.2.6 的 `bukit new` 不再写 `...`，删除 BukitJalil 去掉它的那一步，fixture 按 2.2.6 重新生成；v2.72：2026-11-16，8.1：Bukit 升到 2.2.6（`BUKIT_VERSION`、`MIN_BUKIT_VERSION`、五个 SHA-256）；6.4：技能来源指向 v2.2.6，`guide/skills` 与 v2.2.5 相同，技能内容不变；8.5：2.2.6 起 Bukit 拒绝多文档，行为测试改为断言拒绝（BKT-0003）；11：搜索脚本随 2.2.6 发布，已在 Chromium、Firefox、WebKit 的带预览 CSP 的服务里验证（索引走 `<script>` 回退）；v2.71（2026-11-16，8.1 / M7：支持 Intel Mac 和 Linux ARM（Bukit 包、桌面安装包、发布 CI、应用更新）；6.4：技能同步到 Bukit v2.2.5，多语言技能补界面文字；8.5：`site.yaml` 有多个 YAML 文档时说明原因；v2.70：2026-11-16，5.2：新建网站改用 `bukit new`，删除自带的 starter 副本；v2.69：2026-11-16，8.1：Bukit pin 到 2.2.5，`MIN_BUKIT_VERSION` 提到 2.2.5，5.2：starter 改从 v2.2.5 生成，简体中文网站写入中文界面文字；v2.68：2026-11-16，10.5：应用更新审计修复：打开结果回传、AppImage 替换并重启、Windows 隐藏更新、`.part`/磁盘/校验值错误、格式字段、版本文件、边车复用；第 1 项无独立签名仍按开发测试阶段记录；v2.67（2026-11-16，新增 10.5 应用更新：无 Developer ID 时检查更新、后台下载并打开安装包；版本号以根 package.json 为准，发布标签必须一致；v2.66（2026-11-16，7.2：用户操作的说明和 AI 的说明分开保存，会话加入后保留用户说明并补注 AI 的修改；v2.65：2026-11-16，7.2：作者统一按 `ai_joined` 判断，整体应用和部分应用相同；v2.64：2026-11-16，8.1：Bukit pin 到 2.2.4，5.2：starter 改从 v2.2.4 生成；v2.63：2026-11-16，6.8：上传网址发布前检查已实现；v2.62：2026-11-16，6.8：素材上传审阅修复：只差大小写的替换用接口返回的名字落盘、默认分支的 baseUrl、队列在 site.busy 时暂停、只读网站禁用上传、删除的文件不预览、JPEG 填充字节和路径检查整理；v2.61：2026-11-16，6.8：素材上传已实现；v2.60：2026-11-16，素材上传设计按定下的范围重写为 v4：作者规则、全局请求体上限、上传网址发布前检查移到 AGENTS.md 待开发任务；v2.59：2026-11-15，5.2：记录 `bukit new` 计划替代 starter 副本，修正 `theme.yaml`、v2.1.0 来源和占位符说明，增加实施前工作区检查；v2.58：2026-11-15，清理过时内容：1.3 待做只剩素材上传和等 Bukit 的两种发布，2.1 的 Bukit 改为 2.2.3，16 第 3 条补上离线预览；v2.57：2026-11-15，6.7、8.7：Bukit 2.2.3 的凭据代理已上线，推送时 GitHub token 不再进 git 的环境变量，"剩下的缺口"改为已解决；v2.56：2026-11-15，8.7：删除 Bukit 2.1 语言迁移卡和接口，没有存量网站，不做兼容；默认语言不再读 `site.language`；v2.55：2026-11-15，5.5：离线构建用 `--notion-pin` 固定 Notion 字段和过滤；8.1：Bukit pin 到 2.2.3；v2.54（2026-11-15，8.1：Bukit pin 到 2.2.2）；v2.52（2026-11-14，5.4/5.5：Notion 报错和快照报错按 Bukit 2.2.0 的 BKT-0Bxx 码识别，删除文字匹配；8.1 记下 2.2.0；v2.51（2026-11-14，5.5：Bukit 版本按审阅改为 2.2.0，修正 fixture 的草稿过滤和 bukitVersion 说明；v2.50（2026-11-14，5.5：错误码方案按第二次审阅修订（v3）：public-api-drift 要更新基线、兼容测试只比较发布文件；v2.49：2026-11-14，5.5：错误码方案的 D5–D8 按建议定下；v2.48：2026-11-14，5.5：错误码方案按审阅修订（v2），快照的码按 stale / change 拆分，新增待确认的 D5–D8，兼容测试改为整站离线等于联网、不含媒体缓存；v2.47：2026-11-14，5.5：BukitJalil 这边已实现：正式构建记录 Notion 离线快照，AI 检查、AI 构建和改动集预览离线读取，数据面板显示每个源的条数；v2.46：2026-11-14，5.5：错误码方案的 D1–D4 定下，Bukit 按 2.1.1 发；v2.45：2026-11-14，5.5：Notion 报错和快照报错的错误码方案、兼容测试改为"离线等于联网"，详见 `docs/notion-error-codes-and-snapshot-version.md`；v2.44：2026-11-14，5.5：Notion 离线快照只校验格式版本，不再要求 Bukit 版本一致，Bukit 加固定快照的兼容测试；v2.43：2026-11-14，新增 5.5：Notion 离线快照的设计；新增 8.7：升级到 Bukit 2.1.0，迁移卡、已发布地址不变、token 走 stdin；v2.42：2026-11-14，新增 6.7：token 和模型密钥用系统钥匙串加密保存；v2.41：2026-11-13，新增 8.6：显示 Bukit 自己的错误、认出远程图片下载失败、新网站默认 `onFailure: keep`；v2.40：2026-11-13，Bukit 随 BukitJalil 发布：安装包里带固定版本，删除安装和升级功能，见 8.1；v2.39：2026-11-13，5.4 已实现，补上审计后的规则：doctor 报错的翻译、Notion 源不区分大小写、按纯文本读 site.yaml；v2.38：2026-11-13，新增 5.4 Notion 数据源管理第一步：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 Notion 报错；v2.37：2026-11-13，新增 10.4 SEO / GEO 报告面板：右侧单独的标签页，完整问题清单、按页面筛选、和上一次构建对比，"让 AI 修"开一个新对话；v2.36：2026-11-13，新增 7.5 部分应用的设计：没选中的部分留在改动集里，按文件和代码块选；v2.35：2026-11-13，Bukit 行为测试：`test/bukit-behavior.test.ts` 每次推送用内置版本跑，`bukit-latest.yml` 每天用最新正式版跑；v2.34：2026-11-13，补上"工作副本已重置"说明和按差异生成的提交说明；v2.33：2026-11-13，预览改用网站真实的 baseUrl：构建传校验过的 `--base-url`，预览服务挂在这个前缀下；v2.32：2026-11-13，定下待定问题 7、8、10：Bukit 继续装最新版，加最低版本和 CI 行为测试；部署设置继续直接提交，预览改用网站真实的 baseUrl；两项未实现的功能补上；v2.31：2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
+> 版本：v2.86（2026-11-21，PIN 锁定 P4：忘记 PIN 时重置、旧明文库只能重置、空闲自动锁定，4.1、4.2、6.5、6.7、11 和使用说明改为现状，PIN 锁定完成；v2.85：2026-11-21，PIN 锁定 P3：会话记录进库；v2.84：2026-11-21，PIN 锁定 P2：密钥进库，去掉钥匙串；v2.83：2026-11-21，PIN 锁定 P1：PIN 和整库加密已实现；v2.82：2026-11-21，PIN 锁定 P0：数据库驱动换成 `better-sqlite3-multiple-ciphers` 13.2.0，Node-API 预编译文件不需要按 Electron 重新编译；v2.81：2026-11-20，新增 6.9 PIN 锁定和数据库加密的设计，14 新增"PIN 锁定"分层 P0–P4，6.7 实施后由 6.9 取代；v2.80：2026-11-18，11 安全表补 Windows 上的 PATH 回退和 lstat 取舍；v2.79：2026-11-18，14 M7 之后：Windows 移植第 1、2、3、6、9 项的代码已写完，类型检查和 macOS 单元测试通过，待实机验证；v2.78：2026-11-18，14 M7 之后：Windows 移植的测试修好（单元 538 通过、132 跳过、0 失败，e2e 43 通过、5 跳过、0 失败），新增 `O_NOFOLLOW` 缺口和真 Bukit 测试两项，总工作量改为 4–6 天；v2.77：2026-11-18，Windows 移植加了 `.gitattributes`，单元测试失败 252 → 138，第 5 项的剩余原因归类；v2.76：2026-11-18，Windows 移植第 0 项补跑结果（全套测试失败归类、普通用户链接），总工作量改为 4–7 天；v2.75：2026-11-18，Windows 移植第 0 项的首次实测（runner 上打包后的桌面版冒烟测试通过，修订第 1–4 项和总工作量）；v2.74：2026-11-18，新增 Windows 移植估算（阻塞项、工作量、顺序、验收），Linux 无钥匙串的"应用主密码"另列；v2.73：2026-11-16，5.2：Bukit 2.2.6 的 `bukit new` 不再写 `...`，删除 BukitJalil 去掉它的那一步，fixture 按 2.2.6 重新生成；v2.72：2026-11-16，8.1：Bukit 升到 2.2.6（`BUKIT_VERSION`、`MIN_BUKIT_VERSION`、五个 SHA-256）；6.4：技能来源指向 v2.2.6，`guide/skills` 与 v2.2.5 相同，技能内容不变；8.5：2.2.6 起 Bukit 拒绝多文档，行为测试改为断言拒绝（BKT-0003）；11：搜索脚本随 2.2.6 发布，已在 Chromium、Firefox、WebKit 的带预览 CSP 的服务里验证（索引走 `<script>` 回退）；v2.71（2026-11-16，8.1 / M7：支持 Intel Mac 和 Linux ARM（Bukit 包、桌面安装包、发布 CI、应用更新）；6.4：技能同步到 Bukit v2.2.5，多语言技能补界面文字；8.5：`site.yaml` 有多个 YAML 文档时说明原因；v2.70：2026-11-16，5.2：新建网站改用 `bukit new`，删除自带的 starter 副本；v2.69：2026-11-16，8.1：Bukit pin 到 2.2.5，`MIN_BUKIT_VERSION` 提到 2.2.5，5.2：starter 改从 v2.2.5 生成，简体中文网站写入中文界面文字；v2.68：2026-11-16，10.5：应用更新审计修复：打开结果回传、AppImage 替换并重启、Windows 隐藏更新、`.part`/磁盘/校验值错误、格式字段、版本文件、边车复用；第 1 项无独立签名仍按开发测试阶段记录；v2.67（2026-11-16，新增 10.5 应用更新：无 Developer ID 时检查更新、后台下载并打开安装包；版本号以根 package.json 为准，发布标签必须一致；v2.66（2026-11-16，7.2：用户操作的说明和 AI 的说明分开保存，会话加入后保留用户说明并补注 AI 的修改；v2.65：2026-11-16，7.2：作者统一按 `ai_joined` 判断，整体应用和部分应用相同；v2.64：2026-11-16，8.1：Bukit pin 到 2.2.4，5.2：starter 改从 v2.2.4 生成；v2.63：2026-11-16，6.8：上传网址发布前检查已实现；v2.62：2026-11-16，6.8：素材上传审阅修复：只差大小写的替换用接口返回的名字落盘、默认分支的 baseUrl、队列在 site.busy 时暂停、只读网站禁用上传、删除的文件不预览、JPEG 填充字节和路径检查整理；v2.61：2026-11-16，6.8：素材上传已实现；v2.60：2026-11-16，素材上传设计按定下的范围重写为 v4：作者规则、全局请求体上限、上传网址发布前检查移到 AGENTS.md 待开发任务；v2.59：2026-11-15，5.2：记录 `bukit new` 计划替代 starter 副本，修正 `theme.yaml`、v2.1.0 来源和占位符说明，增加实施前工作区检查；v2.58：2026-11-15，清理过时内容：1.3 待做只剩素材上传和等 Bukit 的两种发布，2.1 的 Bukit 改为 2.2.3，16 第 3 条补上离线预览；v2.57：2026-11-15，6.7、8.7：Bukit 2.2.3 的凭据代理已上线，推送时 GitHub token 不再进 git 的环境变量，"剩下的缺口"改为已解决；v2.56：2026-11-15，8.7：删除 Bukit 2.1 语言迁移卡和接口，没有存量网站，不做兼容；默认语言不再读 `site.language`；v2.55：2026-11-15，5.5：离线构建用 `--notion-pin` 固定 Notion 字段和过滤；8.1：Bukit pin 到 2.2.3；v2.54（2026-11-15，8.1：Bukit pin 到 2.2.2）；v2.52（2026-11-14，5.4/5.5：Notion 报错和快照报错按 Bukit 2.2.0 的 BKT-0Bxx 码识别，删除文字匹配；8.1 记下 2.2.0；v2.51（2026-11-14，5.5：Bukit 版本按审阅改为 2.2.0，修正 fixture 的草稿过滤和 bukitVersion 说明；v2.50（2026-11-14，5.5：错误码方案按第二次审阅修订（v3）：public-api-drift 要更新基线、兼容测试只比较发布文件；v2.49：2026-11-14，5.5：错误码方案的 D5–D8 按建议定下；v2.48：2026-11-14，5.5：错误码方案按审阅修订（v2），快照的码按 stale / change 拆分，新增待确认的 D5–D8，兼容测试改为整站离线等于联网、不含媒体缓存；v2.47：2026-11-14，5.5：BukitJalil 这边已实现：正式构建记录 Notion 离线快照，AI 检查、AI 构建和改动集预览离线读取，数据面板显示每个源的条数；v2.46：2026-11-14，5.5：错误码方案的 D1–D4 定下，Bukit 按 2.1.1 发；v2.45：2026-11-14，5.5：Notion 报错和快照报错的错误码方案、兼容测试改为"离线等于联网"，详见 `docs/notion-error-codes-and-snapshot-version.md`；v2.44：2026-11-14，5.5：Notion 离线快照只校验格式版本，不再要求 Bukit 版本一致，Bukit 加固定快照的兼容测试；v2.43：2026-11-14，新增 5.5：Notion 离线快照的设计；新增 8.7：升级到 Bukit 2.1.0，迁移卡、已发布地址不变、token 走 stdin；v2.42：2026-11-14，新增 6.7：token 和模型密钥用系统钥匙串加密保存；v2.41：2026-11-13，新增 8.6：显示 Bukit 自己的错误、认出远程图片下载失败、新网站默认 `onFailure: keep`；v2.40：2026-11-13，Bukit 随 BukitJalil 发布：安装包里带固定版本，删除安装和升级功能，见 8.1；v2.39：2026-11-13，5.4 已实现，补上审计后的规则：doctor 报错的翻译、Notion 源不区分大小写、按纯文本读 site.yaml；v2.38：2026-11-13，新增 5.4 Notion 数据源管理第一步：数据面板读取字段、审核卡突出 Notion 配置变化、翻译 Notion 报错；v2.37：2026-11-13，新增 10.4 SEO / GEO 报告面板：右侧单独的标签页，完整问题清单、按页面筛选、和上一次构建对比，"让 AI 修"开一个新对话；v2.36：2026-11-13，新增 7.5 部分应用的设计：没选中的部分留在改动集里，按文件和代码块选；v2.35：2026-11-13，Bukit 行为测试：`test/bukit-behavior.test.ts` 每次推送用内置版本跑，`bukit-latest.yml` 每天用最新正式版跑；v2.34：2026-11-13，补上"工作副本已重置"说明和按差异生成的提交说明；v2.33：2026-11-13，预览改用网站真实的 baseUrl：构建传校验过的 `--base-url`，预览服务挂在这个前缀下；v2.32：2026-11-13，定下待定问题 7、8、10：Bukit 继续装最新版，加最低版本和 CI 行为测试；部署设置继续直接提交，预览改用网站真实的 baseUrl；两项未实现的功能补上；v2.31：2026-11-13，Notion 网站可以发布；绑定了数据源的 Notion 网站带 token 跑 `config check`，新建后自动构建；应用 Notion 网站的改动不再要求强制；源名称改用下划线；v2.30：2026-11-13，Notion token 只来自网站绑定的数据源，去掉"只有一个数据源就自动用"的兜底，数据面板可以绑定和解绑；v2.29：2026-11-12，按代码全面审计后修订：token 改为发布账号和数据源保存、Bukit 2.0.15 和最新版安装、部署设置直接提交、接口表和 SSE 事件补全、数据库表和目录布局补全、技能清单、设置页和 OAuth、构建前检查和安全头的实际规则、M7 之后的安装包；新增待定问题 7–11；v2.28：M7 设计和拆层；v2.27：M6 拆层并写入 Bukit 2.0.12 发布实测；v2.26：写入 M0–M5 收尾审计；v2.25：写入 M5 第 6 层实现说明和 M5 结果：真实模型验收；v2.24：写入 M4 第 7 层实现说明：SEO / GEO 审计结果；v2.23：Bukit 升到 2.0.12；v2.22：写入 M5 第 5 层实现说明：使用说明和安装步骤核对；v2.21：写入 M5 第 4 层实现说明：CI 用真实 Bukit；v2.20：写入 M5 第 1–3 层实现说明；v2.19：M5 拆层；v2.18：写入 M4 第 8 层和 M4 结果；v2.17：写入 M4 第 6 层实现说明：版本历史与恢复；v2.16：写入 M4 第 1–5 层实现说明；v2.13：M4 拆层；v2.12：写入 M3 第 8 层和 M3 结果；v2.11：写入 M3 第 7 层实现说明：模型设置；v2.10：写入 M3 第 6 层实现说明：对话界面；v2.9：写入 M3 第 5 层实现说明：会话 API 和 SSE 事件流；v2.8：写入 M3 第 4 层实现说明：建站工具和技能打包；v2.7：写入 M3 第 3 层实现说明：rg 安装和校验；v2.6：写入 M3 第 2 层实现说明：权限闸门和 6 个内置工具；v2.5：Pi SDK 升到 1.5.1 并写入核对结果，M3 拆层，写入 M3 第 1 层实现说明；v2.4：M2 完成并写入结果；v2.3 起：2026-11-09，已按评审、八轮审计和一次最高强度代码审查修改，写入第一批 M1 验证结果，Bukit 升级到 2.0.11，写入第二批 M1 验证结果，定 rg 版本，核对 deploy 的 git 调用、三个平台的 Bukit 安装包，三种浏览器里验证预览隔离；确认界面多语言、网站位置由用户选择） · 分支：`pi-harness-ui` · 状态：已确认（2026-11-09）
 >
 > 本文是 BukitJalil 新实现的设计依据。产品定位见 [README](../README.md)。文中"已核对"的内容来自 Pi 文档（本机 1.4.0）和 Pi SDK 1.5.0 的类型定义与更新日志、npm 仓库、Bukit 仓库 v2.0.11（部分结论最初核对于 v2.0.8，两版之间相关代码的差异已逐项核对，见 8.1）的文档、源码目录和发布页；"待验证"的内容需要在对应里程碑的技术验证里确认。代码现在用 Pi SDK 1.5.2、Bukit 2.2.6（升级说明见 8.7、8.1），从 Pi SDK 1.5.1 和 Bukit 2.0.12 升到 2.0.15 时的核对结论本文没有记录。
 
@@ -48,7 +48,7 @@
 
 - **M6 发布**（已完成）：GitHub Pages（Bukit 原生支持 `bukit deploy`）；之后改为"发布账号"管理 token（见 6.5、M6）
 - **M7 桌面版**（已完成）：Electron 壳；之后补了 Windows / Linux 安装包和自定义图标（见 M7）
-- M7 之后已做：Notion 数据源管理（按数据源保存 token，见 6.5；读取字段、离线快照和错误码见 5.4、5.5）、OAuth 模型登录、自定义模型、设置页（替代设置对话框）、按文件和代码块部分应用（7.5）、SEO / GEO 报告面板（10.4）、Bukit 随安装包发布（8.1）、token 用系统钥匙串加密（6.7）、应用更新（无 Developer ID 时手动安装，见 10.5）
+- M7 之后已做：Notion 数据源管理（按数据源保存 token，见 6.5；读取字段、离线快照和错误码见 5.4、5.5）、OAuth 模型登录、自定义模型、设置页（替代设置对话框）、按文件和代码块部分应用（7.5）、SEO / GEO 报告面板（10.4）、Bukit 随安装包发布（8.1）、token 用系统钥匙串加密（6.7，后由 6.9 取代）、PIN 锁定和整库加密（6.9）、应用更新（无 Developer ID 时手动安装，见 10.5）
 - 待做：
   - **素材上传**：已实现（2026-11-16，见 6.8）。上传图片和 PDF 到当前主题的 `static/uploads/`，进改动集审核；设计见 [plans/2026-11-12-media-upload-design.md](plans/2026-11-12-media-upload-design.md)
   - Cloudflare Pages 和自有服务器发布：等 Bukit 的 `deploy` 支持（见 AGENTS.md 第 3、4 项）
@@ -189,10 +189,7 @@ BukitJalil/
 
 ```text
 ~/.bukitjalil/                      # 应用数据目录（可用 BUKITJALIL_HOME 覆盖）
-├── app.db                          # SQLite：网站列表、会话索引、改动集、构建记录、设置（不含密钥）
-├── secret-key.enc                  # 桌面版：加密 token 和模型密钥用的主密钥，由系统钥匙串加密（0600，见 6.7）
-├── publish-account-tokens.enc.json # 每个发布账号的 GitHub token，加密（0600，见 6.5、6.7）；开发和测试时是明文的 publish-account-tokens.json
-├── data-source-tokens.enc.json     # 每个 Notion 数据源的 token，加密（同上）；明文时是 data-source-tokens.json
+├── app.db                          # SQLite：网站、会话和会话记录、改动集、构建记录、设置、四类密钥；桌面版整库用 PIN 加密（SQLCipher，见 6.9），开发和测试时不加密
 ├── server.lock                     # 同一数据目录只允许一个 server 运行
 ├── logs/server.log                 # 服务端日志（不含密钥）
 ├── tmp/                            # 临时文件；tmp/bukit/ 是 Bukit 子进程的 TMPDIR
@@ -200,11 +197,8 @@ BukitJalil/
 ├── empty-gitconfig                 # 空文件，git 调用的全局配置和属性文件都指向它（见 7.3）
 ├── empty-hooks/                    # 空目录，git 的 core.hooksPath 指向它（见 7.3）
 ├── pi/                             # 给 Pi 用的独立目录（agentDir + PI_CODING_AGENT_DIR），不读用户 ~/.pi
-│   ├── auth.enc.json               # 模型 API Key / OAuth，加密（0600，见 6.7）；开发和测试时是 Pi 自己的 auth.json
 │   ├── models.json
-│   ├── custom-models.enc.json      # 用户添加的自定义模型和它们的密钥，加密（0600）；明文时是 custom-models.json
 │   └── bin/                        # BukitJalil 安装的固定版本 rg（见 6.3）
-├── sessions/<siteId>/*.jsonl       # Pi 会话文件
 ├── worktrees/<siteId>/
 │   ├── ai/                         # AI 工作副本（git worktree），路径固定、反复复用
 │   └── main/                       # 正式版本的只读检出，只用于构建正式预览
@@ -225,6 +219,7 @@ BukitJalil/
 
 - 网站目录的**工作区**保持"纯 Bukit 项目"，不放 BukitJalil 私有文件，离开 BukitJalil 也能用 `bukit build` 构建
 - BukitJalil 在网站的 `.git` 里会留下三类记录：工作副本登记（`.git/worktrees/ai`、`.git/worktrees/main`）、改动集引用（`refs/bukitjalil/changes/<changeId>`，不在 `refs/heads/` 下，`git branch` 看不到，`git push --all` 也不会推送）和排除规则（`.git/info/exclude` 里一段带 `# BukitJalil begin/end` 标记的内容）。它们不会被提交；排除规则在共享的 git 目录里，也会让用户自己的检出忽略这几个构建目录，所以移除网站时会删掉这段内容
+- 模型密钥、自定义模型、GitHub / Notion token 和 Pi 会话记录都在 `app.db` 里（6.9），应用数据目录下没有单独的密钥或会话文件
 - 会话、工作副本、构建输出都放在应用数据目录，删除应用数据不会损坏网站内容；但网站 `.git` 里会留下失效的工作副本登记，执行 `git worktree prune` 即可清理。BukitJalil 提供"从 BukitJalil 移除网站"操作，会删除工作副本、`refs/bukitjalil/` 下的引用和排除规则里自己写的那段，再 `git worktree prune`
 
 ### 4.2 SQLite 表
@@ -232,15 +227,19 @@ BukitJalil/
 | 表 | 主要字段 | 说明 |
 | --- | --- | --- |
 | `sites` | `id`, `name`, `path`, `default_branch`, `created_at`, `last_opened_at`, `archived`；`read_only_reasons`, `checked_commit`, `config_check`（002）；`notion_data_source_id`（006）；`publish_account_id`（007） | 网站列表；`path` 是网站目录绝对路径；`default_branch` 是网站的正式分支（新建为 `main`，导入时读取当前默认分支）；后加的列记录安全检查结果、选用的 Notion 数据源和发布账号 |
-| `sessions` | `id`, `site_id`, `pi_session_file`, `title`, `created_at`, `updated_at`, `status` | 会话索引；正文在 Pi 的 JSONL 里 |
+| `sessions` | `id`, `site_id` / `theme_id`, `title`, `created_at`, `updated_at`, `status` | 会话索引（015 去掉了 `pi_session_file`） |
+| `session_entries` | `session_id`, `seq`, `entry_id`, `entry_json` | 每个会话的 Pi 条目，第一条是会话头（015，6.9）；删除会话时一起删除 |
 | `change_sets` | `id`, `site_id`, `created_by_session_id`, `base_commit`, `snapshot_commit`, `status`, `summary`, `created_at`, `resolved_at`, `result_commit`；`restore_commit`（003）；`ai_joined`（005）；`user_summary`、`ai_paths`（011） | 改动集；`restore_commit` 标出恢复类改动集（7.4），`ai_joined` 表示有会话参与过，决定提交作者（7.2），`user_summary` 是用户操作写的说明、`ai_paths` 是会话加入后 AI 改过的文件（7.2），状态：`open` / `applied` / `rejected` / `stale`；`base_commit` 是当前基于的正式版本，main 前进并重新合并后会更新；`snapshot_commit` 是最近一次快照（见 7.2）；"待审核"不单独存，由"open + 没有会话在运行 + 快照树 ≠ base 树"推出 |
 | `change_set_sessions` | `change_set_id`, `session_id`, `first_turn_at` | 参与过这个改动集的所有会话（多个会话可以共用一个改动集） |
 | `builds` | `id`, `site_id`, `change_set_id`, `commit`, `kind`, `status`, `exit_code`, `output_dir`, `report_json`, `started_at`, `finished_at` | 构建记录；`kind`：`check` / `doctor` / `build` |
 | `deploys` | `id`, `site_id`, `commit`, `repo`, `branch`, `url`, `status`, `step`, `outcome`, `report_json`, `started_at`, `finished_at` | 发布记录（004，M6） |
-| `data_sources` | `id`, `name`, `platform`, `config_json`, `created_at` | 保存的 Notion 数据源（006；008 删掉了非 Notion 的行）；token 不在表里，在 `data-source-tokens.json` |
-| `publish_accounts` | `id`, `name`, `platform`, `created_at` | 发布账号（007，目前只有 `github`）；token 在 `publish-account-tokens.json` |
+| `data_sources` | `id`, `name`, `platform`, `config_json`, `created_at`；`token_ciphertext`（014） | 保存的 Notion 数据源（006；008 删掉了非 Notion 的行）；token 用字段密钥加密存在本行（6.9） |
+| `publish_accounts` | `id`, `name`, `platform`, `created_at`；`token_ciphertext`（014） | 发布账号（007，目前只有 `github`）；token 加密存在本行 |
+| `vault_keys` | `id`, `key` | 随机字段密钥（014，6.9），只有一行 |
+| `pi_credentials` | `provider`, `credential_ciphertext` | 模型 API Key / OAuth 凭据，加密（014） |
+| `custom_models` | `id`, `name`, `base_url`, `api`, `model_json`, `api_key_ciphertext`, `created_at` | 用户添加的自定义模型，密钥加密（014） |
 | `notion_snapshots` | `site_id`, `commit`, `built_at` | 每个网站的 Notion 离线快照来自哪次正式构建（010，见 5.5）；快照内容是 `notion-snapshots/<siteId>/` 下的文件 |
-| `settings` | `key`, `value_json` | 全局设置：默认模型、思考级别、提交身份 `commitName` / `commitEmail`、上次选择的父目录、关闭的技能 `disabledSkills` 等（不含密钥） |
+| `settings` | `key`, `value_json` | 全局设置：默认模型、思考级别、提交身份 `commitName` / `commitEmail`、上次选择的父目录、关闭的技能 `disabledSkills`、空闲自动锁定 `security.idleMinutes` 等（不含密钥） |
 | `schema_migrations` | `version`, `applied_at` | 数据库迁移；009 曾建过旧 token 迁移表，迁移删除后只剩 `DROP TABLE IF EXISTS`，占住编号避免新迁移被跳过 |
 
 迁移脚本放在 `packages/server/src/store/migrations/NNN_name.sql`，启动时按顺序执行。
@@ -539,27 +538,27 @@ BukitJalil/
 
 ### 6.5 模型与密钥
 
-- `ModelRuntime.create({ authPath: ~/.bukitjalil/pi/auth.json, modelsPath: ~/.bukitjalil/pi/models.json })`
-- 模型密钥有两个来源：设置页填写（写入 `auth.json`）和环境变量（Pi 会读取 `ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等提供商环境变量，已核对 Pi 文档）。设置页对每个提供商显示密钥来源；来自环境变量的不能在界面里修改
+- `ModelRuntime.create({ credentials, modelsPath: ~/.bukitjalil/pi/models.json })`，`credentials` 是 BukitJalil 自己的 `CredentialStore`，读写 `app.db` 的 `pi_credentials` 表（6.9）
+- 模型密钥有两个来源：设置页填写（加密存进数据库）和环境变量（Pi 会读取 `ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等提供商环境变量，已核对 Pi 文档）。设置页对每个提供商显示密钥来源；来自环境变量的不能在界面里修改
 - Pi 在请求时可能才读取环境变量，所以模型密钥变量**不从进程环境删除**；改为保证 BukitJalil 自己启动的子进程（git、Bukit）都只拿到显式构造的最小环境（7.3、8.5），不会继承它们。例外是 Pi 内部启动的 `rg`：它会继承全部环境变量，但只会是 BukitJalil 安装、校验过的固定版本（没装好时 `grep` 被阻止，见 6.3），不执行网站内容，可以接受
 - 设置面板支持：选择提供商和模型、填写 API Key（界面只显示末四位）、思考级别、"测试连接"
 - 密钥永远不通过 API 返回给浏览器
 
-- **OAuth 登录**（M7 之后）：支持 OAuth 的提供商（如 OpenAI Codex）即使还没有模型也会列出，设置页可以发起 OAuth 登录、回答提供商的提问、取消或登出（`/api/providers/:provider/oauth…`，见 9.1）；凭据由 Pi 写入 `auth.json`
-- **自定义模型**（M7 之后）：用户可以添加兼容 OpenAI / Anthropic 接口的自定义模型，配置和密钥存在 `~/.bukitjalil/pi/custom-models.json`（0600），启动时注册到 `ModelRuntime`
+- **OAuth 登录**（M7 之后）：支持 OAuth 的提供商（如 OpenAI Codex）即使还没有模型也会列出，设置页可以发起 OAuth 登录、回答提供商的提问、取消或登出（`/api/providers/:provider/oauth…`，见 9.1）；凭据由 Pi 通过上面的 `CredentialStore` 写进数据库
+- **自定义模型**（M7 之后）：用户可以添加兼容 OpenAI / Anthropic 接口的自定义模型，配置和密钥存在数据库的 `custom_models` 表（密钥加密），解锁后注册到 `ModelRuntime`
 
 **其他密钥（Notion token、GitHub token）**，现行设计（2026-11-12）：
 
-1. **GitHub token 按发布账号保存**：设置页的"发布账号"里添加账号和 token，存在 `~/.bukitjalil/publish-account-tokens.json`（`publish/accounts.ts`）；网站在 `sites.publish_account_id` 里选用一个账号
-2. **Notion token 按数据源保存**：设置页的"数据源"里添加，存在 `~/.bukitjalil/data-source-tokens.json`（`data-sources/service.ts`）；网站在 `sites.notion_data_source_id` 里选用一个数据源：新建网站时选的数据源自动绑定，其他情况（包括导入的网站）由用户在数据面板里显式绑定或解绑（`PUT /api/sites/:siteId/notion-source`）。没有绑定就不给 token，正式构建结果为 `notion`；不会因为只保存了一个 Notion 数据源就自动使用它，否则导入的网站可以在 `site.yaml` 里指向这个 integration 能读的任何数据库，构建后再发布出去
+1. **GitHub token 按发布账号保存**：设置页的"发布账号"里添加账号和 token，加密存在账号那一行（`publish/accounts.ts`，6.9）；网站在 `sites.publish_account_id` 里选用一个账号
+2. **Notion token 按数据源保存**：设置页的"数据源"里添加，加密存在数据源那一行（`data-sources/service.ts`）；网站在 `sites.notion_data_source_id` 里选用一个数据源：新建网站时选的数据源自动绑定，其他情况（包括导入的网站）由用户在数据面板里显式绑定或解绑（`PUT /api/sites/:siteId/notion-source`）。没有绑定就不给 token，正式构建结果为 `notion`；不会因为只保存了一个 Notion 数据源就自动使用它，否则导入的网站可以在 `site.yaml` 里指向这个 integration 能读的任何数据库，构建后再发布出去
 3. **不读环境变量和旧文件**：`BUKITJALIL_GITHUB_TOKEN`、`BUKITJALIL_NOTION_TOKEN` 和旧的 `secrets.json` 都不再读取，也不做迁移（没有需要升级的存量用户）；token 只能在设置页添加
 4. **token 的用途**：每次调用 Bukit 都显式构造环境变量（8.5），只在需要时放入对应 token——Notion token 只给默认分支上审核过的内容：网站检查的 `config check`、正式版本构建、发布时的 `config check` / `doctor` / `build`（`publish audit` 和 `deploy --skip-build` 不传；Bukit 的 `deploy --skip-build` 不校验数据源密钥）；不传给 AI 工作副本和改动集的构建；没有绑定数据源时这些步骤的结果为 `notion`，GitHub token 在发布时传；另外 GitHub token 会用来调用 GitHub API 检查账号对目标仓库的权限（保存部署设置时和每次发布前，见 M6）；数据源设置会用 Notion token 调用 Notion API 列出数据库
 
-早期设计（M6 时）是"环境变量优先，否则 `secrets.json`，由 `settings/secrets.ts` 统一处理"，这些文件和接口（`/api/secrets`）都已删除。不只用环境变量的原因仍然成立：从 Finder / Dock 启动的桌面版（M7）读不到 shell 里设置的环境变量；界面里没法修改；而且放在进程环境里的密钥默认会被所有子进程继承。AI 没有执行命令的工具，读写又限制在工作副本内，读不到这些文件。
+早期设计（M6 时）是"环境变量优先，否则 `secrets.json`，由 `settings/secrets.ts` 统一处理"，这些文件和接口（`/api/secrets`）都已删除。不只用环境变量的原因仍然成立：从 Finder / Dock 启动的桌面版（M7）读不到 shell 里设置的环境变量；界面里没法修改；而且放在进程环境里的密钥默认会被所有子进程继承。AI 没有执行命令的工具，读写又限制在工作副本内，读不到数据库。
 
-系统钥匙串（macOS Keychain / Windows 凭据管理器）仍未采用（Node 常用的钥匙串库已停止维护，会增加原生依赖和打包成本）。
-
-> **存储细节（2026-11-12）**：`auth.json`、`publish-account-tokens.json`、`data-source-tokens.json` 和 `custom-models.json` 都是 0600 明文，应用目录 0700。这套存储防的是其他系统用户和 AI 越权读取，不防同一用户下的 malware、管理员/root、备份/云同步，也不防没有全盘加密的磁盘；Windows 上 `chmod(0600)` 只影响只读属性，不是完整的 NTFS ACL。JSON 写入使用临时文件、fsync、rename 和目录 fsync；启动时清理无主 token 和残留临时文件。`lstat` 到读取之间的 TOCTOU 在当前威胁模型下接受：能改应用目录的同一用户本来就能直接读这些文件。
+> **存储（2026-11-21 起）**：四类密钥都在 `app.db` 里，桌面版整库用 PIN 加密，每个密钥再用库内的随机字段密钥加密（6.9）；不用系统钥匙串。下面的旧说明是 6.9 之前的明文文件方案，留作记录。
+>
+> **存储细节（2026-11-12，已由 6.9 取代）**：`auth.json`、`publish-account-tokens.json`、`data-source-tokens.json` 和 `custom-models.json` 都是 0600 明文，应用目录 0700。这套存储防的是其他系统用户和 AI 越权读取，不防同一用户下的 malware、管理员/root、备份/云同步，也不防没有全盘加密的磁盘；Windows 上 `chmod(0600)` 只影响只读属性，不是完整的 NTFS ACL。JSON 写入使用临时文件、fsync、rename 和目录 fsync；启动时清理无主 token 和残留临时文件。`lstat` 到读取之间的 TOCTOU 在当前威胁模型下接受：能改应用目录的同一用户本来就能直接读这些文件。
 
 ### 6.6 待验证（M1 技术验证）
 
@@ -579,7 +578,7 @@ BukitJalil/
 
 ### 6.7 密钥加密保存（2026-11-14 设计）
 
-> 2026-11-20：PIN 锁定（6.9）实施后，本节的钥匙串方案整体由 6.9 取代：密钥进加密数据库，不再用 `safeStorage` 和 `*.enc.json`。实施前本节仍是现状。
+> **已取代**（2026-11-21）：PIN 锁定（6.9）P2 起，本节的钥匙串方案整体由 6.9 取代：密钥进加密数据库，`safeStorage`、`secret-key.enc`、`*.enc.json` 和 `/api/secrets` 都已删除。下面留作记录。
 
 **问题**：GitHub token、Notion token、模型 API Key、自定义模型的密钥现在都是 `~/.bukitjalil` 下权限 0600 的明文文件。0600 只挡其他系统用户，同一个用户运行的任何程序都能直接读。
 
@@ -645,7 +644,7 @@ BukitJalil/
 - **测试**：`test/media.test.ts` 覆盖格式、文件名、目录、重名/替换、快照回滚、位置检测、上传网址前缀检查、作者和请求体限制；`test/builds.test.ts` 覆盖构建报告里的前缀警告，`test/deploys.test.ts` 覆盖发布以 `upload_prefix` 结束且不进入 audit/deploy；`test/site-tools.test.ts` 覆盖 `site_info.media`；`e2e/media.spec.ts` 在 Chromium、Firefox、WebKit 覆盖上传、替换、位置提示、子路径引用、忙碌禁用和 `site.busy` 时的队列暂停。`bukit-behavior.test.ts` 覆盖静态目录复制、子路径和多语言行为。
 - **审阅修复**（2026-11-16）：只差大小写的替换不再用 `realpath` 的结果改名，落盘名和接口返回的 `path` 一致；Windows 保留名按第一个点之前的部分判断；生成名用 8 位十六进制；重名对话框显示服务器返回的已有名字；`site.baseUrl` 从默认分支读取；改动面板的上传入口在只读网站禁用；`site.busy` 时暂停队列，点一次重试继续；已删除的文件不显示预览；JPEG 标记前允许 `0xFF` 填充字节；`assertSafePath` 只保留 `.env` 规则，删除重复的符号链接检查；`MediaMime` 只保留共享类型，XMP 只查 `GPSLatitude`。
 
-### 6.9 PIN 锁定和数据库加密（2026-11-20 定，P0–P3 已实现）
+### 6.9 PIN 锁定和数据库加密（2026-11-20 定，2026-11-21 已实现）
 
 **目标**：桌面版用 PIN 锁定应用，数据都存进数据库，整库加密，PIN 作为密钥。做法参考 SmartEMR（`249b47b`：`packages/security`、`packages/storage`）。实施后取代 6.7 的钥匙串方案。分层见 14 的"PIN 锁定"。
 
@@ -681,7 +680,7 @@ BukitJalil/
   - 开发模式下，除 `GET` 以外都返回 409 `security.dev_mode`。
   - 拦截放在现有的 `apiGuard` 之后，`/api/security/*` 和 `/api/health` 之外的请求在锁定时都返回 423 `app.locked`。
   - 锁定时关闭已经打开的 SSE 连接；锁定期间不能建立新连接。
-- **空闲锁定**：界面在有键盘或鼠标操作时调 `touch`，最多每分钟一次。服务端每 30 秒调一次 `checkIdle`。只有打开了空闲锁定才检查。
+- **空闲锁定**：界面在有键盘或鼠标操作时调 `touch`，最多每 15 秒一次（P4 时从"每分钟"改小：最短是 1 分钟，每分钟一次时两次 `touch` 之间的检查会把正在用的应用锁上）。服务端每 30 秒调一次 `checkIdle`。只有打开了空闲锁定才检查。
 - **字段密钥**：第一次打开库时生成 32 字节随机数，存进新表 `vault_keys`（不经设置接口读写，界面拿不到）。
   - 加解密复用 `secrets/box.ts` 的 `SecretBox`。AAD 写"表名:行 id"，防止把一行的密文换到另一行。
   - 数据库没打开时，加解密都报"应用已锁定"。
@@ -1250,8 +1249,8 @@ macOS 安装包没有 Developer ID，Squirrel.Mac 不能安装更新，所以第
 | AI 越权写文件 | 工具白名单 + 路径闸门（6.3）+ 只改工作副本 + 人工审核 |
 | AI 执行命令 | 不开放 `bash`；Bukit 只通过固定参数的自定义工具调用；所有构建前检查插件和编译选项（8.5） |
 | 路径穿越（文件接口） | 所有路径参数 `realpath` 后必须在网站目录或工作副本内 |
-| 拷走数据库后离线试 PIN（PIN 锁定实施后，6.9） | 整库 SQLCipher 加密，PIN 是 4–8 位数字、SQLCipher 默认 PBKDF2；应用内连续错 5 次锁 5 分钟。挡不住：同一用户的程序拷走 `app.db` 后离线逐个试 PIN（8 位数字用一块高端 GPU 约几小时），锁定期间服务端内存里的数据库和字段密钥。PIN 主要挡人离开时别人打开应用 |
-| 密钥泄露 | 模型密钥来自 BukitJalil 保存的密钥或提供商环境变量（6.5）。桌面版把模型密钥、自定义模型密钥、GitHub token（按发布账号）和 Notion token（按数据源）用 AES-256-GCM 加密存成 `*.enc.json`，主密钥由系统钥匙串保管、只经桌面壳的消息通道交给服务端；没有安全的钥匙串时拒绝保存（6.7）。开发和测试时仍是 0600 明文（`pi/auth.json`、`pi/custom-models.json`、`publish-account-tokens.json`、`data-source-tokens.json`），应用目录 0700。挡不住：Windows 上同一用户的程序（DPAPI 只按用户区分）、Linux 钥匙串解锁后同一用户的程序、管理员 / root、读服务端内存或 Bukit 子进程环境变量的同一用户程序（构建和发布期间）。启动时清理无主 token 和临时文件。所有 token 不进数据库、不进日志、不返回浏览器；子进程只拿到显式构造的最小环境（7.3、8.5），只按 8.5 和 M6 的规则显式传给 Bukit（见 6.5） |
+| 拷走数据库后离线试 PIN（6.9） | 整库 SQLCipher 加密，PIN 是 4–8 位数字、SQLCipher 默认 PBKDF2；应用内连续错 5 次锁 5 分钟。挡不住：同一用户的程序拷走 `app.db` 后离线逐个试 PIN（8 位数字用一块高端 GPU 约几小时），锁定期间服务端内存里的数据库和字段密钥。PIN 主要挡人离开时别人打开应用 |
+| 密钥泄露 | 模型密钥来自 BukitJalil 保存的密钥或提供商环境变量（6.5）。模型密钥、自定义模型密钥、GitHub token（按发布账号）和 Notion token（按数据源）存在 `app.db` 里，每个都用库内随机字段密钥 AES-256-GCM 加密（附加数据是表名和行 id）；桌面版整库再用 PIN 加密（6.9），不用系统钥匙串。开发和测试时数据库不加密。挡不住：拷走 `app.db` 后离线试 PIN（上一行）、解锁期间读服务端内存或 Bukit 子进程环境变量的同一用户程序、管理员 / root。所有 token 不进日志、不返回浏览器；子进程只拿到显式构造的最小环境（7.3、8.5），只按 8.5 和 M6 的规则显式传给 Bukit（见 6.5） |
 | 预览页面脚本（AI 写的 JS） | 预览在另一个端口提供（不同源）+ 响应头 `CSP: sandbox allow-scripts allow-popups; connect-src 'none'; form-action 'none'` + iframe `sandbox`（见 8.4） |
 | DNS 重绑定读取预览内容 | 每个预览端口同样校验 `Host`，只接受 `127.0.0.1:<端口>` / `localhost:<端口>`（见 8.4） |
 | 管理端口上的 XSS（AI 写的 SVG / HTML 文件、对话里的 Markdown） | 管理界面响应头 `CSP: default-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src http://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`，另带 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`Cross-Origin-Opener-Policy: same-origin`、`Cross-Origin-Resource-Policy: same-origin`（`security/headers.ts`），没有 `unsafe-inline` 和 `unsafe-eval`；HTML 页面每次响应生成一个 nonce，CSP 加 `style-src 'self' 'nonce-…'`，页面里的 `<meta property="csp-nonce">` 把它交给 Radix（shadcn 的对话框、下拉框运行时插入的滚动锁定样式），没有 nonce 的 `<style>` 照样被拦；zod 设为 `jitless`，不用 `new Function`；端到端测试断言界面运行时没有任何 CSP 违规；文件接口不在管理端口直接打开 SVG / HTML / PDF，位图带 `nosniff` + `CSP: sandbox`（见 9.1）；对话 Markdown 不渲染原始 HTML，不加载远程图片 |
@@ -2056,7 +2055,7 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - **桌面代理**：CONNECT 隧道只通 443 和 8443（桌面测试的本机服务除外），抓取的页面不能借用户的地址连邮件等其他端口。
 - **遗留的抓取**（T2、T3 分层复查）：服务端只在抓取变成主题项目后删除 `captures/<id>/`；用户关掉对话框或创建失败后没再重试的抓取，在下一次抓取开始前按 24 小时删除（`capture-store.ts`）。克隆后首条消息附带的首页截图会在 `_reference/` 多存一份，这是设计 6.3 要求的附图，不改。
 
-### PIN 锁定（2026-11-20 定，P0–P3 已完成，6–8 天）
+### PIN 锁定（2026-11-20 定，P0–P4 已完成，6–8 天）
 
 设计和已定的问题见 6.9。按修复 SOP 分层实施：实现 → 审计 → 修复 → 复查 → 提交推送。每层做完时，`pnpm -s check`、完整单元测试、浏览器 e2e 和桌面 e2e 都要通过。
 
@@ -2119,6 +2118,16 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - 文档：4.1 目录布局、4.2 表、6.5、6.7（标为被 6.9 取代）、第 11 节安全表、`docs/user-guide.md`。
 - 验收：重置测试；打包后的冒烟测试跑完整流程（设置 PIN、锁定、解锁、重置）。
 - 这是最后一层，做完后停下来问用户。
+
+**P4 实现说明**（2026-11-21）：
+- **重置**：锁屏上"忘记 PIN"（等待 5 分钟期间也在）进入确认页，写明删掉什么、不可恢复，可以取消。确认后 `POST /api/security/reset` 返回 202，服务端通过桌面消息通道发 `{type:"reset"}`；桌面壳先正常停掉服务端（会停下正在跑的 Bukit 和会话），再带 `--reset` 启动新的服务端，就绪后重新打开窗口。新服务端拿到数据目录锁之后、打开数据库之前执行 `resetAppData`：删除 `app.db`、`-wal`、`-shm`、`worktrees/`、`previews/`、`notion-snapshots/`、`captures/`、`tmp/`（`security/reset.ts`，只删数据目录下一级的这几项，符号链接只删链接本身），然后 `ensureAppHome` 重新建好目录和空的 `app.db`，等于第一次启动。`--reset` 只能和 `--desktop` 一起用；`pnpm dev` 和没有桌面壳时 `reset` 返回 409 `security.dev_mode`。`--reset` 标记在服务端就绪后才清除，换端口重试时照样带着。
+- **重置后重新导入网站**：核对了导入流程。网站 `.git` 里残留的 `worktrees/ai`、`worktrees/main` 登记，在建工作副本前的 `git worktree prune` 时清掉（检出目录已删，登记失效）；`.git/info/exclude` 里的 BukitJalil 段按已有内容合并，不会重复；`refs/bukitjalil/changes/<旧 id>` 会留下，不在 `refs/heads/` 下、不影响使用，新改动集的 id 是随机的，不会撞上。没有加额外的清理。
+- **旧的明文库**：`SecurityService` 读 `app.db` 的前 16 字节，是 `SQLite format 3\0` 时状态带 `legacy: true`，解锁返回 409 `security.legacy_database`。锁屏只显示说明和重置按钮，没有取消。
+- **空闲自动锁定**：分钟数存在 `settings` 表的 `security.idleMinutes` 行（设置接口只认已知的键，读不到也改不了它），解锁后读出；锁定期间状态里的 `idleMinutes` 是 `null`，也不能修改（423）。服务端每 30 秒 `checkIdle`，超过分钟数没有 `touch` 就锁定，日志 `security.lock` 带 `reason: "idle"`。界面只在打开了空闲锁定时监听键盘、指针、滚轮、触摸，最多每 15 秒 `touch` 一次；后台请求不算使用。设置页"安全"一节加了下拉框：关闭、1、5、10、15、30 分钟（接口接受 1–30 的整数）。
+- **审计修复**：第一版每分钟最多 `touch` 一次，空闲时间设 1 分钟时，两次 `touch` 之间的检查会把正在用的应用锁上，改为 15 秒。
+- **文档**：4.1 目录布局去掉密钥文件和 `sessions/`，4.2 补上 014、015 的表和列，6.5 改为密钥在数据库里，6.7 标为已取代，第 11 节"密钥泄露"一行改为现状；`docs/user-guide.md` 新增"PIN 锁定"一节（设置、锁定、空闲锁定、改 PIN、忘记 PIN、旧库、能挡什么），删掉钥匙串的说明；README 不再提 `auth.json`。
+- **测试**：`pin.test.ts` 新增空闲锁定（只在打开时锁、`touch` 重新计时、锁定时不能改、重开后读出分钟数）、旧明文库只能重置、只有桌面版能重置；`reset.test.ts` 断言删掉的项、网站目录和日志不动、符号链接不跟随；`desktop.test.ts` 新增"`--reset` 启动删掉数据后能重新设置 PIN"；桌面 e2e 的 PIN 用例最后走"忘记 PIN → 取消 → 重置 → 重新设置 PIN"，新增"旧明文库只能重置"；打包后的冒烟测试在原来流程后加上锁定、错 PIN、解锁、锁定、忘记 PIN、重置，断言回到设置 PIN、`app.db` 是空的、网站文件夹还在。
+- **验证**：`pnpm check` 通过；单元测试 709 通过 / 19 跳过；浏览器 e2e 159 通过；桌面 e2e 12 通过（含重新打包后的 `packaged.spec`）。
 
 ### 里程碑总览
 

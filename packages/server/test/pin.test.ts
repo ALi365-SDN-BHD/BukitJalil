@@ -20,6 +20,7 @@ function emptyDb(): string {
 function service(file: string | null, clock = { now: 0 }) {
   const opened: Db[] = [];
   let locks = 0;
+  let resets = 0;
   const security = new SecurityService({
     file,
     logger: silentLogger,
@@ -27,9 +28,12 @@ function service(file: string | null, clock = { now: 0 }) {
     onLock: () => {
       locks += 1;
     },
+    onReset: () => {
+      resets += 1;
+    },
     now: () => clock.now,
   });
-  return { security, opened, locks: () => locks };
+  return { security, opened, locks: () => locks, resets: () => resets };
 }
 
 function codeOf(fn: () => unknown): { code: string; status: number; params: Record<string, string> } {
@@ -51,7 +55,14 @@ const jsonPost = (body: unknown) => ({
 describe("SecurityService (plan 6.9)", () => {
   it("has no PIN in development mode", () => {
     const { security } = service(null);
-    expect(security.status()).toEqual({ mode: "dev", pinSet: false, locked: false, retryAfterSeconds: 0 });
+    expect(security.status()).toEqual({
+      mode: "dev",
+      pinSet: false,
+      locked: false,
+      retryAfterSeconds: 0,
+      legacy: false,
+      idleMinutes: null,
+    });
     expect(security.isLocked()).toBe(false);
     for (const call of [() => security.setup("1234"), () => security.unlock("1234"), () => security.lock()]) {
       expect(codeOf(call)).toMatchObject({ code: "security.dev_mode", status: 409 });
@@ -125,6 +136,57 @@ describe("SecurityService (plan 6.9)", () => {
     const again = service(file).security;
     expect(codeOf(() => again.unlock("1234"))).toMatchObject({ code: "security.wrong_pin" });
     expect(again.unlock("5678")).toMatchObject({ locked: false });
+  });
+
+  it("locks after the idle minutes without use, only when turned on, and keeps the minutes", () => {
+    const file = emptyDb();
+    const clock = { now: 0 };
+    const { security, locks } = service(file, clock);
+    security.setup("1234");
+    expect(security.status().idleMinutes).toBeNull();
+    clock.now += 60 * 60_000;
+    security.checkIdle();
+    expect(security.isLocked()).toBe(false);
+
+    expect(security.setIdleMinutes(5)).toMatchObject({ idleMinutes: 5 });
+    clock.now += 4 * 60_000;
+    security.touch();
+    clock.now += 4 * 60_000;
+    security.checkIdle();
+    expect(security.isLocked()).toBe(false);
+    clock.now += 60_000;
+    security.checkIdle();
+    expect(security.status()).toMatchObject({ locked: true, idleMinutes: null });
+    expect(locks()).toBe(1);
+    // Locked: touching does nothing and the minutes cannot be changed.
+    security.touch();
+    expect(codeOf(() => security.setIdleMinutes(null))).toMatchObject({ code: "app.locked", status: 423 });
+    expect(security.unlock("1234")).toMatchObject({ idleMinutes: 5 });
+
+    // The minutes are in the database: a new start reads them once the PIN opens it.
+    const again = service(file).security;
+    again.unlock("1234");
+    expect(again.status().idleMinutes).toBe(5);
+  });
+
+  it("refuses a plain database from an earlier version, which only a reset clears", () => {
+    const file = emptyDb();
+    fs.writeFileSync(file, Buffer.concat([Buffer.from("SQLite format 3\0", "latin1"), Buffer.alloc(84)]));
+    const { security, opened, resets } = service(file);
+    expect(security.status()).toMatchObject({ pinSet: true, locked: true, legacy: true });
+    expect(codeOf(() => security.unlock("1234"))).toMatchObject({ code: "security.legacy_database", status: 409 });
+    expect(codeOf(() => security.setup("1234"))).toMatchObject({ code: "security.pin_set" });
+    expect(opened).toHaveLength(0);
+    // A reset asks the desktop app to restart the server with --reset; allowed while locked.
+    security.reset();
+    expect(resets()).toBe(1);
+  });
+
+  it("resets only in the desktop app", () => {
+    const dev = service(null).security;
+    expect(codeOf(() => dev.reset())).toMatchObject({ code: "security.dev_mode", status: 409 });
+    const noShell = new SecurityService({ file: emptyDb(), logger: silentLogger, onOpen: () => {} });
+    expect(codeOf(() => noShell.reset())).toMatchObject({ code: "security.dev_mode", status: 409 });
   });
 });
 

@@ -1118,6 +1118,20 @@ const zhCN = {
     confirmNextPin: "再输一次新 PIN",
     change: "修改 PIN",
     changed: "PIN 已修改",
+    forgot: "忘记 PIN？",
+    resetTitle: "重置应用",
+    resetHint:
+      "没有 PIN 就打不开数据库，只能重置。会删除：所有设置、发布账号和数据源的 token、模型密钥、AI 对话、改动记录和构建记录，以及工作副本、预览和 Notion 快照。你的网站和主题文件夹不会删除，重置后重新添加即可。删除后不能恢复。",
+    resetConfirm: "删除并重置",
+    resetCancel: "取消",
+    resetting: "正在重置，应用马上会重新打开…",
+    legacyTitle: "这是旧版本的数据",
+    legacyHint:
+      "这个数据目录来自没有 PIN 的旧测试版本，数据没有加密，现在的版本打不开。只能重置后重新开始；你的网站和主题文件夹不会删除。",
+    idleTitle: "空闲自动锁定",
+    idleHint: "一段时间没有操作就自动锁定。正在运行的 AI、构建和发布不受影响。",
+    idleOff: "关闭",
+    idleMinutes: "{minutes} 分钟",
   },
   errors: {
     "auth.required": "登录已失效：在运行 BukitJalil 的终端里按回车，打开新打印的地址",
@@ -1167,6 +1181,7 @@ const zhCN = {
     "security.pin_not_set": "还没有设置 PIN",
     "security.wrong_pin": "PIN 不对",
     "security.retry_later": "PIN 错误次数太多，请 {seconds} 秒后再试",
+    "security.legacy_database": "这是旧版本留下的未加密数据，只能重置应用",
     "build.not_found": "找不到这次构建",
     "site.read_only": "不满足安全规则，处于只读状态",
     "site.create_failed": "Bukit 无法生成网站：{detail}",

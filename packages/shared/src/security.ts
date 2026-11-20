@@ -16,6 +16,10 @@ export const SecurityStatus = z.object({
   locked: z.boolean(),
   /** Seconds until PIN entry is allowed again after too many wrong PINs; 0 when it is allowed. */
   retryAfterSeconds: z.number().int().nonnegative(),
+  /** app.db is a plain database from an earlier test version: it cannot be unlocked, only reset. */
+  legacy: z.boolean(),
+  /** Lock after this many minutes without use; null when idle locking is off (the default). */
+  idleMinutes: z.number().int().min(1).max(30).nullable(),
 });
 export type SecurityStatus = z.infer<typeof SecurityStatus>;
 
@@ -24,3 +28,7 @@ export type PinRequest = z.infer<typeof PinRequest>;
 
 export const ChangePinRequest = z.object({ currentPin: Pin, nextPin: Pin });
 export type ChangePinRequest = z.infer<typeof ChangePinRequest>;
+
+export const IDLE_MINUTES = [1, 5, 10, 15, 30] as const;
+export const IdleRequest = z.object({ minutes: z.number().int().min(1).max(30).nullable() });
+export type IdleRequest = z.infer<typeof IdleRequest>;
