@@ -502,12 +502,10 @@ describe("manage a site", () => {
     fs.writeFileSync(path.join(dir, ".git", "info", "exclude"), "*.mine\n");
     const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
     raw(dir, "update-ref", "refs/bukitjalil/changes/c1", "HEAD");
-    fs.mkdirSync(path.join(paths.sessions, site.id), { recursive: true });
 
     const res = await call<{ leftovers: string[] }>("DELETE", `/api/sites/${site.id}`);
     expect(res.json).toEqual({ leftovers: [] });
     expect(fs.existsSync(path.join(paths.worktrees, site.id))).toBe(false);
-    expect(fs.existsSync(path.join(paths.sessions, site.id))).toBe(false);
     expect(raw(dir, "for-each-ref", "refs/bukitjalil/")).toBe("");
     expect(raw(dir, "worktree", "list").trim().split("\n")).toHaveLength(1);
     expect(fs.readFileSync(path.join(dir, ".git", "info", "exclude"), "utf8")).toBe("*.mine\n");

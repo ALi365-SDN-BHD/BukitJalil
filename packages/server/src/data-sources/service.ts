@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import {
   type DataSourceRequest,
   type ErrorCode,
@@ -9,16 +8,19 @@ import {
   type SavedDataSource,
 } from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
+import type { FieldVault } from "../security/vault.ts";
 import { SiteError } from "../sites/location.ts";
-import { JsonFile, JsonFileError, type StoredJson } from "../store/json-file.ts";
+import type { Db } from "../store/db.ts";
 
 interface Row {
   id: string;
   name: string;
   created_at: string;
+  token_ciphertext: string | null;
 }
 
-export const MAX_TOKEN_FILE = 256 * 1024;
+const TABLE = "data_sources";
+const COLUMNS = "id, name, created_at, token_ciphertext";
 const NOTION_VERSION = "2022-06-28";
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_TIMEOUT_MS = 15_000;
@@ -26,36 +28,29 @@ const NOTION_PAGES = 5;
 
 /**
  * Saved Notion sources: each keeps its own integration token. Markdown needs no saved source, so a
- * site without one of these is created with the starter's Markdown content.
+ * site without one of these is created with the starter's Markdown content. The token is in the source's
+ * row, encrypted with the field key (plan 6.9), never in an API response.
  */
 export class DataSourceService {
-  private readonly tokens: StoredJson;
-
   constructor(
     private readonly opts: {
-      db: DatabaseSync;
-      /** Per-data-source Notion tokens (0600); never the database and never an API response. */
-      /** A path (plain 0600 file) or the secret store's file (plan 6.7). */
-      tokenFile: string | StoredJson;
+      db: Db;
+      vault: FieldVault;
       /** null in tests and offline mode: listing Notion databases is refused. */
       fetchImpl: typeof fetch | null;
       notionApi?: string;
     },
-  ) {
-    this.tokens =
-      typeof opts.tokenFile === "string" ? new JsonFile(opts.tokenFile, { maxBytes: MAX_TOKEN_FILE }) : opts.tokenFile;
-  }
+  ) {}
 
   list(): SavedDataSource[] {
     const rows = this.opts.db
-      .prepare("SELECT id, name, created_at FROM data_sources WHERE platform = 'notion' ORDER BY rowid")
-      .all() as unknown as Row[];
-    const tokens = this.readTokens();
-    return rows.map((row) => this.view(row, tokens));
+      .prepare(`SELECT ${COLUMNS} FROM data_sources WHERE platform = 'notion' ORDER BY rowid`)
+      .all() as Row[];
+    return rows.map((row) => this.view(row));
   }
 
   get(id: string): SavedDataSource {
-    return this.view(this.row(id), this.readTokens());
+    return this.view(this.row(id));
   }
 
   create(req: DataSourceRequest): SavedDataSource {
@@ -63,22 +58,11 @@ export class DataSourceService {
     const token = req.token?.trim();
     if (!token) throw new SiteError("datasource.no_token", 400);
     const id = newId();
-    // Token first: a corrupt token file must not leave a database row behind.
-    this.writeToken(id, token);
-    try {
-      this.opts.db
-        .prepare(
-          "INSERT INTO data_sources (id, name, platform, config_json, created_at) VALUES (?, ?, 'notion', '{}', ?)",
-        )
-        .run(id, req.name, new Date().toISOString());
-    } catch (err) {
-      try {
-        this.removeToken(id);
-      } catch {
-        // The database error is the useful one.
-      }
-      throw err;
-    }
+    this.opts.db
+      .prepare(
+        "INSERT INTO data_sources (id, name, platform, config_json, created_at, token_ciphertext) VALUES (?, ?, 'notion', '{}', ?, ?)",
+      )
+      .run(id, req.name, new Date().toISOString(), this.opts.vault.seal(token, TABLE, id));
     return this.get(id);
   }
 
@@ -90,16 +74,18 @@ export class DataSourceService {
   }
 
   update(id: string, req: DataSourceRequest): SavedDataSource {
-    this.row(id);
+    const row = this.row(id);
     this.assertName(req.name, id);
     // An omitted token keeps the stored one; a null token makes the source unusable, so refuse it.
-    const before = this.token(id);
+    const before = this.tokenOf(row);
     const token = req.token === undefined ? before : req.token.trim() || null;
     if (token === null) throw new SiteError("datasource.no_token", 400);
-    if (req.token !== undefined) this.writeToken(id, token);
+    const sealed = req.token === undefined ? row.token_ciphertext : this.opts.vault.seal(token, TABLE, id);
+    this.opts.db
+      .prepare("UPDATE data_sources SET name = ?, token_ciphertext = ? WHERE id = ?")
+      .run(req.name, sealed, id);
     // Another token may read another workspace: what the old one recorded must go (plan 5.5).
     if (token !== before) for (const listener of this.tokenListeners) listener(id);
-    this.opts.db.prepare("UPDATE data_sources SET name = ? WHERE id = ?").run(req.name, id);
     return this.get(id);
   }
 
@@ -109,30 +95,13 @@ export class DataSourceService {
       .prepare("SELECT COUNT(*) AS count FROM sites WHERE notion_data_source_id = ?")
       .get(id) as { count: number };
     if (used.count > 0) throw new SiteError("datasource.in_use", 409, { count: String(used.count) });
-    // Token first: never leave a secret file entry without its source.
-    this.removeToken(id);
     this.opts.db.prepare("DELETE FROM data_sources WHERE id = ?").run(id);
-  }
-
-  /** Remove token entries whose data source no longer exists; returns the number removed. */
-  pruneUnknownTokens(): number {
-    const rows = this.opts.db.prepare("SELECT id FROM data_sources").all() as { id: string }[];
-    const known = new Set(rows.map((row) => row.id));
-    const tokens = this.readTokens();
-    const kept = Object.fromEntries(Object.entries(tokens).filter(([id]) => known.has(id)));
-    const removed = Object.keys(tokens).length - Object.keys(kept).length;
-    if (removed > 0) this.writeTokens(kept);
-    return removed;
-  }
-
-  /** Remove temporary files left by a killed write; returns the number removed. */
-  cleanupTempFiles(): number {
-    return this.tokens.cleanupTempFiles();
   }
 
   /** The Notion token for a data source, or null. */
   token(id: string): string | null {
-    return this.readTokens()[id] ?? null;
+    const row = this.opts.db.prepare(`SELECT ${COLUMNS} FROM data_sources WHERE id = ?`).get(id) as Row | undefined;
+    return row ? this.tokenOf(row) : null;
   }
 
   /**
@@ -197,8 +166,8 @@ export class DataSourceService {
 
   private row(id: string): Row {
     const row = this.opts.db
-      .prepare("SELECT id, name, created_at FROM data_sources WHERE id = ? AND platform = 'notion'")
-      .get(id) as unknown as Row | undefined;
+      .prepare(`SELECT ${COLUMNS} FROM data_sources WHERE id = ? AND platform = 'notion'`)
+      .get(id) as Row | undefined;
     if (!row) throw new SiteError("datasource.not_found", 404);
     return row;
   }
@@ -210,8 +179,12 @@ export class DataSourceService {
     if (row) throw new SiteError("datasource.name_exists", 409);
   }
 
-  private view(row: Row, tokens: Record<string, string>): SavedDataSource {
-    const token = tokens[row.id] ?? null;
+  private tokenOf(row: Row): string | null {
+    return row.token_ciphertext === null ? null : this.opts.vault.open(row.token_ciphertext, TABLE, row.id);
+  }
+
+  private view(row: Row): SavedDataSource {
+    const token = this.tokenOf(row);
     return {
       id: row.id,
       name: row.name,
@@ -253,45 +226,6 @@ export class DataSourceService {
       throw new SiteError("datasource.notion_offline", 503);
     } finally {
       clearTimeout(timer);
-    }
-  }
-
-  private readTokens(): Record<string, string> {
-    try {
-      const value = this.tokens.read();
-      if (value === undefined) return {};
-      if (!isRecord(value)) throw new JsonFileError(this.tokens.file, "token file is not an object");
-      const tokens: Record<string, string> = {};
-      for (const [id, token] of Object.entries(value)) {
-        if (typeof token !== "string") throw new JsonFileError(this.tokens.file, "token is not a string");
-        tokens[id] = token;
-      }
-      return tokens;
-    } catch (err) {
-      if (err instanceof JsonFileError) throw new SiteError("storage.unreadable", 500);
-      throw err;
-    }
-  }
-
-  private writeToken(id: string, token: string): void {
-    const tokens = this.readTokens();
-    tokens[id] = token;
-    this.writeTokens(tokens);
-  }
-
-  private removeToken(id: string): void {
-    const tokens = this.readTokens();
-    if (!(id in tokens)) return;
-    delete tokens[id];
-    this.writeTokens(tokens);
-  }
-
-  private writeTokens(tokens: Record<string, string>): void {
-    try {
-      this.tokens.write(tokens);
-    } catch (err) {
-      if (err instanceof JsonFileError) throw new SiteError(err.code, 500);
-      throw err;
     }
   }
 }

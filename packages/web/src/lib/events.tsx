@@ -43,6 +43,9 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         }
         setConnection("lost");
         s.close();
+        // The stream is refused while the app is locked (plan 6.9); a tab that asks for nothing else learns of
+        // the lock here.
+        void queryClient.invalidateQueries({ queryKey: keys.security });
         timer = setTimeout(() => open(true), RECONNECT_MS);
       };
     };

@@ -4,7 +4,7 @@ import path from "node:path";
 import type { CustomModelProvider, CustomModelsResponse, ModelsResponse } from "@bukitjalil/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
-import { ADMIN, expectMode, makeApp, req } from "./helpers.ts";
+import { ADMIN, makeApp, req } from "./helpers.ts";
 
 // Local and self-hosted OpenAI-compatible models (Ollama, LM Studio, vLLM, llama.cpp). Nothing connects
 // to a local server here; the tests check the stored config and Pi's registered catalog.
@@ -53,7 +53,7 @@ describe("/api/custom-models", () => {
       model: { id: "llama3.1:8b", name: "Llama Local", contextWindow: 32_768, maxTokens: 4_096 },
     });
     expect(created.id).toMatch(/^local-ollama-llama3-1-8b/);
-    expectMode(path.join(ctx.paths.pi, "custom-models.json"), 0o600);
+    expect(fs.existsSync(path.join(ctx.paths.pi, "custom-models.json"))).toBe(false);
 
     const list = (await (await call(ctx, "GET", "/api/custom-models")).json()) as CustomModelsResponse;
     expect(list).toHaveLength(1);
@@ -101,43 +101,49 @@ describe("/api/custom-models", () => {
       await call(ctx, "POST", "/api/custom-models", { ...request, apiKey: "local-secret" })
     ).json()) as CustomModelProvider;
     expect(created.hasApiKey).toBe(true);
-    const file = path.join(ctx.paths.pi, "custom-models.json");
-    expect(JSON.parse(fs.readFileSync(file, "utf8")).providers[0].apiKey).toBe("local-secret");
+    const sealed = () =>
+      (
+        ctx.db.prepare("SELECT api_key_ciphertext AS c FROM custom_models WHERE id = ?").get(created.id) as {
+          c: string | null;
+        }
+      ).c;
+    expect(sealed()).not.toContain("local-secret");
+    expect(ctx.customModels.get(created.id).apiKey).toBe("local-secret");
 
     const kept = (await (
       await call(ctx, "PUT", `/api/custom-models/${created.id}`, { ...request, modelId: "llama3.2:3b" })
     ).json()) as CustomModelProvider;
     expect(kept.hasApiKey).toBe(true);
-    expect(JSON.parse(fs.readFileSync(file, "utf8")).providers[0].apiKey).toBe("local-secret");
+    expect(ctx.customModels.get(created.id).apiKey).toBe("local-secret");
 
     const cleared = (await (
       await call(ctx, "PUT", `/api/custom-models/${created.id}`, { ...request, apiKey: "" })
     ).json()) as CustomModelProvider;
     expect(cleared.hasApiKey).toBe(false);
-    expect(JSON.parse(fs.readFileSync(file, "utf8")).providers[0].apiKey).toBeNull();
+    expect(sealed()).toBeNull();
   });
 
-  it("does not write the file when registering the edited provider fails", async () => {
+  it("does not save the edit when registering the edited provider fails", async () => {
     const created = (await (await call(ctx, "POST", "/api/custom-models", request)).json()) as CustomModelProvider;
-    const file = path.join(ctx.paths.pi, "custom-models.json");
-    const before = fs.readFileSync(file, "utf8");
+    const before = ctx.customModels.get(created.id);
     expect(() =>
       ctx.customModels.update(created.id, { ...request, name: "Rejected" }, () => {
         throw new Error("register failed");
       }),
     ).toThrow("register failed");
-    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    expect(ctx.customModels.get(created.id)).toEqual(before);
   });
 
-  it("does not overwrite a file with a malformed entry", () => {
+  it("reports a malformed row instead of guessing", () => {
     const broken = makeApp({ appHome: path.join(base, "app-broken-entry") });
-    const file = path.join(broken.paths.pi, "custom-models.json");
-    fs.writeFileSync(file, JSON.stringify({ providers: [{ id: "broken" }] }));
-    const before = fs.readFileSync(file, "utf8");
+    broken.db
+      .prepare(
+        "INSERT INTO custom_models (id, name, base_url, api, model_json, created_at) VALUES ('broken', 'B', 'http://x', 'openai-completions', '{}', '')",
+      )
+      .run();
 
     expect(() => broken.customModels.list()).toThrow("storage.unreadable");
     expect(() => broken.customModels.create(request)).toThrow("storage.unreadable");
-    expect(fs.readFileSync(file, "utf8")).toBe(before);
     broken.db.close();
   });
 

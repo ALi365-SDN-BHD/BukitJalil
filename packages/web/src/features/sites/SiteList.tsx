@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SessionList } from "@/features/chat/sessions";
+import { LockButton } from "@/features/security/LockButton";
 import { useOpenSettings } from "@/features/settings/useOpenSettings";
 import { UpdateButton } from "@/features/updates/UpdateButton";
 import { useI18n } from "@/i18n";
@@ -120,6 +121,7 @@ export function SidebarFooter() {
         </Link>
         <UpdateButton />
       </div>
+      <LockButton />
       <Button
         size="sm"
         variant="ghost"

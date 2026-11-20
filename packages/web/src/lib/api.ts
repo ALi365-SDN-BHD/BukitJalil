@@ -31,6 +31,7 @@ import {
   type GitResponse,
   HealthResponse,
   type HistoryResponse,
+  type IdleMinutes,
   type ImportInspection,
   type ImportSiteRequest,
   type ImportThemeRequest,
@@ -53,7 +54,7 @@ import {
   type RestoreResult,
   type RgResponse,
   type SavedDataSource,
-  type SecretsStatus,
+  type SecurityStatus,
   type SendMessageRequest,
   type SessionDetail,
   type SessionInfo,
@@ -76,6 +77,14 @@ import type { z } from "zod";
 import { projectPath } from "./project.ts";
 
 export type ErrorParams = Record<string, string | number | boolean>;
+
+const lockListeners = new Set<() => void>();
+
+/** Called whenever the server answers that the app is locked (plan 6.9); returns the unsubscribe. */
+export function onAppLocked(listener: () => void): () => void {
+  lockListeners.add(listener);
+  return () => lockListeners.delete(listener);
+}
 
 export class ApiRequestError extends Error {
   constructor(
@@ -103,6 +112,7 @@ async function request<T>(path: string, init: RequestInit = {}, schema?: z.ZodTy
   const body: unknown = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
     const err = ApiError.safeParse(body);
+    if (err.success && err.data.code === "app.locked") for (const listener of lockListeners) listener();
     throw err.success
       ? new ApiRequestError(res.status, err.data.code, err.data.params)
       : new ApiRequestError(res.status, "server.internal");
@@ -132,8 +142,15 @@ export const api = {
   git: (refresh = false) => request<GitResponse>(`/git${refresh ? "?refresh=1" : ""}`),
   installGit: () => post<unknown>("/git/install"),
   pi: (refresh = false) => request<PiStatus>(`/pi${refresh ? "?refresh=1" : ""}`),
-  secrets: () => request<SecretsStatus>("/secrets"),
-  resetSecrets: () => post<SecretsStatus>("/secrets/reset"),
+  security: () => request<SecurityStatus>("/security"),
+  setupPin: (pin: string) => post<SecurityStatus>("/security/setup", { pin }),
+  unlock: (pin: string) => post<SecurityStatus>("/security/unlock", { pin }),
+  lock: () => post<SecurityStatus>("/security/lock"),
+  changePin: (currentPin: string, nextPin: string) =>
+    post<SecurityStatus>("/security/change-pin", { currentPin, nextPin }),
+  setIdleMinutes: (minutes: IdleMinutes | null) => post<SecurityStatus>("/security/idle", { minutes }),
+  touch: () => post<SecurityStatus>("/security/touch"),
+  resetApp: () => post<SecurityStatus>("/security/reset"),
   dirs: (path: string | null, hidden = false) =>
     request<FsDirsResponse>(`/fs/dirs?${query({ ...(path ? { path } : {}), ...(hidden ? { hidden: "1" } : {}) })}`),
 
@@ -316,7 +333,7 @@ export const keys = {
   rg: ["rg"] as const,
   git: ["git"] as const,
   pi: ["pi"] as const,
-  secrets: ["secrets"] as const,
+  security: ["security"] as const,
   dataSources: ["data-sources"] as const,
   publishAccounts: ["publish-accounts"] as const,
   customModels: ["custom-models"] as const,

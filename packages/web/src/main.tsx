@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { App } from "./App.tsx";
+import { LockGate } from "./features/security/LockGate.tsx";
 import { EventsProvider } from "./lib/events.tsx";
 import { startTheme } from "./lib/theme.ts";
 import "./index.css";
@@ -22,11 +23,13 @@ if (!root) throw new Error("missing #root");
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={new QueryClient()}>
-      <EventsProvider>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </EventsProvider>
+      <LockGate>
+        <EventsProvider>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </EventsProvider>
+      </LockGate>
     </QueryClientProvider>
   </StrictMode>,
 );

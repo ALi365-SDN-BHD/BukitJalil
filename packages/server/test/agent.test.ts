@@ -90,6 +90,7 @@ function service(
     locks: ctx.locks,
     changes: ctx.changes,
     logger: silentLogger,
+    credentials: ctx.agent.credentials,
     resolveModel: () => {
       if (opts.model === false) return undefined;
       const model = faux.getModel() as Model<Api>;
@@ -247,8 +248,7 @@ describe("AgentService", () => {
     const s = await site();
     const { agent, events, settled, statuses } = service();
     const session = agent.create(s.id);
-    expect(session.file).toBe(path.join(ctx.paths.sessions, s.id, `${session.id}.jsonl`));
-    expect(fs.existsSync(session.file)).toBe(false);
+    expect(agent.store.entries(session.id)).toEqual([]);
 
     let seen: unknown;
     faux.setResponses([
@@ -273,14 +273,12 @@ describe("AgentService", () => {
     expect(JSON.stringify(seen)).toContain("Hi");
 
     expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "site.yaml"))).toBe(true);
-    expect(fs.readFileSync(session.file, "utf8")).toContain("Hello from faux");
+    expect(JSON.stringify(agent.store.entries(session.id))).toContain("Hello from faux");
     expect(statuses(session.id)).toEqual(["running", "idle"]);
     expect(events.some((e) => e.type === "pi" && e.event.type === "agent_end")).toBe(true);
     expect(fetchSpy).not.toHaveBeenCalled();
-    // Pi writes only into the app's Pi directory: keys, and its cache of model lists.
-    for (const name of fs.readdirSync(ctx.paths.pi)) expect(["auth.json", "bin", "models-store.json"]).toContain(name);
-    const auth = path.join(ctx.paths.pi, "auth.json");
-    if (fs.existsSync(auth)) expectMode(auth, 0o600);
+    // Pi writes only its cache of model lists into the app's Pi directory; keys are in the database.
+    for (const name of fs.readdirSync(ctx.paths.pi)) expect(["bin", "models-store.json"]).toContain(name);
   });
 
   it("cannot read a disabled skill in a new conversation, and re-enabling restores it", async () => {
@@ -567,7 +565,7 @@ describe("AgentService", () => {
     ]);
     // A site keeps images only in the session file.
     expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id, "ai", "_reference"))).toBe(false);
-    expect(fs.readFileSync(agent.get(session.id).file, "utf8")).toContain(PNG);
+    expect(JSON.stringify(agent.store.entries(session.id))).toContain(PNG);
 
     const textOnly = service({ textOnly: true }).agent;
     const other = textOnly.create(s.id);
@@ -651,7 +649,7 @@ describe("AgentService", () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
-  it("reopens a session from its file with the earlier messages", async () => {
+  it("reopens a session from the database with the earlier messages", async () => {
     const s = await site();
     const first = service({ idleMs: 10 });
     const session = first.agent.create(s.id);
@@ -660,6 +658,7 @@ describe("AgentService", () => {
     await first.agent.send(session.id, "first");
     await done;
     await first.agent.shutdown();
+    const before = await first.agent.messages(session.id);
 
     // A new service has nothing in memory, as after the idle timeout or a restart.
     const second = service();
@@ -676,6 +675,8 @@ describe("AgentService", () => {
     expect(seen).toContain("first");
     expect(seen).toContain("FIRST-ANSWER");
     expect(seen).toContain("second");
+    // The restored branch is the saved one, with the new turn after it.
+    expect((await second.agent.messages(session.id)).slice(0, before.length)).toEqual(before);
   });
 
   it("tells the model, and only the model, that the working copy was reset since its last turn", async () => {
@@ -741,7 +742,7 @@ describe("AgentService", () => {
       .map((e) => `${e.sessionId === a.id ? "a" : "b"}:${e.type === "status" && e.status}`);
     expect(order).toEqual(["a:running", "b:queued", "b:queued", "a:idle", "b:running", "b:idle"]);
     // Messages sent while waiting are joined into one run.
-    const file = fs.readFileSync(b.file, "utf8");
+    const file = JSON.stringify(agent.store.entries(b.id));
     expect(file).toContain("from b");
     expect(file).toContain("more from b");
   });
@@ -871,7 +872,7 @@ describe("AgentService", () => {
     await agent.stop(session.id);
     await done;
     expect(called).toBe(false);
-    expect(fs.existsSync(session.file)).toBe(false);
+    expect(agent.store.entries(session.id)).toEqual([]);
     expect(statuses(session.id)).toEqual(["running", "idle"]);
   });
 
@@ -890,7 +891,7 @@ describe("AgentService", () => {
     expect(statuses(b.id)).toEqual(["queued", "idle"]);
     slow.release();
     await doneA;
-    expect(fs.existsSync(b.file)).toBe(false);
+    expect(agent.store.entries(b.id)).toEqual([]);
   });
 
   it("refuses to send without a model or to a read-only site", async () => {
@@ -955,9 +956,11 @@ describe("AgentService", () => {
     const done = settled(one.id);
     await agent.send(one.id, "Hi");
     await done;
-    expect(fs.existsSync(one.file)).toBe(true);
+    expect(agent.store.entries(one.id).length).toBeGreaterThan(1);
     await agent.delete(one.id);
-    expect(fs.existsSync(one.file)).toBe(false);
+    expect(ctx.db.prepare("SELECT COUNT(*) AS n FROM session_entries WHERE session_id = ?").get(one.id)).toEqual({
+      n: 0,
+    });
     expect(() => agent.get(one.id)).toThrow(SiteError);
     expect(() => agent.get("../../etc")).toThrow(SiteError);
     expect(agent.list(s.id).map((x) => x.id)).toEqual([two.id]);
@@ -979,7 +982,7 @@ describe("AgentService", () => {
     await agent.delete(session.id);
     await done;
     expect(called).toBe(false);
-    expect(fs.existsSync(session.file)).toBe(false);
+    expect(agent.store.entries(session.id)).toEqual([]);
   });
 
   it("stops a site's sessions and waits for them when the site is removed", async () => {
@@ -998,7 +1001,9 @@ describe("AgentService", () => {
     expect(statuses(a.id).at(-1)).toBe("idle");
     expect(statuses(b.id)).toEqual(["queued", "idle"]);
     expect(() => agent.get(a.id)).toThrow(SiteError);
-    expect(fs.existsSync(path.join(ctx.paths.sessions, s.id))).toBe(false);
+    expect(ctx.db.prepare("SELECT COUNT(*) AS n FROM session_entries WHERE session_id = ?").get(a.id)).toEqual({
+      n: 0,
+    });
     expect(fs.existsSync(path.join(ctx.paths.worktrees, s.id))).toBe(false);
   });
 

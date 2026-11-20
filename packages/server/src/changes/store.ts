@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import type { ChangeStatus, ProjectKey } from "@bukitjalil/shared";
 import { ownerOf, rowProject } from "../projects/owner.ts";
+import type { Db } from "../store/db.ts";
 
 export interface ChangeRecord {
   id: string;
@@ -74,7 +74,7 @@ export const isChangeId = (id: string) => /^[0-9a-f]{16}$/.test(id);
 
 /** The `change_sets` and `change_set_sessions` tables (plan 4.2). At most one open change set per project. */
 export class ChangeStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Db) {}
 
   get(id: string): ChangeRecord | null {
     const row = this.db.prepare("SELECT * FROM change_sets WHERE id = ?").get(id) as ChangeRow | undefined;

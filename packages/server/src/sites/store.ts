@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import type { ConfigCheck, Site, SiteReason } from "@bukitjalil/shared";
 import type { ProjectState } from "../projects/repo.ts";
+import type { Db } from "../store/db.ts";
 
 interface SiteRow {
   id: string;
@@ -49,7 +49,7 @@ export const isSiteId = (id: string) => /^[0-9a-f]{16}$/.test(id);
 
 /** The `sites` table (plan 4.2). */
 export class SiteStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Db) {}
 
   list(): Site[] {
     const rows = this.db

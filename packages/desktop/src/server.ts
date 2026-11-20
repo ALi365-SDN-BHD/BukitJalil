@@ -3,8 +3,8 @@ import { type UtilityProcess, utilityProcess } from "electron";
 /** Messages from the server's desktop mode (packages/server/src/desktop.ts). */
 type Outbound =
   | { type: "ready"; port: number }
-  | { type: "secrets"; reset?: boolean }
   | { type: "login"; url: string }
+  | { type: "reset" }
   | { type: "open-update"; id: number; path: string }
   | { type: "error"; code: string; message: string };
 
@@ -18,13 +18,8 @@ export interface ServerOptions {
   env: NodeJS.ProcessEnv;
   /** First admin port to try; the next attempts move up by PORT_STEP. */
   firstPort: number;
-  /**
-   * The secret key for tokens and model keys (plan 6.7), handed over the message channel only. It may
-   * answer later: the app reads the keychain once its window shows the app.
-   */
-  secretKey: (alive: () => boolean) => Promise<{ key: string | null; reason: string | null }>;
-  /** The user reset the keys: forget the key, a new one is made at the next start. */
-  resetSecrets: () => void;
+  /** The user reset the app after a forgotten PIN (plan 6.9): restart the server with --reset. */
+  onReset: () => void;
   /** Open a downloaded installer; resolves to a `shell.openPath` error, or null on success. */
   openUpdate: (file: string) => Promise<string | null>;
 }
@@ -45,6 +40,8 @@ export class ServerProcess {
   private tail: string[] = [];
   private logins: ((url: string) => void)[] = [];
   private starting: Promise<StartResult> | null = null;
+  /** The next start deletes the data first (--reset, plan 6.9); cleared once a server with it is ready. */
+  private resetNext = false;
   port = 0;
   /** The server ended by itself after it was ready. */
   onExit: (code: number, tail: string) => void = () => {};
@@ -70,12 +67,20 @@ export class ServerProcess {
     return this.starting;
   }
 
+  /** Stop the server and start it again with --reset (forgotten PIN, plan 6.9). */
+  async restartWithReset(): Promise<StartResult> {
+    await this.stop();
+    this.resetNext = true;
+    return this.start();
+  }
+
   private async startFresh(): Promise<StartResult> {
     this.stopping = false;
     this.tail = [];
     let last: StartResult = { ok: false, code: "port_in_use", message: "" };
     for (let i = 0; i < ATTEMPTS; i++) {
       last = await this.startOn(this.opts.firstPort + i * PORT_STEP);
+      if (last.ok) this.resetNext = false;
       if (last.ok || last.code !== "port_in_use") return last;
     }
     return last;
@@ -84,7 +89,14 @@ export class ServerProcess {
   private startOn(port: number): Promise<StartResult> {
     const child = utilityProcess.fork(
       this.opts.entry,
-      ["--desktop", "--port", String(port), "--preview-port-base", String(port + 1)],
+      [
+        "--desktop",
+        "--port",
+        String(port),
+        "--preview-port-base",
+        String(port + 1),
+        ...(this.resetNext ? ["--reset"] : []),
+      ],
       {
         cwd: this.opts.cwd,
         env: this.opts.env,
@@ -102,19 +114,8 @@ export class ServerProcess {
     return new Promise((resolve) => {
       let settled = false;
       child.on("message", (message: Outbound) => {
-        if (message.type === "secrets") {
-          if (message.reset) this.opts.resetSecrets();
-          else
-            void this.opts
-              .secretKey(() => child.pid !== undefined)
-              .then((answer) => {
-                // This server may have exited (or another attempt replaced it) while the keychain was asked.
-                try {
-                  child.postMessage({ type: "secrets", ...answer });
-                } catch {
-                  // gone
-                }
-              });
+        if (message.type === "reset") {
+          this.opts.onReset();
           return;
         }
         if (message.type === "login") {

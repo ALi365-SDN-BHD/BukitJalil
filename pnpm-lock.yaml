@@ -211,6 +211,9 @@ importers:
       '@hono/node-server':
         specifier: 2.1.6
         version: 2.1.6(hono@4.13.17)
+      better-sqlite3-multiple-ciphers:
+        specifier: 13.2.0
+        version: 13.2.0
       fflate:
         specifier: 0.8.3
         version: 0.8.3
@@ -2324,6 +2327,10 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
+  better-sqlite3-multiple-ciphers@13.2.0:
+    resolution: {integrity: sha512-e85mBgBIA79uJqct6E/QwqPEVVLihiEpV2dEH5J9b1L1hyZQOegR1XBfa68l0fbvqk2oCpmPQOz6R44x+BOOLg==}
+    engines: {node: '>=22'}
+
   bignumber.js@9.3.1:
     resolution: {integrity: sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==}
 
@@ -3639,6 +3646,10 @@ packages:
   node-abi@4.40.0:
     resolution: {integrity: sha512-GuvqvtrOk+AC27RidBxBsMzVNkwNl7PjHgc4NXbmdvSVLgIUjpaqcG1FjNRYnt2Yn9Ytq+Ln37XsBaglUcte/w==}
     engines: {node: '>=22.12.0'}
+
+  node-addon-api@8.9.2:
+    resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
+    engines: {node: ^18 || ^20 || >= 21}
 
   node-api-version@0.2.1:
     resolution: {integrity: sha512-2xP/IGGMmmSQpI1+O/k72jF/ykvZ89JeuKX3TLJAYPDVLUalrshrLHkeVcCCZqG/eEa635cr8IBYzgnDvM2O8Q==}
@@ -6836,6 +6847,10 @@ snapshots:
 
   baseline-browser-mapping@2.11.35: {}
 
+  better-sqlite3-multiple-ciphers@13.2.0:
+    dependencies:
+      node-addon-api: 8.9.2
+
   bignumber.js@9.3.1: {}
 
   bluebird@3.7.2: {}
@@ -8374,6 +8389,8 @@ snapshots:
   node-abi@4.40.0:
     dependencies:
       semver: 7.7.4
+
+  node-addon-api@8.9.2: {}
 
   node-api-version@0.2.1:
     dependencies:

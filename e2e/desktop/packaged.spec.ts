@@ -50,7 +50,7 @@ test("the packaged app runs its bundled server and creates a site from its own f
   const electron = await _electron.launch({
     executablePath: app,
     // CI's Linux runners do not allow Chromium's sandbox (no user namespaces, no setuid helper).
-    // Chromium's stand-in keychain on macOS: tests never touch the user's real one (plan 6.7).
+    // Chromium's stand-in keychain on macOS for its own cookie store: tests never touch the user's real one.
     args:
       process.platform === "linux" && process.env.CI
         ? ["--no-sandbox"]
@@ -61,6 +61,20 @@ test("the packaged app runs its bundled server and creates a site from its own f
   });
   const page = await electron.firstWindow();
   // When the server does not start, the window shows the status page with its error and last output lines.
+  // Otherwise the first start asks for a PIN (plan 6.9), which creates the encrypted database.
+  await expect(page.getByTestId("lock-screen"))
+    .toBeVisible({ timeout: 30_000 })
+    .catch(async (err: Error) => {
+      const shown = await page
+        .locator("body")
+        // biome-ignore lint/performance/useDomNodeTextContent: the text as shown, not hidden template text
+        .innerText()
+        .catch(() => "(no page)");
+      throw new Error(`${err.message}\n\nThe window shows:\n${shown}`);
+    });
+  await page.getByTestId("pin").fill("1234");
+  await page.getByTestId("pin-confirm").fill("1234");
+  await page.getByTestId("lock-submit").click();
   await expect(page.getByTestId("new-site"))
     .toBeVisible({ timeout: 30_000 })
     .catch(async (err: Error) => {
@@ -138,6 +152,22 @@ test("the packaged app runs its bundled server and creates a site from its own f
     async () => (await fetch("/api/models").then((r) => r.json())).providers.length,
   );
   expect(providers).toBeGreaterThan(5);
+
+  // The whole lock (plan 6.9): lock, a wrong PIN, unlock; then a forgotten PIN resets the app, which opens
+  // again asking for a new PIN, with the user's site folder untouched.
+  await page.getByTestId("lock-app").click();
+  await page.getByTestId("pin").fill("9999");
+  await page.getByTestId("lock-submit").click();
+  await expect(page.getByTestId("lock-error")).toBeVisible();
+  await page.getByTestId("pin").fill("1234");
+  await page.getByTestId("lock-submit").click();
+  await expect(page.getByTestId("new-site")).toBeVisible();
+  await page.getByTestId("lock-app").click();
+  await page.getByTestId("lock-forgot").click();
+  await page.getByTestId("lock-reset").click();
+  await expect(page.getByTestId("pin-confirm")).toBeVisible({ timeout: 30_000 });
+  expect(fs.statSync(path.join(home, ".bukitjalil/app.db")).size).toBe(0);
+  expect(fs.existsSync(path.join(home, "packaged-site/site.yaml"))).toBe(true);
   await electron.close();
   expect(fs.existsSync(path.join(home, ".bukitjalil/server.lock"))).toBe(false);
 });

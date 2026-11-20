@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import {
   type CreateThemeRequest,
   DEFAULT_CONFIG_FILE,
@@ -25,6 +24,7 @@ import {
 } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { NewSite } from "../sites/template.ts";
+import type { Db } from "../store/db.ts";
 import type { SettingsStore } from "../store/settings.ts";
 import { type LoadedCapture, loadCapture } from "./capture.ts";
 import { makeThemeProject, removeStarterTheme, replaceSampleContent, setSiteThemeName } from "./demo.ts";
@@ -32,7 +32,7 @@ import { inspectThemeSource, loadTheme } from "./import.ts";
 import { newThemeId, ThemeStore } from "./store.ts";
 
 export interface ThemeServiceOptions {
-  db: DatabaseSync;
+  db: Db;
   paths: AppPaths;
   /** Overrides os.homedir() (tests). */
   userHome?: string;

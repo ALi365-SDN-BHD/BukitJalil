@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import {
   type ApplyCheck,
   type ApplyRequest,
@@ -27,6 +26,7 @@ import type { Project, ProjectService } from "../projects/service.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import { storageErrorCode } from "../storage-errors.ts";
+import type { Db } from "../store/db.ts";
 import { changedFiles, fileDiff } from "./diff.ts";
 import {
   AI_AUTHOR_EMAIL,
@@ -121,7 +121,7 @@ export function diffSummary({ files, truncated }: { files: ChangedFile[]; trunca
 }
 
 export interface ChangeServiceOptions {
-  db: DatabaseSync;
+  db: Db;
   git: GitRunner;
   projects: ProjectService;
   locks: SiteLocks;

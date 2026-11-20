@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import type { ConfigCheck, ProjectKey, SiteReason } from "@bukitjalil/shared";
 import { type GuardResult, guardCommit } from "../bukit/guard.ts";
 import type { BukitService } from "../bukit/locate.ts";
@@ -10,6 +9,7 @@ import { clearIndexLock, GitError, type GitRunner, isValidBranchName } from "../
 import type { AppPaths } from "../paths.ts";
 import { removeExcludeBlock, writeExcludeBlock } from "../sites/exclude.ts";
 import { inside, SiteError } from "../sites/location.ts";
+import type { Db } from "../store/db.ts";
 import { rowProject } from "./owner.ts";
 
 /** What the repository code needs to know about a project (a site or a theme project). */
@@ -34,7 +34,7 @@ export interface Prechecked {
 }
 
 export interface ProjectReposOptions {
-  db: DatabaseSync;
+  db: Db;
   git: GitRunner;
   paths: AppPaths;
   bukit: BukitService;
@@ -107,7 +107,7 @@ export class ProjectRepos {
       try {
         token = notionToken ? notionToken() : null;
       } catch {
-        // An unreadable token file fails the check, not the site: builds say why when they run.
+        // A token that cannot be read fails the check, not the site: builds say why when they run.
         token = "";
       }
       configCheck =
@@ -267,7 +267,6 @@ export class ProjectRepos {
       ).includes(common);
     if (common && !shared) removeExcludeBlock(common);
     else if (!common) leftovers.push("exclude_block");
-    fs.rmSync(path.join(this.opts.paths.sessions, key), { recursive: true, force: true });
     fs.rmSync(path.join(this.opts.paths.previews, key), { recursive: true, force: true });
     return leftovers;
   }

@@ -4,7 +4,8 @@ import path from "node:path";
 import type { DeployStatusResponse, PublishAccount } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { pagesSiteAddress } from "../src/deploys/target.ts";
-import { ADMIN, expectMode, makeApp, req } from "./helpers.ts";
+import { FieldVault } from "../src/security/vault.ts";
+import { ADMIN, makeApp, req } from "./helpers.ts";
 
 // Saved GitHub publishing accounts and the deploy settings form. No request leaves the machine.
 
@@ -43,7 +44,6 @@ describe("/api/publish-accounts", () => {
     expect(created.id).toMatch(/^pub_[0-9a-f]{12}$/);
     expect(JSON.stringify(created)).not.toContain("ghp_example");
     expect(ctx.publishAccounts.token(created.id)).toBe("ghp_exampleexample1234");
-    expectMode(ctx.paths.publishAccountTokens, 0o600);
 
     expect(
       (await call(ctx, "POST", "/api/publish-accounts", { platform: "github", name: "company github", token: "x" }))
@@ -70,21 +70,30 @@ describe("/api/publish-accounts", () => {
     ctx.db.close();
   });
 
-  it("removes token entries whose account no longer exists", () => {
-    const ctx = makeApp({ appHome: path.join(base, "app-orphan") });
-    const account = ctx.publishAccounts.create({
-      platform: "github",
-      name: "Kept",
-      token: "ghp_kept123456",
-    });
-    const file = ctx.paths.publishAccountTokens;
-    const tokens = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, string>;
-    tokens.pub_000000000000 = "ghp_orphan123456";
-    fs.writeFileSync(file, JSON.stringify(tokens), { mode: 0o600 });
+  it("keeps the token encrypted in its row, which another table or a new field key cannot read", () => {
+    const ctx = makeApp({ appHome: path.join(base, "app-vault") });
+    const account = ctx.publishAccounts.create({ platform: "github", name: "Kept", token: "ghp_kept123456" });
+    const sealed = (
+      ctx.db.prepare("SELECT token_ciphertext AS c FROM publish_accounts WHERE id = ?").get(account.id) as {
+        c: string;
+      }
+    ).c;
+    expect(sealed).not.toContain("ghp_kept");
 
-    expect(ctx.publishAccounts.pruneUnknownTokens()).toBe(1);
-    expect(ctx.publishAccounts.token(account.id)).toBe("ghp_kept123456");
-    expect(JSON.parse(fs.readFileSync(file, "utf8"))).not.toHaveProperty("pub_000000000000");
+    // The same ciphertext in another table's row of the same id is refused.
+    ctx.db
+      .prepare(
+        "INSERT INTO data_sources (id, name, platform, config_json, created_at, token_ciphertext) VALUES (?, 'X', 'notion', '{}', '', ?)",
+      )
+      .run(account.id, sealed);
+    expect(() => ctx.dataSources.token(account.id)).toThrow("storage.unreadable");
+
+    // Another field key cannot open it; the row goes with the account.
+    ctx.db.prepare("UPDATE vault_keys SET key = randomblob(32)").run();
+    expect(() => new FieldVault(ctx.db).open(sealed, "publish_accounts", account.id)).toThrow("storage.unreadable");
+    ctx.db.prepare("DELETE FROM data_sources").run();
+    ctx.publishAccounts.remove(account.id);
+    expect(ctx.db.prepare("SELECT COUNT(*) AS n FROM publish_accounts").get()).toEqual({ n: 0 });
     ctx.db.close();
   });
 

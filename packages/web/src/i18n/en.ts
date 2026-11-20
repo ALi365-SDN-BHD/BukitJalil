@@ -957,6 +957,7 @@ const en: Messages = {
       skills: "Skills",
       extensions: "Extensions",
       environment: "Environment",
+      security: "Security",
     },
     language: "Language",
     appearance: "Appearance",
@@ -1159,24 +1160,43 @@ const en: Messages = {
       keyNotEditable: "This provider needs several settings; set it up with environment variables.",
     },
   },
-  secrets: {
-    plain:
-      "Development mode: tokens and model keys are saved as unencrypted files (mode 600). The desktop app encrypts them with the system keychain.",
-    plainLeft: "Some unencrypted token or key files from an earlier version could not be encrypted; see the logs.",
-    plainUsed:
-      "Unencrypted files from an earlier version are in use; new tokens and keys cannot be saved until they can be encrypted.",
-    unavailable: {
-      no_keyring:
-        "No system keychain was found, so tokens and model keys cannot be saved safely and saving is turned off. On Linux, install and unlock gnome-keyring or KWallet, then start BukitJalil again.",
-      locked:
-        "The key in the keychain cannot be unlocked (access was denied, the keychain item was removed, or the data folder comes from another computer), so saved tokens and model keys cannot be used. Start again and choose Allow when asked, or reset and enter them again.",
-      no_answer: "The keychain did not answer (maybe its access prompt was not answered). Start BukitJalil again.",
-      reset: "All saved tokens and model keys were removed. Start BukitJalil again, then enter them again.",
-      pending:
-        'Waiting for the keychain: click "Allow" in the system prompt to use saved tokens and model keys. If no prompt appeared, restart BukitJalil.',
-    },
-    reset: "Reset keys",
-    resetConfirm: "This removes every saved token and model key; you will enter them again. Continue?",
+  lock: {
+    lockedTitle: "BukitJalil is locked",
+    lockedHint: "Enter your PIN to unlock it.",
+    setupTitle: "Set a PIN",
+    setupHint:
+      "Set a PIN before you start: 4–8 digits. The PIN is the key to the database; if you forget it, the only way back is to reset the app, so keep it safe.",
+    pin: "PIN",
+    confirmPin: "Enter the PIN again",
+    mismatch: "The two PINs do not match",
+    unlock: "Unlock",
+    setup: "Set PIN and continue",
+    working: "Opening…",
+    retryIn: "Too many wrong PINs. Try again in {seconds} seconds",
+    lock: "Lock",
+    lockTitle: "Lock BukitJalil",
+    settingsDev: "Development mode has no PIN; the app never locks.",
+    settingsIntro:
+      "The PIN is the key to the database. Changing it encrypts the whole database again with the new PIN.",
+    currentPin: "Current PIN",
+    nextPin: "New PIN",
+    confirmNextPin: "Enter the new PIN again",
+    change: "Change PIN",
+    changed: "PIN changed",
+    forgot: "Forgot your PIN?",
+    resetTitle: "Reset the app",
+    resetHint:
+      "Without the PIN the database cannot be opened; the only way back is a reset. It deletes all settings, the tokens of publishing accounts and data sources, model keys, AI conversations, change and build history, and the working copies, previews and Notion snapshots; AI runs, builds and publishing in progress are stopped. Your site and theme folders are not deleted; add them again after the reset. This cannot be undone.",
+    resetConfirm: "Delete and reset",
+    resetCancel: "Cancel",
+    resetting: "Resetting; the app opens again in a moment…",
+    legacyTitle: "This is data from an earlier version",
+    legacyHint:
+      "This data directory comes from an earlier test version without a PIN. Its data is not encrypted and this version cannot open it. Reset to start again; your site and theme folders are not deleted.",
+    idleTitle: "Lock when idle",
+    idleHint: "Lock the app after a while without use. Running AI turns, builds and publishes carry on.",
+    idleOff: "Off",
+    idleMinutes: "{minutes} min",
   },
   errors: {
     "auth.required": "Your session has expired. Press Enter in the terminal running BukitJalil and open the new link.",
@@ -1221,10 +1241,13 @@ const en: Messages = {
     "server.shutting_down": "BukitJalil is shutting down",
     "storage.unreadable": "A saved settings file cannot be read; fix or remove it before saving again",
     "storage.too_large": "Too much data to save; remove some saved entries and try again",
-    "secrets.unavailable":
-      "There is no safe place to keep tokens and keys, so they cannot be saved now; see the note at the top of the settings",
-    "secrets.pending": 'Still waiting for the keychain: click "Allow" in the system prompt, then try again',
-    "secrets.reset_unsupported": "Development mode has no encryption key to reset",
+    "app.locked": "BukitJalil is locked. Enter your PIN to unlock it",
+    "security.dev_mode": "Development mode has no PIN",
+    "security.pin_set": "A PIN is already set",
+    "security.pin_not_set": "No PIN has been set yet",
+    "security.wrong_pin": "Wrong PIN",
+    "security.retry_later": "Too many wrong PINs. Try again in {seconds} seconds",
+    "security.legacy_database": "This is unencrypted data from an earlier version; the app can only be reset",
     "build.not_found": "Build not found",
     "site.read_only": "Read-only because it does not meet the safety rules",
     "site.create_failed": "Bukit could not create the site: {detail}",

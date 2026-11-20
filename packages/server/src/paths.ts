@@ -70,12 +70,10 @@ export interface AppPaths {
   bukitTmp: string;
   /** worktrees/<siteId>/{ai,main} (plan 4.1). */
   worktrees: string;
-  /** Pi session files, sessions/<siteId>/<sessionId>.jsonl (plan 4.1). */
-  sessions: string;
   previews: string;
   /** Notion offline snapshots and their media caches, notion-snapshots/<siteId>/ (plan 5.5). */
   notionSnapshots: string;
-  /** Pi's agentDir and PI_CODING_AGENT_DIR: auth.json, models.json (plan 6.1). */
+  /** Pi's agentDir and PI_CODING_AGENT_DIR: models.json (plan 6.1); keys are in the database (plan 6.9). */
   pi: string;
   /** rg installed and checked by BukitJalil (plan 6.3). */
   piBin: string;
@@ -83,13 +81,6 @@ export interface AppPaths {
   tmp: string;
   /** Site captures handed from the desktop app to the server (design 6.2), captures/<id>/. */
   captures: string;
-  /** Per-data-source Notion tokens, 0600. */
-  dataSourceTokens: string;
-  /** Per-publishing-account GitHub tokens, 0600. */
-  publishAccountTokens: string;
-  /** The same token files encrypted with the desktop app's keychain key (plan 6.7). */
-  dataSourceTokensEnc: string;
-  publishAccountTokensEnc: string;
   /** Pid of the server using this directory (plan M7). */
   lock: string;
 }
@@ -103,17 +94,12 @@ export function ensureAppHome(home: string): AppPaths {
     emptyHooks: path.join(home, "empty-hooks"),
     bukitTmp: path.join(home, "tmp", "bukit"),
     worktrees: path.join(home, "worktrees"),
-    sessions: path.join(home, "sessions"),
     previews: path.join(home, "previews"),
     notionSnapshots: path.join(home, "notion-snapshots"),
     pi: path.join(home, "pi"),
     piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
     captures: path.join(home, "captures"),
-    dataSourceTokens: path.join(home, "data-source-tokens.json"),
-    publishAccountTokens: path.join(home, "publish-account-tokens.json"),
-    dataSourceTokensEnc: path.join(home, "data-source-tokens.enc.json"),
-    publishAccountTokensEnc: path.join(home, "publish-account-tokens.enc.json"),
     lock: path.join(home, "server.lock"),
   };
   // mkdir's mode only applies to new directories, so existing ones are tightened as well. The database
@@ -124,7 +110,6 @@ export function ensureAppHome(home: string): AppPaths {
   for (const dir of [
     paths.bukitTmp,
     paths.worktrees,
-    paths.sessions,
     paths.previews,
     paths.notionSnapshots,
     paths.piBin,
@@ -134,19 +119,12 @@ export function ensureAppHome(home: string): AppPaths {
   }
   fs.chmodSync(home, 0o700);
   fs.chmodSync(paths.logs, 0o700);
-  // Holds model keys (auth.json).
+  // Pi's models.json and device id; model keys are in the database (plan 6.9).
   fs.chmodSync(paths.pi, 0o700);
   for (const file of [paths.db, paths.emptyGitConfig]) {
     if (!fs.existsSync(file)) fs.writeFileSync(file, "", { mode: 0o600 });
   }
-  for (const file of [
-    paths.db,
-    `${paths.db}-wal`,
-    `${paths.db}-shm`,
-    path.join(paths.logs, "server.log"),
-    paths.dataSourceTokens,
-    paths.publishAccountTokens,
-  ]) {
+  for (const file of [paths.db, `${paths.db}-wal`, `${paths.db}-shm`, path.join(paths.logs, "server.log")]) {
     // lstat, not exists: a symlink must not make startup chmod a file outside the app home.
     if (fs.lstatSync(file, { throwIfNoEntry: false })?.isFile()) fs.chmodSync(file, 0o600);
   }

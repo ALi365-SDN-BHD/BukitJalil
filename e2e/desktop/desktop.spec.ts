@@ -46,7 +46,8 @@ async function launch(
   };
   const app = await _electron.launch({
     executablePath: electronBin,
-    // Chromium's stand-in keychain: tests never touch the user's real one (plan 6.7).
+    // Chromium's stand-in keychain: BukitJalil no longer uses the keychain (plan 6.9), but Chromium's own
+    // cookie store does, and tests never touch the user's real one.
     args: [...MOCK_KEYCHAIN, desktopDir],
     env: env as Record<string, string>,
   });
@@ -55,6 +56,20 @@ async function launch(
 }
 
 const lockFile = (home: string) => path.join(home, "server.lock");
+
+const PIN = "1234";
+
+/**
+ * The app opens on the lock screen (plan 6.9): the first start sets the PIN, later ones enter it. Waits until
+ * the app itself shows.
+ */
+async function enterPin(page: Page): Promise<void> {
+  await expect(page.getByTestId("lock-screen")).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId("pin").fill(PIN);
+  if (await page.getByTestId("pin-confirm").isVisible()) await page.getByTestId("pin-confirm").fill(PIN);
+  await page.getByTestId("lock-submit").click();
+  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+}
 const sleepers: ChildProcess[] = [];
 test.afterEach(() => {
   for (const s of sleepers.splice(0)) s.kill();
@@ -62,7 +77,7 @@ test.afterEach(() => {
 
 test("opens the app signed in, with only the desktop bridge exposed", async () => {
   const { app, page, home } = await launch();
-  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await enterPin(page);
   await expect(page.getByTestId("app-update")).toBeVisible();
   expect(new URL(page.url()).origin).toBe(`http://127.0.0.1:${PORT}`);
   expect(await page.evaluate(() => [typeof (window as { require?: unknown }).require, typeof process])).toEqual([
@@ -91,9 +106,70 @@ test("opens the app signed in, with only the desktop bridge exposed", async () =
   expect(() => process.kill(pid, 0)).toThrow();
 });
 
+test("locks with a PIN that encrypts the database, and opens again only with it", async () => {
+  const { app, page, home } = await launch();
+  // The first start asks for the PIN twice; the database then exists and is not plain SQLite.
+  await expect(page.getByTestId("lock-screen")).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId("pin").fill(PIN);
+  await page.getByTestId("pin-confirm").fill("4321");
+  await page.getByTestId("lock-submit").click();
+  await expect(page.getByTestId("lock-error")).toBeVisible();
+  await enterPin(page);
+  const header = fs.readFileSync(path.join(home, "app.db")).subarray(0, 15).toString();
+  expect(header).not.toBe("SQLite format 3");
+  await putSettings(page, { commitName: "Locked Test" });
+
+  // Locking shows the lock screen and the API refuses everything but the lock.
+  await page.getByTestId("lock-app").click();
+  await expect(page.getByTestId("lock-screen")).toBeVisible();
+  expect(await page.evaluate(async () => (await fetch("/api/settings")).status)).toBe(423);
+  await page.getByTestId("pin").fill("9999");
+  await page.getByTestId("lock-submit").click();
+  await expect(page.getByTestId("lock-error")).toBeVisible();
+  await enterPin(page);
+  await app.close();
+
+  // After a restart the same PIN opens the same data.
+  const again = await launch(home);
+  await expect(again.page.getByTestId("lock-screen")).toBeVisible({ timeout: 30_000 });
+  await expect(again.page.getByTestId("pin-confirm")).toHaveCount(0);
+  await enterPin(again.page);
+  const settings = await again.page.evaluate(async () => (await fetch("/api/settings")).json());
+  expect(settings.commitName).toBe("Locked Test");
+
+  // A forgotten PIN: the reset says what goes, can be cancelled, and opens the app again empty.
+  await again.page.getByTestId("lock-app").click();
+  await again.page.getByTestId("lock-forgot").click();
+  await expect(again.page.getByTestId("lock-reset")).toBeVisible();
+  await again.page.getByTestId("lock-reset-cancel").click();
+  await expect(again.page.getByTestId("lock-submit")).toBeVisible();
+  await again.page.getByTestId("lock-forgot").click();
+  await again.page.getByTestId("lock-reset").click();
+  await expect(again.page.getByTestId("pin-confirm")).toBeVisible({ timeout: 30_000 });
+  await enterPin(again.page);
+  const fresh = await again.page.evaluate(async () => (await fetch("/api/settings")).json());
+  expect(fresh.commitName).not.toBe("Locked Test");
+  await again.app.close();
+});
+
+test("an old plain database can only be reset", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-home-"));
+  fs.writeFileSync(
+    path.join(home, "app.db"),
+    Buffer.concat([Buffer.from("SQLite format 3\0", "latin1"), Buffer.alloc(84)]),
+  );
+  const { app, page } = await launch(home);
+  await expect(page.getByTestId("lock-reset")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("pin")).toHaveCount(0);
+  await expect(page.getByTestId("lock-reset-cancel")).toHaveCount(0);
+  await page.getByTestId("lock-reset").click();
+  await enterPin(page);
+  await app.close();
+});
+
 test("the menus and the About panel follow the language chosen in settings", async () => {
   const { app, page } = await launch();
-  await expect(page.getByTestId("slogan")).toBeVisible({ timeout: 30_000 });
+  await enterPin(page);
   const helpLabels = () =>
     app.evaluate(({ Menu }) =>
       (Menu.getApplicationMenu()?.items.at(-1)?.submenu?.items ?? []).map((item) => item.label),
@@ -118,27 +194,9 @@ test("the menus and the About panel follow the language chosen in settings", asy
   await app.close();
 });
 
-test("keeps tokens encrypted with a key the keychain protects", async () => {
-  const { app, page, home } = await launch();
-  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
-  // The app asks the keychain once its window shows the app; the key file is made at the first start and
-  // the settings show nothing while secrets are encrypted.
-  const status = () => page.evaluate(async () => (await fetch("/api/secrets")).json());
-  await expect.poll(status).toEqual({ mode: "encrypted", reason: null, plainFiles: false });
-  expect(fs.existsSync(path.join(home, "secret-key.enc"))).toBe(true);
-  await app.close();
-  // A plain token file from an earlier version is encrypted at the next start and removed.
-  fs.writeFileSync(path.join(home, "publish-account-tokens.json"), JSON.stringify({}), { mode: 0o600 });
-  const again = await launch(home);
-  await expect(again.page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => fs.existsSync(path.join(home, "publish-account-tokens.json"))).toBe(false);
-  expect(fs.existsSync(path.join(home, "publish-account-tokens.enc.json"))).toBe(true);
-  await again.app.close();
-});
-
 test("sends web links to the system browser and keeps the window on the app", async () => {
   const { app, page } = await launch();
-  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await enterPin(page);
   await app.evaluate(({ shell }) => {
     const opened: string[] = [];
     (globalThis as { opened?: string[] }).opened = opened;
@@ -168,7 +226,7 @@ test("sends web links to the system browser and keeps the window on the app", as
 
 test("a second launch hands over to the running app and exits", async () => {
   const run = await launch();
-  await expect(run.page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await enterPin(run.page);
   const second = spawn(electronBin, [...MOCK_KEYCHAIN, desktopDir], { env: run.env, stdio: "ignore" });
   const code = await new Promise<number | null>((resolve) => second.once("exit", resolve));
   expect(code).toBe(0);
@@ -178,11 +236,11 @@ test("a second launch hands over to the running app and exits", async () => {
 
 test("explains when the server stops and starts it again on request", async () => {
   const { app, page, home } = await launch();
-  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await enterPin(page);
   process.kill(Number(fs.readFileSync(lockFile(home), "utf8")), "SIGKILL");
   await expect(page.locator("#title")).toHaveText(/stopped unexpectedly|意外停止/);
   await page.getByRole("button", { name: /Start again|重新启动/ }).click();
-  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await enterPin(page);
   await app.close();
 });
 
@@ -196,7 +254,7 @@ test("says when another BukitJalil holds the data directory", async () => {
   sleeper.kill();
   await new Promise((r) => sleeper.once("exit", r));
   await page.getByRole("button", { name: /Start again|重新启动/ }).click();
-  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await enterPin(page);
   await app.close();
 });
 
@@ -209,7 +267,7 @@ test("uploads a dropped file and previews it in the desktop app", async () => {
     BUKITJALIL_HOME: path.join(home, ".bukitjalil"),
   });
   try {
-    await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+    await enterPin(page);
     const site = await page.evaluate(
       async ({ dir }) => {
         const headers = { "content-type": "application/json", "x-bukitjalil": "1" };
@@ -263,7 +321,7 @@ test("uploads a dropped file and previews it in the desktop app", async () => {
 
 test("chooses folders with the system dialog, opened where the field points", async () => {
   const { app, page, home } = await launch();
-  await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+  await enterPin(page);
   const chosen = fs.mkdtempSync(path.join(home, "chosen-"));
   await app.evaluate(({ dialog }, folder) => {
     const calls: unknown[] = [];
@@ -334,7 +392,7 @@ test("clones the user's site into a theme through a locked-down capture", async 
   const run = await launch(undefined, { BUKITJALIL_CAPTURE_ALLOW_LOOPBACK: "1" });
   const { app, page, home } = run;
   try {
-    await expect(page.getByTestId("new-site")).toBeVisible({ timeout: 30_000 });
+    await enterPin(page);
     await putSettings(page, { commitName: "E2E Tester", commitEmail: "e2e@example.com", locale: "en" });
     await page.reload();
     await expect(page.getByTestId("new-site")).toBeVisible();

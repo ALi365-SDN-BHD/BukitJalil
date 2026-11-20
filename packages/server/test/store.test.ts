@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { SessionStore } from "../src/agent/store.ts";
 import { loadMigrations, openDatabase } from "../src/store/db.ts";
 import { SettingsStore } from "../src/store/settings.ts";
 
@@ -20,19 +21,54 @@ describe("SQLite store (plan 4.2)", () => {
         "builds",
         "change_set_sessions",
         "change_sets",
+        "custom_models",
         "data_sources",
         "deploys",
         "notion_snapshots",
+        "pi_credentials",
         "publish_accounts",
+        "session_entries",
         "schema_migrations",
         "sessions",
         "settings",
         "sites",
         "themes",
+        "vault_keys",
       ].sort(),
     );
     const versions = db.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
     expect(versions.map((v) => v.version)).toEqual(loadMigrations().map((m) => m.version));
+  });
+
+  it("saves a session's entries by appending, and writes them all again when the saved ones moved", () => {
+    const db = openDatabase(":memory:");
+    db.prepare(
+      "INSERT INTO sites (id, name, path, default_branch, created_at) VALUES ('aaaaaaaaaaaaaaaa', 'S', '/s', 'main', '')",
+    ).run();
+    const store = new SessionStore(db);
+    store.insert({ id: "0123456789abcdef", project: "aaaaaaaaaaaaaaaa" });
+    const id = "0123456789abcdef";
+    const rows = () => db.prepare("SELECT seq, entry_id FROM session_entries ORDER BY seq").all();
+    const header = { type: "session", id: "pi-1" };
+    const a = { type: "message", id: "a", parentId: null };
+    const b = { type: "message", id: "b", parentId: "a" };
+
+    store.saveEntries(id, [header, a]);
+    store.saveEntries(id, [header, a, b]);
+    expect(rows()).toEqual([
+      { seq: 0, entry_id: "pi-1" },
+      { seq: 1, entry_id: "a" },
+      { seq: 2, entry_id: "b" },
+    ]);
+    expect(store.entries(id)).toEqual([header, a, b]);
+
+    // A branch: another header and fewer entries replace what was saved.
+    const branched = [{ type: "session", id: "pi-2" }, a];
+    store.saveEntries(id, branched);
+    expect(store.entries(id)).toEqual(branched);
+
+    store.delete(id);
+    expect(rows()).toEqual([]);
   });
 
   it("allows only one open change set per site", () => {

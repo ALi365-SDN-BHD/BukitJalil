@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import type { Build, BuildOutcome, BuildReport, BuildStatus, ProjectKey } from "@bukitjalil/shared";
 import { ownerOf, rowProject } from "../projects/owner.ts";
+import type { Db } from "../store/db.ts";
 
 interface BuildRow {
   id: string;
@@ -61,7 +61,7 @@ export const newBuildId = () => crypto.randomBytes(8).toString("hex");
 
 /** The `builds` table (plan 4.2), `kind = 'build'` rows only; check and doctor runs are not recorded yet. */
 export class BuildStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Db) {}
 
   insert(build: { id: string; project: ProjectKey; commit: string; changeSetId?: string | null }): void {
     const owner = ownerOf(build.project);

@@ -7,6 +7,7 @@ import { expect } from "vitest";
 import { AiBukit } from "../src/agent/ai-bukit.ts";
 import { CustomModelStore } from "../src/agent/custom-models.ts";
 import { RgService } from "../src/agent/rg.ts";
+import { SecretCredentialStore } from "../src/agent/secret-credentials.ts";
 import { AgentService, type AgentServiceOptions } from "../src/agent/service.ts";
 import type { EventStreamOptions } from "../src/api/events.ts";
 import { createAdminApp } from "../src/app.ts";
@@ -28,7 +29,9 @@ import { PreviewPool } from "../src/preview/pool.ts";
 import { ProjectRepos } from "../src/projects/repo.ts";
 import { ProjectService } from "../src/projects/service.ts";
 import { PublishAccountService } from "../src/publish/accounts.ts";
+import type { SecurityService } from "../src/security/pin.ts";
 import { LoginToken } from "../src/security/token.ts";
+import { FieldVault } from "../src/security/vault.ts";
 import { SiteLocks } from "../src/sites/locks.ts";
 import { SiteService } from "../src/sites/service.ts";
 import { openDatabase } from "../src/store/db.ts";
@@ -95,6 +98,8 @@ export function makeApp(
     gitRunBrew?: GitServiceOptions["runBrew"];
     gitResolvePath?: () => string | null;
     gitCheck?: GitServiceOptions["check"];
+    /** The app lock (plan 6.9); none by default, like `pnpm dev`. */
+    security?: SecurityService;
   } = {},
 ) {
   const db = openDatabase(":memory:");
@@ -125,16 +130,9 @@ export function makeApp(
   const locks = new SiteLocks();
   const settings = new SettingsStore(db);
   const logger = overrides.logger ?? silentLogger;
-  const dataSources = new DataSourceService({
-    db,
-    tokenFile: paths.dataSourceTokens,
-    fetchImpl: overrides.dataSourceFetch ?? null,
-  });
-  const publishAccounts = new PublishAccountService({
-    db,
-    tokenFile: paths.publishAccountTokens,
-    fetchImpl: overrides.publishFetch ?? null,
-  });
+  const vault = new FieldVault(db);
+  const dataSources = new DataSourceService({ db, vault, fetchImpl: overrides.dataSourceFetch ?? null });
+  const publishAccounts = new PublishAccountService({ db, vault, fetchImpl: overrides.publishFetch ?? null });
   const repos = new ProjectRepos({ db, git, paths, bukit });
   const sites = new SiteService({
     db,
@@ -175,7 +173,7 @@ export function makeApp(
   const media = new MediaService({ git, sites, changes, locks, paths, logger });
   const deliver = new ThemeDeliverService({ git, paths, projects, changes, locks, logger });
   const aiBukit = new AiBukit({ git, paths, projects, bukit, changes });
-  const customModels = new CustomModelStore(path.join(paths.pi, "custom-models.json"));
+  const customModels = new CustomModelStore({ db, vault });
   const builds = new BuildService({
     db,
     git,
@@ -195,6 +193,7 @@ export function makeApp(
     locks,
     changes,
     logger,
+    credentials: new SecretCredentialStore({ db, vault }),
     resolveModel: () => undefined,
     rgReady: () => false,
     bukit: aiBukit,
@@ -250,6 +249,7 @@ export function makeApp(
     version: "test",
     updates,
     logger,
+    security: overrides.security,
   });
   return {
     app,

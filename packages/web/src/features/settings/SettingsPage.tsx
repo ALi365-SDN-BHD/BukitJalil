@@ -1,5 +1,16 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Database, GraduationCap, Puzzle, Rocket, Search, Settings2, Sparkles, Wrench, X } from "lucide-react";
+import {
+  Database,
+  GraduationCap,
+  LockKeyhole,
+  Puzzle,
+  Rocket,
+  Search,
+  Settings2,
+  Sparkles,
+  Wrench,
+  X,
+} from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
@@ -12,7 +23,7 @@ import { ExtensionsSection } from "./ExtensionsSection";
 import { GeneralSection } from "./GeneralSection";
 import { ModelSection } from "./ModelSection";
 import { PublishingSection } from "./PublishingSection";
-import { SecretsNotice } from "./SecretsNotice";
+import { SecuritySection } from "./SecuritySection";
 import { SkillsSection } from "./SkillsSection";
 import { resolveSettingsSection, type SettingsSection } from "./useOpenSettings";
 
@@ -87,6 +98,12 @@ export function SettingsPage() {
       group: "computer",
       icon: <Wrench className="size-4" />,
       label: m.settings.sections.environment,
+    },
+    {
+      id: "security",
+      group: "computer",
+      icon: <LockKeyhole className="size-4" />,
+      label: m.settings.sections.security,
     },
   ];
   const needle = query.trim().toLowerCase();
@@ -169,7 +186,6 @@ export function SettingsPage() {
           </nav>
           <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-10 md:py-8">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
-              <SecretsNotice />
               {section === "general" && <GeneralSection />}
               {section === "model" && <ModelSection />}
               {section === "skills" && <SkillsSection />}
@@ -177,6 +193,7 @@ export function SettingsPage() {
               {section === "data" && <DataSourceSection />}
               {section === "extensions" && <ExtensionsSection />}
               {section === "environment" && <EnvironmentSection />}
+              {section === "security" && <SecuritySection />}
             </div>
           </main>
         </div>

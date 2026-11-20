@@ -99,7 +99,7 @@ Pi 的工作方式（模型请求、工具执行、会话树、技能、扩展�
 | 只读查看 | Shiki，以及 Markdown / 图片 / PDF 预览                                                     | 只能看，不能改                                                     |
 | 改动审核 | 差异查看组件                                                                               | 显示每次 AI 改动                                                   |
 | 版本     | 每个网站一个 git 仓库                                                                      | 差异、历史、恢复；直接调用系统 git（≥ 2.38，统一加固），不用封装库 |
-| 系统数据 | SQLite（`node:sqlite`）                                                                    | 网站列表、设置等；和网站自己的数据分开                             |
+| 系统数据 | SQLite（`better-sqlite3-multiple-ciphers`）                                                | 网站列表、设置等；和网站自己的数据分开                             |
 | 构建     | Bukit（.NET Native AOT）子进程                                                             | 构建、预览、发布                                                   |
 | 测试     | Vitest + Playwright                                                                        | 单元测试和端到端测试                                               |
 | 桌面版   | Electron 45.2.3                                                                            | 启动同一个本地服务并加载同一个界面                                 |
@@ -177,7 +177,7 @@ pnpm e2e:desktop    # 桌面版测试；打包过时也测试打包后的应用
 ### 现在能做什么（M7）
 
 1. 打开设置（左下角齿轮）：填写提交用的姓名和邮箱（默认取全局 git 设置）。Bukit 随应用发布（macOS Apple Silicon 和 Intel、Linux x64 和 arm64），不用安装；从源码运行时先执行 `pnpm fetch:bukit`。
-2. 在设置 → AI 模型里选服务商。支持订阅账号的服务商可以直接登录（Claude Pro/Max、GitHub Copilot、Kimi For Coding、OpenRouter、xAI、Radius、ChatGPT），按浏览器提示授权，无需 API Key；也可以填 API Key（只保存在本机 `~/.bukitjalil/pi/auth.json`，界面只显示末四位，或用服务商的环境变量）。选模型和思考程度，点"测试连接"确认可用，再点"使用这个模型"。完全离线时可以打开"本地部署"，连接 Ollama、LM Studio、vLLM、llama.cpp 或自定义 OpenAI / Anthropic 兼容后端，自行填写模型 ID 和显示名称。
+2. 在设置 → AI 模型里选服务商。支持订阅账号的服务商可以直接登录（Claude Pro/Max、GitHub Copilot、Kimi For Coding、OpenRouter、xAI、Radius、ChatGPT），按浏览器提示授权，无需 API Key；也可以填 API Key（加密保存在本机数据库里，界面只显示末四位，或用服务商的环境变量）。选模型和思考程度，点"测试连接"确认可用，再点"使用这个模型"。完全离线时可以打开"本地部署"，连接 Ollama、LM Studio、vLLM、llama.cpp 或自定义 OpenAI / Anthropic 兼容后端，自行填写模型 ID 和显示名称。
 3. 在设置 → 数据源里保存 Notion 数据源（每个数据源一个 token；先把 Notion 数据库共享给对应 integration）。新建网站：填名称、选默认语言和位置；需要多语言时勾选“多语言网站”，创建后的对话会先询问其他语言；不选数据源时默认使用 Markdown，并自动创建 Markdown 内容文件；选 Notion 时要勾选数据库，并逐个选择用途（文章 / 页面 / 数据）。随后由内置 Bukit 的 `bukit new` 生成网站并提交第一个版本，自动构建。
 4. 导入网站：选一个已有的 Bukit 网站文件夹，先检查再导入；还不是 git 仓库的会先列出要提交的文件，确认后才导入；不满足安全规则的仓库以只读方式导入，界面写明原因。
 5. 在网站主页开始对话：AI 在网站的工作副本里读写文件、运行 Bukit 检查和构建，回复流式显示，每次工具调用是一张可展开的卡片；运行中可以插话、排队或停止；会话会用第一条消息自动命名，也可以在左侧会话行的菜单里重命名、删除，或从任意一条消息分叉，刷新后恢复。AI 的改动先留在工作副本里。

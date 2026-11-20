@@ -970,6 +970,7 @@ const ms: Messages = {
       skills: "Kemahiran",
       extensions: "Sambungan",
       environment: "Persekitaran",
+      security: "Keselamatan",
     },
     language: "Bahasa",
     appearance: "Penampilan",
@@ -1175,27 +1176,44 @@ const ms: Messages = {
       keyNotEditable: "Pembekal ini memerlukan beberapa tetapan; sediakannya dengan pemboleh ubah persekitaran.",
     },
   },
-  secrets: {
-    plain:
-      "Mod pembangunan: token dan kunci model disimpan sebagai fail tidak disulitkan (mod 600). Aplikasi desktop menyulitkannya dengan rantai kunci sistem.",
-    plainLeft:
-      "Sesetengah fail token atau kunci tidak disulitkan daripada versi terdahulu tidak dapat disulitkan; lihat log.",
-    plainUsed:
-      "Fail tidak disulitkan daripada versi terdahulu sedang digunakan; token dan kunci baharu tidak boleh disimpan sehingga fail itu dapat disulitkan.",
-    unavailable: {
-      no_keyring:
-        "Tiada rantai kunci sistem ditemui, jadi token dan kunci model tidak dapat disimpan dengan selamat dan penyimpanan dimatikan. Pada Linux, pasang dan buka kunci gnome-keyring atau KWallet, kemudian mulakan semula BukitJalil.",
-      locked:
-        "Kunci dalam rantai kunci tidak dapat dibuka (akses ditolak, item rantai kunci telah dibuang, atau folder data datang dari komputer lain), jadi token dan kunci model yang disimpan tidak dapat digunakan. Mulakan semula dan pilih Benarkan apabila diminta, atau set semula dan masukkannya sekali lagi.",
-      no_answer: "Rantai kunci tidak menjawab (mungkin gesaan aksesnya tidak dijawab). Mulakan semula BukitJalil.",
-      reset:
-        "Semua token dan kunci model yang disimpan telah dibuang. Mulakan semula BukitJalil, kemudian masukkannya sekali lagi.",
-      pending:
-        'Menunggu rantai kunci: klik "Benarkan" dalam gesaan sistem untuk menggunakan token dan kunci model yang disimpan. Jika tiada gesaan muncul, mulakan semula BukitJalil.',
-    },
-    reset: "Set semula kunci",
-    resetConfirm:
-      "Ini akan membuang setiap token dan kunci model yang disimpan; anda perlu memasukkannya sekali lagi. Teruskan?",
+  lock: {
+    lockedTitle: "BukitJalil dikunci",
+    lockedHint: "Masukkan PIN anda untuk membukanya.",
+    setupTitle: "Tetapkan PIN",
+    setupHint:
+      "Tetapkan PIN sebelum bermula: 4–8 digit. PIN ialah kunci pangkalan data; jika anda terlupa, satu-satunya cara ialah menetapkan semula aplikasi, jadi simpan dengan selamat.",
+    pin: "PIN",
+    confirmPin: "Masukkan PIN sekali lagi",
+    mismatch: "Kedua-dua PIN tidak sama",
+    unlock: "Buka kunci",
+    setup: "Tetapkan PIN dan teruskan",
+    working: "Sedang dibuka…",
+    retryIn: "Terlalu banyak PIN salah. Cuba lagi dalam {seconds} saat",
+    lock: "Kunci",
+    lockTitle: "Kunci BukitJalil",
+    settingsDev: "Mod pembangunan tiada PIN; aplikasi tidak akan dikunci.",
+    settingsIntro:
+      "PIN ialah kunci pangkalan data. Menukar PIN akan menyulitkan semula seluruh pangkalan data dengan PIN baharu.",
+    currentPin: "PIN semasa",
+    nextPin: "PIN baharu",
+    confirmNextPin: "Masukkan PIN baharu sekali lagi",
+    change: "Tukar PIN",
+    changed: "PIN telah ditukar",
+    forgot: "Terlupa PIN?",
+    resetTitle: "Tetapkan semula aplikasi",
+    resetHint:
+      "Tanpa PIN, pangkalan data tidak boleh dibuka; satu-satunya cara ialah menetapkan semula. Ini memadam semua tetapan, token akaun penerbitan dan sumber data, kunci model, perbualan AI, sejarah perubahan dan binaan, serta salinan kerja, pratonton dan petikan Notion; AI, binaan dan penerbitan yang sedang berjalan akan dihentikan. Folder laman dan tema anda tidak dipadam; tambah semula selepas tetapan semula. Ini tidak boleh dibatalkan.",
+    resetConfirm: "Padam dan tetapkan semula",
+    resetCancel: "Batal",
+    resetting: "Sedang menetapkan semula; aplikasi akan dibuka semula sebentar lagi…",
+    legacyTitle: "Ini data daripada versi lama",
+    legacyHint:
+      "Direktori data ini daripada versi ujian lama tanpa PIN. Datanya tidak disulitkan dan versi ini tidak dapat membukanya. Tetapkan semula untuk bermula semula; folder laman dan tema anda tidak dipadam.",
+    idleTitle: "Kunci apabila tidak aktif",
+    idleHint:
+      "Kunci aplikasi selepas tidak digunakan seketika. AI, binaan dan penerbitan yang sedang berjalan diteruskan.",
+    idleOff: "Tutup",
+    idleMinutes: "{minutes} minit",
   },
   errors: {
     "auth.required":
@@ -1243,10 +1261,13 @@ const ms: Messages = {
     "storage.unreadable":
       "Satu fail tetapan yang disimpan tidak boleh dibaca; betulkan atau buangnya sebelum menyimpan semula",
     "storage.too_large": "Data terlalu banyak untuk disimpan; buang beberapa entri yang disimpan dan cuba lagi",
-    "secrets.unavailable":
-      "Tiada tempat selamat untuk menyimpan token dan kunci, jadi ia tidak boleh disimpan sekarang; lihat nota di bahagian atas tetapan",
-    "secrets.pending": 'Masih menunggu rantai kunci: klik "Benarkan" dalam gesaan sistem, kemudian cuba lagi',
-    "secrets.reset_unsupported": "Mod pembangunan tiada kunci penyulitan untuk ditetapkan semula",
+    "app.locked": "BukitJalil dikunci. Masukkan PIN anda untuk membukanya",
+    "security.dev_mode": "Mod pembangunan tiada PIN",
+    "security.pin_set": "PIN sudah ditetapkan",
+    "security.pin_not_set": "PIN belum ditetapkan",
+    "security.wrong_pin": "PIN salah",
+    "security.retry_later": "Terlalu banyak PIN salah. Cuba lagi dalam {seconds} saat",
+    "security.legacy_database": "Ini data tidak disulitkan daripada versi lama; aplikasi hanya boleh ditetapkan semula",
     "build.not_found": "Binaan tidak ditemui",
     "site.read_only": "Baca sahaja kerana tidak memenuhi peraturan keselamatan",
     "site.create_failed": "Bukit tidak dapat mencipta laman: {detail}",

@@ -2,19 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  type IpcMainInvokeEvent,
-  ipcMain,
-  Menu,
-  safeStorage,
-  session,
-  shell,
-} from "electron";
+import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, Menu, session, shell } from "electron";
 import { CaptureService } from "./capture.ts";
-import { loadSecretKey, removeSecretKey } from "./secrets.ts";
 import { ServerProcess, type StartResult } from "./server.ts";
 import { replaceAppImage } from "./update.ts";
 
@@ -113,18 +102,8 @@ const server = new ServerProcess({
     BUKITJALIL_VERSION: appVersion,
   },
   firstPort: Number(process.env.BUKITJALIL_DESKTOP_PORT) || DEFAULT_PORT,
-  // The keychain prompt comes over the app, not over "starting": asked once the window shows the app.
-  // A server that exited meanwhile (a port retry, a restart) asks nothing: no prompt for nobody.
-  secretKey: (alive) =>
-    appShown.then(() => (alive() ? loadSecretKey(dataDir, safeStorage) : { key: null, reason: "locked" })),
-  resetSecrets: () => removeSecretKey(dataDir),
+  onReset: () => void resetApp(),
   openUpdate,
-});
-
-/** Settles the first time the window shows the app (the server answered with a login link). */
-let showApp: () => void = () => {};
-const appShown = new Promise<void>((resolve) => {
-  showApp = resolve;
 });
 
 let win: BrowserWindow | null = null;
@@ -162,13 +141,15 @@ async function open() {
   }
   const url = await server.login();
   if (!url) return showError(text.failed(), "", server.output());
-  try {
-    await win?.loadURL(url);
-  } finally {
-    // Also when the page failed to load: tokens must not wait for a window that will never show the app.
-    // A window closed meanwhile (macOS keeps the app) shows it when it opens again.
-    if (win) showApp();
-  }
+  await win?.loadURL(url);
+}
+
+/** Forgotten PIN (plan 6.9): the server asked to be started again with --reset, then the app opens anew. */
+async function resetApp() {
+  showStatus({ title: text.starting(), text: text.starting() });
+  const result = await server.restartWithReset();
+  if (!result.ok) return explain(result);
+  await open();
 }
 
 server.onExit = (_code, tail) => {

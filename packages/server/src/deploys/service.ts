@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import type {
   Deploy,
   DeployConfigRequest,
@@ -39,6 +38,7 @@ import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { SiteService } from "../sites/service.ts";
 import { storageErrorCode, storageErrorInText } from "../storage-errors.ts";
+import type { Db } from "../store/db.ts";
 import { DeployStore, newDeployId } from "./store.ts";
 import { deployTarget, pagesSiteAddress } from "./target.ts";
 
@@ -51,7 +51,7 @@ export interface DeployServiceOptions {
   locks: SiteLocks;
   paths: AppPaths;
   logger: Logger;
-  db: DatabaseSync;
+  db: Db;
 }
 
 /** Where the output to publish is built, inside the main checkout (Bukit wants a relative --output). */

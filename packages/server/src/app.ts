@@ -1,11 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 import {
   type BukitResponse,
   type HealthResponse,
   type RgResponse,
-  type SecretsStatus,
   SettingsPatch,
   sessionCookieName,
 } from "@bukitjalil/shared";
@@ -28,6 +26,7 @@ import { modelRoutes } from "./api/models.ts";
 import { panelRoutes } from "./api/panels.ts";
 import { pluginRoutes } from "./api/plugins.ts";
 import { publishAccountRoutes } from "./api/publish-accounts.ts";
+import { openWhileLocked, securityRoutes } from "./api/security.ts";
 import { sessionRoutes } from "./api/sessions.ts";
 import { siteRoutes } from "./api/sites.ts";
 import { skillRoutes } from "./api/skills.ts";
@@ -48,14 +47,13 @@ import type { PanelService } from "./panels/service.ts";
 import type { PublishAccountService } from "./publish/accounts.ts";
 import { apiError, apiGuard, hostCheck } from "./security/guard.ts";
 import { adminCsp, adminHeaders, CSP_NONCE_PLACEHOLDER, newCspNonce } from "./security/headers.ts";
+import type { SecurityService } from "./security/pin.ts";
 import type { LoginToken } from "./security/token.ts";
-
-const PLAIN_SECRETS: SecretsStatus = { mode: "plain", reason: null, plainFiles: false };
-
 import { asSiteError } from "./sites/location.ts";
 import type { SiteService } from "./sites/service.ts";
 import { contentType, resolveStaticFile } from "./static-files.ts";
 import { storageErrorCode } from "./storage-errors.ts";
+import type { Db } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
 import type { ThemeDeliverService } from "./themes/deliver.ts";
 import type { ThemeService } from "./themes/service.ts";
@@ -69,7 +67,7 @@ export interface AdminAppOptions {
   loginToken: LoginToken;
   /** Value of the session cookie handed out after a correct token. */
   sessionValue: string;
-  db: DatabaseSync;
+  db: Db;
   /** Built web UI to serve; null in dev, where Vite serves the UI. */
   webDist: string | null;
   checkGit: () => Promise<GitHealth>;
@@ -100,25 +98,118 @@ export interface AdminAppOptions {
   userHome?: string;
   version: string;
   updates: UpdateService;
-  /** How tokens and model keys are kept (plan 6.7); plain files when absent (tests). */
-  secrets?: { status(): SecretsStatus; reset(): void };
   logger: Logger;
+  /** The app lock (plan 6.9); absent in tests, which run like `pnpm dev`. */
+  security?: SecurityService;
 }
+
+/** What the app needs before the database is open: login, the UI, health and the lock (plan 6.9). */
+export type LockedAppOptions = Pick<
+  AdminAppOptions,
+  "port" | "allowedOrigin" | "loginToken" | "sessionValue" | "webDist" | "checkGit" | "version" | "logger"
+> & { security: SecurityService };
 
 export type AppEnv = {
   /** cspSandbox: a route serving site content (images, downloads) adds `sandbox` to the CSP (plan 9.1). */
   Variables: { cspNonce: string | undefined; cspSandbox: boolean | undefined };
 };
 
+/**
+ * The desktop app before the first correct PIN (plan 6.9): the database is still closed, so only login, the
+ * UI, health and the lock answer; every other /api request is 423. It shares login token and session cookie
+ * with the full app that replaces it once the PIN opens the database.
+ */
+export function createLockedApp(opts: LockedAppOptions) {
+  const { app, api } = baseApp(opts);
+  return finishApp(app, api, opts);
+}
+
 export function createAdminApp(opts: AdminAppOptions) {
   const settings = new SettingsStore(opts.db);
-  const cookieName = sessionCookieName(opts.port);
-  const app = new Hono<AppEnv>();
   const piStatus = new PiStatusService({
     modules: () => opts.agent.piModules(),
     fetchImpl: opts.piFetch ?? null,
   });
+  const { app, api } = baseApp(opts);
 
+  api.get("/settings", (c) => c.json(settings.get()));
+  api.put("/settings", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return apiError(c, 400, "request.invalid_body");
+    }
+    const patch = SettingsPatch.safeParse(body);
+    if (!patch.success) return apiError(c, 400, "request.invalid_body");
+    const updated = settings.update(patch.data);
+    return c.json(updated);
+  });
+
+  // The Bukit that ships with BukitJalil (plan 8.1); it is never installed or upgraded at run time.
+  api.get("/bukit", async (c) => {
+    // The settings page asks for a fresh look when it opens.
+    if (c.req.query("refresh") === "1") opts.bukit.invalidate();
+    const body: BukitResponse = { status: await opts.bukit.status() };
+    return c.json(body);
+  });
+
+  // ripgrep for the AI's grep tool (plan 6.3): pinned version, checked by SHA-256, installed on request.
+  api.get("/rg", (c) => {
+    const body: RgResponse = { status: opts.rg.status(), install: opts.rg.installer.progress };
+    return c.json(body);
+  });
+  api.post("/rg/install", (c) => {
+    if (!opts.rg.status().installable) return apiError(c, 400, "rg.unsupported_platform");
+    if (!opts.rg.installer.start()) return apiError(c, 409, "rg.install_running");
+    return c.json({ install: opts.rg.installer.progress }, 202);
+  });
+
+  // The Pi runtime bundled with the app (plan 6.1); the settings page refreshes npm's latest release.
+  api.get("/pi", async (c) => c.json(await piStatus.status(c.req.query("refresh") === "1")));
+
+  siteRoutes(api, {
+    sites: opts.sites,
+    builds: opts.builds,
+    dataSources: opts.dataSources,
+    panels: opts.panels,
+    readIdentity: opts.readIdentity,
+    userHome: opts.userHome,
+  });
+  themeRoutes(api, { themes: opts.themes, builds: opts.builds, deliver: opts.deliver, agent: opts.agent });
+  panelRoutes(api, opts.panels);
+  mediaRoutes(api, { media: opts.media, agent: opts.agent });
+  pluginRoutes(api, { changes: opts.changes, agent: opts.agent });
+  buildRoutes(api, opts.builds);
+  dataSourceRoutes(api, opts.dataSources);
+  publishAccountRoutes(api, opts.publishAccounts);
+  deployRoutes(api, opts.deploys);
+  gitRoutes(api, opts.gitStatus);
+  updateRoutes(api, opts.updates);
+  sessionRoutes(api, opts.agent);
+  skillRoutes(api, opts.agent);
+  changeRoutes(api, { changes: opts.changes, agent: opts.agent, builds: opts.builds, logger: opts.logger });
+  modelRoutes(
+    api,
+    new ModelService({
+      runtime: () => opts.agent.models(),
+      settings,
+      piDir: opts.agent.piDir,
+      storedCredential: (id) => opts.agent.credentials.readNow(id),
+      testTimeoutMs: opts.modelTestTimeoutMs,
+      customProviderIds: () => opts.customModels.ids(),
+    }),
+  );
+  customModelRoutes(api, opts.customModels, () => opts.agent.models());
+  eventRoutes(api, opts.events, opts.eventStream);
+
+  return finishApp(app, api, opts);
+}
+
+/** Headers, host check, errors, login, the API guard, health and the lock: shared by both apps. */
+function baseApp(opts: LockedAppOptions | AdminAppOptions) {
+  const cookieName = sessionCookieName(opts.port);
+  const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     await next();
     for (const [k, v] of Object.entries(adminHeaders)) c.header(k, v);
@@ -182,87 +273,20 @@ export function createAdminApp(opts: AdminAppOptions) {
     return c.json(body);
   });
 
-  api.get("/settings", (c) => c.json(settings.get()));
-  api.put("/settings", async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return apiError(c, 400, "request.invalid_body");
-    }
-    const patch = SettingsPatch.safeParse(body);
-    if (!patch.success) return apiError(c, 400, "request.invalid_body");
-    const updated = settings.update(patch.data);
-    return c.json(updated);
-  });
+  // The app lock (plan 6.9). While locked, only health and the lock itself answer.
+  const security = opts.security;
+  if (security) {
+    api.use("*", async (c, next) => {
+      if (security.isLocked() && !openWhileLocked(new URL(c.req.url).pathname)) return apiError(c, 423, "app.locked");
+      await next();
+    });
+    securityRoutes(api, security);
+  }
+  return { app, api };
+}
 
-  // The Bukit that ships with BukitJalil (plan 8.1); it is never installed or upgraded at run time.
-  api.get("/bukit", async (c) => {
-    // The settings page asks for a fresh look when it opens.
-    if (c.req.query("refresh") === "1") opts.bukit.invalidate();
-    const body: BukitResponse = { status: await opts.bukit.status() };
-    return c.json(body);
-  });
-
-  // ripgrep for the AI's grep tool (plan 6.3): pinned version, checked by SHA-256, installed on request.
-  api.get("/rg", (c) => {
-    const body: RgResponse = { status: opts.rg.status(), install: opts.rg.installer.progress };
-    return c.json(body);
-  });
-  api.post("/rg/install", (c) => {
-    if (!opts.rg.status().installable) return apiError(c, 400, "rg.unsupported_platform");
-    if (!opts.rg.installer.start()) return apiError(c, 409, "rg.install_running");
-    return c.json({ install: opts.rg.installer.progress }, 202);
-  });
-
-  // How tokens and model keys are kept, and forgetting them all when the key is lost (plan 6.7).
-  api.get("/secrets", (c) => c.json(opts.secrets?.status() ?? PLAIN_SECRETS));
-  api.post("/secrets/reset", (c) => {
-    if (!opts.secrets) return apiError(c, 409, "secrets.reset_unsupported");
-    // A SiteError (plain mode) becomes its API error in the error handler.
-    opts.secrets.reset();
-    return c.json(opts.secrets.status());
-  });
-
-  // The Pi runtime bundled with the app (plan 6.1); the settings page refreshes npm's latest release.
-  api.get("/pi", async (c) => c.json(await piStatus.status(c.req.query("refresh") === "1")));
-
-  siteRoutes(api, {
-    sites: opts.sites,
-    builds: opts.builds,
-    dataSources: opts.dataSources,
-    panels: opts.panels,
-    readIdentity: opts.readIdentity,
-    userHome: opts.userHome,
-  });
-  themeRoutes(api, { themes: opts.themes, builds: opts.builds, deliver: opts.deliver, agent: opts.agent });
-  panelRoutes(api, opts.panels);
-  mediaRoutes(api, { media: opts.media, agent: opts.agent });
-  pluginRoutes(api, { changes: opts.changes, agent: opts.agent });
-  buildRoutes(api, opts.builds);
-  dataSourceRoutes(api, opts.dataSources);
-  publishAccountRoutes(api, opts.publishAccounts);
-  deployRoutes(api, opts.deploys);
-  gitRoutes(api, opts.gitStatus);
-  updateRoutes(api, opts.updates);
-  sessionRoutes(api, opts.agent);
-  skillRoutes(api, opts.agent);
-  changeRoutes(api, { changes: opts.changes, agent: opts.agent, builds: opts.builds, logger: opts.logger });
-  modelRoutes(
-    api,
-    new ModelService({
-      runtime: () => opts.agent.models(),
-      pi: () => opts.agent.piModules(),
-      settings,
-      piDir: opts.agent.piDir,
-      ...(opts.agent.credentials ? { storedCredential: (id: string) => opts.agent.credentials?.readNow(id) } : {}),
-      testTimeoutMs: opts.modelTestTimeoutMs,
-      customProviderIds: () => opts.customModels.ids(),
-    }),
-  );
-  customModelRoutes(api, opts.customModels, () => opts.agent.models());
-  eventRoutes(api, opts.events, opts.eventStream);
-
+/** The 404 for unknown API paths, and the built UI. */
+function finishApp(app: Hono<AppEnv>, api: Hono<AppEnv>, opts: Pick<AdminAppOptions, "webDist">) {
   api.all("*", (c) => apiError(c, 404, "request.not_found"));
   app.route("/api", api);
 
