@@ -90,6 +90,7 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
         value: { type: "checkbox", checked: p.featured },
         display: p.featured ? "✓" : "",
       },
+      { name: "Order", type: "number", value: { type: "number", number: 5 }, display: "5" },
       { name: "Related", type: "relation", value: null, display: "2" },
       { name: "Stage", type: "status", value: { type: "status", option: p.stage }, display: p.stage ?? "" },
       {
@@ -327,6 +328,12 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
   await page.getByTestId("content-title").fill("First post, edited");
   await page.getByTestId("content-property-Stage").getByRole("combobox").selectOption("Done");
   await page.getByTestId("content-property-Tags").getByRole("button", { name: "guide" }).click();
+  // A number field keeps a half-typed `-` instead of clearing it.
+  const order = page.getByTestId("content-property-Order").getByRole("textbox");
+  await expect(order).toHaveValue("5");
+  await order.fill("");
+  await order.pressSequentially("-3");
+  await expect(order).toHaveValue("-3");
   await page.getByTestId("content-save").click();
   await expect(page.getByTestId("content-saved")).toBeVisible();
   await expect(page.getByTestId("content-save")).toBeDisabled();
@@ -343,6 +350,7 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
       properties: {
         Name: { type: "title", text: "First post, edited" },
         Stage: { type: "status", option: "Done" },
+        Order: { type: "number", number: -3 },
         Tags: { type: "multi_select", options: ["news", "guide"] },
       },
     },

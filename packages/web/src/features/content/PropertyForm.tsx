@@ -1,4 +1,10 @@
-import type { ContentDatabase, ContentProperty, ContentSchemaProperty, ContentValue } from "@bukitjalil/shared";
+import {
+  CONTENT_TEXT_MAX,
+  type ContentDatabase,
+  type ContentProperty,
+  type ContentSchemaProperty,
+  type ContentValue,
+} from "@bukitjalil/shared";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useId, useState } from "react";
@@ -126,23 +132,14 @@ function PropertyField({
           id={id}
           className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
           value={value.text}
-          maxLength={200_000}
+          maxLength={CONTENT_TEXT_MAX}
           onChange={(e) => onChange({ type: value.type, text: e.target.value })}
         />,
         property.formatted ? m.content.plainTextOnly : undefined,
       );
     case "number":
       return wrap(
-        <Input
-          id={id}
-          type="number"
-          step="any"
-          value={value.number ?? ""}
-          onChange={(e) => {
-            const n = e.target.valueAsNumber;
-            onChange({ type: "number", number: e.target.value === "" || !Number.isFinite(n) ? null : n });
-          }}
-        />,
+        <NumberInput id={id} value={value.number} onChange={(number) => onChange({ type: "number", number })} />,
       );
     case "select":
     case "status":
@@ -231,6 +228,48 @@ function PropertyField({
         />,
       );
   }
+}
+
+/** A number as text, or null for empty; anything else (`-`, `1e`) is not a number yet. */
+function parseNumber(text: string): number | null | undefined {
+  if (text.trim() === "") return null;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * A number typed as text: a number input reports a half-typed `-3` as empty, and setting the value then
+ * wipes the `-`. What is not a number yet stays in the field and leaves the value as it was.
+ */
+function NumberInput({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: number | null;
+  onChange: (n: number | null) => void;
+}) {
+  const [state, setState] = useState({ text: value === null ? "" : String(value), value });
+  let text = state.text;
+  if (value !== state.value) {
+    // Changed from outside (a reload or a cleared draft) unless the text already says it.
+    text = parseNumber(state.text) === value ? state.text : value === null ? "" : String(value);
+    setState({ text, value });
+  }
+  return (
+    <Input
+      id={id}
+      inputMode="decimal"
+      value={text}
+      aria-invalid={parseNumber(text) === undefined}
+      onChange={(e) => {
+        const n = parseNumber(e.target.value);
+        setState({ text: e.target.value, value: n === undefined ? value : n });
+        if (n !== undefined) onChange(n);
+      }}
+    />
+  );
 }
 
 /** Move the page to Notion's trash, after asking: it leaves the sites at their next full build. */

@@ -240,6 +240,8 @@ function blockMarkdown(raw: RawBlock, problems: Set<string>, depth: number): str
       const longest = Math.max(0, ...(content.match(/`+/g) ?? []).map((run) => run.length));
       const fence = "`".repeat(Math.max(3, longest + 1));
       const language = typeof data.language === "string" && data.language !== "plain text" ? data.language : "";
+      // A language this cannot write back would make every save fail.
+      if (language && !CODE_LANGUAGES.has(language)) problems.add("code_language");
       out = `${fence}${language}\n${content}\n${fence}`;
       break;
     }
@@ -337,6 +339,8 @@ function escapeInline(text: string): string {
 /** A paragraph that would read as another block gets its first marker escaped. */
 function leadEscape(md: string): string {
   if (md.trim() === "&nbsp;") return md.replace("&nbsp;", "\\&nbsp;");
+  // `!` and then a link would read as an image.
+  if (md.startsWith("![")) return `\\${md}`;
   return md.replace(
     /^(\s*)(#|-|\+|>|(\d+)([.)]))/,
     (_m, space: string, marker: string, digits?: string, dot?: string) =>
@@ -398,8 +402,9 @@ const invalid = () => new SiteError("content.body_invalid", 400);
 export function markdownToItems(markdown: string): BodyItem[] {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const items: BodyItem[] = [];
-  /** The top-level list item that indented list lines go under. */
+  /** The top-level list item that indented list lines go under, and how far its first child is indented. */
   let parent: Record<string, unknown> | null = null;
+  let childIndent = 0;
   const push = (block: Record<string, unknown>) => items.push({ kind: "block", block });
   let i = 0;
   while (i < lines.length) {
@@ -457,7 +462,11 @@ export function markdownToItems(markdown: string): BodyItem[] {
       }
       data.rich_text = richText(parseInline(content));
       const item = block(type, data);
-      if ((list[1]?.length ?? 0) > 0 && parent) {
+      const indent = list[1]?.length ?? 0;
+      if (indent > 0 && parent) {
+        // One level only: a line indented further than the first child would be a grandchild.
+        if (childIndent === 0) childIndent = indent;
+        else if (indent > childIndent) throw invalid();
         const parentData = parent[parent.type as string] as Record<string, unknown>;
         if (!Array.isArray(parentData.children)) parentData.children = [];
         const children = parentData.children as Record<string, unknown>[];
@@ -466,6 +475,7 @@ export function markdownToItems(markdown: string): BodyItem[] {
       } else {
         push(item);
         parent = item;
+        childIndent = 0;
       }
       i++;
       continue;
@@ -496,12 +506,14 @@ function block(type: string, data: Record<string, unknown>): Record<string, unkn
 }
 
 function imageItem(line: string): BodyItem {
-  // The URL escapes `(` and `)`, so the last unescaped `(` starts it; the caption may hold links of its own.
-  let j = line.length - 2;
-  while (j > 2 && !(line[j] === "(" && line[j - 1] === "]" && !escaped(line, j - 1) && !escaped(line, j))) j--;
-  if (j <= 2) throw invalid();
-  const caption = richText(parseInline(line.slice(2, j - 1)));
-  const url = unescapeUrl(line.slice(j + 1, -1));
+  // The caption ends at the first `](` outside its own links and code; the URL, whose parentheses are escaped,
+  // is the rest of the line.
+  const j = labelEnd(line, 2);
+  if (line[j] !== "]" || line[j + 1] !== "(") throw invalid();
+  const raw = line.slice(j + 2, -1);
+  if (/(^|[^\\])(\\\\)*[()]/.test(raw)) throw invalid();
+  const caption = richText(parseInline(line.slice(2, j)));
+  const url = unescapeUrl(raw);
   if (url.startsWith(HOSTED_IMAGE)) {
     const id = notionId(url.slice(HOSTED_IMAGE.length));
     if (!id) throw invalid();
@@ -509,13 +521,6 @@ function imageItem(line: string): BodyItem {
   }
   if (!/^https?:\/\/\S+$/i.test(url) || url.length > 2000) throw invalid();
   return { kind: "block", block: block("image", { type: "external", external: { url }, caption }) };
-}
-
-/** Whether the character at `at` follows an odd number of backslashes. */
-function escaped(text: string, at: number): boolean {
-  let n = 0;
-  for (let k = at - 1; k >= 0 && text[k] === "\\"; k--) n++;
-  return n % 2 === 1;
 }
 
 function unescapeUrl(url: string): string {
@@ -603,17 +608,26 @@ function hasClosing(source: string, from: number, marker: string): boolean {
   return false;
 }
 
-function linkAt(source: string, at: number): { text: string; url: string; end: number } | null {
-  let j = at + 1;
+/**
+ * Where a label starting at `from` ends: its first `]` that is not escaped or inside a code span (which may
+ * hold `]`, read as parseInline reads it), nor, with `links`, inside a link of its own.
+ */
+function labelEnd(source: string, from: number, links = true): number {
+  let j = from;
   while (j < source.length && source[j] !== "]") {
     if (source[j] === "\\") j += 2;
     else if (source[j] === "`") {
-      // A code span inside the label may hold `]`; it ends where its closing run is, as parseInline reads it.
       const run = /^`+/.exec(source.slice(j))?.[0].length ?? 1;
       const end = closingRun(source, j + run, run);
       j = end < 0 ? j + run : end + run;
-    } else j++;
+    } else if (links && source[j] === "[") j = linkAt(source, j)?.end ?? j + 1;
+    else j++;
   }
+  return j;
+}
+
+function linkAt(source: string, at: number): { text: string; url: string; end: number } | null {
+  const j = labelEnd(source, at + 1, false);
   if (source[j] !== "]" || source[j + 1] !== "(") return null;
   let k = j + 2;
   let url = "";

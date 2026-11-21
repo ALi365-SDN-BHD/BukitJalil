@@ -24,7 +24,8 @@ export const isEditablePropertyType = (type: string): type is EditablePropertyTy
 
 /** Notion's limit for one rich text segment; longer text is split into several (at most 100). */
 export const NOTION_TEXT_SEGMENT = 2000;
-export const CONTENT_TEXT_MAX = NOTION_TEXT_SEGMENT * 100;
+/** What 100 segments always hold: a split moves back one unit rather than break a surrogate pair. */
+export const CONTENT_TEXT_MAX = (NOTION_TEXT_SEGMENT - 1) * 100;
 const NOTION_URL_MAX = 2000;
 const NOTION_OPTION_MAX = 100;
 /** One page of the entry list. */
@@ -149,7 +150,7 @@ export interface ContentPage {
 /**
  * GET /api/content/sources/:sourceId/databases/:databaseId/pages/:pageId/body: the body as Markdown (plan 5.6
  * item 7). `unsupported` names what keeps it read-only: block types, or `children`, `color`, `underline`,
- * `mention`, `equation`, `link`, `toggle`, `caption`, `code_format`, `image_url`, `too_long`.
+ * `mention`, `equation`, `link`, `toggle`, `caption`, `code_format`, `code_language`, `image_url`, `too_long`.
  */
 export interface ContentBody {
   markdown: string;

@@ -53,6 +53,7 @@ describe("body Markdown", () => {
     ["a paragraph of spaces and &nbsp;", "  \\&nbsp;"],
     ["a caption with a link", "![a [link](https://example.com/x) here](notion-image:0123456789abcdef0123456789abcdef)"],
     ["code of spaces", "` ` and `  `"],
+    ["a paragraph of ! and a link", "\\![docs](https://example.com/a)"],
     ["a link around code holding a bracket", "see [`arr[0]` and `]`](https://example.com/a) here"],
   ])("keeps %s unchanged", (_name, markdown) => {
     expect(roundTrip(markdown)).toEqual({ markdown, unsupported: [] });
@@ -102,6 +103,11 @@ describe("body Markdown", () => {
     expect(() => markdownToItems("![x](ftp://example.com/a.png)")).toThrow("content.body_invalid");
     expect(() => markdownToItems("```klingon\nx\n```")).toThrow("content.body_invalid");
     expect(() => markdownToItems("![x](notion-image:nothex)")).toThrow("content.body_invalid");
+    // A line that only starts like an image is not one with a strange caption.
+    expect(() => markdownToItems("![x](a) and [b](https://c.example)")).toThrow("content.body_invalid");
+    expect(() => markdownToItems("![x](https://a.example)(b)")).toThrow("content.body_invalid");
+    // One level of nesting only.
+    expect(() => markdownToItems("- a\n    - b\n        - c")).toThrow("content.body_invalid");
     // More than 100 rich text items in one block.
     expect(() => markdownToItems(Array.from({ length: 101 }, (_, i) => (i % 2 ? "**b**" : "a")).join(""))).toThrow(
       "content.body_invalid",
@@ -129,6 +135,7 @@ describe("body Markdown", () => {
         children: [raw("bulleted_list_item", { rich_text: [] }, { has_children: true })],
       },
       raw("table", {}),
+      raw("code", { rich_text: [text("x")], caption: [], language: "klingon" }),
     ]);
     // A list item's child that is not a list item would come back out of the list.
     const nested = blocksToMarkdown([
@@ -144,6 +151,7 @@ describe("body Markdown", () => {
         "caption",
         "children",
         "code_format",
+        "code_language",
         "color",
         "image_url",
         "link",
@@ -172,5 +180,30 @@ describe("body Markdown", () => {
       { text: " ", format: { bold: false, italic: false, strike: false, code: false, href: null } },
       { text: "d", format: { bold: false, italic: false, strike: false, code: true, href: null } },
     ]);
+  });
+});
+
+describe("body Markdown from Notion", () => {
+  it("keeps a paragraph of ! and a link a paragraph", () => {
+    const md = blocksToMarkdown([
+      {
+        block: {
+          type: "paragraph",
+          paragraph: {
+            rich_text: [
+              { type: "text", plain_text: "!", text: { content: "!" }, annotations: {} },
+              {
+                type: "text",
+                plain_text: "docs",
+                href: "https://example.com/a",
+                text: { content: "docs", link: { url: "https://example.com/a" } },
+                annotations: {},
+              },
+            ],
+          },
+        },
+      },
+    ]).markdown;
+    expect(markdownToItems(md)).toMatchObject([{ block: { type: "paragraph" } }]);
   });
 });
