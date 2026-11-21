@@ -506,6 +506,17 @@ describe("/api/content page body", () => {
     ctx.db.close();
   });
 
+  it("keeps a body longer than a save takes read-only", async () => {
+    const { ctx, notion, page } = await setup("body-too-long");
+    notion.state.blocks = [1, 2, 3].map((i) => p(ID(i), "y".repeat(180_000)));
+    expect(await (await call(ctx, "GET", `${page}/body`)).json()).toMatchObject({
+      markdown: "",
+      editable: false,
+      unsupported: ["too_long"],
+    });
+    ctx.db.close();
+  });
+
   it("refuses to save over blocks it cannot write, and says when a save stopped half way", async () => {
     const { ctx, notion, page } = await setup("body-refuse");
     const save = () =>

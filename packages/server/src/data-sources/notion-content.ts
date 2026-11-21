@@ -1,4 +1,5 @@
 import {
+  CONTENT_BODY_MAX,
   CONTENT_PAGE_SIZE,
   CONTENT_PROPERTY_NAME_MAX,
   type ContentBody,
@@ -210,9 +211,10 @@ export class NotionContentService {
   async body(sourceId: string, databaseId: string, pageId: string): Promise<ContentBody> {
     const page = await this.read(sourceId, databaseId, pageId);
     const tree = await this.tree(sourceId, idOf(pageId));
-    const { markdown, unsupported } = tree.tooLong
-      ? { markdown: "", unsupported: ["too_long"] }
-      : blocksToMarkdown(tree.blocks);
+    const read = tree.tooLong ? null : blocksToMarkdown(tree.blocks);
+    // A body longer than a save takes could not be saved again, so it is edited in Notion.
+    const { markdown, unsupported } =
+      !read || read.markdown.length > CONTENT_BODY_MAX ? { markdown: "", unsupported: ["too_long"] } : read;
     return {
       markdown,
       editable: unsupported.length === 0,
