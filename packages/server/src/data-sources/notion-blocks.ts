@@ -20,6 +20,11 @@ import { notionId } from "./service.ts";
 export const HOSTED_IMAGE = "notion-image:";
 const LIST_TYPES = new Set(["bulleted_list_item", "numbered_list_item", "to_do"]);
 const RICH_TEXT_MAX = 100;
+/**
+ * Notion refuses requests over about 500 KB; a save's batches stay well under it. A block is never split
+ * (its children go in the same request), so one block bigger than this cannot be written at all.
+ */
+export const BATCH_BYTES = 300_000;
 const INDENT = "    ";
 
 /** The code languages Notion accepts (API 2022-06-28); anything else would be refused half way through a save. */
@@ -512,6 +517,10 @@ export function markdownToItems(markdown: string): BodyItem[] {
     while (i < lines.length && (lines[i] ?? "").trim() !== "" && !startsBlock(lines[i] ?? ""))
       paragraph.push(lines[i++] ?? "");
     push(block("paragraph", { rich_text: richText(parseInline(paragraph.join("\n"))) }));
+  }
+  // Refused before anything is written, and so a body holding such a block reads as read-only.
+  for (const item of items) {
+    if (item.kind === "block" && Buffer.byteLength(JSON.stringify(item.block)) > BATCH_BYTES) throw invalid();
   }
   return items;
 }

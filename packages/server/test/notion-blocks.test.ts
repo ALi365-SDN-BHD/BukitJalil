@@ -108,6 +108,11 @@ describe("body Markdown", () => {
     // A line that only starts like an image is not one with a strange caption.
     expect(() => markdownToItems("![x](a) and [b](https://c.example)")).toThrow("content.body_invalid");
     expect(() => markdownToItems("![x](https://a.example)(b)")).toThrow("content.body_invalid");
+    // One block (with its children) too big for one request.
+    const child = `    - ${"中".repeat(1999)}`;
+    expect(() => markdownToItems(["- parent", ...Array.from({ length: 90 }, () => child)].join("\n"))).toThrow(
+      "content.body_invalid",
+    );
     // One level of nesting only.
     expect(() => markdownToItems("- a\n    - b\n        - c")).toThrow("content.body_invalid");
     // More than 100 rich text items in one block.

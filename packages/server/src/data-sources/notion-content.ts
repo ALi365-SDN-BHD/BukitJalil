@@ -20,6 +20,7 @@ import {
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
 import {
+  BATCH_BYTES,
   type BodyItem,
   blocksToMarkdown,
   captionChanged,
@@ -41,9 +42,6 @@ const BATCH = 100;
 const BATCH_ELEMENTS = 1000;
 /** Bodies longer than this are edited in Notion: reading and rewriting them would take minutes. */
 const BODY_BLOCKS_MAX = 1000;
-
-/** Notion refuses requests over about 500 KB; batches stay well under it. */
-const BATCH_BYTES = 300_000;
 
 /** Blocks in batches Notion takes in one request: at most 100, 1000 elements with children, and small enough. */
 function batches(blocks: Record<string, unknown>[]): Record<string, unknown>[][] {
