@@ -1,10 +1,12 @@
 import type { Appearance, Locale } from "@bukitjalil/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquare, PanelRight, Server } from "lucide-react";
+import { FileText, ListChecks, MessageSquare, PanelRight, Server } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { ChatView } from "@/features/chat/ChatView";
+import { ContentMain, ContentProperties } from "@/features/content/ContentColumns";
+import { ContentSourceList } from "@/features/content/ContentSourceList";
 import { RightPanel } from "@/features/panels/RightPanel";
 import { rememberLocale } from "@/features/security/LockGate";
 import { SettingsPage } from "@/features/settings/SettingsPage";
@@ -59,6 +61,9 @@ export function App() {
         <Route path="/themes" element={<Shell />} />
         <Route path="/themes/:themeId" element={<Shell />} />
         <Route path="/themes/:themeId/sessions/:sessionId" element={<Shell />} />
+        <Route path="/content" element={<Shell />} />
+        <Route path="/content/sources/:sourceId/databases/:databaseId" element={<Shell />} />
+        <Route path="/content/sources/:sourceId/databases/:databaseId/pages/:pageId" element={<Shell />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </I18nProvider>
@@ -108,38 +113,57 @@ function Shell() {
   const sitesColumn = (
     <div className="flex min-h-0 flex-1 flex-col">
       <ModeSwitch />
-      {mode === "theme" ? <ThemeList /> : <SiteList />}
+      {mode === "theme" ? <ThemeList /> : mode === "content" ? <ContentSourceList /> : <SiteList />}
     </div>
   );
-  const conversationColumn = (
-    <>
-      <SectionTitle icon={<MessageSquare className="size-4" />} title={m.conversation.title} />
-      <div className={`min-h-0 flex-1 ${sessionId ? "overflow-hidden" : "overflow-auto"}`}>
-        {siteId === null && themeId === null ? (
-          mode === "theme" ? (
-            <ThemeWelcome />
-          ) : (
-            <Welcome />
-          )
-        ) : record.isPending ? (
-          <p className="p-6 text-sm text-muted-foreground">{m.common.loading}</p>
-        ) : record.error ? (
-          <p role="alert" className="p-6 text-sm text-destructive">
-            {errorOf(record.error)}
-          </p>
-        ) : sessionId && project ? (
-          <ChatView key={sessionId} project={project} sessionId={sessionId} />
-        ) : theme.data ? (
-          <ThemeHome theme={theme.data} />
-        ) : site.data ? (
-          <SiteHome site={site.data} />
-        ) : null}
-      </div>
-    </>
-  );
-  const panelsColumn = (
-    <RightPanel key={project?.key ?? mode} mode={mode} project={project?.key ?? null} readOnly={!!project?.readOnly} />
-  );
+  const conversationColumn =
+    mode === "content" ? (
+      <>
+        <SectionTitle icon={<FileText className="size-4" />} title={m.content.entries} />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <ContentMain />
+        </div>
+      </>
+    ) : (
+      <>
+        <SectionTitle icon={<MessageSquare className="size-4" />} title={m.conversation.title} />
+        <div className={`min-h-0 flex-1 ${sessionId ? "overflow-hidden" : "overflow-auto"}`}>
+          {siteId === null && themeId === null ? (
+            mode === "theme" ? (
+              <ThemeWelcome />
+            ) : (
+              <Welcome />
+            )
+          ) : record.isPending ? (
+            <p className="p-6 text-sm text-muted-foreground">{m.common.loading}</p>
+          ) : record.error ? (
+            <p role="alert" className="p-6 text-sm text-destructive">
+              {errorOf(record.error)}
+            </p>
+          ) : sessionId && project ? (
+            <ChatView key={sessionId} project={project} sessionId={sessionId} />
+          ) : theme.data ? (
+            <ThemeHome theme={theme.data} />
+          ) : site.data ? (
+            <SiteHome site={site.data} />
+          ) : null}
+        </div>
+      </>
+    );
+  const panelsColumn =
+    mode === "content" ? (
+      <>
+        <SectionTitle icon={<ListChecks className="size-4" />} title={m.content.properties} />
+        <ContentProperties />
+      </>
+    ) : (
+      <RightPanel
+        key={project?.key ?? mode}
+        mode={mode}
+        project={project?.key ?? null}
+        readOnly={!!project?.readOnly}
+      />
+    );
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
@@ -148,7 +172,19 @@ function Shell() {
       {narrow ? (
         <NarrowLayout
           sites={sitesColumn}
-          sitesLabel={mode === "theme" ? m.themes.title : m.sidebar.title}
+          labels={
+            mode === "content"
+              ? {
+                  sites: [m.content.sources, <Server key="s" className="size-4" />],
+                  conversation: [m.content.entries, <FileText key="c" className="size-4" />],
+                  panels: [m.content.properties, <ListChecks key="p" className="size-4" />],
+                }
+              : {
+                  sites: [mode === "theme" ? m.themes.title : m.sidebar.title, <Server key="s" className="size-4" />],
+                  conversation: [m.conversation.title, <MessageSquare key="c" className="size-4" />],
+                  panels: [m.panel.title, <PanelRight key="p" className="size-4" />],
+                }
+          }
           conversation={conversationColumn}
           panels={panelsColumn}
         />
@@ -286,35 +322,37 @@ type Column = "sites" | "conversation" | "panels";
  */
 function NarrowLayout({
   sites,
-  sitesLabel,
+  labels,
   conversation,
   panels,
 }: {
   sites: React.ReactNode;
-  sitesLabel: string;
+  /** Each column's tab: its label and icon, named after the mode's parts. */
+  labels: Record<Column, [string, React.ReactNode]>;
   conversation: React.ReactNode;
   panels: React.ReactNode;
 }) {
   const { m } = useI18n();
-  const { siteId = null, themeId = null, sessionId = null } = useParams();
+  const { siteId = null, themeId = null, sessionId = null, databaseId = null } = useParams();
   const location = useLocation();
   const [column, setColumn] = useState<Column>("conversation");
   useEffect(() => {
-    // Runs when the project or conversation changes, not on every render.
+    // Runs when the project, conversation or database changes, not on every render.
     void siteId;
     void themeId;
     void sessionId;
+    void databaseId;
     setColumn("conversation");
-  }, [siteId, themeId, sessionId]);
+  }, [siteId, themeId, sessionId, databaseId]);
   // Any navigation that names a panel (also "View diff" while that panel is already in the URL).
   useEffect(() => {
     if (new URLSearchParams(location.search).has("panel")) setColumn("panels");
   }, [location.search]);
-  const tabs: { id: Column; label: string; icon: React.ReactNode }[] = [
-    { id: "sites", label: sitesLabel, icon: <Server className="size-4" /> },
-    { id: "conversation", label: m.conversation.title, icon: <MessageSquare className="size-4" /> },
-    { id: "panels", label: m.panel.title, icon: <PanelRight className="size-4" /> },
-  ];
+  const tabs = (["sites", "conversation", "panels"] as const).map((id) => ({
+    id,
+    label: labels[id][0],
+    icon: labels[id][1],
+  }));
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="narrow-layout">
       {/* All three stay mounted and laid out (invisible, not display:none), so a draft message, the loaded

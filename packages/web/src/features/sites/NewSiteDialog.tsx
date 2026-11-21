@@ -57,7 +57,7 @@ export function NewSiteDialog({
 
   const notionSources = dataSources.data ?? [];
   const databases = useQuery({
-    queryKey: ["notion-databases", notionId],
+    queryKey: keys.notionDatabases(notionId),
     queryFn: () => api.notionDatabases(notionId),
     enabled: notionId !== "",
     // A missing token or offline mode will not fix itself by retrying inside the picker.

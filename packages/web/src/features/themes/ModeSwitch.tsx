@@ -1,11 +1,11 @@
-import { Globe, Palette } from "lucide-react";
+import { FileText, Globe, Palette } from "lucide-react";
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useI18n } from "@/i18n";
 import { type Mode, modeOf } from "@/lib/project";
 
-const LAST_KEY: Record<Mode, string> = { site: "bj-last-site", theme: "bj-last-theme" };
-const HOME: Record<Mode, string> = { site: "/", theme: "/themes" };
+const LAST_KEY: Record<Mode, string> = { site: "bj-last-site", theme: "bj-last-theme", content: "bj-last-content" };
+const HOME: Record<Mode, string> = { site: "/", theme: "/themes", content: "/content" };
 
 /** The remembered place of a mode; only a path of that mode is taken (local storage can hold anything). */
 export function lastLocation(mode: Mode): string {
@@ -36,7 +36,7 @@ export function useRememberLocation(): Mode {
 }
 
 /**
- * The two-segment switch at the top of the left column (design 2), like a desktop app's mode toggle: icon and
+ * The mode switch at the top of the left column (design 2), like a desktop app's mode toggle: icon and
  * label, icon only when the column is narrow.
  */
 export function ModeSwitch() {
@@ -47,10 +47,11 @@ export function ModeSwitch() {
   const segments: { mode: Mode; label: string; icon: React.ReactNode }[] = [
     { mode: "site", label: m.mode.site, icon: <Globe className="size-4 shrink-0" /> },
     { mode: "theme", label: m.mode.theme, icon: <Palette className="size-4 shrink-0" /> },
+    { mode: "content", label: m.mode.content, icon: <FileText className="size-4 shrink-0" /> },
   ];
   return (
     <div className="@container shrink-0 border-b p-2">
-      <div className="grid grid-cols-2 gap-0.5 rounded-lg bg-muted p-0.5" role="tablist" aria-label={m.mode.label}>
+      <div className="grid grid-cols-3 gap-0.5 rounded-lg bg-muted p-0.5" role="tablist" aria-label={m.mode.label}>
         {segments.map((s) => (
           <button
             key={s.mode}
@@ -67,7 +68,7 @@ export function ModeSwitch() {
             }`}
           >
             {s.icon}
-            <span className="truncate @max-[200px]:sr-only">{s.label}</span>
+            <span className="truncate @max-[320px]:sr-only">{s.label}</span>
           </button>
         ))}
       </div>
