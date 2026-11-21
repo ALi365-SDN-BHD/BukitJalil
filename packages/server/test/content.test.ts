@@ -121,6 +121,7 @@ function fakeNotion() {
       return json(state.page);
     }
     if (s.method === "POST" && s.path === "/pages") return json(notionPage({ id: "fedcba9876543210fedcba9876543210" }));
+    if (s.method === "PATCH" && s.path === "/pages/fedcba9876543210fedcba9876543210") return json({});
     const children = /^\/blocks\/([0-9a-f]{32})\/children$/.exec(s.path);
     if (children && s.method === "GET") {
       const id = children[1] ?? "";
@@ -238,6 +239,14 @@ describe("/api/content", () => {
       start: "2026-11-20",
       end: null,
     });
+
+    // A long property name comes back whole, since a change is sent back under it.
+    const long = "N".repeat(300);
+    notion.state.page = notionPage({
+      properties: { [long]: { id: "z", type: "number", number: 1 }, Name: { id: "title", type: "title", title: [] } },
+    });
+    const named = (await (await call(ctx, "GET", page)).json()) as ContentPage;
+    expect(named.properties.map((p) => p.name)).toEqual(["Name", long]);
 
     notion.state.page = notionPage({ parent: { type: "database_id", database_id: OTHER_DB } });
     expect(await (await call(ctx, "GET", page)).json()).toMatchObject({ code: "content.not_in_database" });
@@ -547,6 +556,33 @@ describe("/api/content page body", () => {
       .map((s) => (s.body?.children as unknown[] | undefined)?.length ?? 0);
     expect(sizes.length).toBeGreaterThan(1);
     expect(sizes.reduce((a, b) => a + b, 0)).toBe(30);
+
+    // Nested children count toward Notion's 1000 block elements a request: 20 items of 100 elements each.
+    notion.sent.length = 0;
+    const child = Array.from({ length: 99 }, (_, i) => `    - child ${i}`).join("\n");
+    const nested = Array.from({ length: 20 }, (_, i) => `- item ${i}\n${child}`).join("\n");
+    expect((await call(ctx, "POST", `${db}/pages`, { properties: {}, markdown: nested })).status).toBe(200);
+    expect(
+      notion.sent.filter((s) => s.method !== "GET").map((s) => (s.body?.children as unknown[] | undefined)?.length),
+    ).toEqual([10, 10]);
+    ctx.db.close();
+  });
+
+  it("moves a half-written new page to the trash, so creating again makes no duplicate", async () => {
+    const { ctx, notion, db } = await setup("body-create-fail");
+    const markdown = Array.from({ length: 120 }, (_, i) => `item ${i}`).join("\n\n");
+    const NEW = "/pages/fedcba9876543210fedcba9876543210";
+    notion.state.fail = { status: 500, when: (s) => s.path === `/blocks/${NEW.slice(7)}/children` };
+    const failed = await call(ctx, "POST", `${db}/pages`, { properties: {}, markdown });
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).not.toMatchObject({ code: "content.body_partial" });
+    expect(notion.sent.at(-1)).toMatchObject({ method: "PATCH", path: NEW, body: { archived: true } });
+
+    // When the page cannot be trashed either, the user is told to look in Notion.
+    notion.state.fail = { status: 500, when: (s) => s.path.includes("fedcba9876543210fedcba9876543210") };
+    expect(await (await call(ctx, "POST", `${db}/pages`, { properties: {}, markdown })).json()).toMatchObject({
+      code: "content.body_partial",
+    });
     ctx.db.close();
   });
 });

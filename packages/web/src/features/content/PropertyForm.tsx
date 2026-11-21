@@ -62,7 +62,7 @@ export function PropertyForm({
               property={p}
               schema={schema.get(p.name)}
               value={draft.changes[p.name] ?? p.value}
-              onChange={(value) => draft.set(p.name, value, p.value)}
+              onChange={(value) => draft.set(p.name, value, p.value, page.data?.lastEditedTime ?? "")}
             />
           ))}
       </div>

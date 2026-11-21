@@ -1,4 +1,10 @@
-import { ContentBodyUpdate, ContentPageCreate, ContentPageUpdate, ContentSortDirection } from "@bukitjalil/shared";
+import {
+  CONTENT_PROPERTY_NAME_MAX,
+  ContentBodyUpdate,
+  ContentPageCreate,
+  ContentPageUpdate,
+  ContentSortDirection,
+} from "@bukitjalil/shared";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
 import type { NotionContentService } from "../data-sources/notion-content.ts";
@@ -23,7 +29,8 @@ export function contentRoutes(api: Hono<AppEnv>, content: NotionContentService) 
       const { cursor, search, sort, direction } = c.req.query();
       const dir = direction === undefined ? undefined : ContentSortDirection.safeParse(direction);
       if (
-        [cursor, search, sort].some((x) => x !== undefined && x.length > QUERY_MAX) ||
+        [cursor, search].some((x) => x !== undefined && x.length > QUERY_MAX) ||
+        (sort !== undefined && sort.length > CONTENT_PROPERTY_NAME_MAX) ||
         (dir !== undefined && !dir.success)
       ) {
         return apiError(c, 400, "request.invalid_body");

@@ -1,5 +1,6 @@
 import {
   CONTENT_PAGE_SIZE,
+  CONTENT_PROPERTY_NAME_MAX,
   type ContentBody,
   type ContentBodyUpdate,
   type ContentDatabase,
@@ -14,7 +15,6 @@ import {
   type ContentValue,
   isEditablePropertyType,
   NOTION_MAX_PROPERTIES,
-  NOTION_TEXT_SEGMENT,
 } from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
@@ -22,6 +22,7 @@ import {
   type BodyItem,
   blocksToMarkdown,
   captionChanged,
+  chunks,
   isHostedImage,
   isListType,
   markdownToItems,
@@ -33,32 +34,51 @@ import { type DataSourceService, type NotionMethod, notionId } from "./service.t
 /** Longest display text of one property; the list and read-only fields need no more. */
 const DISPLAY_MAX = 500;
 const TITLE_MAX = 200;
-/** Notion appends at most 100 blocks per request. */
+/** Notion appends at most 100 blocks per request, */
 const BATCH = 100;
+/** and at most 1000 block elements counting nested children. */
+const BATCH_ELEMENTS = 1000;
 /** Bodies longer than this are edited in Notion: reading and rewriting them would take minutes. */
 const BODY_BLOCKS_MAX = 1000;
 
 /** Notion refuses requests over about 500 KB; batches stay well under it. */
 const BATCH_BYTES = 300_000;
 
-/** Blocks in batches Notion takes in one request: at most 100, and small enough. */
+/** Blocks in batches Notion takes in one request: at most 100, 1000 elements with children, and small enough. */
 function batches(blocks: Record<string, unknown>[]): Record<string, unknown>[][] {
   const out: Record<string, unknown>[][] = [];
   let batch: Record<string, unknown>[] = [];
   let bytes = 0;
+  let elements = 0;
   for (const block of blocks) {
     const size = Buffer.byteLength(JSON.stringify(block));
-    if (batch.length > 0 && (batch.length >= BATCH || bytes + size > BATCH_BYTES)) {
+    const count = 1 + childCount(block);
+    if (
+      batch.length > 0 &&
+      (batch.length >= BATCH || bytes + size > BATCH_BYTES || elements + count > BATCH_ELEMENTS)
+    ) {
       out.push(batch);
       batch = [];
       bytes = 0;
+      elements = 0;
     }
     batch.push(block);
     bytes += size;
+    elements += count;
   }
   if (batch.length > 0) out.push(batch);
   return out;
 }
+
+/** How many children a block to write carries (the dialect nests one level, at most 100). */
+function childCount(block: Record<string, unknown>): number {
+  const data = typeof block.type === "string" ? block[block.type] : undefined;
+  return isRecord(data) && Array.isArray(data.children) ? data.children.length : 0;
+}
+
+/** The title property first, then the others by name. */
+const byTitleThenName = (a: { name: string; type: string }, b: { name: string; type: string }) =>
+  Number(b.type === "title") - Number(a.type === "title") || a.name.localeCompare(b.name);
 
 export interface EntryQuery {
   cursor?: string;
@@ -83,7 +103,7 @@ export class NotionContentService {
       const p = isRecord(value) ? value : {};
       const type = str(p.type, 50) || "unknown";
       const property: ContentSchemaProperty = {
-        name: str(p.name, TITLE_MAX) || key,
+        name: str(p.name, CONTENT_PROPERTY_NAME_MAX) || key,
         type,
         editable: isEditablePropertyType(type),
       };
@@ -91,7 +111,7 @@ export class NotionContentService {
       if (Array.isArray(choices)) property.options = choices.flatMap(optionOf);
       properties.push(property);
     }
-    properties.sort((a, b) => Number(b.type === "title") - Number(a.type === "title") || a.name.localeCompare(b.name));
+    properties.sort(byTitleThenName);
     return {
       id: str(json.id, 100) || databaseId,
       title: plain(json.title).slice(0, TITLE_MAX),
@@ -174,7 +194,13 @@ export class NotionContentService {
         await this.call(sourceId, "PATCH", `/blocks/${pageId}/children`, { children: batch }, true);
       }
     } catch (err) {
-      if (err instanceof SiteError) throw new SiteError("content.body_partial", 503);
+      // The client never learns the half-written page, so it goes to the trash: creating again then makes no
+      // duplicate. Only if that fails too is the page left for the user to find.
+      try {
+        await this.call(sourceId, "PATCH", `/pages/${pageId}`, { archived: true }, true);
+      } catch {
+        throw new SiteError("content.body_partial", 503);
+      }
       throw err;
     }
     return viewOf(json);
@@ -378,12 +404,11 @@ function titleOf(properties: ContentProperty[]): string {
 /** A page's properties, the title first and the rest by name. */
 function propertiesOf(page: Record<string, unknown>): ContentProperty[] {
   const raw = isRecord(page.properties) ? page.properties : {};
-  const properties = Object.entries(raw)
-    .slice(0, NOTION_MAX_PROPERTIES)
-    .map(([name, value]) => propertyOf(name.slice(0, TITLE_MAX), isRecord(value) ? value : {}));
-  return properties.sort(
-    (a, b) => Number(b.type === "title") - Number(a.type === "title") || a.name.localeCompare(b.name),
-  );
+  // The full name: a change is sent back under it. Sorted before the cut, so the title is never cut off.
+  return Object.entries(raw)
+    .map(([name, value]) => propertyOf(name, isRecord(value) ? value : {}))
+    .sort(byTitleThenName)
+    .slice(0, NOTION_MAX_PROPERTIES);
 }
 
 function propertyOf(name: string, p: Record<string, unknown>): ContentProperty {
@@ -524,16 +549,7 @@ function propertyPayload(value: ContentValue): Record<string, unknown> {
 
 /** Text as rich text segments of at most 2000 characters, never splitting a surrogate pair. */
 export function segments(text: string): Record<string, unknown>[] {
-  const parts: Record<string, unknown>[] = [];
-  let at = 0;
-  while (at < text.length) {
-    let end = Math.min(at + NOTION_TEXT_SEGMENT, text.length);
-    const last = text.charCodeAt(end - 1);
-    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
-    parts.push({ type: "text", text: { content: text.slice(at, end) } });
-    at = end;
-  }
-  return parts;
+  return chunks(text).map((content) => ({ type: "text", text: { content } }));
 }
 
 function optionOf(raw: unknown): ContentOption[] {

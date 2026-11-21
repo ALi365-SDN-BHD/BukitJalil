@@ -202,7 +202,8 @@ function blockMarkdown(raw: RawBlock, problems: Set<string>, depth: number): str
   const type = typeOf(block);
   const data = dataOf(block);
   const list = isListType(type);
-  if (block.has_children === true && !(list && depth === 0)) problems.add("children");
+  // Only a top-level list item may have children, and only list items: the dialect nests nothing else.
+  if ((block.has_children === true && !(list && depth === 0)) || (depth > 0 && !list)) problems.add("children");
   if (typeof data.color === "string" && data.color !== "default") problems.add("color");
   const text = () => inlineMarkdown(richOf(data), problems);
   let out: string;
@@ -346,7 +347,8 @@ function leadEscape(md: string): string {
 function codeSpan(text: string): string {
   const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
   const fence = "`".repeat(longest + 1);
-  const pad = /^[` ]|[` ]$/.test(text) ? " " : "";
+  // Padding is stripped again only around text that is not all spaces, so all-space code gets none.
+  const pad = text.trim() && /^[` ]|[` ]$/.test(text) ? " " : "";
   return `${fence}${pad}${text}${pad}${fence}`;
 }
 
@@ -494,12 +496,12 @@ function block(type: string, data: Record<string, unknown>): Record<string, unkn
 }
 
 function imageItem(line: string): BodyItem {
-  // The caption escapes `]`, so the first unescaped `](` ends it.
-  let j = 2;
-  while (j < line.length && !(line[j] === "]" && line[j + 1] === "(")) j += line[j] === "\\" ? 2 : 1;
-  if (j >= line.length) throw invalid();
-  const caption = richText(parseInline(line.slice(2, j)));
-  const url = unescapeUrl(line.slice(j + 2, -1));
+  // The URL escapes `(` and `)`, so the last unescaped `(` starts it; the caption may hold links of its own.
+  let j = line.length - 2;
+  while (j > 2 && !(line[j] === "(" && line[j - 1] === "]" && !escaped(line, j - 1) && !escaped(line, j))) j--;
+  if (j <= 2) throw invalid();
+  const caption = richText(parseInline(line.slice(2, j - 1)));
+  const url = unescapeUrl(line.slice(j + 1, -1));
   if (url.startsWith(HOSTED_IMAGE)) {
     const id = notionId(url.slice(HOSTED_IMAGE.length));
     if (!id) throw invalid();
@@ -507,6 +509,13 @@ function imageItem(line: string): BodyItem {
   }
   if (!/^https?:\/\/\S+$/i.test(url) || url.length > 2000) throw invalid();
   return { kind: "block", block: block("image", { type: "external", external: { url }, caption }) };
+}
+
+/** Whether the character at `at` follows an odd number of backslashes. */
+function escaped(text: string, at: number): boolean {
+  let n = 0;
+  for (let k = at - 1; k >= 0 && text[k] === "\\"; k--) n++;
+  return n % 2 === 1;
 }
 
 function unescapeUrl(url: string): string {

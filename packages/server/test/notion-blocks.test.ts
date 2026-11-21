@@ -51,6 +51,8 @@ describe("body Markdown", () => {
     ["paragraphs that look like blocks", "\\# no heading\n\n\\- no list\n\n\\> no quote\n\n\\---\n\n\\&nbsp;"],
     ["emoji and CJK", "中文 **粗体** 😀"],
     ["a paragraph of spaces and &nbsp;", "  \\&nbsp;"],
+    ["a caption with a link", "![a [link](https://example.com/x) here](notion-image:0123456789abcdef0123456789abcdef)"],
+    ["code of spaces", "` ` and `  `"],
   ])("keeps %s unchanged", (_name, markdown) => {
     expect(roundTrip(markdown)).toEqual({ markdown, unsupported: [] });
   });
@@ -127,6 +129,14 @@ describe("body Markdown", () => {
       },
       raw("table", {}),
     ]);
+    // A list item's child that is not a list item would come back out of the list.
+    const nested = blocksToMarkdown([
+      {
+        block: { id: "l", type: "bulleted_list_item", has_children: true, bulleted_list_item: { rich_text: [] } },
+        children: [raw("paragraph", { rich_text: [text("child")] })],
+      },
+    ]);
+    expect(nested).toEqual({ markdown: "", unsupported: ["children"] });
     expect(result).toEqual({
       markdown: "",
       unsupported: [

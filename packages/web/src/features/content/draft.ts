@@ -12,10 +12,16 @@ interface Draft {
   changes: Changes;
   /** The edited body Markdown; null while it is unchanged. */
   body: string | null;
+  /**
+   * Notion's edit time of what the first change was made on; a save sends it, so anything written in Notion
+   * since (also while the draft waited on another page, or a cached body was shown) is a conflict.
+   */
+  base: string;
 }
 
 const NONE: Changes = {};
-let draft: Draft = { key: "", changes: NONE, body: null };
+const empty = (key: string): Draft => ({ key, changes: NONE, body: null, base: "" });
+let draft: Draft = empty("");
 const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void) {
@@ -28,38 +34,67 @@ function replace(next: Draft) {
   for (const listener of listeners) listener();
 }
 
+const isEmpty = (d: Draft) => Object.keys(d.changes).length === 0 && d.body === null;
+
 /** The draft of `key`, or an empty one to start from. */
-const current = (key: string): Draft => (draft.key === key ? draft : { key, changes: NONE, body: null });
+const current = (key: string): Draft => (draft.key === key ? draft : empty(key));
+
+/**
+ * `next` with its base: the edit time this change was made on, or the draft's own if that is older (the
+ * body and the properties are read apart, so one of them can be older). Notion's ISO times sort as text.
+ */
+const changed = (before: Draft, next: Draft, base: string): Draft =>
+  isEmpty(next)
+    ? { ...next, base: "" }
+    : { ...next, base: isEmpty(before) || (base && base < before.base) ? base : before.base };
 
 const same = (a: ContentValue | null, b: ContentValue | null) => JSON.stringify(a) === JSON.stringify(b);
 
 export const draftKey = (sourceId: string, databaseId: string, pageId: string) => `${sourceId}/${databaseId}/${pageId}`;
 
 export function useDraft(key: string) {
-  const snapshot = useSyncExternalStore(subscribe, () => draft);
-  const mine = snapshot.key === key ? snapshot : current(key);
+  useSyncExternalStore(subscribe, () => draft);
+  return draftOf(key);
+}
+
+/** The draft of `key` as it is now, and what changes it; `useDraft` re-reads it on every change. */
+export function draftOf(key: string) {
+  const mine = current(key);
   return {
     changes: mine.changes,
     body: mine.body,
+    base: mine.base,
     propertiesDirty: Object.keys(mine.changes).length > 0,
-    dirty: Object.keys(mine.changes).length > 0 || mine.body !== null,
-    /** A value equal to the saved one drops the change again. */
-    set(name: string, value: ContentValue, saved: ContentValue | null) {
-      const base = current(key);
-      const { [name]: _, ...rest } = base.changes;
-      replace({ ...base, changes: same(value, saved) ? rest : { ...rest, [name]: value } });
+    dirty: !isEmpty(mine),
+    /** A value equal to the saved one drops the change again. `base` is the edit time `saved` was read at. */
+    set(name: string, value: ContentValue, saved: ContentValue | null, base: string) {
+      const before = current(key);
+      const { [name]: _, ...rest } = before.changes;
+      replace(changed(before, { ...before, changes: same(value, saved) ? rest : { ...rest, [name]: value } }, base));
     },
-    setBody(value: string, saved: string) {
-      replace({ ...current(key), body: value === saved ? null : value });
+    setBody(value: string, saved: string, base: string) {
+      const before = current(key);
+      replace(changed(before, { ...before, body: value === saved ? null : value }, base));
     },
-    clearProperties() {
-      if (draft.key === key) replace({ ...draft, changes: NONE });
+    /**
+     * The body `sent` is in Notion as of `edited`. Typing since the save began stays, now based on `edited`.
+     */
+    bodySaved(sent: string, edited: string) {
+      if (draft.key !== key) return;
+      const next = { ...draft, body: draft.body === sent ? null : draft.body };
+      replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });
     },
-    clearBody() {
-      if (draft.key === key) replace({ ...draft, body: null });
+    /** The property values `sent` are in Notion as of `edited`; changes made since the save began stay. */
+    propertiesSaved(sent: Changes, edited: string) {
+      if (draft.key !== key) return;
+      const changes = Object.fromEntries(
+        Object.entries(draft.changes).filter(([name, value]) => !same(value, sent[name] ?? null)),
+      );
+      const next = { ...draft, changes };
+      replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });
     },
     clear() {
-      if (draft.key === key) replace({ key, changes: NONE, body: null });
+      if (draft.key === key) replace(empty(key));
     },
   };
 }

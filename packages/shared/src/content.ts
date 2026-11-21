@@ -61,7 +61,9 @@ export const ContentValue = z.discriminatedUnion("type", [
 ]);
 export type ContentValue = z.infer<typeof ContentValue>;
 
-const PropertyName = z.string().min(1).max(200);
+/** Longest property name sent back to Notion (and sorted by); names are kept whole, not cut. */
+export const CONTENT_PROPERTY_NAME_MAX = 1000;
+const PropertyName = z.string().min(1).max(CONTENT_PROPERTY_NAME_MAX);
 const Properties = z
   .record(PropertyName, ContentValue)
   .refine((x) => Object.keys(x).length <= 100, "too many properties");

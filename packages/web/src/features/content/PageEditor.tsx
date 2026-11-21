@@ -93,7 +93,9 @@ export function PageEditor({
           placeholder={m.content.untitled}
           value={title.text}
           maxLength={2000}
-          onChange={(e) => draft.set(titleName, { type: "title", text: e.target.value }, savedTitle)}
+          onChange={(e) =>
+            draft.set(titleName, { type: "title", text: e.target.value }, savedTitle, page.data?.lastEditedTime ?? "")
+          }
           data-testid="content-title"
         />
       )}
@@ -132,7 +134,7 @@ export function PageEditor({
         isNew={isNew}
         body={body}
         value={draft.body}
-        onChange={(value) => draft.setBody(value, body.data?.markdown ?? "")}
+        onChange={(value) => draft.setBody(value, body.data?.markdown ?? "", body.data?.lastEditedTime ?? "")}
         notionUrl={page.data?.url ?? null}
       />
     </div>
@@ -199,9 +201,10 @@ function BodyField({
 }
 
 /**
- * Save the body, then the changed properties, or create the page with both: straight to Notion. The body
- * goes first and its new edit time is what the property save checks, so the two saves do not conflict.
- * Each part leaves the draft once it is written, so a failure in the second keeps only what was not saved.
+ * Save the body, then the changed properties, or create the page with both: straight to Notion. The first
+ * save checks the edit time the draft was started on; the body's new edit time is what the property save
+ * checks, so the two saves do not conflict. Each part leaves the draft once it is written, so a failure in the
+ * second keeps only what was not saved, and what is typed while saving stays in the draft.
  */
 function useSavePage(
   sourceId: string,
@@ -225,24 +228,26 @@ function useSavePage(
         navigate(contentPagePath(sourceId, databaseId, created.id), { replace: true });
         return;
       }
-      let edited = page?.lastEditedTime ?? "";
-      if (draft.body !== null) {
+      const sentBody = draft.body;
+      const sentChanges = { ...draft.changes };
+      let edited = draft.base || page?.lastEditedTime || "";
+      if (sentBody !== null) {
         const saved = await api.saveContentBody(sourceId, databaseId, pageId, {
           lastEditedTime: edited,
-          markdown: draft.body,
+          markdown: sentBody,
         });
         edited = saved.lastEditedTime;
         queryClient.setQueryData(keys.contentBody(sourceId, databaseId, pageId), saved);
         queryClient.setQueryData<ContentPage>(pageKey, (old) => (old ? { ...old, lastEditedTime: edited } : old));
-        draft.clearBody();
+        draft.bodySaved(sentBody, edited);
       }
-      if (draft.propertiesDirty) {
+      if (Object.keys(sentChanges).length > 0) {
         const saved = await api.updateContentPage(sourceId, databaseId, pageId, {
           lastEditedTime: edited,
-          properties: { ...draft.changes },
+          properties: sentChanges,
         });
         queryClient.setQueryData(pageKey, saved);
-        draft.clearProperties();
+        draft.propertiesSaved(sentChanges, saved.lastEditedTime);
       }
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.contentEntries(sourceId, databaseId) }),
