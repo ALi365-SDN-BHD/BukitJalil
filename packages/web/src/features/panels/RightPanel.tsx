@@ -22,7 +22,9 @@ const SITE_TABS = ["preview", "changes", "files", "config", "theme", "data", "se
 /** Theme development's panels (design 2): the theme is the main one, sample content and reference images added. */
 const THEME_TABS = ["preview", "changes", "files", "theme", "samples", "reference"] as const;
 type PanelTab = (typeof SITE_TABS)[number] | (typeof THEME_TABS)[number];
-const TABS: Record<Mode, readonly PanelTab[]> = { site: SITE_TABS, theme: THEME_TABS };
+/** The modes with a project (content management has its own right column, plan 5.6). */
+type ProjectMode = Exclude<Mode, "content">;
+const TABS: Record<ProjectMode, readonly PanelTab[]> = { site: SITE_TABS, theme: THEME_TABS };
 
 /** The URL with `key` as the open tab; a file or diff selection only belongs to its own tab. */
 function withTab(p: URLSearchParams, key: PanelTab): URLSearchParams {
@@ -33,7 +35,15 @@ function withTab(p: URLSearchParams, key: PanelTab): URLSearchParams {
 }
 
 /** Right column (plan 10.2). The open tab lives in the URL (?panel=), so reloads and links keep it. */
-export function RightPanel({ mode, project, readOnly }: { mode: Mode; project: ProjectKey | null; readOnly: boolean }) {
+export function RightPanel({
+  mode,
+  project,
+  readOnly,
+}: {
+  mode: ProjectMode;
+  project: ProjectKey | null;
+  readOnly: boolean;
+}) {
   const { m, t } = useI18n();
   const [params, setParams] = useSearchParams();
   const tabs = TABS[mode];

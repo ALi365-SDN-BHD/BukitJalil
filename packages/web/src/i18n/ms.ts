@@ -24,6 +24,26 @@ const ms: Messages = {
     label: "Mod",
     site: "Laman",
     theme: "Tema",
+    content: "Kandungan",
+  },
+  content: {
+    sources: "Sumber data Notion",
+    addSource: "Tambah sumber data",
+    noSources:
+      "Belum ada sumber data Notion. Tambah token integrasi dalam Tetapan untuk menyunting pangkalan data yang boleh dicapainya di sini.",
+    welcome:
+      "Cipta dan sunting halaman dalam pangkalan data Notion anda. Simpan menulis ke Notion serta-merta; laman yang menggunakan sumber data ini mengambilnya pada binaan penuh seterusnya.",
+    pickDatabase: "Buka sumber data di sebelah kiri dan pilih pangkalan data.",
+    databasesLoading: "Memuatkan pangkalan data…",
+    noDatabases:
+      "Token ini tidak boleh mencapai sebarang pangkalan data. Kongsi pangkalan data dengan integrasi dalam Notion.",
+    showDatabases: "Tunjuk pangkalan data {name}",
+    hideDatabases: "Sembunyi pangkalan data {name}",
+    noToken: "Tiada token",
+    entries: "Entri",
+    entriesEmpty: "Entri pangkalan data ini akan dipaparkan di sini.",
+    properties: "Sifat",
+    propertiesEmpty: "Buka entri untuk menyunting sifatnya di sini.",
   },
   themes: {
     title: "Tema",

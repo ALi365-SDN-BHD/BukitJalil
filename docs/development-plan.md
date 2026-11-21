@@ -428,7 +428,7 @@ BukitJalil/
 - **每个源的条数**：`buildReport` 读成功构建里的 `event=content.source.loaded source=<名称> count=<条数>`，存为 `report.sources`（多语言网站每种语言各输出一次，取最大值）；数据面板按源名显示该版本最新一次成功构建的条数（`DataResponse.counts`），Notion 网站另外显示快照来自哪次正式构建（`DataResponse.notionSnapshot`）。
 - **测试**：`builds.test.ts`（假 Bukit 模拟 `--notion-snapshot`：记录、媒体复制和权限、快照里搜不到 token、离线构建不带 token 和 stdin、`query_changed`、`database` 报错和路径替换、解绑删除、没有 Notion 源和移除网站时删除）、`site-tools.test.ts`（离线 check / build 的参数、`notionData`、路径替换、应用前的检查）、`bukit-behavior.test.ts`（真实 Bukit 2.1.0：没有快照和缺数据库的报错文字）、`notion.test.ts`、`audit.test.ts`、`output-limits.test.ts`，以及 e2e（数据面板的条数和快照状态、改动预览的 Notion 说明）。
 - **限制**：离线构建时 Bukit 把 `--cache-dir` 当作要写的目录（事务复制、增量缓存），新建的文件用默认权限（0644 / 0755），靠外层 0700 的 `notion-snapshots/` 挡住其他用户。没有 `name` 的内容源，Bukit 给它生成名字（如 `notion1`），数据面板不猜，不显示条数。`content.media.downloadDir` 改到别处的网站，媒体缓存不在 `.cache/media`，离线构建的图片保留原链接（Notion 文件的签名链接约一小时后失效）。
-### 5.6 内容管理：Notion 数据源（2026-11-21 定，未开工）
+### 5.6 内容管理：Notion 数据源（2026-11-21 定，C0 已完成）
 
 在界面里直接新建、编辑 Notion 数据库里的页面。分层见第 14 节"内容管理"。
 
@@ -2181,7 +2181,7 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - **测试**：`pin.test.ts` 新增空闲锁定（只在打开时锁、`touch` 重新计时、锁定时不能改、重开后读出分钟数）、旧明文库只能重置、只有桌面版能重置；`reset.test.ts` 断言删掉的项、网站目录和日志不动、符号链接不跟随；`desktop.test.ts` 新增"`--reset` 启动删掉数据后能重新设置 PIN"；桌面 e2e 的 PIN 用例最后走"忘记 PIN → 取消 → 重置 → 重新设置 PIN"，新增"旧明文库只能重置"；打包后的冒烟测试在原来流程后加上锁定、错 PIN、解锁、锁定、忘记 PIN、重置，断言回到设置 PIN、`app.db` 是空的、网站文件夹还在。
 - **验证**：`pnpm check` 通过；单元测试 709 通过 / 19 跳过；浏览器 e2e 159 通过；桌面 e2e 12 通过（含重新打包后的 `packaged.spec`）。
 
-### 内容管理（2026-11-21 定，未开工，约 9–12 天）
+### 内容管理（2026-11-21 定，C0 已完成，约 9–12 天）
 
 设计和已定的问题见 5.6。按修复 SOP 分层实施：实现 → 审计 → 修复 → 复查 → 提交推送。每层做完时，`pnpm -s check`、完整单元测试和浏览器 e2e 都要通过；单元测试和 e2e 用假的 Notion 服务，不连真实 Notion。
 
@@ -2189,6 +2189,15 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - `Mode` 加 `"content"`，`ModeSwitch` 改成三段，路由、记住上次位置、窄屏标签、i18n。
 - 左栏：Notion 数据源列表，点开列出数据库；中栏和右栏是空状态。
 - 验收：三个模式来回切换、各自回到上次位置；没有数据源时引导添加。
+
+**C0 实现说明**（2026-11-21）：
+- **模式**：`lib/project.ts` 的 `Mode` 加 `"content"`，`modeOf` 按整段路径判断（`/contents` 仍是网站模式），`contentDatabasePath` 生成数据库地址（两个 ID 都转义）。`ModeSwitch` 改成三段，`bj-last-content` 记住上次位置。三段时文字放不下，左栏容器窄于 320px 就只显示图标（以前是 200px），悬停显示名称。
+- **路由**：`/content` 和 `/content/sources/:sourceId/databases/:databaseId`，页面的路由留给 C1。
+- **左栏**（`features/content/ContentSourceList.tsx`）：进入模式只读本地的数据源列表（`GET /api/data-sources`），不调用 Notion；点开数据源才用它的 token 列出数据库（复用 `GET /api/data-sources/:id/notion/databases`，不重试），离线、token 无效时在数据源下面显示原因。回到上次位置时，那个数据库所属的数据源自动展开（用户点了切换，算用户操作）。"添加数据源"打开设置页的数据源一节，关闭设置回到原处。查询键 `keys.notionDatabases` 和新建网站对话框共用。
+- **中栏、右栏**（`ContentColumns.tsx`）：没选数据库时是说明；选了数据库时中栏显示数据库标题（取左栏已读到的列表，不另外调用 Notion），条目列表留给 C1；记住的位置所属的数据源已被删除时回到说明。右栏标题是"属性"，C0 是空状态。内容模式不挂 `RightPanel`，它的模式类型收窄为网站和主题两种。
+- **窄屏**：底部三个标签按模式命名和配图标：数据源 / 条目 / 属性；换数据库时回到中栏。
+- **测试**：`project.test.ts` 覆盖 `modeOf` 和地址转义；`e2e/content.spec.ts` 在三种浏览器覆盖切换、添加数据源后回到内容模式、进入模式不调用 Notion、点开才列出数据库、打开数据库、各模式回到上次位置、窄屏标签、离线时的报错和已删除数据源的地址；每个用例结束时删掉自己建的数据源（同一个 worker 共用服务端，别的用例要求没有数据源）。
+- **验证**：`pnpm check` 通过；单元测试 714 通过 / 19 跳过；浏览器 e2e 165 通过。
 
 **C1 条目和属性**（3–4 天）
 - 条目列表（分页、搜索、排序）、读取页面属性、右栏属性表单、新建、移到回收站、`last_edited_time` 冲突检查、写权限报错、请求排队。

@@ -24,6 +24,25 @@ const en: Messages = {
     label: "Mode",
     site: "Sites",
     theme: "Themes",
+    content: "Content",
+  },
+  content: {
+    sources: "Notion data sources",
+    addSource: "Add data source",
+    noSources:
+      "No Notion data sources yet. Add an integration token in Settings to edit the databases it can access here.",
+    welcome:
+      "Create and edit the pages in your Notion databases. Saving writes to Notion right away; sites using the data source pick it up at their next full build.",
+    pickDatabase: "Open a data source on the left and pick a database.",
+    databasesLoading: "Loading databases…",
+    noDatabases: "This token cannot access any database. Share a database with the integration in Notion.",
+    showDatabases: "Show the databases of {name}",
+    hideDatabases: "Hide the databases of {name}",
+    noToken: "No token",
+    entries: "Entries",
+    entriesEmpty: "The entries of this database will be shown here.",
+    properties: "Properties",
+    propertiesEmpty: "Open an entry to edit its properties here.",
   },
   themes: {
     title: "Themes",

@@ -335,6 +335,7 @@ export const keys = {
   pi: ["pi"] as const,
   security: ["security"] as const,
   dataSources: ["data-sources"] as const,
+  notionDatabases: (dataSourceId: string) => ["notion-databases", dataSourceId] as const,
   publishAccounts: ["publish-accounts"] as const,
   customModels: ["custom-models"] as const,
 };
