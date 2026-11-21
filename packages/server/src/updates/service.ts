@@ -69,10 +69,12 @@ export class UpdateService {
   private release: AppUpdateRelease | null = null;
   private controller: AbortController | null = null;
   private downloadTask: Promise<void> | null = null;
+  /** The cleanup started with the service; a download waits for it, or it would delete the new `.part` file. */
+  private readonly startup: Promise<void>;
 
   constructor(private readonly opts: UpdateServiceOptions) {
     // After the app was updated, the installer for the running (or older) version is no longer needed.
-    void this.cleanup();
+    this.startup = this.cleanup();
   }
 
   status(): AppUpdateResponse {
@@ -312,6 +314,7 @@ export class UpdateService {
     const file = path.join(dir, release.asset.name);
     const part = `${file}.part`;
     try {
+      await this.startup;
       await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
       if (await this.validExisting(file, release.asset)) {
         this.setState(
