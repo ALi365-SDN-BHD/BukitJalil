@@ -53,6 +53,8 @@ describe("body Markdown", () => {
     ["a paragraph of spaces and &nbsp;", "  \\&nbsp;"],
     ["a caption with a link", "![a [link](https://example.com/x) here](notion-image:0123456789abcdef0123456789abcdef)"],
     ["code of spaces", "` ` and `  `"],
+    ["a paragraph of spaces", "First\n\n\\   \n\nThird"],
+    ["a paragraph of a tab and no-break spaces", "\\\t\u00a0\u00a0"],
     ["a paragraph of ! and a link", "\\![docs](https://example.com/a)"],
     ["a link around code holding a bracket", "see [`arr[0]` and `]`](https://example.com/a) here"],
   ])("keeps %s unchanged", (_name, markdown) => {

@@ -12,7 +12,7 @@ import { notionId } from "./service.ts";
  *   children are its following lines indented by spaces (one level only);
  * - `&nbsp;` alone on a line is an empty paragraph;
  * - inline: `**bold**`, `_italic_`, `~~strike~~`, `` `code` ``, `[text](url)`, `<br>` for a line break inside
- *   a block, and a backslash before any punctuation for the character itself;
+ *   a block, and a backslash before any punctuation or white space for the character itself;
  * - `![caption](url)` alone on a line is an external image; `notion-image:<block id>` as the URL is an image
  *   uploaded to Notion, kept as it is when saving.
  */
@@ -341,6 +341,8 @@ function escapeInline(text: string): string {
 /** A paragraph that would read as another block gets its first marker escaped. */
 function leadEscape(md: string): string {
   if (md.trim() === "&nbsp;") return md.replace("&nbsp;", "\\&nbsp;");
+  // A paragraph of only white space would read as a blank line: a backslash before it keeps it.
+  if (md.trim() === "") return `\\${md}`;
   // `!` and then a link would read as an image.
   if (md.startsWith("![")) return `\\${md}`;
   return md.replace(
@@ -542,7 +544,9 @@ export function parseInline(source: string, base: Format = PLAIN): Span[] {
   let i = 0;
   while (i < source.length) {
     const c = source[i] ?? "";
-    if (c === "\\" && /[!-/:-@[-`{-~]/.test(source[i + 1] ?? "")) {
+    // A backslash before punctuation, or before white space (how a paragraph of spaces is written), is the
+    // character itself.
+    if (c === "\\" && /[!-/:-@[-`{-~]|\s/.test(source[i + 1] ?? "")) {
       buffer += source[i + 1];
       i += 2;
       continue;
