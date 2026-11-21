@@ -150,7 +150,7 @@ export interface ContentPage {
 /**
  * GET /api/content/sources/:sourceId/databases/:databaseId/pages/:pageId/body: the body as Markdown (plan 5.6
  * item 7). `unsupported` names what keeps it read-only: block types, or `children`, `color`, `underline`,
- * `mention`, `equation`, `link`, `toggle`, `caption`, `code_format`, `code_language`, `image_url`, `too_long`.
+ * `mention`, `equation`, `link`, `toggle`, `caption`, `code_format`, `code_language`, `image_url`, `unwritable`, `too_long`.
  */
 export interface ContentBody {
   markdown: string;

@@ -194,6 +194,16 @@ export function blocksToMarkdown(blocks: RawBlock[]): { markdown: string; unsupp
     if (index > 0) markdown += list && isListType(typeOf(blocks[index - 1]?.block ?? {})) ? "\n" : "\n\n";
     markdown += blockMarkdown(raw, problems, 0);
   });
+  if (problems.size === 0) {
+    // Whatever reads fine but cannot be written back (say, one code span of many lines, which becomes more
+    // rich text items than Notion takes in a block) would make every save fail: it is read-only too.
+    try {
+      markdownToItems(markdown);
+    } catch (err) {
+      if (!(err instanceof SiteError)) throw err;
+      problems.add("unwritable");
+    }
+  }
   return { markdown: problems.size > 0 ? "" : markdown, unsupported: [...problems].sort() };
 }
 

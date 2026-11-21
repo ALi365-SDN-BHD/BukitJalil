@@ -194,6 +194,22 @@ describe("body Markdown", () => {
 });
 
 describe("body Markdown from Notion", () => {
+  it("keeps a body read-only when what it reads could not be written back", () => {
+    const lines = Array.from({ length: 51 }, () => "x").join("\n");
+    expect(
+      blocksToMarkdown([
+        {
+          block: {
+            type: "paragraph",
+            paragraph: {
+              rich_text: [{ type: "text", plain_text: lines, text: { content: lines }, annotations: { code: true } }],
+            },
+          },
+        },
+      ]),
+    ).toEqual({ markdown: "", unsupported: ["unwritable"] });
+  });
+
   it("keeps a paragraph that opens with code of backticks a paragraph", () => {
     const md = blocksToMarkdown([
       {
