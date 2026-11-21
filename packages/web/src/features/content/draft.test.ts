@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftOf } from "./draft";
+import { changeOf, draftOf } from "./draft";
 
 // Plan 5.6: one save sends the draft with the edit time it was started on, and keeps what is typed meanwhile.
 const T1 = "2026-11-21T08:00:00.000Z";
@@ -40,5 +40,12 @@ describe("content draft", () => {
     expect(draftOf(key).changes).toEqual({ Done: { type: "checkbox", checked: false } });
     draftOf(key).propertiesSaved({ Done: { type: "checkbox", checked: false } }, T3);
     expect(draftOf(key)).toMatchObject({ dirty: false, base: "" });
+  });
+
+  it("reads only the draft's own changes, whatever a property is named", () => {
+    expect(changeOf({}, "constructor")).toBeUndefined();
+    expect(changeOf({}, "toString")).toBeUndefined();
+    const value = { type: "checkbox", checked: true } as const;
+    expect(changeOf({ constructor: value }, "constructor")).toEqual(value);
   });
 });

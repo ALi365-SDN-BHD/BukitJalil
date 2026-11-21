@@ -50,6 +50,13 @@ const changed = (before: Draft, next: Draft, base: string): Draft =>
 
 const same = (a: ContentValue | null, b: ContentValue | null) => JSON.stringify(a) === JSON.stringify(b);
 
+/** The draft's change of `name`: only its own entries, so a property named `constructor` is not inherited. */
+export const changeOf = (changes: Changes, name: string): ContentValue | undefined =>
+  Object.hasOwn(changes, name) ? changes[name] : undefined;
+
+/** What a save of the page with this draft key is called, so both columns can tell one is running. */
+export const saveKey = (key: string) => ["content-save", key] as const;
+
 export const draftKey = (sourceId: string, databaseId: string, pageId: string) => `${sourceId}/${databaseId}/${pageId}`;
 
 export function useDraft(key: string) {
@@ -88,7 +95,7 @@ export function draftOf(key: string) {
     propertiesSaved(sent: Changes, edited: string) {
       if (draft.key !== key) return;
       const changes = Object.fromEntries(
-        Object.entries(draft.changes).filter(([name, value]) => !same(value, sent[name] ?? null)),
+        Object.entries(draft.changes).filter(([name, value]) => !same(value, changeOf(sent, name) ?? null)),
       );
       const next = { ...draft, changes };
       replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });

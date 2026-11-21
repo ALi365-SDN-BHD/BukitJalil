@@ -1,5 +1,5 @@
 import type { ContentDatabase, ContentProperty, ContentSchemaProperty, ContentValue } from "@bukitjalil/shared";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useId, useState } from "react";
 import { useNavigate } from "react-router";
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { contentDatabasePath } from "@/lib/project";
-import { draftKey, useDraft } from "./draft";
+import { changeOf, draftKey, saveKey, useDraft } from "./draft";
 import { emptyValue, NEW_PAGE, useContentPage } from "./hooks";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -32,7 +32,10 @@ export function PropertyForm({
   const { m, errorOf } = useI18n();
   const isNew = pageId === NEW_PAGE;
   const page = useContentPage(sourceId, databaseId, pageId);
-  const draft = useDraft(draftKey(sourceId, databaseId, pageId));
+  const key = draftKey(sourceId, databaseId, pageId);
+  const draft = useDraft(key);
+  // The middle column's save sends these too: nothing changes while it runs, so nothing typed is lost.
+  const saving = useIsMutating({ mutationKey: saveKey(key) }) > 0;
   const schema = new Map(database.properties.map((p) => [p.name, p]));
 
   if (!isNew && page.isPending) return <p className="p-4 text-sm text-muted-foreground">{m.common.loading}</p>;
@@ -53,7 +56,7 @@ export function PropertyForm({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="content-property-form">
-      <div className="flex flex-col gap-4 p-4 text-sm">
+      <fieldset disabled={saving} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-4 text-sm">
         {properties
           .filter((p) => p.type !== "title")
           .map((p) => (
@@ -61,11 +64,11 @@ export function PropertyForm({
               key={p.name}
               property={p}
               schema={schema.get(p.name)}
-              value={draft.changes[p.name] ?? p.value}
+              value={changeOf(draft.changes, p.name) ?? p.value}
               onChange={(value) => draft.set(p.name, value, p.value, page.data?.lastEditedTime ?? "")}
             />
           ))}
-      </div>
+      </fieldset>
       {!isNew && page.data && (
         <TrashButton sourceId={sourceId} databaseId={databaseId} pageId={pageId} title={page.data.title} />
       )}

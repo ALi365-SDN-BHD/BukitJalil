@@ -1,4 +1,4 @@
-import { CONTENT_BODY_MAX, type ContentDatabase, type ContentPage } from "@bukitjalil/shared";
+import { CONTENT_BODY_MAX, type ContentBody, type ContentDatabase, type ContentPage } from "@bukitjalil/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Loader2, Save } from "lucide-react";
 import { useId } from "react";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { ApiRequestError, api, keys } from "@/lib/api";
 import { contentDatabasePath, contentPagePath } from "@/lib/project";
-import { draftKey, useDraft } from "./draft";
+import { changeOf, draftKey, saveKey, useDraft } from "./draft";
 import { emptyValue, NEW_PAGE, useContentBody, useContentPage } from "./hooks";
 
 /**
@@ -55,7 +55,7 @@ export function PageEditor({
   const titleProperty = isNew ? undefined : page.data?.properties.find((p) => p.type === "title");
   const titleName = titleProperty?.name ?? titleSchema?.name;
   const savedTitle = titleProperty?.value ?? (titleSchema ? emptyValue(titleSchema) : null);
-  const title = (titleName && draft.changes[titleName]) || savedTitle;
+  const title = (titleName && changeOf(draft.changes, titleName)) || savedTitle;
   const conflict = save.error instanceof ApiRequestError && save.error.code === "content.conflict";
 
   return (
@@ -93,6 +93,7 @@ export function PageEditor({
           placeholder={m.content.untitled}
           value={title.text}
           maxLength={2000}
+          disabled={save.isPending}
           onChange={(e) =>
             draft.set(titleName, { type: "title", text: e.target.value }, savedTitle, page.data?.lastEditedTime ?? "")
           }
@@ -134,6 +135,7 @@ export function PageEditor({
         isNew={isNew}
         body={body}
         value={draft.body}
+        saving={save.isPending}
         onChange={(value) => draft.setBody(value, body.data?.markdown ?? "", body.data?.lastEditedTime ?? "")}
         notionUrl={page.data?.url ?? null}
       />
@@ -146,12 +148,15 @@ function BodyField({
   isNew,
   body,
   value,
+  saving,
   onChange,
   notionUrl,
 }: {
   isNew: boolean;
   body: ReturnType<typeof useContentBody>;
   value: string | null;
+  /** Read-only while a save runs, so nothing typed meanwhile is lost when it ends. */
+  saving: boolean;
   onChange: (value: string) => void;
   notionUrl: string | null;
 }) {
@@ -191,6 +196,7 @@ function BodyField({
         className="min-h-80 w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-sm leading-relaxed outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
         value={value ?? body.data?.markdown ?? ""}
         maxLength={CONTENT_BODY_MAX}
+        readOnly={saving}
         spellCheck={false}
         onChange={(e) => onChange(e.target.value)}
         data-testid="content-body"
@@ -216,7 +222,9 @@ function useSavePage(
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const pageKey = keys.contentPage(sourceId, databaseId, pageId);
+  const bodyKey = keys.contentBody(sourceId, databaseId, pageId);
   return useMutation({
+    mutationKey: saveKey(draftKey(sourceId, databaseId, pageId)),
     mutationFn: async () => {
       if (pageId === NEW_PAGE) {
         const created = await api.createContentPage(sourceId, databaseId, {
@@ -237,7 +245,7 @@ function useSavePage(
           markdown: sentBody,
         });
         edited = saved.lastEditedTime;
-        queryClient.setQueryData(keys.contentBody(sourceId, databaseId, pageId), saved);
+        queryClient.setQueryData(bodyKey, saved);
         queryClient.setQueryData<ContentPage>(pageKey, (old) => (old ? { ...old, lastEditedTime: edited } : old));
         draft.bodySaved(sentBody, edited);
       }
@@ -247,6 +255,11 @@ function useSavePage(
           properties: sentChanges,
         });
         queryClient.setQueryData(pageKey, saved);
+        // The body read at or after the time this save was checked against is still Notion's body: only the
+        // properties changed since. An older body keeps its time, so editing it is still a conflict.
+        queryClient.setQueryData<ContentBody>(bodyKey, (old) =>
+          old && old.lastEditedTime >= edited ? { ...old, lastEditedTime: saved.lastEditedTime } : old,
+        );
         draft.propertiesSaved(sentChanges, saved.lastEditedTime);
       }
     },

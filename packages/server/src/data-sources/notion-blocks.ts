@@ -605,7 +605,15 @@ function hasClosing(source: string, from: number, marker: string): boolean {
 
 function linkAt(source: string, at: number): { text: string; url: string; end: number } | null {
   let j = at + 1;
-  while (j < source.length && source[j] !== "]") j += source[j] === "\\" ? 2 : 1;
+  while (j < source.length && source[j] !== "]") {
+    if (source[j] === "\\") j += 2;
+    else if (source[j] === "`") {
+      // A code span inside the label may hold `]`; it ends where its closing run is, as parseInline reads it.
+      const run = /^`+/.exec(source.slice(j))?.[0].length ?? 1;
+      const end = closingRun(source, j + run, run);
+      j = end < 0 ? j + run : end + run;
+    } else j++;
+  }
   if (source[j] !== "]" || source[j + 1] !== "(") return null;
   let k = j + 2;
   let url = "";
