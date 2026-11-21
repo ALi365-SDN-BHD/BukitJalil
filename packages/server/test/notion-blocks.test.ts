@@ -192,6 +192,26 @@ describe("body Markdown", () => {
 });
 
 describe("body Markdown from Notion", () => {
+  it("keeps a paragraph that opens with code of backticks a paragraph", () => {
+    const md = blocksToMarkdown([
+      {
+        block: {
+          type: "paragraph",
+          paragraph: {
+            rich_text: [
+              { type: "text", plain_text: "``", text: { content: "``" }, annotations: { code: true } },
+              { type: "text", plain_text: " after", text: { content: " after" }, annotations: {} },
+            ],
+          },
+        },
+      },
+    ]);
+    expect(md.unsupported).toEqual([]);
+    expect(markdownToItems(md.markdown)).toMatchObject([
+      { block: { type: "paragraph", paragraph: { rich_text: [{ text: { content: "``" } }, {}] } } },
+    ]);
+  });
+
   it("keeps a paragraph of ! and a link a paragraph", () => {
     const md = blocksToMarkdown([
       {

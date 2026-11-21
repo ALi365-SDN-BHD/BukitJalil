@@ -381,7 +381,8 @@ function merge(spans: Span[]): Span[] {
 
 // ── Markdown → Notion ────────────────────────────────────────────────────────
 
-const FENCE = /^(`{3,})(.*)$/;
+// As in CommonMark, a fence's info string has no backticks: a line that opens with a long code span is not one.
+const FENCE = /^(`{3,})([^`]*)$/;
 const HEADING = /^(#{1,3})(?: (.*))?$/;
 const DIVIDER = /^---\s*$/;
 const LIST = /^(\s*)([-*+]|\d+[.)])(?: (.*))?$/;
