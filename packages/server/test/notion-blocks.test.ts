@@ -145,6 +145,14 @@ describe("body Markdown", () => {
       },
     ]);
     expect(nested).toEqual({ markdown: "", unsupported: ["children"] });
+    // More children than one request can write back.
+    const many = blocksToMarkdown([
+      {
+        block: { id: "l", type: "bulleted_list_item", has_children: true, bulleted_list_item: { rich_text: [] } },
+        children: Array.from({ length: 101 }, () => raw("bulleted_list_item", { rich_text: [text("c")] })),
+      },
+    ]);
+    expect(many).toEqual({ markdown: "", unsupported: ["children"] });
     expect(result).toEqual({
       markdown: "",
       unsupported: [

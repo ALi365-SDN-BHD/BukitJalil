@@ -240,13 +240,18 @@ function useSavePage(
       const sentChanges = { ...draft.changes };
       let edited = draft.base || page?.lastEditedTime || "";
       if (sentBody !== null) {
+        const checked = edited;
         const saved = await api.saveContentBody(sourceId, databaseId, pageId, {
-          lastEditedTime: edited,
+          lastEditedTime: checked,
           markdown: sentBody,
         });
         edited = saved.lastEditedTime;
         queryClient.setQueryData(bodyKey, saved);
-        queryClient.setQueryData<ContentPage>(pageKey, (old) => (old ? { ...old, lastEditedTime: edited } : old));
+        // Properties read at or after the time the body save was checked against are still Notion's; older
+        // ones keep their time, so editing them is still a conflict.
+        queryClient.setQueryData<ContentPage>(pageKey, (old) =>
+          old && old.lastEditedTime >= checked ? { ...old, lastEditedTime: edited } : old,
+        );
         draft.bodySaved(sentBody, edited);
       }
       if (Object.keys(sentChanges).length > 0) {

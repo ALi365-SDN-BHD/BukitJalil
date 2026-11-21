@@ -204,6 +204,8 @@ function blockMarkdown(raw: RawBlock, problems: Set<string>, depth: number): str
   const list = isListType(type);
   // Only a top-level list item may have children, and only list items: the dialect nests nothing else.
   if ((block.has_children === true && !(list && depth === 0)) || (depth > 0 && !list)) problems.add("children");
+  // A save writes a block's children in one request, which Notion caps at 100.
+  if ((raw.children?.length ?? 0) > 100) problems.add("children");
   if (typeof data.color === "string" && data.color !== "default") problems.add("color");
   const text = () => inlineMarkdown(richOf(data), problems);
   let out: string;
