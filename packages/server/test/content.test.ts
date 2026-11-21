@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ContentDatabase, ContentEntryList, ContentPage, SavedDataSource } from "@bukitjalil/shared";
+import type { ContentBody, ContentDatabase, ContentEntryList, ContentPage, SavedDataSource } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { segments } from "../src/data-sources/notion-content.ts";
 import { ADMIN, makeApp, req } from "./helpers.ts";
@@ -75,6 +75,12 @@ function fakeNotion() {
   const state = {
     page: notionPage() as Record<string, unknown>,
     fail: null as null | { status: number; body?: unknown; when?: (s: Sent) => boolean },
+    /** The page's top-level blocks, and the children of the blocks that have them. */
+    blocks: [] as Record<string, unknown>[],
+    children: {} as Record<string, Record<string, unknown>[]>,
+  };
+  const touch = () => {
+    state.page = { ...state.page, last_edited_time: "2026-11-21T09:00:00.000Z" };
   };
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     const u = new URL(url);
@@ -114,7 +120,24 @@ function fakeNotion() {
       state.page = { ...state.page, last_edited_time: "2026-11-21T09:00:00.000Z" };
       return json(state.page);
     }
-    if (s.method === "POST" && s.path === "/pages") return json(notionPage({ id: "new-page" }));
+    if (s.method === "POST" && s.path === "/pages") return json(notionPage({ id: "fedcba9876543210fedcba9876543210" }));
+    const children = /^\/blocks\/([0-9a-f]{32})\/children$/.exec(s.path);
+    if (children && s.method === "GET") {
+      const id = children[1] ?? "";
+      return json({
+        results: id === PAGE ? state.blocks : (state.children[id] ?? []),
+        has_more: false,
+        next_cursor: null,
+      });
+    }
+    if (children && s.method === "PATCH") {
+      touch();
+      return json({ results: [] });
+    }
+    if (/^\/blocks\/[0-9a-f]{32}$/.test(s.path) && (s.method === "DELETE" || s.method === "PATCH")) {
+      touch();
+      return json({});
+    }
     return json({ object: "error", status: 404 }, 404);
   }) as typeof fetch;
   return { sent, state, fetchImpl };
@@ -366,6 +389,164 @@ describe("/api/content", () => {
     await Promise.all([call(ctx, "GET", db), call(ctx, "GET", db), call(ctx, "GET", db)]);
     expect(notion.sent).toHaveLength(3);
     expect(Date.now() - started).toBeGreaterThanOrEqual(110);
+    ctx.db.close();
+  });
+});
+
+const p = (id: string, content: string) => ({
+  id,
+  type: "paragraph",
+  has_children: false,
+  paragraph: { rich_text: rich(content), color: "default" },
+});
+const hostedImage = (id: string, caption: string) => ({
+  id,
+  type: "image",
+  has_children: false,
+  image: { type: "file", file: { url: "https://s3.example/signed" }, caption: rich(caption) },
+});
+const ID = (n: number) => String(n).padStart(32, "a");
+
+describe("/api/content page body", () => {
+  it("reads the body as Markdown, list children included, or says why it cannot", async () => {
+    const { ctx, notion, page } = await setup("body-read");
+    notion.state.blocks = [
+      p(ID(1), "Intro"),
+      { id: ID(2), type: "bulleted_list_item", has_children: true, bulleted_list_item: { rich_text: rich("parent") } },
+    ];
+    notion.state.children[ID(2)] = [
+      { id: ID(3), type: "to_do", has_children: false, to_do: { rich_text: rich("child"), checked: true } },
+    ];
+    const body = (await (await call(ctx, "GET", `${page}/body`)).json()) as ContentBody;
+    expect(body).toEqual({
+      markdown: "Intro\n\n- parent\n    - [x] child",
+      editable: true,
+      unsupported: [],
+      lastEditedTime: "2026-11-21T08:00:00.000Z",
+    });
+
+    notion.state.blocks = [p(ID(1), "Intro"), { id: ID(4), type: "table", has_children: true, table: {} }];
+    expect(await (await call(ctx, "GET", `${page}/body`)).json()).toMatchObject({
+      markdown: "",
+      editable: false,
+      unsupported: ["children", "table"],
+    });
+    ctx.db.close();
+  });
+
+  it("replaces the whole body: new blocks first, in batches of 100, then the old ones go", async () => {
+    const { ctx, notion, page } = await setup("body-save");
+    notion.state.blocks = [p(ID(1), "Old one"), p(ID(2), "Old two")];
+    const markdown = Array.from({ length: 250 }, (_, i) => `Paragraph ${i}`).join("\n\n");
+
+    const stale = await call(ctx, "PUT", `${page}/body`, { lastEditedTime: "2026-11-21T07:00:00.000Z", markdown });
+    expect(stale.status).toBe(409);
+    expect(notion.sent.some((s) => s.method !== "GET")).toBe(false);
+
+    const res = await call(ctx, "PUT", `${page}/body`, { lastEditedTime: "2026-11-21T08:00:00.000Z", markdown });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      markdown,
+      editable: true,
+      unsupported: [],
+      lastEditedTime: "2026-11-21T09:00:00.000Z",
+    });
+    const writes = notion.sent.filter((s) => s.method !== "GET");
+    expect(writes.map((s) => [s.method, s.path, (s.body?.children as unknown[] | undefined)?.length])).toEqual([
+      ["PATCH", `/blocks/${PAGE}/children`, 100],
+      ["PATCH", `/blocks/${PAGE}/children`, 100],
+      ["PATCH", `/blocks/${PAGE}/children`, 50],
+      ["DELETE", `/blocks/${ID(1)}`, undefined],
+      ["DELETE", `/blocks/${ID(2)}`, undefined],
+    ]);
+    expect(writes[0]?.body?.after).toBeUndefined();
+    ctx.db.close();
+  });
+
+  it("keeps a Notion-hosted image in place and writes around it", async () => {
+    const { ctx, notion, page } = await setup("body-image");
+    notion.state.blocks = [p(ID(1), "Old"), hostedImage(ID(2), "Cover"), p(ID(3), "Old after")];
+    const res = await call(ctx, "PUT", `${page}/body`, {
+      lastEditedTime: "2026-11-21T08:00:00.000Z",
+      markdown: `New before\n\n![New caption](notion-image:${ID(2)})\n\nNew after`,
+    });
+    expect(res.status).toBe(200);
+    const writes = notion.sent.filter((s) => s.method !== "GET");
+    expect(writes.map((s) => [s.method, s.path, s.body?.after])).toEqual([
+      ["PATCH", `/blocks/${PAGE}/children`, ID(1)],
+      ["PATCH", `/blocks/${PAGE}/children`, ID(2)],
+      ["PATCH", `/blocks/${ID(2)}`, undefined],
+      ["DELETE", `/blocks/${ID(1)}`, undefined],
+      ["DELETE", `/blocks/${ID(3)}`, undefined],
+    ]);
+    expect(writes[2]?.body).toMatchObject({ image: { caption: [{ text: { content: "New caption" } }] } });
+
+    // Such an image cannot be added, moved, or have anything put before it when it comes first.
+    const refuse = async (blocks: Record<string, unknown>[], markdown: string) => {
+      notion.state.blocks = blocks;
+      notion.state.page = notionPage();
+      const r = await call(ctx, "PUT", `${page}/body`, { lastEditedTime: "2026-11-21T08:00:00.000Z", markdown });
+      expect(await r.json()).toMatchObject({ code: "content.body_images" });
+    };
+    await refuse([p(ID(1), "x")], `![](notion-image:${ID(9)})`);
+    await refuse(
+      [hostedImage(ID(1), ""), hostedImage(ID(2), "")],
+      `![](notion-image:${ID(2)})\n\n![](notion-image:${ID(1)})`,
+    );
+    await refuse([hostedImage(ID(1), "")], `Before\n\n![](notion-image:${ID(1)})`);
+    ctx.db.close();
+  });
+
+  it("refuses to save over blocks it cannot write, and says when a save stopped half way", async () => {
+    const { ctx, notion, page } = await setup("body-refuse");
+    const save = () =>
+      call(ctx, "PUT", `${page}/body`, { lastEditedTime: "2026-11-21T08:00:00.000Z", markdown: "New" });
+    notion.state.blocks = [
+      p(ID(1), "x"),
+      { id: ID(2), type: "child_database", has_children: false, child_database: {} },
+    ];
+    const unsupported = await save();
+    expect(unsupported.status).toBe(409);
+    expect(await unsupported.json()).toMatchObject({ code: "content.body_unsupported" });
+    expect(notion.sent.some((s) => s.method !== "GET")).toBe(false);
+
+    notion.state.blocks = [p(ID(1), "x")];
+    notion.state.fail = { status: 500, when: (s) => s.method === "DELETE" };
+    expect(await (await save()).json()).toMatchObject({ code: "content.body_partial" });
+    notion.state.fail = null;
+
+    notion.state.page = notionPage();
+    const invalid = await call(ctx, "PUT", `${page}/body`, {
+      lastEditedTime: "2026-11-21T08:00:00.000Z",
+      markdown: "![x](ftp://example.com/x.png)",
+    });
+    expect(await invalid.json()).toMatchObject({ code: "content.body_invalid" });
+    ctx.db.close();
+  });
+
+  it("creates a page with its body", async () => {
+    const { ctx, notion, db } = await setup("body-create");
+    const markdown = Array.from({ length: 120 }, (_, i) => `- item ${i}`).join("\n");
+    const res = await call(ctx, "POST", `${db}/pages`, { properties: {}, markdown });
+    expect(res.status).toBe(200);
+    const create = notion.sent.find((s) => s.method === "POST" && s.path === "/pages");
+    expect(create?.body?.children).toHaveLength(100);
+    const rest = notion.sent.at(-1);
+    expect(rest).toMatchObject({ method: "PATCH", path: "/blocks/fedcba9876543210fedcba9876543210/children" });
+    expect(rest?.body?.children).toHaveLength(20);
+    expect(
+      (await call(ctx, "POST", `${db}/pages`, { properties: {}, markdown: `![](notion-image:${ID(1)})` })).status,
+    ).toBe(400);
+
+    // Batches also stay under Notion's request size: 30 long paragraphs do not go in one request.
+    notion.sent.length = 0;
+    const long = Array.from({ length: 30 }, () => "z".repeat(15_000)).join("\n\n");
+    expect((await call(ctx, "POST", `${db}/pages`, { properties: {}, markdown: long })).status).toBe(200);
+    const sizes = notion.sent
+      .filter((s) => s.method !== "GET")
+      .map((s) => (s.body?.children as unknown[] | undefined)?.length ?? 0);
+    expect(sizes.length).toBeGreaterThan(1);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(30);
     ctx.db.close();
   });
 });

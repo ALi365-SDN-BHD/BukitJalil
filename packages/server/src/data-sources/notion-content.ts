@@ -1,5 +1,7 @@
 import {
   CONTENT_PAGE_SIZE,
+  type ContentBody,
+  type ContentBodyUpdate,
   type ContentDatabase,
   type ContentEntryList,
   type ContentOption,
@@ -16,11 +18,47 @@ import {
 } from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
-import { type DataSourceService, notionId } from "./service.ts";
+import {
+  type BodyItem,
+  blocksToMarkdown,
+  captionChanged,
+  isHostedImage,
+  isListType,
+  markdownToItems,
+  type RawBlock,
+  storedOf,
+} from "./notion-blocks.ts";
+import { type DataSourceService, type NotionMethod, notionId } from "./service.ts";
 
 /** Longest display text of one property; the list and read-only fields need no more. */
 const DISPLAY_MAX = 500;
 const TITLE_MAX = 200;
+/** Notion appends at most 100 blocks per request. */
+const BATCH = 100;
+/** Bodies longer than this are edited in Notion: reading and rewriting them would take minutes. */
+const BODY_BLOCKS_MAX = 1000;
+
+/** Notion refuses requests over about 500 KB; batches stay well under it. */
+const BATCH_BYTES = 300_000;
+
+/** Blocks in batches Notion takes in one request: at most 100, and small enough. */
+function batches(blocks: Record<string, unknown>[]): Record<string, unknown>[][] {
+  const out: Record<string, unknown>[][] = [];
+  let batch: Record<string, unknown>[] = [];
+  let bytes = 0;
+  for (const block of blocks) {
+    const size = Buffer.byteLength(JSON.stringify(block));
+    if (batch.length > 0 && (batch.length >= BATCH || bytes + size > BATCH_BYTES)) {
+      out.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(block);
+    bytes += size;
+  }
+  if (batch.length > 0) out.push(batch);
+  return out;
+}
 
 export interface EntryQuery {
   cursor?: string;
@@ -114,15 +152,181 @@ export class NotionContentService {
     return viewOf(json);
   }
 
+  /** A new page with the given properties and, optionally, a body. */
   async create(sourceId: string, databaseId: string, req: ContentPageCreate): Promise<ContentPage> {
+    const items = req.markdown ? markdownToItems(req.markdown) : [];
+    if (items.some((item) => item.kind === "keep")) throw new SiteError("content.body_images", 400);
+    const [first = [], ...rest] = batches(items.flatMap((item) => (item.kind === "block" ? [item.block] : [])));
     const json = await this.call(
       sourceId,
       "POST",
       "/pages",
-      { parent: { database_id: idOf(databaseId) }, properties: payloadOf(req.properties) },
+      {
+        parent: { database_id: idOf(databaseId) },
+        properties: payloadOf(req.properties),
+        ...(first.length > 0 ? { children: first } : {}),
+      },
       true,
     );
+    const pageId = idOf(str(json.id, 100));
+    try {
+      for (const batch of rest) {
+        await this.call(sourceId, "PATCH", `/blocks/${pageId}/children`, { children: batch }, true);
+      }
+    } catch (err) {
+      if (err instanceof SiteError) throw new SiteError("content.body_partial", 503);
+      throw err;
+    }
     return viewOf(json);
+  }
+
+  /** The body as Markdown, or what keeps it from being edited here. */
+  async body(sourceId: string, databaseId: string, pageId: string): Promise<ContentBody> {
+    const page = await this.read(sourceId, databaseId, pageId);
+    const tree = await this.tree(sourceId, idOf(pageId));
+    const { markdown, unsupported } = tree.tooLong
+      ? { markdown: "", unsupported: ["too_long"] }
+      : blocksToMarkdown(tree.blocks);
+    return {
+      markdown,
+      editable: unsupported.length === 0,
+      unsupported,
+      lastEditedTime: str(page.last_edited_time, 40),
+    };
+  }
+
+  /**
+   * Replace the whole body (plan 5.6). The current body is read again first: an edit since the form was read
+   * is a 409, and a body that holds blocks this cannot write is refused rather than dropped. The new blocks
+   * go in before the old ones are deleted, so a failure half way leaves both rather than neither.
+   */
+  async saveBody(sourceId: string, databaseId: string, pageId: string, req: ContentBodyUpdate): Promise<ContentBody> {
+    const page = await this.read(sourceId, databaseId, pageId);
+    if (str(page.last_edited_time, 40) !== req.lastEditedTime) throw new SiteError("content.conflict", 409);
+    const items = markdownToItems(req.markdown);
+    const id = idOf(pageId);
+    const tree = await this.tree(sourceId, id);
+    if (tree.tooLong || blocksToMarkdown(tree.blocks).unsupported.length > 0) {
+      throw new SiteError("content.body_unsupported", 409);
+    }
+    await this.replaceBody(
+      sourceId,
+      id,
+      tree.blocks.map((b) => b.block),
+      items,
+    );
+    const after = await this.call(sourceId, "GET", `/pages/${id}`);
+    return {
+      markdown: blocksToMarkdown(storedOf(items)).markdown,
+      editable: true,
+      unsupported: [],
+      lastEditedTime: str(after.last_edited_time, 40),
+    };
+  }
+
+  /**
+   * Write `items` in place of the old top-level blocks. A kept Notion-hosted image cannot be written again,
+   * so it stays where it is: the new blocks go in around it with `after`, which needs an old block before the
+   * first kept image to anchor what comes before that image.
+   */
+  private async replaceBody(sourceId: string, pageId: string, old: Record<string, unknown>[], items: BodyItem[]) {
+    const ids = old.map((b) => notionId(str(b.id, 100)) ?? "");
+    const segments: Record<string, unknown>[][] = [[]];
+    const keeps: { id: string; index: number; caption: Record<string, unknown>[] }[] = [];
+    for (const item of items) {
+      if (item.kind === "block") {
+        segments.at(-1)?.push(item.block);
+        continue;
+      }
+      const index = ids.indexOf(item.id);
+      const previous = keeps.at(-1)?.index ?? -1;
+      if (index < 0 || !isHostedImage(old[index] ?? {}) || index <= previous)
+        throw new SiteError("content.body_images", 400);
+      keeps.push({ id: item.id, index, caption: item.caption });
+      segments.push([]);
+    }
+    const first = keeps[0];
+    if (first && first.index === 0 && (segments[0]?.length ?? 0) > 0) throw new SiteError("content.body_images", 400);
+
+    let started = false;
+    const append = async (blocks: Record<string, unknown>[], after?: string) => {
+      // With an anchor, the batches go in last first, each right after it, so they end up in order.
+      const list = batches(blocks);
+      for (const batch of after ? list.reverse() : list) {
+        await this.call(
+          sourceId,
+          "PATCH",
+          `/blocks/${pageId}/children`,
+          { children: batch, ...(after ? { after } : {}) },
+          true,
+        );
+        started = true;
+      }
+    };
+    try {
+      if (!first) await append(segments[0] ?? []);
+      else {
+        for (const [s, segment] of segments.entries()) {
+          if (segment.length === 0) continue;
+          await append(segment, s === 0 ? ids[first.index - 1] : keeps[s - 1]?.id);
+        }
+        for (const keep of keeps) {
+          if (!captionChanged(old[keep.index] ?? {}, keep.caption)) continue;
+          await this.call(sourceId, "PATCH", `/blocks/${keep.id}`, { image: { caption: keep.caption } }, true);
+          started = true;
+        }
+      }
+      const kept = new Set(keeps.map((k) => k.id));
+      for (const id of ids) {
+        if (kept.has(id)) continue;
+        await this.call(sourceId, "DELETE", `/blocks/${id}`, undefined, true);
+        started = true;
+      }
+    } catch (err) {
+      if (started && err instanceof SiteError) throw new SiteError("content.body_partial", 503);
+      throw err;
+    }
+  }
+
+  /** The page's blocks, with the children of list items (the only blocks that may have them here). */
+  private async tree(sourceId: string, pageId: string): Promise<{ blocks: RawBlock[]; tooLong: boolean }> {
+    const counter = { count: 0 };
+    const top = await this.children(sourceId, pageId, counter);
+    if (!top) return { blocks: [], tooLong: true };
+    const blocks: RawBlock[] = [];
+    for (const block of top) {
+      const raw: RawBlock = { block };
+      if (block.has_children === true && isListType(str(block.type, 50))) {
+        const children = await this.children(sourceId, idOf(str(block.id, 100)), counter);
+        if (!children) return { blocks: [], tooLong: true };
+        raw.children = children.map((child) => ({ block: child }));
+      }
+      blocks.push(raw);
+    }
+    return { blocks, tooLong: false };
+  }
+
+  /** One block's children, all pages of them; null once the body has more blocks than this edits. */
+  private async children(
+    sourceId: string,
+    blockId: string,
+    counter: { count: number },
+  ): Promise<Record<string, unknown>[] | null> {
+    const out: Record<string, unknown>[] = [];
+    let cursor: string | null = null;
+    do {
+      const json = await this.call(
+        sourceId,
+        "GET",
+        `/blocks/${blockId}/children?page_size=${BATCH}${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ""}`,
+      );
+      const results = Array.isArray(json.results) ? json.results.filter(isRecord) : [];
+      counter.count += results.length;
+      if (counter.count > BODY_BLOCKS_MAX) return null;
+      out.push(...results);
+      cursor = json.has_more === true && typeof json.next_cursor === "string" ? json.next_cursor : null;
+    } while (cursor);
+    return out;
   }
 
   /** Move the page to Notion's trash; it is not deleted for good (plan 5.6). */
@@ -142,13 +346,7 @@ export class NotionContentService {
     return json;
   }
 
-  private call(
-    sourceId: string,
-    method: "GET" | "POST" | "PATCH",
-    path: string,
-    body?: Record<string, unknown>,
-    write = false,
-  ) {
+  private call(sourceId: string, method: NotionMethod, path: string, body?: Record<string, unknown>, write = false) {
     return this.dataSources.notionCall(sourceId, method, path, body, write);
   }
 }

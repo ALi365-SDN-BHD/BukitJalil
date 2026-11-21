@@ -28,7 +28,7 @@ const NOTION_PAGES = 5;
 /** Notion allows about three requests a second per integration (plan 5.6). */
 const NOTION_GAP_MS = 334;
 
-export type NotionMethod = "GET" | "POST" | "PATCH";
+export type NotionMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
 /**
  * Saved Notion sources: each keeps its own integration token. Markdown needs no saved source, so a

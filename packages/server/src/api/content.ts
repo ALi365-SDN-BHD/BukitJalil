@@ -1,4 +1,4 @@
-import { ContentPageCreate, ContentPageUpdate, ContentSortDirection } from "@bukitjalil/shared";
+import { ContentBodyUpdate, ContentPageCreate, ContentPageUpdate, ContentSortDirection } from "@bukitjalil/shared";
 import type { Hono } from "hono";
 import type { AppEnv } from "../app.ts";
 import type { NotionContentService } from "../data-sources/notion-content.ts";
@@ -59,6 +59,22 @@ export function contentRoutes(api: Hono<AppEnv>, content: NotionContentService) 
       if (!req) return apiError(c, 400, "request.invalid_body");
       return c.json(
         await content.update(c.req.param("sourceId"), c.req.param("databaseId"), c.req.param("pageId"), req),
+      );
+    }),
+  );
+
+  api.get(`${PAGE}/body`, (c) =>
+    handle(c, async () =>
+      c.json(await content.body(c.req.param("sourceId"), c.req.param("databaseId"), c.req.param("pageId"))),
+    ),
+  );
+
+  api.put(`${PAGE}/body`, (c) =>
+    handle(c, async () => {
+      const req = await body(c, ContentBodyUpdate);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      return c.json(
+        await content.saveBody(c.req.param("sourceId"), c.req.param("databaseId"), c.req.param("pageId"), req),
       );
     }),
   );

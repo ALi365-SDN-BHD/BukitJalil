@@ -1,7 +1,8 @@
 import type { DataSourceRequest, SavedDataSource } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Database, Loader2, Plus } from "lucide-react";
+import { ArrowLeft, Database, FileText, Loader2, Plus } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n";
@@ -44,6 +45,14 @@ export function DataSourceSection() {
         <div>
           <h2 className="text-base font-semibold">{s.title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{s.hint}</p>
+          {/* The pages of these sources are edited in content management (plan 5.6). */}
+          <Link
+            to="/content"
+            className="mt-1 inline-flex items-center gap-1 text-sm underline underline-offset-2 hover:text-foreground"
+            data-testid="data-source-open-content"
+          >
+            <FileText className="size-3.5" aria-hidden /> {s.openContent}
+          </Link>
         </div>
         <Button type="button" size="sm" onClick={() => setEditing("new")} data-testid="data-source-add">
           <Plus /> {s.add}

@@ -63,7 +63,10 @@ const ms: Messages = {
     creating: "Mencipta…",
     saveNotice: "Simpan menulis terus ke Notion dan tidak boleh dibuat asal dalam BukitJalil.",
     saved: "Disimpan ke Notion.",
-    bodyInNotion: "Buat masa ini, sunting kandungan halaman dalam Notion.",
+    bodyLabel: "Kandungan",
+    bodyHint:
+      "Markdown: baris kosong antara perenggan; # tajuk (aras 1–3), - senarai, 1. bernombor, - [ ] tugasan, > petikan, ``` kod, ---, ![kapsyen](URL imej); **tebal**, _condong_, ~~coret~~, `kod`, [teks](URL), <br> untuk baris baharu; item senarai berinden milik item di atasnya.",
+    bodyReadOnly: "Kandungan ini ada bahagian yang tidak boleh disunting di sini ({types}). Sunting dalam Notion.",
     reload: "Muat semula",
     plainTextOnly: "Teks ini ada gaya, pautan atau sebutan; menyimpan perubahan menjadikannya teks biasa.",
     readOnly: "Baca sahaja",
@@ -75,7 +78,7 @@ const ms: Messages = {
     trash: "Pindah ke tong sampah",
     trashTitle: "Pindahkan “{title}” ke tong sampah Notion?",
     trashBody:
-      "Halaman dipindahkan ke tong sampah Notion dan boleh dipulihkan di sana. Laman yang menggunakan sumber data ini tidak memasukkannya pada binaan penuh seterusnya.",
+      "Halaman dipindahkan ke tong sampah Notion. Ini tidak boleh dibuat asal dalam BukitJalil; pulihkan dari tong sampah Notion. Laman yang menggunakan sumber data ini tidak memasukkannya pada binaan penuh seterusnya.",
     fields: "Medan",
     usedBy: "Laman yang menggunakannya",
     usedByNone: "Belum ada laman yang menggunakan sumber data ini.",
@@ -1112,6 +1115,7 @@ const ms: Messages = {
     dataSources: {
       title: "Sumber data",
       hint: "Tambah sumber Notion untuk dipilih semasa mencipta laman. Markdown ialah lalai dan tidak memerlukan persediaan.",
+      openContent: "Sunting halaman sumber ini dalam pengurusan kandungan",
       add: "Tambah sumber data Notion",
       empty: "Belum ada sumber data Notion. Laman baharu menggunakan Markdown secara lalai.",
       name: "Nama",
@@ -1445,6 +1449,14 @@ const ms: Messages = {
       "Notion menolak perubahan ini. Semak nilainya (contohnya, sama ada pilihan status wujud)",
     "content.notion_multi_source":
       "Pangkalan data ini ada beberapa sumber data, yang tidak boleh dibaca oleh versi API Notion yang digunakan BukitJalil",
+    "content.body_unsupported":
+      "Kandungan ini ada bahagian yang tidak boleh disunting di sini, dan menyimpan akan memadamnya, jadi tiada yang disimpan. Sunting dalam Notion",
+    "content.body_invalid":
+      "Kandungan ada sesuatu yang Notion tidak terima: URL imej mesti bermula dengan http:// atau https://, bahasa kod mesti yang dikenali Notion, dan satu blok paling banyak 100 bahagian bergaya",
+    "content.body_images":
+      "Imej yang dimuat naik ke Notion hanya boleh dikekalkan atau dibuang: tidak boleh ditambah, disusun semula, atau didahului kandungan baharu jika ia di atas sekali",
+    "content.body_partial":
+      "Kandungan hanya sebahagian disimpan: halaman mungkin bercampur kandungan baharu dan lama, atau kehilangan sebahagiannya. Semak halaman dalam Notion",
     "site.notion_unbound": "Tiada sumber data Notion yang terikat pada laman ini; ikat satu di atas dahulu",
     "rg.install_running": "ripgrep sedang dipasang",
     "rg.unsupported_platform": "Tiada pakej ripgrep yang dipin untuk platform ini",

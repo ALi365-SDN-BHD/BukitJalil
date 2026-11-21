@@ -59,7 +59,10 @@ const zhCN = {
     creating: "正在创建…",
     saveNotice: "保存后直接写进 Notion，不能在 BukitJalil 里撤销。",
     saved: "已保存到 Notion。",
-    bodyInNotion: "正文目前请在 Notion 中编辑。",
+    bodyLabel: "正文",
+    bodyHint:
+      "Markdown：段落之间空一行；# 标题（1–3 级）、- 列表、1. 编号、- [ ] 待办、> 引用、``` 代码、---、![说明](图片网址)；**粗体**、_斜体_、~~删除线~~、`代码`、[文字](网址)、<br> 换行；缩进的列表项是上一项的子项。",
+    bodyReadOnly: "正文里有这里不能编辑的内容（{types}），请在 Notion 中编辑。",
     reload: "重新读取",
     plainTextOnly: "这段文字有格式、链接或提及，改动后保存会变成纯文本。",
     readOnly: "只读",
@@ -70,7 +73,8 @@ const zhCN = {
     none: "（空）",
     trash: "移到回收站",
     trashTitle: "把“{title}”移到 Notion 回收站？",
-    trashBody: "页面会移到 Notion 的回收站，可以在 Notion 里恢复。用到这个数据源的网站下次正式构建时不再包含它。",
+    trashBody:
+      "页面会移到 Notion 的回收站。BukitJalil 里不能撤销，要恢复请到 Notion 的回收站。用到这个数据源的网站下次正式构建时不再包含它。",
     fields: "字段",
     usedBy: "使用它的网站",
     usedByNone: "还没有网站使用这个数据源。",
@@ -1033,6 +1037,7 @@ const zhCN = {
     dataSources: {
       title: "数据源",
       hint: "添加创建网站时可选的 Notion 数据源。Markdown 是默认数据源，无需添加。",
+      openContent: "在内容管理里编辑这些数据源的页面",
       add: "添加 Notion 数据源",
       empty: "还没有 Notion 数据源。新建网站默认使用 Markdown。",
       name: "名称",
@@ -1347,6 +1352,12 @@ const zhCN = {
       "这个 integration 没有写入权限：请在 Notion 的 integration 设置里打开 Update content 和 Insert content",
     "content.notion_rejected": "Notion 拒绝了这次修改，请检查填写的值（例如状态选项是否存在）",
     "content.notion_multi_source": "这个数据库有多个数据源，BukitJalil 使用的 Notion API 版本读不了这种数据库",
+    "content.body_unsupported": "正文里有这里不能编辑的内容，保存会把它们删掉，所以没有保存。请在 Notion 中编辑",
+    "content.body_invalid":
+      "正文里有写不进 Notion 的内容：图片网址要以 http:// 或 https:// 开头，代码块的语言要是 Notion 认得的，一段文字里的格式不能超过 100 处",
+    "content.body_images":
+      "Notion 上传的图片只能保留或删掉：不能新加、调换顺序，也不能在排在最前面的这种图片之前加内容",
+    "content.body_partial": "正文只写了一部分，页面里可能新旧内容混在一起，或者少了一部分。请在 Notion 中检查这个页面",
     "site.notion_unbound": "这个网站还没有绑定 Notion 数据源，请先在上方绑定",
     "rg.install_running": "ripgrep 正在安装中",
     "rg.unsupported_platform": "当前平台没有固定版本的 ripgrep 安装包",

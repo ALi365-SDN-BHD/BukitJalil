@@ -9,6 +9,8 @@ import {
   type BukitResponse,
   type ChangeSet,
   type ConfigResponse,
+  type ContentBody,
+  type ContentBodyUpdate,
   type ContentDatabase,
   type ContentEntryList,
   type ContentPage,
@@ -273,6 +275,13 @@ export const api = {
     }),
   createContentPage: (sourceId: string, databaseId: string, req: ContentPageCreate) =>
     post<ContentPage>(`${contentPath(sourceId, databaseId)}/pages`, req),
+  contentBody: (sourceId: string, databaseId: string, pageId: string) =>
+    request<ContentBody>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}/body`),
+  saveContentBody: (sourceId: string, databaseId: string, pageId: string, req: ContentBodyUpdate) =>
+    request<ContentBody>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}/body`, {
+      method: "PUT",
+      body: JSON.stringify(req),
+    }),
   trashContentPage: (sourceId: string, databaseId: string, pageId: string) =>
     request<null>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}`, { method: "DELETE" }),
 
@@ -381,6 +390,8 @@ export const keys = {
     ["content-entries", sourceId, databaseId, ...(params ? [params] : [])] as const,
   contentPage: (sourceId: string, databaseId: string, pageId: string) =>
     ["content-page", sourceId, databaseId, pageId] as const,
+  contentBody: (sourceId: string, databaseId: string, pageId: string) =>
+    ["content-body", sourceId, databaseId, pageId] as const,
   publishAccounts: ["publish-accounts"] as const,
   customModels: ["custom-models"] as const,
 };

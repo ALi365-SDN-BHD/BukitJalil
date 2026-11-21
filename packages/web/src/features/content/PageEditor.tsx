@@ -1,17 +1,18 @@
-import type { ContentDatabase, ContentPage, ContentValue } from "@bukitjalil/shared";
+import { CONTENT_BODY_MAX, type ContentDatabase, type ContentPage } from "@bukitjalil/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Loader2, Save } from "lucide-react";
+import { useId } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { ApiRequestError, api, keys } from "@/lib/api";
 import { contentDatabasePath, contentPagePath } from "@/lib/project";
 import { draftKey, useDraft } from "./draft";
-import { emptyValue, NEW_PAGE, useContentPage } from "./hooks";
+import { emptyValue, NEW_PAGE, useContentBody, useContentPage } from "./hooks";
 
 /**
- * The open entry in the middle column (plan 5.6): its title, and the save that writes the title and the
- * properties edited in the right column to Notion. The body is edited in Notion until C2.
+ * The open entry in the middle column (plan 5.6): its title and body, and the save that writes them and the
+ * properties edited in the right column to Notion.
  */
 export function PageEditor({
   sourceId,
@@ -27,6 +28,7 @@ export function PageEditor({
   const { m, errorOf } = useI18n();
   const isNew = pageId === NEW_PAGE;
   const page = useContentPage(sourceId, databaseId, pageId);
+  const body = useContentBody(sourceId, databaseId, pageId);
   const draft = useDraft(draftKey(sourceId, databaseId, pageId));
   const save = useSavePage(sourceId, databaseId, pageId, page.data, draft);
 
@@ -111,6 +113,7 @@ export function PageEditor({
                 draft.clear();
                 save.reset();
                 void page.refetch();
+                void body.refetch();
               }}
               data-testid="content-reload"
             >
@@ -125,42 +128,123 @@ export function PageEditor({
         </p>
       )}
       <p className="text-xs text-muted-foreground">{m.content.saveNotice}</p>
-      {!isNew && (
-        <p className="text-muted-foreground" data-testid="content-body-in-notion">
-          {m.content.bodyInNotion}
-        </p>
-      )}
+      <BodyField
+        isNew={isNew}
+        body={body}
+        value={draft.body}
+        onChange={(value) => draft.setBody(value, body.data?.markdown ?? "")}
+        notionUrl={page.data?.url ?? null}
+      />
     </div>
   );
 }
 
-/** Save the changed properties, or create the page: either way straight to Notion. */
+/** The body: Markdown to edit, or why it cannot be edited here. */
+function BodyField({
+  isNew,
+  body,
+  value,
+  onChange,
+  notionUrl,
+}: {
+  isNew: boolean;
+  body: ReturnType<typeof useContentBody>;
+  value: string | null;
+  onChange: (value: string) => void;
+  notionUrl: string | null;
+}) {
+  const { m, t, errorOf } = useI18n();
+  const id = useId();
+  if (!isNew && body.isPending) return <p className="text-muted-foreground">{m.common.loading}</p>;
+  if (!isNew && body.error) {
+    return (
+      <p role="alert" className="text-destructive" data-testid="content-body-error">
+        {errorOf(body.error)}
+      </p>
+    );
+  }
+  if (body.data && !body.data.editable) {
+    return (
+      <div className="flex flex-col items-start gap-2 rounded-md border p-3" data-testid="content-body-readonly">
+        <p className="text-muted-foreground">
+          {t(m.content.bodyReadOnly, { types: body.data.unsupported.join(", ") })}
+        </p>
+        {notionUrl && (
+          <Button size="sm" variant="outline" asChild>
+            <a href={notionUrl} target="_blank" rel="noreferrer noopener">
+              <ExternalLink /> {m.content.openInNotion}
+            </a>
+          </Button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="font-medium">
+        {m.content.bodyLabel}
+      </label>
+      <textarea
+        id={id}
+        className="min-h-80 w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-sm leading-relaxed outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+        value={value ?? body.data?.markdown ?? ""}
+        maxLength={CONTENT_BODY_MAX}
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+        data-testid="content-body"
+      />
+      <p className="text-xs text-muted-foreground">{m.content.bodyHint}</p>
+    </div>
+  );
+}
+
+/**
+ * Save the body, then the changed properties, or create the page with both: straight to Notion. The body
+ * goes first and its new edit time is what the property save checks, so the two saves do not conflict.
+ * Each part leaves the draft once it is written, so a failure in the second keeps only what was not saved.
+ */
 function useSavePage(
   sourceId: string,
   databaseId: string,
   pageId: string,
   page: ContentPage | undefined,
-  draft: { changes: Readonly<Record<string, ContentValue>>; clear: () => void },
+  draft: ReturnType<typeof useDraft>,
 ) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const pageKey = keys.contentPage(sourceId, databaseId, pageId);
   return useMutation({
-    mutationFn: () =>
-      pageId === NEW_PAGE
-        ? api.createContentPage(sourceId, databaseId, { properties: { ...draft.changes } })
-        : api.updateContentPage(sourceId, databaseId, pageId, {
-            lastEditedTime: page?.lastEditedTime ?? "",
-            properties: { ...draft.changes },
-          }),
-    onSuccess: (saved) => {
-      draft.clear();
-      void queryClient.invalidateQueries({ queryKey: keys.contentEntries(sourceId, databaseId) });
+    mutationFn: async () => {
       if (pageId === NEW_PAGE) {
-        queryClient.setQueryData(keys.contentPage(sourceId, databaseId, saved.id), saved);
-        navigate(contentPagePath(sourceId, databaseId, saved.id), { replace: true });
-      } else {
-        queryClient.setQueryData(keys.contentPage(sourceId, databaseId, pageId), saved);
+        const created = await api.createContentPage(sourceId, databaseId, {
+          properties: { ...draft.changes },
+          ...(draft.body ? { markdown: draft.body } : {}),
+        });
+        draft.clear();
+        queryClient.setQueryData(keys.contentPage(sourceId, databaseId, created.id), created);
+        navigate(contentPagePath(sourceId, databaseId, created.id), { replace: true });
+        return;
+      }
+      let edited = page?.lastEditedTime ?? "";
+      if (draft.body !== null) {
+        const saved = await api.saveContentBody(sourceId, databaseId, pageId, {
+          lastEditedTime: edited,
+          markdown: draft.body,
+        });
+        edited = saved.lastEditedTime;
+        queryClient.setQueryData(keys.contentBody(sourceId, databaseId, pageId), saved);
+        queryClient.setQueryData<ContentPage>(pageKey, (old) => (old ? { ...old, lastEditedTime: edited } : old));
+        draft.clearBody();
+      }
+      if (draft.propertiesDirty) {
+        const saved = await api.updateContentPage(sourceId, databaseId, pageId, {
+          lastEditedTime: edited,
+          properties: { ...draft.changes },
+        });
+        queryClient.setQueryData(pageKey, saved);
+        draft.clearProperties();
       }
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.contentEntries(sourceId, databaseId) }),
   });
 }

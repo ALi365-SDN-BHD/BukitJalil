@@ -62,7 +62,10 @@ const en: Messages = {
     creating: "Creating…",
     saveNotice: "Saving writes straight to Notion and cannot be undone in BukitJalil.",
     saved: "Saved to Notion.",
-    bodyInNotion: "Edit the page body in Notion for now.",
+    bodyLabel: "Body",
+    bodyHint:
+      "Markdown: a blank line between paragraphs; # headings (levels 1–3), - lists, 1. numbered, - [ ] to-dos, > quotes, ``` code, ---, ![caption](image URL); **bold**, _italic_, ~~strike~~, `code`, [text](URL), <br> for a line break; an indented list item belongs to the one above.",
+    bodyReadOnly: "The body has content that cannot be edited here ({types}). Edit it in Notion.",
     reload: "Reload",
     plainTextOnly: "This text has styles, links or mentions; saving a change makes it plain text.",
     readOnly: "Read-only",
@@ -74,7 +77,7 @@ const en: Messages = {
     trash: "Move to trash",
     trashTitle: "Move “{title}” to the Notion trash?",
     trashBody:
-      "The page goes to Notion's trash, where it can be restored. Sites using this data source leave it out from their next full build.",
+      "The page goes to Notion's trash. This cannot be undone in BukitJalil; restore it from Notion's trash. Sites using this data source leave it out from their next full build.",
     fields: "Fields",
     usedBy: "Sites using it",
     usedByNone: "No site uses this data source yet.",
@@ -1096,6 +1099,7 @@ const en: Messages = {
     dataSources: {
       title: "Data sources",
       hint: "Add Notion sources to pick when creating a site. Markdown is the default and needs no setup.",
+      openContent: "Edit the pages of these sources in content management",
       add: "Add Notion data source",
       empty: "No Notion data sources yet. New sites use Markdown by default.",
       name: "Name",
@@ -1422,6 +1426,14 @@ const en: Messages = {
       "Notion refused the change. Check the values (for example, that the status option exists)",
     "content.notion_multi_source":
       "This database has several data sources, which the Notion API version BukitJalil uses cannot read",
+    "content.body_unsupported":
+      "The body has content that cannot be edited here, and saving would delete it, so nothing was saved. Edit it in Notion",
+    "content.body_invalid":
+      "The body has something Notion will not take: image URLs must start with http:// or https://, code languages must be ones Notion knows, and one block can have at most 100 styled pieces",
+    "content.body_images":
+      "Images uploaded to Notion can only be kept or removed: not added, reordered, or preceded by new content when one comes first",
+    "content.body_partial":
+      "The body was only partly saved: the page may now mix new and old content, or miss part of it. Check the page in Notion",
     "site.notion_unbound": "No Notion data source is bound to this site; bind one above first",
     "rg.install_running": "ripgrep is already being installed",
     "rg.unsupported_platform": "There is no pinned ripgrep package for this platform",

@@ -36,6 +36,16 @@ export function useContentPage(sourceId: string, databaseId: string, pageId: str
   });
 }
 
+/** The open page's body as Markdown; reading it takes a request per 100 blocks and per list with children. */
+export function useContentBody(sourceId: string, databaseId: string, pageId: string) {
+  return useQuery({
+    queryKey: keys.contentBody(sourceId, databaseId, pageId),
+    queryFn: () => api.contentBody(sourceId, databaseId, pageId),
+    enabled: pageId !== NEW_PAGE,
+    ...NOTION_QUERY,
+  });
+}
+
 /** The empty value of an editable property, for a new page. */
 export function emptyValue(property: ContentSchemaProperty): ContentValue | null {
   switch (property.type) {

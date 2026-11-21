@@ -75,7 +75,11 @@ export const ContentPageUpdate = z
   .strict();
 export type ContentPageUpdate = z.infer<typeof ContentPageUpdate>;
 
-export const ContentPageCreate = z.object({ properties: Properties }).strict();
+/** Longest body Markdown a save takes (Notion takes about 500 KB per request). */
+export const CONTENT_BODY_MAX = 500_000;
+const Markdown = z.string().max(CONTENT_BODY_MAX);
+
+export const ContentPageCreate = z.object({ properties: Properties, markdown: Markdown.optional() }).strict();
 export type ContentPageCreate = z.infer<typeof ContentPageCreate>;
 
 export interface ContentOption {
@@ -139,3 +143,19 @@ export interface ContentPage {
   lastEditedTime: string;
   properties: ContentProperty[];
 }
+
+/**
+ * GET /api/content/sources/:sourceId/databases/:databaseId/pages/:pageId/body: the body as Markdown (plan 5.6
+ * item 7). `unsupported` names what keeps it read-only: block types, or `children`, `color`, `underline`,
+ * `mention`, `equation`, `link`, `toggle`, `caption`, `code_format`, `image_url`, `too_long`.
+ */
+export interface ContentBody {
+  markdown: string;
+  editable: boolean;
+  unsupported: string[];
+  lastEditedTime: string;
+}
+
+/** PUT …/body: replaces the whole body. */
+export const ContentBodyUpdate = z.object({ lastEditedTime: z.string().min(1).max(40), markdown: Markdown }).strict();
+export type ContentBodyUpdate = z.infer<typeof ContentBodyUpdate>;

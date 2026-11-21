@@ -40,6 +40,9 @@ interface FakePage {
   tags: string[];
   featured: boolean;
   edited: string;
+  body: string;
+  /** The body has blocks that cannot be edited here. */
+  readOnly?: boolean;
 }
 
 /**
@@ -56,6 +59,7 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
         tags: ["news"],
         featured: false,
         edited: "2026-11-21T08:00:00.000Z",
+        body: "Hello **world**",
       },
       {
         id: "22222222222222222222222222222222",
@@ -64,6 +68,8 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
         tags: [],
         featured: true,
         edited: "2026-11-20T08:00:00.000Z",
+        body: "",
+        readOnly: true,
       },
     ] as FakePage[],
     writes: [] as { method: string; path: string; body: unknown }[],
@@ -173,6 +179,7 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
         tags: [],
         featured: false,
         edited: "2026-11-21T10:00:00.000Z",
+        body: String(body?.markdown ?? ""),
       };
       apply(created, (body?.properties ?? {}) as Record<string, Record<string, unknown>>);
       state.pages.unshift(created);
@@ -180,6 +187,20 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
     }
     const found = state.pages.find((p) => p.id === pageId);
     if (!found) return route.fulfill({ status: 404, json: { code: "content.not_in_database" } });
+    if (parts[9] === "body") {
+      if (req.method() === "PUT") {
+        found.body = String(body?.markdown ?? "");
+        found.edited = new Date(Date.parse(found.edited) + 60_000).toISOString();
+      }
+      return route.fulfill({
+        json: {
+          markdown: found.readOnly ? "" : found.body,
+          editable: !found.readOnly,
+          unsupported: found.readOnly ? ["table"] : [],
+          lastEditedTime: found.edited,
+        },
+      });
+    }
     if (req.method() === "DELETE") {
       state.pages = state.pages.filter((p) => p !== found);
       return route.fulfill({ status: 204 });
@@ -299,16 +320,26 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
   await expect(page.getByTestId("content-title")).toHaveValue("First post");
   await expect(page.getByTestId("content-save")).toBeDisabled();
   await expect(page.getByTestId("content-property-Related")).toContainText(/2 related|2 个关联/);
+  await expect(page.getByTestId("content-body")).toHaveValue("Hello **world**");
+  await page.getByTestId("content-body").fill("Hello **body**\n\n- item");
+  // A body change alone is something to save.
+  await expect(page.getByTestId("content-save")).toBeEnabled();
   await page.getByTestId("content-title").fill("First post, edited");
   await page.getByTestId("content-property-Stage").getByRole("combobox").selectOption("Done");
   await page.getByTestId("content-property-Tags").getByRole("button", { name: "guide" }).click();
   await page.getByTestId("content-save").click();
   await expect(page.getByTestId("content-saved")).toBeVisible();
   await expect(page.getByTestId("content-save")).toBeDisabled();
+  // The body goes first; the property save checks the edit time the body save returned.
+  expect(notion.writes.at(-2)).toMatchObject({
+    method: "PUT",
+    body: { lastEditedTime: "2026-11-21T08:00:00.000Z", markdown: "Hello **body**\n\n- item" },
+  });
+  await expect(page.getByTestId("content-body")).toHaveValue("Hello **body**\n\n- item");
   expect(notion.writes.at(-1)).toMatchObject({
     method: "PATCH",
     body: {
-      lastEditedTime: "2026-11-21T08:00:00.000Z",
+      lastEditedTime: "2026-11-21T08:01:00.000Z",
       properties: {
         Name: { type: "title", text: "First post, edited" },
         Stage: { type: "status", option: "Done" },
@@ -339,6 +370,7 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
   await expect(page).toHaveURL(new RegExp(`/databases/${DB}/pages/new$`));
   await expect(page.getByTestId("content-property-Related")).toHaveCount(0);
   await page.getByTestId("content-title").fill("Third post");
+  await page.getByTestId("content-body").fill("The third body");
   await page.getByTestId("content-property-Featured").getByRole("checkbox").check();
   await page.getByTestId("content-save").click();
   await expect(page).toHaveURL(new RegExp(`/databases/${DB}/pages/33333333333333333333333333333333$`));
@@ -346,6 +378,7 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
     method: "POST",
     body: {
       properties: { Name: { type: "title", text: "Third post" }, Featured: { type: "checkbox", checked: true } },
+      markdown: "The third body",
     },
   });
   await expect(page.getByTestId("content-title")).toHaveValue("Third post");
@@ -358,5 +391,59 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
   await expect(entries).toHaveCount(2);
   await expect(page.getByTestId("content-entries")).not.toContainText("Third post");
 
+  // A body with blocks this cannot write is read-only, with a way to Notion.
+  await entries.filter({ hasText: "Second post" }).click();
+  await expect(page.getByTestId("content-body-readonly")).toContainText("table");
+  await expect(page.getByTestId("content-body")).toHaveCount(0);
+
+  await removeSource(page, id);
+});
+
+test("settings lead to content management, and a narrow screen edits an entry column by column", async ({
+  page,
+  server,
+}) => {
+  await login(page, server);
+  const notion = await fakeContent(page, [{ id: DB, title: "Blog" }]);
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("settings-nav-data").click();
+  const id = await addSource(page, `Narrow ${Date.now()}`, "ntn_e2enarrowtoken1234");
+
+  // The data source settings point to where the pages of the sources are edited.
+  await page.getByTestId("data-source-open-content").click();
+  await expect(page).toHaveURL(/\/content$/);
+  await expect(page.getByTestId("mode-content")).toHaveAttribute("aria-selected", "true");
+
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.getByTestId("column-sites").click();
+  await page.getByTestId(`content-source-${id}`).getByRole("button").click();
+  await page.getByTestId(`content-database-${DB}`).click();
+  // Opening a database shows its entries; opening an entry keeps the middle column.
+  await expect(page.getByTestId("column-conversation")).toHaveAttribute("aria-selected", "true");
+  await page.getByTestId("content-entry").filter({ hasText: "First post" }).click();
+  await expect(page.getByTestId("content-title")).toBeVisible();
+  await expect(page.getByTestId("content-page")).toContainText(/cannot be undone|不能在 BukitJalil 里撤销/);
+
+  // The properties are their own column; the save in the middle column sends what was changed there.
+  await page.getByTestId("column-panels").click();
+  await page.getByTestId("content-property-Stage").getByRole("combobox").selectOption("Done");
+  await page.getByTestId("column-conversation").click();
+  await page.getByTestId("content-save").click();
+  await expect(page.getByTestId("content-saved")).toBeVisible();
+  expect(notion.writes.at(-1)).toMatchObject({
+    method: "PATCH",
+    body: { properties: { Stage: { type: "status", option: "Done" } } },
+  });
+
+  // Moving to the trash says it cannot be undone here.
+  await page.getByTestId("column-panels").click();
+  await page.getByTestId("content-trash").click();
+  await expect(page.getByRole("dialog")).toContainText(/cannot be undone in BukitJalil|BukitJalil 里不能撤销/);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /Cancel|取消/ })
+    .click();
+
+  await page.setViewportSize({ width: 1280, height: 800 });
   await removeSource(page, id);
 });
