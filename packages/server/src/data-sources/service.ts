@@ -25,6 +25,10 @@ const NOTION_VERSION = "2022-06-28";
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_TIMEOUT_MS = 15_000;
 const NOTION_PAGES = 5;
+/** Notion allows about three requests a second per integration (plan 5.6). */
+const NOTION_GAP_MS = 334;
+
+export type NotionMethod = "GET" | "POST" | "PATCH";
 
 /**
  * Saved Notion sources: each keeps its own integration token. Markdown needs no saved source, so a
@@ -39,8 +43,13 @@ export class DataSourceService {
       /** null in tests and offline mode: listing Notion databases is refused. */
       fetchImpl: typeof fetch | null;
       notionApi?: string;
+      /** Least time between two Notion requests with one token; tests pass 0. */
+      notionGapMs?: number;
     },
   ) {}
+
+  /** When each token may send its next Notion request (plan 5.6), so requests queue instead of bursting. */
+  private readonly nextSlot = new Map<string, number>();
 
   list(): SavedDataSource[] {
     const rows = this.opts.db
@@ -109,10 +118,7 @@ export class DataSourceService {
    * in Notion first; this is the list the site-creation picker shows for one data source.
    */
   async notionDatabases(id: string): Promise<NotionDatabase[]> {
-    this.get(id);
-    const token = this.token(id);
-    if (!token) throw new SiteError("datasource.no_token", 409);
-    if (!this.opts.fetchImpl) throw new SiteError("datasource.notion_offline", 503);
+    const token = this.notionToken(id);
 
     const databases: NotionDatabase[] = [];
     let cursor: string | null = null;
@@ -164,6 +170,39 @@ export class DataSourceService {
     };
   }
 
+  /**
+   * One Notion API call with a data source's token, for content management (plan 5.6). A `write` changes
+   * content, so its 403 means the integration lacks Insert or Update content.
+   */
+  async notionCall(
+    id: string,
+    method: NotionMethod,
+    path: string,
+    body?: Record<string, unknown>,
+    write = false,
+  ): Promise<Record<string, unknown>> {
+    return this.notion(this.notionToken(id), method, path, body, write ? "write" : "read");
+  }
+
+  /** The source's token, once it is known that Notion can be called with it. */
+  private notionToken(id: string): string {
+    this.get(id);
+    const token = this.token(id);
+    if (!token) throw new SiteError("datasource.no_token", 409);
+    if (!this.opts.fetchImpl) throw new SiteError("datasource.notion_offline", 503);
+    return token;
+  }
+
+  /** Wait for the token's next free slot. */
+  private async throttle(token: string): Promise<void> {
+    const gap = this.opts.notionGapMs ?? NOTION_GAP_MS;
+    if (gap <= 0) return;
+    const now = Date.now();
+    const at = Math.max(now, this.nextSlot.get(token) ?? 0);
+    this.nextSlot.set(token, at + gap);
+    if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+  }
+
   private row(id: string): Row {
     const row = this.opts.db
       .prepare(`SELECT ${COLUMNS} FROM data_sources WHERE id = ? AND platform = 'notion'`)
@@ -198,10 +237,13 @@ export class DataSourceService {
   /** One Notion API call; a failure becomes the error code that says what to do (plan 5.4). */
   private async notion(
     token: string,
-    method: "GET" | "POST",
+    method: NotionMethod,
     path: string,
     body?: Record<string, unknown>,
+    /** Content management's requests (plan 5.6) tell Notion's 400, 403 and 409 apart. */
+    content?: "read" | "write",
   ): Promise<Record<string, unknown>> {
+    await this.throttle(token);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), NOTION_TIMEOUT_MS);
     try {
@@ -218,7 +260,8 @@ export class DataSourceService {
         // The token goes only to the Notion API: never follow a redirect elsewhere.
         redirect: "error",
       });
-      if (!res?.ok) throw new SiteError(notionFailure(res?.status ?? 0), 503);
+      if (!res?.ok)
+        throw content ? await contentError(res, content) : new SiteError(notionFailure(res?.status ?? 0), 503);
       const json: unknown = await res.json();
       return json && typeof json === "object" ? (json as Record<string, unknown>) : {};
     } catch (err) {
@@ -228,6 +271,25 @@ export class DataSourceService {
       clearTimeout(timer);
     }
   }
+}
+
+/** A failed Notion response to content management, as the error the UI explains. */
+async function contentError(res: Response | undefined, content: "read" | "write"): Promise<SiteError> {
+  const status = res?.status ?? 0;
+  if (status === 403 && content === "write") return new SiteError("content.notion_write_forbidden", 403);
+  if (status === 409) return new SiteError("content.conflict", 409);
+  if (status === 400) {
+    // Notion's message is not shown (it is English and may quote content); only the case the UI can explain.
+    let message = "";
+    try {
+      const json: unknown = await res?.json();
+      if (isRecord(json) && typeof json.message === "string") message = json.message;
+    } catch {}
+    // API 2022-06-28 cannot read a database that has several data sources (plan 5.6).
+    if (/data[ _]sources?/i.test(message)) return new SiteError("content.notion_multi_source", 400);
+    return new SiteError("content.notion_rejected", 400);
+  }
+  return new SiteError(notionFailure(status), 503);
 }
 
 /** Notion's HTTP status as the code the UI explains. */

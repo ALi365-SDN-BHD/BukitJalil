@@ -37,3 +37,7 @@ export const contentDatabasePath = (sourceId: string, databaseId: string): strin
  * for a theme project (whose key is already `themes/<id>`).
  */
 export const projectPath = (key: ProjectKey): string => (isThemeKey(key) ? `/${key}` : `/sites/${key}`);
+
+/** An entry of a content database; `new` for the page being created. */
+export const contentPagePath = (sourceId: string, databaseId: string, pageId: string): string =>
+  `${contentDatabasePath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}`;

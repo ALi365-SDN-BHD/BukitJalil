@@ -90,6 +90,8 @@ export function makeApp(
     gitPath?: string;
     /** Notion API used by data source tests; null (the default) keeps the network off. */
     dataSourceFetch?: typeof fetch | null;
+    /** Least time between Notion requests; 0 unless a test checks the queue. */
+    notionGapMs?: number;
     /** GitHub API used by publish account tests; null (the default) keeps the network off. */
     publishFetch?: typeof fetch | null;
     /** Git status/install tests: Homebrew lookup, command runner and latest-release fetch. */
@@ -131,7 +133,12 @@ export function makeApp(
   const settings = new SettingsStore(db);
   const logger = overrides.logger ?? silentLogger;
   const vault = new FieldVault(db);
-  const dataSources = new DataSourceService({ db, vault, fetchImpl: overrides.dataSourceFetch ?? null });
+  const dataSources = new DataSourceService({
+    db,
+    vault,
+    fetchImpl: overrides.dataSourceFetch ?? null,
+    notionGapMs: overrides.notionGapMs ?? 0,
+  });
   const publishAccounts = new PublishAccountService({ db, vault, fetchImpl: overrides.publishFetch ?? null });
   const repos = new ProjectRepos({ db, git, paths, bukit });
   const sites = new SiteService({

@@ -9,6 +9,12 @@ import {
   type BukitResponse,
   type ChangeSet,
   type ConfigResponse,
+  type ContentDatabase,
+  type ContentEntryList,
+  type ContentPage,
+  type ContentPageCreate,
+  type ContentPageUpdate,
+  type ContentSortDirection,
   type CreateSiteRequest,
   type CreateThemeRequest,
   CSRF_HEADER,
@@ -124,6 +130,16 @@ const post = <T>(path: string, body: unknown = {}) => request<T>(path, { method:
 
 const query = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
+const contentPath = (sourceId: string, databaseId: string) =>
+  `/content/sources/${encodeURIComponent(sourceId)}/databases/${encodeURIComponent(databaseId)}`;
+
+/** How the entry list is searched and sorted; part of its query key. */
+export interface ContentEntryParams {
+  search: string;
+  sort: string;
+  direction: ContentSortDirection | "";
+}
+
 export const api = {
   health: () => request("/health", {}, HealthResponse),
   update: () => request("/update", {}, AppUpdateResponse),
@@ -237,6 +253,29 @@ export const api = {
   abortSession: (id: string) => post<SessionInfo>(`/sessions/${id}/abort`),
   forkSession: (id: string, entryId: string) => post<SessionInfo>(`/sessions/${id}/fork`, { entryId }),
 
+  contentDatabase: (sourceId: string, databaseId: string) =>
+    request<ContentDatabase>(contentPath(sourceId, databaseId)),
+  contentEntries: (sourceId: string, databaseId: string, params: ContentEntryParams, cursor: string | null) =>
+    request<ContentEntryList>(
+      `${contentPath(sourceId, databaseId)}/pages?${query({
+        ...(cursor ? { cursor } : {}),
+        ...(params.search ? { search: params.search } : {}),
+        ...(params.sort ? { sort: params.sort } : {}),
+        ...(params.direction ? { direction: params.direction } : {}),
+      })}`,
+    ),
+  contentPage: (sourceId: string, databaseId: string, pageId: string) =>
+    request<ContentPage>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}`),
+  updateContentPage: (sourceId: string, databaseId: string, pageId: string, req: ContentPageUpdate) =>
+    request<ContentPage>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    }),
+  createContentPage: (sourceId: string, databaseId: string, req: ContentPageCreate) =>
+    post<ContentPage>(`${contentPath(sourceId, databaseId)}/pages`, req),
+  trashContentPage: (sourceId: string, databaseId: string, pageId: string) =>
+    request<null>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}`, { method: "DELETE" }),
+
   models: () => request<ModelsResponse>("/models"),
   setProviderKey: (provider: string, apiKey: string) =>
     request<ProviderKey>(`/providers/${encodeURIComponent(provider)}/key`, {
@@ -336,6 +375,12 @@ export const keys = {
   security: ["security"] as const,
   dataSources: ["data-sources"] as const,
   notionDatabases: (dataSourceId: string) => ["notion-databases", dataSourceId] as const,
+  contentDatabase: (sourceId: string, databaseId: string) => ["content-database", sourceId, databaseId] as const,
+  /** Under ["content-entries", source, database]: a save or a new page refreshes every search of the list. */
+  contentEntries: (sourceId: string, databaseId: string, params?: ContentEntryParams) =>
+    ["content-entries", sourceId, databaseId, ...(params ? [params] : [])] as const,
+  contentPage: (sourceId: string, databaseId: string, pageId: string) =>
+    ["content-page", sourceId, databaseId, pageId] as const,
   publishAccounts: ["publish-accounts"] as const,
   customModels: ["custom-models"] as const,
 };

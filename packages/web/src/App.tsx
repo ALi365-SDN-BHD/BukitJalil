@@ -63,6 +63,7 @@ export function App() {
         <Route path="/themes/:themeId/sessions/:sessionId" element={<Shell />} />
         <Route path="/content" element={<Shell />} />
         <Route path="/content/sources/:sourceId/databases/:databaseId" element={<Shell />} />
+        <Route path="/content/sources/:sourceId/databases/:databaseId/pages/:pageId" element={<Shell />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </I18nProvider>

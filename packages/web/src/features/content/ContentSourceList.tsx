@@ -9,6 +9,7 @@ import { SidebarFooter } from "@/features/sites/SiteList";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
 import { contentDatabasePath } from "@/lib/project";
+import { NOTION_QUERY } from "./hooks";
 
 /**
  * Content management's sidebar (plan 5.6): every saved Notion data source; opening one lists the databases
@@ -88,8 +89,7 @@ function DatabaseList({ sourceId }: { sourceId: string }) {
   const databases = useQuery({
     queryKey: keys.notionDatabases(sourceId),
     queryFn: () => api.notionDatabases(sourceId),
-    // A missing token or offline mode does not fix itself by retrying.
-    retry: false,
+    ...NOTION_QUERY,
   });
   if (databases.isPending)
     return <p className="py-1 pl-8 text-xs text-muted-foreground">{m.content.databasesLoading}</p>;
