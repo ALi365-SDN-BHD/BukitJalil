@@ -12,7 +12,7 @@ import { unzipSync } from "fflate";
  * `BUKIT_VERSION` and the five checksums, then releasing BukitJalil.
  */
 
-export const BUKIT_VERSION = "2.2.6";
+export const BUKIT_VERSION = "2.2.7";
 /**
  * The oldest Bukit that works (`--secrets-stdin`, `site.languages` as the only language setting, plan 8.7,
  * `--notion-pin`, plan 5.5, and the 2.2.5 starter theme with its `theme.params.labels`, plan 5.2), for a
@@ -35,31 +35,31 @@ const RELEASE_URL = `https://github.com/ALi365-SDN-BHD/Bukit/releases/download/v
 export const PACKAGES: Record<string, BukitPackage> = {
   "darwin-arm64": {
     file: `bukit-${BUKIT_VERSION}-osx-arm64.tar.gz`,
-    sha256: "50a23432a849fc5b435fc0a43e08cb5bc4e03e01487fa1961a504698befef69a",
+    sha256: "8abfd215c108193ec9842f895500f2c0bfa3f415a3f8b34144113ff3f90afa0f",
     files: ["bukit", "libSkiaSharp.dylib"],
     executable: "bukit",
   },
   "darwin-x64": {
     file: `bukit-${BUKIT_VERSION}-osx-x64.tar.gz`,
-    sha256: "c77482e6e998617161987722aeb47ffa8e160fce685e69939f6a8f03533399dc",
+    sha256: "467af0a576d14020df7b4bb3d9d45e3b982c2b5128054ece571461a8e51562f9",
     files: ["bukit", "libSkiaSharp.dylib"],
     executable: "bukit",
   },
   "linux-x64": {
     file: `bukit-${BUKIT_VERSION}-linux-x64.tar.gz`,
-    sha256: "bf74e8aae6656ef8b954cb0f714fb5f56e281441bdcd27bacec8f97058803af0",
+    sha256: "999c05143ce5b49f04c3c09f37b95c6458f2d5ad2bef356a3bd87f9172ebe3d9",
     files: ["bukit", "libSkiaSharp.so"],
     executable: "bukit",
   },
   "linux-arm64": {
     file: `bukit-${BUKIT_VERSION}-linux-arm64.tar.gz`,
-    sha256: "aecb88f53926f28447aa8b7ba5cf38d159ddaa3445a3466b5637e6a31e15252a",
+    sha256: "a5d3d6f35d138b6cad9b861d4036eeecdb3d130cd24f1fc3b24120cb043b4150",
     files: ["bukit", "libSkiaSharp.so"],
     executable: "bukit",
   },
   "win32-x64": {
     file: `bukit-${BUKIT_VERSION}-win-x64.zip`,
-    sha256: "782a6b8ca1329dcc3578b980675d83ec3e38c334531e05c1a800cf408a9ae479",
+    sha256: "e9944ee873b90d47154cde1e25f4fba960852c3224b46a6f68acbc902e667530",
     files: ["bukit.exe", "libSkiaSharp.dll"],
     executable: "bukit.exe",
   },
