@@ -10,6 +10,10 @@ describe("project addressing", () => {
   it("puts a site under /sites and a theme project under /themes", () => {
     expect(projectPath(site)).toBe(`/sites/${site}`);
     expect(projectPath(theme)).toBe("/themes/fedcba9876543210");
+    // A content database's conversations live under the database, in the API and in the app.
+    expect(projectPath("content/ds_0123456789ab/0123456789abcdef0123456789abcdef")).toBe(
+      contentDatabasePath("ds_0123456789ab", "0123456789abcdef0123456789abcdef"),
+    );
     expect(fileUrl(theme, "change", "a b.png", "raw")).toBe(
       "/api/themes/fedcba9876543210/file?ref=change&path=a+b.png&as=raw",
     );

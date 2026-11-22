@@ -1,4 +1,12 @@
-import { isThemeKey, type ProjectKey, projectKey, type Site, type SiteReason, type Theme } from "@bukitjalil/shared";
+import {
+  isThemeKey,
+  type ProjectKey,
+  parseContentKey,
+  projectKey,
+  type Site,
+  type SiteReason,
+  type Theme,
+} from "@bukitjalil/shared";
 
 /**
  * What the project views (conversation, changes, panels, builds) need of a site or theme project
@@ -34,9 +42,14 @@ export const contentDatabasePath = (sourceId: string, databaseId: string): strin
 
 /**
  * The project's path, both under /api and in the app's routes: `/sites/<id>` for a site, `/themes/<id>`
- * for a theme project (whose key is already `themes/<id>`).
+ * for a theme project (whose key is already `themes/<id>`), and the database's path for the conversations
+ * of a content database (`content/<source>/<database>`).
  */
-export const projectPath = (key: ProjectKey): string => (isThemeKey(key) ? `/${key}` : `/sites/${key}`);
+export const projectPath = (key: ProjectKey): string => {
+  if (isThemeKey(key)) return `/${key}`;
+  const content = parseContentKey(key);
+  return content ? contentDatabasePath(content.sourceId, content.databaseId) : `/sites/${key}`;
+};
 
 /** An entry of a content database; `new` for the page being created. */
 export const contentPagePath = (sourceId: string, databaseId: string, pageId: string): string =>

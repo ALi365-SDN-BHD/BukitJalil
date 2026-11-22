@@ -104,7 +104,7 @@ function SessionItem({ project, session, selected }: { project: ProjectKey; sess
 }
 
 /** Manual rename lives in the session row's menu; automatic titles only fill an empty title. */
-function SessionMenu({ project, session }: { project: ProjectKey; session: SessionInfo }) {
+export function SessionMenu({ project, session }: { project: ProjectKey; session: SessionInfo }) {
   const { m, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);

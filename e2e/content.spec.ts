@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
+import { putSettings } from "./site-helpers.ts";
 
 // Plan 5.6, content management: the third mode, its sidebar of Notion data sources and their databases (C0),
 // and the entries and properties of a database (C1). The e2e server is offline, so the content API is faked
@@ -116,6 +117,8 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
     const url = new URL(req.url());
     const parts = url.pathname.split("/");
     const pageId = parts[8];
+    // The database's AI conversations are the real server's.
+    if (parts[7] === "sessions") return route.fallback();
     const body = req.postData() ? (JSON.parse(req.postData() ?? "{}") as Record<string, unknown>) : null;
     if (req.method() !== "GET") {
       state.writes.push({ method: req.method(), path: url.pathname, body });
@@ -490,4 +493,130 @@ test("settings lead to content management, and a narrow screen edits an entry co
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await removeSource(page, id);
+});
+
+test("the AI assistant talks about the open entry, and writes a proposal only when confirmed", async ({
+  page,
+  server,
+}) => {
+  await login(page, server);
+  await putSettings(page, { model: { provider: "bukitjalil-fake", id: "fake-1" } });
+  const notion = await fakeContent(page, [{ id: DB, title: "Blog" }]);
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("settings-nav-data").click();
+  const id = await addSource(page, `Assistant ${Date.now()}`, "ntn_e2eassistanttoken12");
+  await page.getByTestId("settings-close").click();
+  await page.getByTestId("mode-content").click();
+  await page.getByTestId(`content-source-${id}`).getByRole("button").click();
+  await page.getByTestId(`content-database-${DB}`).click();
+  const first = "11111111111111111111111111111111";
+  await page.getByTestId("content-entry").filter({ hasText: "First post" }).click();
+  await expect(page.getByTestId("content-title")).toHaveValue("First post");
+
+  // Folded at first; open, it says the conversation goes to the model provider.
+  const panel = page.getByTestId("content-ai");
+  await expect(panel).toHaveAttribute("data-open", "false");
+  await page.getByTestId("content-ai-toggle").click();
+  await expect(page.getByTestId("content-ai-empty")).toContainText(/model provider|模型服务商/);
+  await page.getByTestId("content-ai-new").click();
+
+  // A message carries the open entry; the (fake) model answers through the real server.
+  const sent: unknown[] = [];
+  page.on("request", (r) => {
+    if (r.method() === "POST" && /\/api\/sessions\/[0-9a-f]+\/messages$/.test(r.url())) sent.push(r.postDataJSON());
+  });
+  // The e2e server has no Notion: the proposals the model would make are added to the stored conversation.
+  const proposal = (callId: string, name: string, after: string) => [
+    {
+      entryId: `${callId}-call`,
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: callId, name: "propose_update", arguments: {} }],
+        stopReason: "toolUse",
+      },
+    },
+    {
+      entryId: `${callId}-result`,
+      message: {
+        role: "toolResult",
+        toolCallId: callId,
+        toolName: "propose_update",
+        isError: false,
+        content: [{ type: "text", text: "recorded" }],
+        details: {
+          proposal: {
+            kind: "update",
+            entryId: first,
+            title: "First post",
+            base: "2026-11-21T08:00:00.000Z",
+            properties: [{ name, type: "title", before: "First post", after: { type: "title", text: after } }],
+            body: { before: "Hello **world**", after: "Hello **world**\n\nA new line." },
+            blocks: [],
+          },
+        },
+      },
+    },
+  ];
+  const decided: string[] = [];
+  await page.route(/\/api\/sessions\/[0-9a-f]+$/, async (route) => {
+    const res = await route.fetch();
+    const detail = (await res.json()) as { messages: unknown[] };
+    if (detail.messages.length >= 2)
+      detail.messages.push(...proposal("p1", "Name", "First post, revised"), ...proposal("p2", "Name", "Other"));
+    await route.fulfill({ response: res, json: detail });
+  });
+  await page.route(/\/api\/sessions\/[0-9a-f]+\/proposals(\/.*)?$/, async (route) => {
+    const url = route.request().url();
+    if (route.request().method() === "GET") return route.fulfill({ json: [] });
+    const [, callId, action] = /proposals\/([^/]+)\/(apply|reject)$/.exec(url) ?? [];
+    decided.push(`${callId} ${action}`);
+    if (action === "apply") {
+      const p = notion.pages.find((x) => x.id === first);
+      if (p) {
+        p.title = "First post, revised";
+        p.edited = "2026-11-21T09:00:00.000Z";
+      }
+    }
+    return route.fulfill({
+      json: {
+        callId,
+        status: action === "apply" ? "applied" : "rejected",
+        entryId: action === "apply" ? first : null,
+        error: null,
+      },
+    });
+  });
+
+  await page.getByTestId("composer-input").fill("Tighten the title of this entry");
+  await page.getByTestId("send-message").click();
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toMatchObject({ text: "Tighten the title of this entry", entryId: first });
+  await expect(panel.getByTestId("message-assistant").first()).toContainText("Tighten the title of this entry");
+
+  // Each proposal is a card: the property before and after, the body's changed lines.
+  const cards = panel.getByTestId("proposal-card");
+  await expect(cards).toHaveCount(2);
+  const card = cards.first();
+  await expect(card.getByTestId("proposal-properties")).toContainText("First post, revised");
+  await expect(card.getByTestId("proposal-body")).toContainText("A new line.");
+
+  // Not while the entry has unsaved edits.
+  await page.getByTestId("content-title").fill("Edited by hand");
+  await expect(card.getByTestId("proposal-apply")).toBeDisabled();
+  await page.getByTestId("content-title").fill("First post");
+  await expect(card.getByTestId("proposal-apply")).toBeEnabled();
+
+  await card.getByTestId("proposal-apply").click();
+  await expect(card).toHaveAttribute("data-status", "applied");
+  // The open entry shows what was written.
+  await expect(page.getByTestId("content-title")).toHaveValue("First post, revised");
+  await cards.nth(1).getByTestId("proposal-reject").click();
+  await expect(cards.nth(1)).toHaveAttribute("data-status", "rejected");
+  expect(decided).toEqual(["p1 apply", "p2 reject"]);
+  // Nothing was written by the page itself: only the server writes a proposal.
+  expect(notion.writes).toEqual([]);
+
+  await page.unroute(/\/api\/sessions\/[0-9a-f]+$/);
+  await removeSource(page, id);
+  await putSettings(page, { model: null });
 });
