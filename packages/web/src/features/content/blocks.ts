@@ -44,6 +44,12 @@ export interface LoadedImage {
 }
 export type LoadedImages = ReadonlyMap<string, LoadedImage>;
 
+/** The editor's document as it is, and the images it loaded: kept with a problem, so a remount loses nothing. */
+export interface Unsaved {
+  doc: readonly EditorBlock[];
+  images: LoadedImages;
+}
+
 /** Why the editor's document cannot be saved as it is. */
 export type BlocksProblem = "nesting" | "image_copy" | "link" | "unsupported";
 

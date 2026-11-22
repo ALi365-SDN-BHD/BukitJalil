@@ -34,7 +34,7 @@ import { getNonce } from "get-nonce";
 import { useEffect, useMemo } from "react";
 import { useI18n } from "@/i18n";
 import { useDark } from "@/lib/theme";
-import { type BlocksProblem, type EditorBlock, fromEditor, toEditor } from "./blocks";
+import { type BlocksProblem, type EditorBlock, fromEditor, toEditor, type Unsaved } from "./blocks";
 
 /**
  * Only the blocks and styles a body save writes (plan 5.6 item 7): no colours, underline, alignment, tables,
@@ -60,19 +60,22 @@ const schema = BlockNoteSchema.create({
   styleSpecs: { bold, italic, strike, code },
 });
 
-export type BodyChange = { blocks: ContentBlock[] } | { problem: BlocksProblem };
+export type BodyChange = { blocks: ContentBlock[] } | { problem: BlocksProblem; unsaved: Unsaved };
 
 /**
- * The body as Notion-like blocks. It reads `blocks` once: the column remounts it (by key) to load another
- * body. Every change reports the body as the server's blocks, or why it cannot be saved as it is.
+ * The body as Notion-like blocks. It reads `blocks` (or `restore`, a document that could not be saved) once:
+ * the column remounts it (by key) to load another body. Every change reports the body as the server's blocks,
+ * or why it cannot be saved as it is, with the document to restore it from.
  */
 export default function BodyEditor({
   blocks,
+  restore,
   editable,
   onLoad,
   onChange,
 }: {
   blocks: ContentBlock[];
+  restore?: Unsaved | null;
   editable: boolean;
   /** The body is in the editor. */
   onLoad: () => void;
@@ -81,7 +84,10 @@ export default function BodyEditor({
   const { locale, m } = useI18n();
   const dark = useDark();
   // biome-ignore lint/correctness/useExhaustiveDependencies: the body is read once, when mounted
-  const loaded = useMemo(() => toEditor(blocks), []);
+  const loaded = useMemo(
+    () => (restore ? { blocks: restore.doc as never[], images: restore.images } : toEditor(blocks)),
+    [],
+  );
   const editor = useCreateBlockNote({
     schema,
     dictionary: locale === "zh-CN" ? zh : en,
@@ -102,7 +108,11 @@ export default function BodyEditor({
       slashMenu={false}
       emojiPicker={false}
       tableHandles={false}
-      onChange={() => onChange(fromEditor(editor.document as unknown as EditorBlock[], loaded.images))}
+      onChange={() => {
+        const doc = editor.document as unknown as EditorBlock[];
+        const result = fromEditor(doc, loaded.images);
+        onChange("problem" in result ? { ...result, unsaved: { doc, images: loaded.images } } : result);
+      }}
       className="min-h-80 rounded-md border py-3"
       data-testid="content-body"
     >

@@ -25,10 +25,12 @@ describe("content draft", () => {
     draftOf("a").setBody(p("x"), p(""), T1);
     expect(draftOf("b")).toMatchObject({ dirty: false, body: null, base: "" });
     // A body that cannot be saved keeps the draft dirty until it can again.
-    draftOf("e").setProblem("nesting", T1);
-    expect(draftOf("e")).toMatchObject({ dirty: true, problem: "nesting", base: T1 });
+    // It keeps the editor's document, so a remount of the editor loses nothing.
+    const unsaved = { doc: [], images: new Map() };
+    draftOf("e").setProblem("nesting", unsaved, T1);
+    expect(draftOf("e")).toMatchObject({ dirty: true, problem: "nesting", unsaved, base: T1 });
     draftOf("e").setBody(p("old"), p("old"), T2);
-    expect(draftOf("e")).toMatchObject({ dirty: false, problem: null, base: "" });
+    expect(draftOf("e")).toMatchObject({ dirty: false, problem: null, unsaved: null, base: "" });
   });
 
   it("drops only what a save sent, rebasing what was typed meanwhile", () => {

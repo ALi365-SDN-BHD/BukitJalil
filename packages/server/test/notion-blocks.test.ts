@@ -1,4 +1,4 @@
-import type { ContentBlock } from "@bukitjalil/shared";
+import { type ContentBlock, ContentBodyUpdate } from "@bukitjalil/shared";
 import { describe, expect, it } from "vitest";
 import {
   blocksToMarkdown,
@@ -257,6 +257,15 @@ describe("body blocks", () => {
       unsupported: [],
     });
     expect(blocksToMarkdown([raw]).unsupported).toEqual(["unwritable"]);
+  });
+
+  it("reads a block's full 100 segments as one run that a save takes back", () => {
+    const body = readBody([raw("paragraph", { rich_text: Array.from({ length: 100 }, () => text("a".repeat(2000))) })]);
+    expect(body).toMatchObject({
+      unsupported: [],
+      blocks: [{ type: "paragraph", text: [{ text: "a".repeat(200_000) }] }],
+    });
+    expect(ContentBodyUpdate.safeParse({ lastEditedTime: "t", blocks: body.blocks }).success).toBe(true);
   });
 
   it("names what keeps a body read-only, with no blocks", () => {

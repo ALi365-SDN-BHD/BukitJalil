@@ -173,6 +173,12 @@ export const CONTENT_CODE_LANGUAGES = [
 
 /** Most characters of text (and addresses) a body save takes; a longer body is edited in Notion. */
 export const CONTENT_BODY_MAX = 500_000;
+/**
+ * Most characters of one run of body text, or of a code block: what one block's 100 segments hold. Notion
+ * returns a block's text in up to 100 segments, read back as fewer, longer runs; a run that cannot be split
+ * into 100 segments is refused when the body is written.
+ */
+export const CONTENT_SPAN_MAX = NOTION_TEXT_SEGMENT * 100;
 /** Most top-level blocks a body save takes. */
 export const CONTENT_BLOCKS_MAX = 5000;
 
@@ -182,7 +188,7 @@ export const CONTENT_BLOCKS_MAX = 5000;
  */
 export const ContentSpan = z
   .object({
-    text: z.string().min(1).max(CONTENT_TEXT_MAX),
+    text: z.string().min(1).max(CONTENT_SPAN_MAX),
     bold: z.boolean().optional(),
     italic: z.boolean().optional(),
     strike: z.boolean().optional(),
@@ -223,7 +229,7 @@ export const ContentBlock = z.union([
     z.object({ type: z.literal("heading_3"), text: Spans }).strict(),
     z.object({ type: z.literal("quote"), text: Spans }).strict(),
     z
-      .object({ type: z.literal("code"), language: z.string().max(40), text: z.string().max(CONTENT_TEXT_MAX) })
+      .object({ type: z.literal("code"), language: z.string().max(40), text: z.string().max(CONTENT_SPAN_MAX) })
       .strict(),
     z.object({ type: z.literal("divider") }).strict(),
     z.object({ type: z.literal("image"), url: z.string().max(NOTION_URL_MAX), caption: Spans }).strict(),

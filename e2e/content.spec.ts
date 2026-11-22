@@ -368,6 +368,26 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
     },
   });
 
+  // Nesting a paragraph cannot be saved: the editor says so, and what was typed survives a remount of the
+  // editor (here by the narrow layout and back).
+  const after = await editor.locator("strong").boundingBox();
+  await editor.locator("strong").click({ position: { x: (after?.width ?? 1) - 1, y: (after?.height ?? 2) / 2 } });
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("nested");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("content-body-problem")).toBeVisible();
+  await expect(page.getByTestId("content-save")).toBeDisabled();
+  const size = page.viewportSize();
+  await page.setViewportSize({ width: 700, height: size?.height ?? 720 });
+  await expect(page.getByTestId("content-body")).toBeVisible();
+  await page.setViewportSize(size ?? { width: 1280, height: 720 });
+  await expect(editor).toContainText("nested");
+  await expect(page.getByTestId("content-body-problem")).toBeVisible();
+  await editor.getByText("nested").click();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByTestId("content-body-problem")).toHaveCount(0);
+  await expect(page.getByTestId("content-save")).toBeEnabled();
+
   // Someone else edited it in Notion: the save is refused, and reloading drops the unsaved change.
   notion.fail = { status: 409, code: "content.conflict" };
   await page.getByTestId("content-property-Featured").getByRole("checkbox").check();

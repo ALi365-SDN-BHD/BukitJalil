@@ -1,6 +1,6 @@
 import type { ContentBlock, ContentValue } from "@bukitjalil/shared";
 import { useSyncExternalStore } from "react";
-import { type BlocksProblem, sameBlocks } from "./blocks";
+import { type BlocksProblem, sameBlocks, type Unsaved } from "./blocks";
 
 /**
  * The unsaved changes of the open page (plan 5.6): its properties and its body. The title and body are edited
@@ -15,6 +15,8 @@ interface Draft {
   body: readonly ContentBlock[] | null;
   /** Why the body as it is in the editor cannot be saved; `body` is then its last version that can. */
   problem: BlocksProblem | null;
+  /** With a problem: the editor's document, to load again if the editor remounts. */
+  unsaved: Unsaved | null;
   /**
    * Notion's edit time of what the first change was made on; a save sends it, so anything written in Notion
    * since (also while the draft waited on another page, or a cached body was shown) is a conflict.
@@ -23,7 +25,7 @@ interface Draft {
 }
 
 const NONE: Changes = {};
-const empty = (key: string): Draft => ({ key, changes: NONE, body: null, problem: null, base: "" });
+const empty = (key: string): Draft => ({ key, changes: NONE, body: null, problem: null, unsaved: null, base: "" });
 let draft: Draft = empty("");
 const listeners = new Set<() => void>();
 
@@ -74,6 +76,7 @@ export function draftOf(key: string) {
     changes: mine.changes,
     body: mine.body,
     problem: mine.problem,
+    unsaved: mine.unsaved,
     base: mine.base,
     propertiesDirty: Object.keys(mine.changes).length > 0,
     dirty: !isEmpty(mine),
@@ -85,12 +88,18 @@ export function draftOf(key: string) {
     },
     setBody(value: readonly ContentBlock[], saved: readonly ContentBlock[], base: string) {
       const before = current(key);
-      replace(changed(before, { ...before, body: sameBlocks(value, saved) ? null : value, problem: null }, base));
+      replace(
+        changed(
+          before,
+          { ...before, body: sameBlocks(value, saved) ? null : value, problem: null, unsaved: null },
+          base,
+        ),
+      );
     },
-    /** The body in the editor cannot be saved as it is (null: it can again, unchanged). */
-    setProblem(problem: BlocksProblem | null, base: string) {
+    /** The body in the editor cannot be saved as it is: `unsaved` is what it holds. */
+    setProblem(problem: BlocksProblem, unsaved: Unsaved, base: string) {
       const before = current(key);
-      if (before.problem !== problem) replace(changed(before, { ...before, problem }, base));
+      replace(changed(before, { ...before, problem, unsaved }, base));
     },
     /**
      * The body `sent` is in Notion as of `edited`. Typing since the save began stays, now based on `edited`.

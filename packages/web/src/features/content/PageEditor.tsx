@@ -157,12 +157,20 @@ function BodyField({
 }) {
   const { locale, m, t, errorOf } = useI18n();
   const saved = body.data?.blocks ?? EMPTY;
-  // What the editor shows last, to tell a body read again (a save, a reload) from the one it already has.
+  // What the editor shows last, to tell a body read again (a save, a reload) from the one it already has, and
+  // the addresses its images in Notion were loaded with.
   const shown = useRef<readonly ContentBlock[] | null>(null);
+  const shownUrls = useRef<ReadonlyMap<string, string>>(new Map());
   const [mount, setMount] = useState({ at: body.dataUpdatedAt, key: 0 });
-  if (body.dataUpdatedAt !== mount.at && draft.body === null && draft.problem === null) {
-    const same = shown.current === null || sameBlocks(shown.current, saved);
-    setMount({ at: body.dataUpdatedAt, key: same ? mount.key : mount.key + 1 });
+  if (body.dataUpdatedAt !== mount.at && draft.problem === null) {
+    // Signed addresses expire: new ones are loaded even over a draft, which the editor is loaded from.
+    const fresh = [...imageUrls(saved)].some(
+      ([id, url]) => shownUrls.current.get(id) !== url && shownUrls.current.has(id),
+    );
+    if (fresh || draft.body === null) {
+      const changed = draft.body === null && shown.current !== null && !sameBlocks(shown.current, saved);
+      setMount({ at: body.dataUpdatedAt, key: fresh || changed ? mount.key + 1 : mount.key });
+    }
   }
   if (!isNew && body.isPending) return <p className="text-muted-foreground">{m.common.loading}</p>;
   if (!isNew && body.error) {
@@ -197,20 +205,22 @@ function BodyField({
     );
   }
   const base = body.data?.lastEditedTime ?? "";
+  const initial = withShownImages(draft.body ?? saved, saved);
   return (
     <div className="flex flex-col gap-1.5">
       <span className="font-medium">{m.content.bodyLabel}</span>
       <Suspense fallback={<p className="text-muted-foreground">{m.common.loading}</p>}>
         <BodyEditor
           key={mount.key}
-          blocks={withShownImages(draft.body ?? saved, saved)}
+          blocks={initial}
+          restore={draft.problem ? draft.unsaved : null}
           editable={!saving}
           onLoad={() => {
             shown.current = draft.body ?? saved;
-            draft.setProblem(null, base);
+            shownUrls.current = imageUrls(initial);
           }}
           onChange={(change) => {
-            if ("problem" in change) return draft.setProblem(change.problem, base);
+            if ("problem" in change) return draft.setProblem(change.problem, change.unsaved, base);
             shown.current = change.blocks;
             draft.setBody(change.blocks, saved, base);
           }}
@@ -228,9 +238,13 @@ function BodyField({
 
 const EMPTY: readonly ContentBlock[] = [];
 
+/** The addresses images in Notion are shown with, by id. */
+const imageUrls = (blocks: readonly ContentBlock[]) =>
+  new Map(blocks.flatMap((b) => (b.type === "notion_image" && b.url ? [[b.id, b.url] as const] : [])));
+
 /** A draft body with the addresses its images in Notion are shown with, which a draft does not keep. */
 function withShownImages(blocks: readonly ContentBlock[], saved: readonly ContentBlock[]): ContentBlock[] {
-  const urls = new Map(saved.flatMap((b) => (b.type === "notion_image" && b.url ? [[b.id, b.url]] : [])));
+  const urls = imageUrls(saved);
   return blocks.map((b) => {
     const url = b.type === "notion_image" && !b.url ? urls.get(b.id) : undefined;
     return url ? { ...b, url } : b;
