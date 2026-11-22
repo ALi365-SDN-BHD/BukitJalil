@@ -197,7 +197,7 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
         json: {
           markdown: found.readOnly ? "" : found.body,
           editable: !found.readOnly,
-          unsupported: found.readOnly ? ["table"] : [],
+          unsupported: found.readOnly ? ["breadcrumb_v2", "color", "table"] : [],
           lastEditedTime: found.edited,
         },
       });
@@ -399,9 +399,12 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
   await expect(entries).toHaveCount(2);
   await expect(page.getByTestId("content-entries")).not.toContainText("Third post");
 
-  // A body with blocks this cannot write is read-only, with a way to Notion.
+  // A body with blocks this cannot write is read-only, with a way to Notion; the reasons are named, and a block
+  // type without a name keeps its code. The browser picks the UI language, so either list is right.
   await entries.filter({ hasText: "Second post" }).click();
-  await expect(page.getByTestId("content-body-readonly")).toContainText("table");
+  await expect(page.getByTestId("content-body-readonly")).toContainText(
+    /（其他块（breadcrumb_v2）、文字或背景颜色和表格）|\(other blocks \(breadcrumb_v2\), text or background color, and tables\)/,
+  );
   await expect(page.getByTestId("content-body")).toHaveCount(0);
 
   await removeSource(page, id);

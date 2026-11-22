@@ -160,7 +160,7 @@ function BodyField({
   onChange: (value: string) => void;
   notionUrl: string | null;
 }) {
-  const { m, t, errorOf } = useI18n();
+  const { locale, m, t, errorOf } = useI18n();
   const id = useId();
   if (!isNew && body.isPending) return <p className="text-muted-foreground">{m.common.loading}</p>;
   if (!isNew && body.error) {
@@ -174,7 +174,15 @@ function BodyField({
     return (
       <div className="flex flex-col items-start gap-2 rounded-md border p-3" data-testid="content-body-readonly">
         <p className="text-muted-foreground">
-          {t(m.content.bodyReadOnly, { types: body.data.unsupported.join(", ") })}
+          {t(m.content.bodyReadOnly, {
+            types: new Intl.ListFormat(locale).format(
+              body.data.unsupported.map(
+                (code) =>
+                  (Object.hasOwn(m.content.readOnlyReasons, code) ? m.content.readOnlyReasons[code] : undefined) ??
+                  t(m.content.readOnlyOther, { code }),
+              ),
+            ),
+          })}
         </p>
         {notionUrl && (
           <Button size="sm" variant="outline" asChild>
