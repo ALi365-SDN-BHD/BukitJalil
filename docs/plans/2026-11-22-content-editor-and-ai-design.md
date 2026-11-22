@@ -38,6 +38,8 @@
 
 E0 把接口从 Markdown 改成块结构后，界面在 E1 之前无法使用，所以 E0 和 E1 一起提交。
 
+E2（2026-11-22）：Markdown 提示文字已在 E1 换成块编辑器的说明；README、开发方案 1.3、5.6 和第 14 节已更新；用户使用说明还没有内容管理一节（C3 问题记录 Q1），没有要改的段落。
+
 ### E0、E1 实现说明（2026-11-22）
 
 - **共享类型**（`shared/src/content.ts`）：`ContentSpan`、`ContentBlock`（列表项最多带一层列表子项；`notion_image` 带 id 和只用于显示的签名地址）、`contentLength`、`CONTENT_BLOCKS_MAX`、`CONTENT_CODE_LANGUAGES`（从服务端移过来，编辑器的代码语言用同一张表）。请求体 `ContentBodyUpdate`、`ContentPageCreate` 改为 `blocks`，最多 5000 个顶层块、正文文字和地址合计不超过 `CONTENT_BODY_MAX`。
