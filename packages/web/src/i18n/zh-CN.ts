@@ -1425,6 +1425,8 @@ const zhCN = {
     "content.proposal_invalid": "这项改动的内容无效，没有写入。请让 AI 重新提议",
     "content.proposal_not_found": "在这个对话里找不到这项改动",
     "content.proposal_partial": "正文已写入，但属性没有写入。请重新打开条目检查，再让 AI 重新提议属性的改动",
+    "content.proposal_unknown":
+      "Notion 没有回应，新条目可能已经建好，也可能没有。请先在 Notion 里查看这个数据库，再决定要不要重新提议",
     "content.conflict": "这个页面在你打开之后被修改过。请重新读取，再改一次",
     "content.notion_write_forbidden":
       "这个 integration 没有写入权限：请在 Notion 的 integration 设置里打开 Update content 和 Insert content",

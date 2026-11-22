@@ -101,7 +101,7 @@ function tools(s: Stub, current: string | null = OPEN, sourceId = "ds_0123456789
       t.name,
       async (params: Record<string, unknown>) => {
         const withBase =
-          t.name === "propose_update" && !("lastEditedTime" in params) ? { lastEditedTime: BASE, ...params } : params;
+          t.name === "propose_update" ? { entryId: current ?? OPEN, lastEditedTime: BASE, ...params } : params;
         const r = (await t.execute("call_1", withBase as never, undefined, undefined as never, undefined as never)) as {
           details: { proposal: ContentProposal };
         };
@@ -153,6 +153,19 @@ describe("propose tools", () => {
     await refused({ body: "![](notion-image:55555555555555555555555555555555)" }, /notion-image/);
     await refused({ body: `![](notion-image:${IMAGE})\n\n![](notion-image:${IMAGE})` }, /in their order/);
     await refused({ properties: { Related: 1 } }, /cannot be edited/, t.propose_create);
+    // Another entry than the open one, even with the same edit time (Notion's are by the minute).
+    await refused(
+      { entryId: "55555555555555555555555555555555", properties: { Stage: "Done" } },
+      /not the open entry|only for the open entry/,
+    );
+    await refused({ entryId: undefined, properties: { Stage: "Done" } }, /only for the open entry/);
+    // The id as read_entry gives it, with Notion's dashes, is the open entry.
+    expect(
+      await t.propose_update?.({
+        entryId: `${OPEN.slice(0, 8)}-${OPEN.slice(8, 12)}-${OPEN.slice(12, 16)}-${OPEN.slice(16, 20)}-${OPEN.slice(20)}`,
+        properties: { Stage: "Done" },
+      }),
+    ).toMatchObject({ entryId: OPEN });
     // Made from an older version than the entry has now: read it again first.
     await refused({ lastEditedTime: "2026-11-22T07:00:00.000Z", properties: { Stage: "Done" } }, /read it again/);
     await expect(tools({ calls: [] }, null).propose_update?.({ properties: { Stage: "Done" } })).rejects.toThrow(
@@ -257,7 +270,19 @@ describe("proposal decisions", () => {
       status: "failed",
       error: "content.conflict",
     });
-    expect(failing.notes("s1")?.text).toContain("c1: writing failed (content.conflict)");
+    // Tried again while the note of the failure was being sent: the success is still told next time.
+    const told = failing.notes("s1");
+    expect(told?.text).toContain("c1: writing failed (content.conflict)");
+    await new Promise((r) => setTimeout(r, 2));
+    expect(
+      await new ContentProposals(ctx.db, stub({ calls })).apply(ref(sourceId), "s1", "c1", update()),
+    ).toMatchObject({
+      status: "applied",
+    });
+    told?.ack();
+    expect(failing.notes("s1")?.text).toContain("c1: written to Notion");
+    failing.notes("s1")?.ack();
+    ctx.db.prepare("DELETE FROM content_proposals").run();
     const partial = new ContentProposals(ctx.db, stub({ calls, fail: { update: conflict } }));
     expect(await partial.apply(ref(sourceId), "s1", "c1", update())).toMatchObject({
       status: "failed",
@@ -279,6 +304,29 @@ describe("proposal decisions", () => {
     });
     await expect(half.apply(ref(sourceId), "s1", "c5", created)).rejects.toMatchObject({
       code: "content.proposal_decided",
+    });
+    // Notion did not answer the new page: it may be there, so it is not made again.
+    for (const [i, err] of [
+      new SiteError("datasource.notion_offline", 503),
+      new SiteError("datasource.notion_failed", 503),
+    ].entries()) {
+      const unclear = new ContentProposals(ctx.db, stub({ calls, fail: { create: err } }));
+      expect(await unclear.apply(ref(sourceId), "s1", `u${i}`, created)).toMatchObject({
+        status: "failed",
+        error: "content.proposal_unknown",
+      });
+      await expect(unclear.apply(ref(sourceId), "s1", `u${i}`, created)).rejects.toMatchObject({
+        code: "content.proposal_decided",
+      });
+    }
+    expect(half.notes("s1")?.text).toContain("u0: Notion did not answer");
+    // Refused by Notion: nothing was made, so it may be tried again.
+    const refusedCreate = new ContentProposals(
+      ctx.db,
+      stub({ calls, fail: { create: new SiteError("datasource.notion_rate_limited", 503) } }),
+    );
+    expect(await refusedCreate.apply(ref(sourceId), "s1", "u2", created)).toMatchObject({
+      error: "datasource.notion_rate_limited",
     });
     // A new entry, written whole.
     const ok = new ContentProposals(ctx.db, stub({ calls }));

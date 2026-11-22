@@ -1522,6 +1522,8 @@ const ms: Messages = {
     "content.proposal_not_found": "Perubahan ini tiada dalam perbualan ini",
     "content.proposal_partial":
       "Kandungan telah ditulis tetapi sifat tidak. Buka semula entri untuk menyemak, kemudian minta AI mencadangkan perubahan sifat semula",
+    "content.proposal_unknown":
+      "Notion tidak menjawab, jadi entri baharu mungkin telah dibuat atau tidak. Semak pangkalan data dalam Notion sebelum memintanya semula",
     "content.conflict": "Halaman ini diubah selepas anda membukanya. Muat semula dan buat perubahan sekali lagi",
     "content.notion_write_forbidden":
       "Integrasi ini tidak boleh menulis: hidupkan Update content dan Insert content dalam tetapan Notionnya",

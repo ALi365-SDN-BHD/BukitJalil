@@ -1499,6 +1499,8 @@ const en: Messages = {
     "content.proposal_not_found": "This change is not in this conversation",
     "content.proposal_partial":
       "The body was written but the properties were not. Reopen the entry to check, then ask the AI to propose the property changes again",
+    "content.proposal_unknown":
+      "Notion did not answer, so the new entry may or may not have been made. Check the database in Notion before asking for it again",
     "content.conflict": "This page was changed after you opened it. Reload it and make your change again",
     "content.notion_write_forbidden":
       "This integration cannot write: turn on Update content and Insert content in its Notion settings",

@@ -395,12 +395,12 @@ export class AgentService {
       const live = this.live.get(id);
       // A content follow-up waits for the next prompt, so the turn running now keeps its entry.
       if (live?.session.isStreaming && !(content && opts.followUp)) {
-        // A steering message joins the running turn now, and so does its entry.
-        if (content) this.opts.content?.setCurrent(id, entryId ?? null);
         const input = this.input(session.project, run.cwd, [message]);
         await (opts.followUp
           ? live.session.followUp(input.text, input.images)
           : live.session.steer(input.text, input.images));
+        // A steering message joins the running turn, and so does its entry, once Pi has taken the message.
+        if (content) this.opts.content?.setCurrent(id, entryId ?? null);
       } else {
         run.extra.push(message);
       }
@@ -436,8 +436,10 @@ export class AgentService {
   }
 
   async rejectProposal(id: string, callId: string): Promise<ContentProposalState> {
+    this.assertOpen();
     const { ref, content } = this.contentSession(id);
     if (!proposalIn(await this.messages(id), callId)) throw new SiteError("content.proposal_not_found", 404);
+    content.check(ref);
     return content.proposals.reject(ref, id, callId);
   }
 
@@ -914,6 +916,8 @@ export class AgentService {
     if (!live) return;
     this.live.delete(id);
     if (live.idleTimer) clearTimeout(live.idleTimer);
+    // A content conversation's open entry is set again with its next message.
+    this.opts.content?.forget(id);
     this.save(id, live);
     // This runs from an idle timer and during shutdown: a throw here must not take the process down.
     try {

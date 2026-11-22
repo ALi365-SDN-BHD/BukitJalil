@@ -147,6 +147,7 @@ export const errorCodes = [
   "content.proposal_invalid",
   "content.proposal_not_found",
   "content.proposal_partial",
+  "content.proposal_unknown",
   "content.notion_write_forbidden",
   "content.notion_rejected",
   "content.notion_multi_source",

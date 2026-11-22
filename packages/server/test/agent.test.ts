@@ -1190,10 +1190,14 @@ describe("content management conversations", () => {
         [
           pi.ai.fauxToolCall(
             "propose_update",
-            { lastEditedTime: "t1", properties: { Name: "Hello again" } },
+            { entryId: ENTRY, lastEditedTime: "t1", properties: { Name: "Hello again" } },
             { id: "p1" },
           ),
-          pi.ai.fauxToolCall("propose_update", { lastEditedTime: "t1", properties: { Name: "Other" } }, { id: "p2" }),
+          pi.ai.fauxToolCall(
+            "propose_update",
+            { entryId: ENTRY, lastEditedTime: "t1", properties: { Name: "Other" } },
+            { id: "p2" },
+          ),
         ],
         { stopReason: "toolUse" },
       ),
@@ -1311,7 +1315,13 @@ describe("content management conversations", () => {
     let seen = "";
     faux.setResponses([
       pi.ai.fauxAssistantMessage(
-        [pi.ai.fauxToolCall("propose_update", { lastEditedTime: "t", properties: { Name: "D" } }, { id: "q1" })],
+        [
+          pi.ai.fauxToolCall(
+            "propose_update",
+            { entryId: ENTRY, lastEditedTime: "t", properties: { Name: "D" } },
+            { id: "q1" },
+          ),
+        ],
         { stopReason: "toolUse" },
       ),
       async () => {
