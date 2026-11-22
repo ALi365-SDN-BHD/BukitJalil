@@ -27,6 +27,8 @@ const PAIRS: [string, string, number][] = [
   ["accent-text", "accent", 4.5],
   ["code-text", "code-bg", 4.5],
   ["focus", "bg", 3],
+  ["border-strong", "bg", 3],
+  ["border-strong", "surface", 3],
 ];
 
 describe("the default design system (theme design spec D1)", () => {
@@ -130,6 +132,11 @@ describe("the theme design lint (theme design spec D2)", () => {
     const contrast = issues.filter((i) => i.rule === "contrast").map((i) => i.detail);
     expect(contrast.some((d) => d.startsWith("light scheme: muted #bbbbbb on bg"))).toBe(true);
     expect(contrast.some((d) => d.startsWith("dark scheme: link #333333 on bg"))).toBe(true);
+    files.set("tokens.yaml", tokensText.replace(/^ {2}border-strong: .*$/m, '  border-strong: "#dcd9d2"'));
+    const border = lintTheme(files)
+      .filter((i) => i.rule === "contrast")
+      .map((i) => i.detail);
+    expect(border.some((d) => d.startsWith("light scheme: border-strong #dcd9d2 on surface"))).toBe(true);
     files.delete("tokens.yaml");
     expect(lintTheme(files).find((i) => i.rule === "tokens_missing")?.file).toBeNull();
   });

@@ -52,7 +52,7 @@ file in the base layout before the theme's own CSS.
 
 | Group | Keys |
 |---|---|
-| `colors` | `bg`, `surface`, `text`, `muted`, `border`, `accent`, `accent-text` (text on the accent), `link`, `focus`, `code-bg`, `code-text` |
+| `colors` | `bg`, `surface`, `text`, `muted`, `border` (dividers and decorative borders), `border-strong` (borders people must see, such as inputs: at least 3:1 against `bg` and `surface`), `accent`, `accent-text` (text on the accent), `link`, `focus`, `code-bg`, `code-text` |
 | `font` | `body`, `heading`, `mono` (font stacks); `size-sm`, `size-base`, `size-lg`, `size-xl`, `size-2xl`, `size-3xl` (in `rem`); `leading-body`, `leading-heading` |
 | `spacing` | `1` to `8`: 4, 8, 16, 24, 32, 48, 64 and 96px, written in `rem` |
 | `radius` | `sm`, `md`, `lg` |
@@ -74,7 +74,7 @@ A theme has these components. Each needs the states listed.
 | Links and buttons | hover (inside `@media (hover: hover)`), `:focus-visible`, disabled where it applies |
 | Skip link | hidden until focused |
 | Post card or list item | title, date, summary; hover and focus on the link |
-| Post meta | date, tags, categories |
+| Post meta | date, tags, categories; dates and other numbers that line up use `font-variant-numeric: tabular-nums` |
 | Tags and categories | the same chip or link style everywhere |
 | Pagination | current page, previous and next; a missing previous or next is left out or plain text, never a dead link |
 | Search box and results | focus, no results, results |
@@ -124,16 +124,18 @@ their own site does, keep their choice and name the failing check in
    (interface labels and the text of the search and 404 pages are fine), and
    nothing invents numbers, testimonials, client logos or contact details (see
    `content-writing`). One `h1` per page, and headings go down one level at a
-   time.
+   time. Structure says something true about the content: numbered markers
+   (01, 02, 03), small labels and dividers only where the content really is a
+   sequence or has those groups, never as decoration.
 2. **Readable.**
    - Text contrast at least 4.5:1 against its background; 3:1 for text 24px
      and larger (or 18.66px bold), for borders that mark out inputs and
-     buttons, and for focus outlines. Work it out from the colors in
-     `tokens.yaml` and in the CSS (the tokens hold only one set of colors; a
-     dark color scheme, mixed colors and code blocks are in the CSS) for every
-     pair the theme uses: body text, muted text, links, text on the accent
-     color, code, the footer, in both light and dark schemes when there are
-     two.
+     buttons (`border-strong`, not `border`), and for focus outlines. Work it
+     out from the colors in `tokens.yaml` and in the CSS (the tokens hold only
+     one set of colors; a dark color scheme, mixed colors and code blocks are
+     in the CSS) for every pair the theme uses: body text, muted text, links,
+     text on the accent color, code, the footer, strong borders, in both light
+     and dark schemes when there are two.
    - Body text `1rem`-`1.125rem` (16-18px) with line-height 1.5-1.7 (Chinese
      1.7-1.8); headings line-height 1.1-1.3. Font sizes in `rem`, so the
      reader's zoom works.
@@ -176,7 +178,11 @@ their own site does, keep their choice and name the failing check in
      section heading
    - a centered hero with a big headline and two buttons as the default
      layout; everything centered
-   - cards inside cards, the same large radius and soft shadow everywhere
+   - cards inside cards, the same large radius and soft shadow everywhere, an
+     accent-colored bar down the side of rounded cards
+   - the stock palettes of generated pages: warm cream with a serif display
+     face and a terracotta accent; near-black with a single acid-green or
+     vermilion highlight; newspaper-style hairline rules over dense columns
    - buttons that say "Learn more" or "Get started" (in any language) when the
      page has a real action to name
 

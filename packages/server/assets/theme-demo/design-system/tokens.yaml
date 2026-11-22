@@ -7,6 +7,7 @@ colors:
   text: "#1d1e20"
   muted: "#595c63"
   border: "#dcd9d2"
+  border-strong: "#85827b"
   accent: "#1d5a8c"
   accent-text: "#ffffff"
   link: "#1d5a8c"

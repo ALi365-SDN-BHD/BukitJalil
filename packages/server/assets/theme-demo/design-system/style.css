@@ -16,6 +16,7 @@
     --color-text: #e7e5e2;
     --color-muted: #a4a8ae;
     --color-border: #34373c;
+    --color-border-strong: #70747b;
     --color-accent: #8dbbe6;
     --color-accent-text: #10161d;
     --color-link: #8dbbe6;
@@ -274,6 +275,7 @@ hr {
   margin: 0 0 var(--spacing-2);
   color: var(--color-muted);
   font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .summary {
@@ -606,7 +608,7 @@ select {
   min-width: 0;
   min-height: 44px;
   padding: 0 var(--spacing-3);
-  border: 1px solid var(--color-muted);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text);
@@ -675,7 +677,7 @@ button:disabled,
   }
 
   .term-card:hover {
-    border-color: var(--color-muted);
+    border-color: var(--color-border-strong);
   }
 
   button:hover:not(:disabled),

@@ -24,6 +24,8 @@ const CONTRAST_PAIRS: [string, string, number][] = [
   ["accent-text", "accent", 4.5],
   ["code-text", "code-bg", 4.5],
   ["focus", "bg", 3],
+  ["border-strong", "bg", 3],
+  ["border-strong", "surface", 3],
 ];
 
 /** Rules whose selector names a content palette (Notion colors, code highlighting) may keep literal colors. */

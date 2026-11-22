@@ -13,6 +13,7 @@ export const TOKEN_CONTRACT = {
     "text",
     "muted",
     "border",
+    "border-strong",
     "accent",
     "accent-text",
     "link",
