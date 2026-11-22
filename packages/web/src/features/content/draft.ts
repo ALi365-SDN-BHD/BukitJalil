@@ -1,5 +1,6 @@
 import type { ContentBlock, ContentValue } from "@bukitjalil/shared";
 import { useSyncExternalStore } from "react";
+import { canonicalNotionId } from "@/lib/project";
 import { type BlocksProblem, sameBlocks, type Unsaved } from "./blocks";
 
 /**
@@ -63,6 +64,21 @@ export const changeOf = (changes: Changes, name: string): ContentValue | undefin
 export const saveKey = (key: string) => ["content-save", key] as const;
 
 export const draftKey = (sourceId: string, databaseId: string, pageId: string) => `${sourceId}/${databaseId}/${pageId}`;
+
+/**
+ * Whether this entry has unsaved changes, open or not: the draft stays when the user leaves the page. The
+ * database and page ids may be given with or without Notion's dashes.
+ */
+export function useEntryDirty(sourceId: string, databaseId: string, pageId: string): boolean {
+  const d = useSyncExternalStore(subscribe, () => draft);
+  if (isEmpty(d)) return false;
+  const [source, database = "", page = ""] = d.key.split("/");
+  return (
+    source === sourceId &&
+    canonicalNotionId(database) === canonicalNotionId(databaseId) &&
+    canonicalNotionId(page) === canonicalNotionId(pageId)
+  );
+}
 
 export function useDraft(key: string) {
   useSyncExternalStore(subscribe, () => draft);

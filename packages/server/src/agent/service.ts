@@ -721,18 +721,20 @@ export class AgentService {
           details: { changeSetId: joined.change.id },
         });
       }
-      // The user's decisions on proposals since the model last heard (content editor and AI design, A2).
-      const notes = this.contentOf(record.project) ? this.opts.content?.proposals.notes(id) : null;
-      if (notes) {
-        await live.session.sendCustomMessage({
-          customType: PROPOSAL_NOTE_TYPE,
-          content: notes.text,
-          display: false,
-        });
-        notes.ack();
-      }
+      const content = this.contentOf(record.project) !== null;
       let batch: Message[] = messages;
       while (batch.length > 0 && !run.cancelled) {
+        // The user's decisions on proposals since the model last heard (content editor and AI design, A2),
+        // before each prompt: a follow-up may come after a decision made while the last one ran.
+        const notes = content ? this.opts.content?.proposals.notes(id) : null;
+        if (notes) {
+          await live.session.sendCustomMessage({
+            customType: PROPOSAL_NOTE_TYPE,
+            content: notes.text,
+            display: false,
+          });
+          notes.ack();
+        }
         // Joined messages: the latest one's entry is the open one.
         const sent = batch.findLast((m) => m.entryId !== undefined);
         if (sent) this.opts.content?.setCurrent(id, sent.entryId ?? null);

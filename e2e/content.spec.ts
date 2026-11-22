@@ -603,6 +603,11 @@ test("the AI assistant talks about the open entry, and writes a proposal only wh
   // Not while the entry has unsaved edits.
   await page.getByTestId("content-title").fill("Edited by hand");
   await expect(card.getByTestId("proposal-apply")).toBeDisabled();
+  // Also after leaving the entry: its unsaved edits are kept until it is saved or discarded.
+  await page.getByTestId("content-back").click();
+  await expect(page.getByTestId("content-entry").first()).toBeVisible();
+  await expect(card.getByTestId("proposal-apply")).toBeDisabled();
+  await page.getByTestId("content-entry").filter({ hasText: "First post" }).click();
   await page.getByTestId("content-title").fill("First post");
   await expect(card.getByTestId("proposal-apply")).toBeEnabled();
 

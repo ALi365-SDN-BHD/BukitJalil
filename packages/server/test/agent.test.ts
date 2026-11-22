@@ -1282,6 +1282,58 @@ describe("content management conversations", () => {
     await vi.waitFor(() => expect(read).toEqual([A, B]));
   });
 
+  it("tell a follow-up what the user decided while the turn before it ran", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const ENTRY = "cccccccccccccccccccccccccccccccc";
+    const page = {
+      id: ENTRY,
+      databaseId: DB,
+      title: "C",
+      url: null,
+      lastEditedTime: "t",
+      properties: [{ name: "Name", type: "title", value: { type: "title", text: "C" }, display: "C" }],
+    };
+    const content = {
+      database: async () => ({ id: DB, title: "Blog", url: null, properties: [], propertiesTruncated: false }),
+      page: async () => page,
+    } as unknown as NotionContentService;
+    const { agent, settled } = service({ content });
+    const session = agent.create(key);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let proposed!: () => void;
+    const waiting = new Promise<void>((r) => {
+      proposed = r;
+    });
+    let seen = "";
+    faux.setResponses([
+      pi.ai.fauxAssistantMessage(
+        [pi.ai.fauxToolCall("propose_update", { lastEditedTime: "t", properties: { Name: "D" } }, { id: "q1" })],
+        { stopReason: "toolUse" },
+      ),
+      async () => {
+        proposed();
+        await gate;
+        return pi.ai.fauxAssistantMessage("proposed");
+      },
+      (context) => {
+        seen = JSON.stringify(context.messages);
+        return pi.ai.fauxAssistantMessage("ok");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "rename", { entryId: ENTRY });
+    await waiting;
+    await agent.rejectProposal(session.id, "q1");
+    await agent.send(session.id, "why not?", { entryId: ENTRY, followUp: true });
+    release();
+    await done;
+    await vi.waitFor(() => expect(seen).toContain("q1: declined by the user"));
+  });
+
   it("go with their data source, and need the content agent", async () => {
     const ds = source();
     const key = contentKey({ sourceId: ds.id, databaseId: DB });

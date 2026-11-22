@@ -7,10 +7,9 @@ import { Button } from "@/components/ui/button";
 import type { ToolView } from "@/features/chat/model";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
-import { canonicalNotionId, contentPagePath } from "@/lib/project";
+import { contentPagePath } from "@/lib/project";
 import { lineDiff } from "./diff";
-import { draftKey, useDraft } from "./draft";
-import { useContentParams } from "./hooks";
+import { useEntryDirty } from "./draft";
 
 /** The tools whose results are proposals (content editor and AI design, A2). */
 const PROPOSE_TOOLS = new Set(["propose_update", "propose_create"]);
@@ -62,18 +61,16 @@ export function ProposalCard({
   proposal: ContentProposal;
   sessionId: string;
   sourceId: string;
-  /** The database as the route has it, which the editor keys its draft by. */
+  /** The database as the route has it. */
   databaseId: string;
 }) {
   const { m, t, errorText, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const states = useQuery({ queryKey: keys.proposals(sessionId), queryFn: () => api.proposals(sessionId) });
   const state = states.data?.find((s) => s.callId === tool.id) ?? PENDING(tool.id);
-  // The server's ids have no dashes; the editor keeps the open page's id as its route has it.
-  const { pageId: openPageId } = useContentParams();
-  const open = openPageId !== null && canonicalNotionId(openPageId) === proposal.entryId;
-  const draft = useDraft(open ? draftKey(sourceId, databaseId, openPageId) : "");
-  const blocked = proposal.kind === "update" && draft.dirty;
+  // Unsaved edits of this entry, also when it is not open: writing now would leave them on an old version.
+  const dirty = useEntryDirty(sourceId, databaseId, proposal.entryId ?? "");
+  const blocked = proposal.kind === "update" && dirty;
   const decide = useMutation({
     mutationFn: (decision: "apply" | "reject") => api.decideProposal(sessionId, tool.id, decision),
     onSuccess: (next) => {
