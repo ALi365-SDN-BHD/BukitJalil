@@ -219,6 +219,40 @@ describe("the theme design lint (theme design spec D2)", () => {
     ).toEqual([]);
   });
 
+  it("scans pathological stylesheets and templates in linear time", () => {
+    const big = 200 * 1024;
+    const cases: [string, string][] = [
+      ["assets/a.css", `a { color: var(--color-text); }\n/*${" ".repeat(big)}*/`],
+      ["assets/a.css", `@media (prefers-color-scheme: dark) {${" ".repeat(big)}}`],
+      ["assets/a.css", "/*".repeat(big / 2)],
+      ["assets/a.css", "@media (prefers-color-scheme: dark) {".repeat(big / 40)],
+      ["assets/a.css", "@media ".repeat(big / 7)],
+      ["assets/a.css", "{".repeat(big)],
+      ["layouts/x.html", "<script ".repeat(big / 8)],
+    ];
+    for (const [file, text] of cases) {
+      const started = performance.now();
+      lintTheme(
+        new Map([
+          ["tokens.yaml", tokensText],
+          [file, text],
+        ]),
+      );
+      expect(performance.now() - started, text.slice(0, 40)).toBeLessThan(1000);
+    }
+    // Comments still blank to spaces, nested and overlapping skipped blocks still skip.
+    const css =
+      "a:focus-visible { outline: 2px solid; }\n@media print { @media (prefers-color-scheme: dark) { a { color: #000; } } }\n/* #fff";
+    expect(
+      rules(
+        new Map([
+          ["tokens.yaml", tokensText],
+          ["assets/a.css", css],
+        ]),
+      ),
+    ).toEqual([]);
+  });
+
   it("removing the outline is only `none` or `0`, and line numbers hold in long files", () => {
     const files = (css: string) =>
       new Map([

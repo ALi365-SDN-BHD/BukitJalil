@@ -2,7 +2,7 @@ import type { ThemeLintIssue, ThemeLintRule } from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
 import { parseYaml } from "../panels/yaml.ts";
 import type { ThemeFiles } from "./coverage.ts";
-import { contrastRatio, darkSchemeColors, mediaSpans, missingTokens } from "./design.ts";
+import { contrastRatio, darkSchemeColors, mediaSpans, missingTokens, stripComments } from "./design.ts";
 
 /**
  * The checks of the theme-design self-check a program can make (plan 14, theme design spec D2): the token
@@ -33,7 +33,7 @@ const PALETTE_SELECTOR = /\.(notion-|hljs)|\.token(?![\w-])/;
 const LITERAL_COLOR = /#[0-9a-f]{3,8}\b|\b(rgba?|hsla?|oklch|oklab|lab|lch)\(/gi;
 /** Elements that load a resource; links (`<a href>`) to other sites are fine. */
 const RESOURCE_TAG =
-  /<(script|link|img|source|iframe|video|audio)\b[^>]*?\s(src|href|srcset)\s*=\s*["']?\s*(https?:)?\/\//gi;
+  /<(script|link|img|source|iframe|video|audio)\b[^>]{0,2000}?\s(src|href|srcset)\s*=\s*["']?\s*(https?:)?\/\//gi;
 const CSS_REMOTE = /url\(\s*["']?\s*(https?:)?\/\/|@import\s+(url\()?\s*["']?\s*(https?:)?\/\//gi;
 /**
  * Emoji: characters shown as emoji by default, or a pictograph followed by the emoji variation selector. Text
@@ -66,9 +66,7 @@ export function lintTheme(files: ReadonlyMap<string, string>): ThemeLintIssue[] 
   else if (missing.length > 0) add("tokens_missing", "tokens.yaml", null, `Missing keys: ${missing.join(", ")}.`);
 
   // Comments are blanked out, keeping line numbers.
-  const sheets = [...files]
-    .filter(([p]) => /\.css$/i.test(p))
-    .map(([p, css]) => [p, blank(css, /\/\*[\s\S]*?\*\//g)] as const);
+  const sheets = [...files].filter(([p]) => /\.css$/i.test(p)).map(([p, css]) => [p, stripComments(css)] as const);
   const templates = [...files].filter(([p]) => /\.html$/i.test(p));
   const allCss = sheets.map(([, css]) => css).join("\n");
 
@@ -158,20 +156,44 @@ function colorsOf(tokens: unknown): Record<string, string> {
 
 /** Lines with literal colors outside the dark scheme, print and content palette rules (comments already blank). */
 function literalColorLines(css: string): number[] {
-  let text = css;
   // `print` alone or in a list (`screen, print`), not `not print`, which is every other medium.
-  for (const condition of [/prefers-color-scheme\s*:\s*dark/i, /(^|,)\s*(only\s+)?print\s*(,|$|and\b)/i]) {
-    for (const [start, end] of mediaSpans(text, condition))
-      text = text.slice(0, start) + spaces(text.slice(start, end)) + text.slice(end);
+  const skipped = [/prefers-color-scheme\s*:\s*dark/i, /(^|,)\s*(only\s+)?print\s*(,|$|and\b)/i]
+    .flatMap((condition) => mediaSpans(css, condition))
+    .sort((a, b) => a[0] - b[0]);
+  // Blank the skipped blocks in one pass (they may overlap when one is nested in another).
+  let text = "";
+  let from = 0;
+  for (const [start, end] of skipped) {
+    if (end <= from) continue;
+    const s = Math.max(start, from);
+    text += css.slice(from, s) + spaces(css.slice(s, end));
+    from = end;
   }
+  text += css.slice(from);
   const starts = lineStarts(text);
   const out = new Set<number>();
-  for (const rule of text.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
-    const selector = rule[1] as string;
-    if (PALETTE_SELECTOR.test(selector) || /@font-face/i.test(selector)) continue;
-    const bodyStart = (rule.index as number) + selector.length + 1;
-    for (const m of (rule[2] as string).matchAll(LITERAL_COLOR))
-      out.add(lineAt(starts, bodyStart + (m.index as number)));
+  // Innermost rules (`selector { body }` with no braces in either), found in one linear scan: a regex like
+  // /([^{}]*)\{([^{}]*)\}/g retries from every character of a long brace-free run.
+  let segment = 0;
+  let selectorStart = 0;
+  let open = -1;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "{") {
+      open = i;
+      selectorStart = segment;
+      segment = i + 1;
+    } else if (c === "}") {
+      if (open >= 0) {
+        const selector = text.slice(selectorStart, open);
+        if (!PALETTE_SELECTOR.test(selector) && !/@font-face/i.test(selector)) {
+          for (const m of text.slice(open + 1, i).matchAll(LITERAL_COLOR))
+            out.add(lineAt(starts, open + 1 + (m.index as number)));
+        }
+      }
+      open = -1;
+      segment = i + 1;
+    }
   }
   return [...out].sort((a, b) => a - b);
 }
@@ -200,11 +222,6 @@ function lineAt(starts: number[], index: number): number {
     else hi = mid - 1;
   }
   return lo + 1;
-}
-
-/** `text` with every match of `re` replaced by spaces, keeping newlines so line numbers stay right. */
-function blank(text: string, re: RegExp): string {
-  return text.replace(re, spaces);
 }
 
 function spaces(s: string): string {

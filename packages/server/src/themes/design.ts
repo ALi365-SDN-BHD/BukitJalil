@@ -89,8 +89,20 @@ export function darkSchemeColors(css: string): Record<string, string> {
   return colors;
 }
 
+/**
+ * `css` with its comments replaced by spaces (newlines kept, so offsets and line numbers stay right). An
+ * unclosed comment runs to the end. One linear scan: a regex would retry every unclosed `/*` to the end.
+ */
 export function stripComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, "");
+  let out = "";
+  let from = 0;
+  for (let open = css.indexOf("/*"); open >= 0; open = css.indexOf("/*", from)) {
+    const close = css.indexOf("*/", open + 2);
+    const end = close < 0 ? css.length : close + 2;
+    out += css.slice(from, open) + css.slice(open, end).replace(/[^\n]/g, " ");
+    from = end;
+  }
+  return out + css.slice(from);
 }
 
 /** The bodies of the `@media` blocks whose condition matches `condition`, braces balanced. */
@@ -104,8 +116,11 @@ export function mediaBlocks(css: string, condition: RegExp): string[] {
  */
 export function mediaSpans(css: string, condition: RegExp): [number, number, number, number][] {
   const spans: [number, number, number, number][] = [];
-  for (const m of css.matchAll(/@media([^{]*)\{/g)) {
-    if (!condition.test(m[1] as string)) continue;
+  // Blocks inside a block already found are part of it, so each character is scanned once: the condition is
+  // bounded, and an unclosed block (running to the end) is not scanned again for every `@media` after it.
+  let covered = 0;
+  for (const m of css.matchAll(/@media([^{};]{0,1000})\{/g)) {
+    if ((m.index as number) < covered || !condition.test(m[1] as string)) continue;
     const start = (m.index as number) + m[0].length;
     let depth = 1;
     let i = start;
@@ -114,6 +129,7 @@ export function mediaSpans(css: string, condition: RegExp): [number, number, num
       else if (css[i] === "}") depth--;
     }
     spans.push([m.index as number, i, start, depth === 0 ? i - 1 : i]);
+    covered = i;
   }
   return spans;
 }
