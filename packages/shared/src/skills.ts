@@ -1,7 +1,10 @@
 /** Pi skills bundled with BukitJalil and managed in Settings. */
 
-/** Skills the session workflow depends on; they cannot be turned off (each where its project kind uses it). */
-export const REQUIRED_SKILLS = ["site-editing", "theme-development"] as const;
+/**
+ * Skills the session workflow depends on; they cannot be turned off (each where its project kind uses it).
+ * theme-design holds the hard rule against an AI-generated look (plan 14, theme design spec Q6).
+ */
+export const REQUIRED_SKILLS = ["site-editing", "theme-development", "theme-design"] as const;
 
 /** Skills only theme projects load (theme development design 4.1). */
 export const THEME_SKILLS: readonly string[] = ["theme-development", "site-to-theme"];

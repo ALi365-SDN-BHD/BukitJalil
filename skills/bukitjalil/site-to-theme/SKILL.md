@@ -28,15 +28,19 @@ files outside the theme.
 
 Read the home page first, then the other pages, then look at the home
 screenshot before you write markup. Follow the `theme-development` skill for the
-project layout, the page types, escaping and the checking order.
+project layout, the page types, escaping and the checking order, and
+`theme-design` for the token contract, the components and the design
+self-check. The captured site is the design direction, so you don't write one
+or wait for the user before you start.
 
 ## Order of work
 
 1. `site_info`, then `theme_coverage` and `list_content`.
 2. Read the captured pages and the desktop home screenshot. Note what repeats:
    header, navigation, footer, cards, lists, article layout.
-3. Build `themes/<name>/tokens.yaml` first: colors, font stacks, spacing,
-   radius and widths seen in the captured CSS. Use system font stacks or the
+3. Build `themes/<name>/tokens.yaml` first: map the colors, font stacks,
+   font sizes, spacing, radius and widths seen in the captured CSS onto the
+   keys of the token contract in `theme-design`. Use system font stacks or the
    downloaded font files; never link a font from the original site.
 4. Write `layouts/layouts/base.html` and `partials/` for what repeats. A
    repeated card or list item becomes a partial; do not copy the same markup
@@ -57,7 +61,7 @@ project layout, the page types, escaping and the checking order.
    skill if the captured site does not have an equivalent.
 9. Run `bukit_check`, then `bukit_build`, and compare the preview with the
    screenshots at each width. Fix the largest differences first.
-10. Go through the design self-check in the `theme-development` skill. Where
+10. Go through the design self-check in the `theme-design` skill. Where
     the captured site itself fails a check in groups 1-4, keep its look and
     name the check in `summarize_changes`. Group 5 (no AI look) is the
     exception: don't copy those elements; use a plain equivalent and list
