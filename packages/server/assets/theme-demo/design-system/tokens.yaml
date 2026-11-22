@@ -1,0 +1,43 @@
+# BukitJalil's default design system (plan 14, theme design spec D1): the token contract in the
+# theme-design skill, filled in. Bukit writes these to /assets/css/theme-tokens.css as --<group>-<key>.
+# The dark color scheme redefines the --color-* variables in assets/style.css.
+colors:
+  bg: "#fbfaf8"
+  surface: "#ffffff"
+  text: "#1d1e20"
+  muted: "#595c63"
+  border: "#dcd9d2"
+  accent: "#1d5a8c"
+  accent-text: "#ffffff"
+  link: "#1d5a8c"
+  focus: "#1d5a8c"
+  code-bg: "#1f2226"
+  code-text: "#eceef0"
+font:
+  body: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", sans-serif'
+  heading: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", sans-serif'
+  mono: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace'
+  size-sm: "0.875rem"
+  size-base: "1.0625rem"
+  size-lg: "1.25rem"
+  size-xl: "1.5rem"
+  size-2xl: "1.875rem"
+  size-3xl: "2.5rem"
+  leading-body: "1.65"
+  leading-heading: "1.2"
+spacing:
+  "1": "0.25rem"
+  "2": "0.5rem"
+  "3": "1rem"
+  "4": "1.5rem"
+  "5": "2rem"
+  "6": "3rem"
+  "7": "4rem"
+  "8": "6rem"
+radius:
+  sm: "4px"
+  md: "6px"
+  lg: "10px"
+layout:
+  content: "38rem"
+  wide: "72rem"

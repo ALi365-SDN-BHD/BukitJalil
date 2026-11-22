@@ -282,7 +282,8 @@ describe("new theme projects (T1)", () => {
       missingPageTypes: ["archive"],
       missingTemplateFiles: ["pages/pagination.html"],
       notFoundPage: true,
-      tokens: false,
+      // A new theme starts from the default design system, which brings tokens.yaml (theme design spec D1).
+      tokens: true,
     });
     expect("missingIncludes" in report && report.missingIncludes.map((m) => m.include)).toContain(
       "partials/footer.html",

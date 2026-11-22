@@ -13,6 +13,16 @@ page types, order of work); this skill covers the design.
 You cannot see the preview. Check your work in the source: `tokens.yaml`, the
 CSS and the templates.
 
+## The default design system
+
+New and cloned theme projects start from BukitJalil's default design system:
+`themes/<name>/tokens.yaml` filled in by the token contract below, and
+`themes/<name>/assets/style.css` written for the starter's markup with only
+token variables, a dark scheme and every component state. It passes the
+design self-check as it is. Build on it: change token values and the rules
+the design direction needs, keep what already works. An imported theme keeps
+its own files.
+
 ## Design direction
 
 Before you write tokens for a new look, write a short design direction for the
@@ -51,7 +61,8 @@ file in the base layout before the theme's own CSS.
 Use the variables everywhere instead of literal values. The tokens hold one
 set of colors. For a dark color scheme, redefine the same `--color-*`
 variables in one `@media (prefers-color-scheme: dark)` block in the CSS, and
-nowhere else.
+nowhere else. Palettes that belong to the content, Notion's text colors and
+code highlighting, may stay literal; keep them together at the end of the CSS.
 
 ## Components and their states
 
@@ -65,7 +76,7 @@ A theme has these components. Each needs the states listed.
 | Post card or list item | title, date, summary; hover and focus on the link |
 | Post meta | date, tags, categories |
 | Tags and categories | the same chip or link style everywhere |
-| Pagination | current page, previous and next, a missing previous or next shown as plain text |
+| Pagination | current page, previous and next; a missing previous or next is left out or plain text, never a dead link |
 | Search box and results | focus, no results, results |
 | Article text | headings, paragraphs, lists, blockquote, table, code and code block, image and caption, horizontal rule |
 | Footer | links with focus |
@@ -139,7 +150,7 @@ their own site does, keep their choice and name the failing check in
 4. **Consistent.**
    - Every key of the token contract exists, and colors, fonts, radii and
      spacing come from the variables, not literal values (the dark scheme
-     block is the one exception).
+     block and the content palettes are the exceptions).
    - One spacing scale, the `spacing` tokens: gaps inside a group are smaller
      than gaps between groups, and those are smaller than gaps between
      sections.

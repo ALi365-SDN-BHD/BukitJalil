@@ -49,10 +49,10 @@ or wait for the user before you start.
    home, post, page (and detail), list, pagination, archive, taxonomy index and
    taxonomy term. Use the model's fields (`page.title`, `page.content`,
    `site.title`, `site.base_url`, …), not the captured text.
-6. Put the CSS in `themes/<name>/assets/css/` and link it from the base
-   layout. Plain CSS only; BukitJalil has no Sass. Merge the captured rules
-   into a small set that uses the tokens; drop rules for elements that no
-   longer exist.
+6. The theme starts with the default design system's
+   `themes/<name>/assets/style.css` (see `theme-design`). Change its rules to
+   match the capture and add what it lacks, using the tokens; drop rules for
+   elements that no longer exist. Plain CSS only; BukitJalil has no Sass.
 7. Copy no external URL: no `http(s)://` in `src`, `href`, `url(...)` or font
    faces. If the capture has no downloaded image, use a solid placeholder or a
    local shape, not the original address. Lists and cards can use the sample
