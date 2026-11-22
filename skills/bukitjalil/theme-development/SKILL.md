@@ -100,6 +100,8 @@ whether `tokens.yaml`, the search page and `static/404.html` exist.
 - Change `content/` only when a page type has no example; keep the sample
   content generic.
 - Keep `theme.yaml` `name` equal to the directory name.
+- **No AI look.** The theme must not look AI-generated. Group 5 of the design
+  self-check lists what that means. It is a hard rule, not a preference.
 
 ## Design self-check
 
@@ -108,10 +110,11 @@ the templates. Fix what fails. If you leave something on purpose, say what and
 why in `summarize_changes`.
 
 Go through the groups in order, and don't polish a later group while an
-earlier one fails. In groups 4 and 5, the user's request and the reference
-images come first. Groups 1-3 apply even then; if the user asks for something
-that fails one of them, or their own site does, keep their choice and name the
-failing check in `summarize_changes`.
+earlier one fails. In group 4, the user's request and the reference images
+come first. Group 5 is strict and has its own rule for user requests. Groups
+1-3 apply even then; if the user asks for something that fails one of them, or
+their own site does, keep their choice and name the failing check in
+`summarize_changes`.
 
 1. **Content.** Every section on a page has a job; no filler sections.
    Templates don't hard-code page copy such as headlines and paragraphs
@@ -158,14 +161,25 @@ failing check in `summarize_changes`.
    - Mostly neutral colors and one accent, used for links, the main action and
      a few highlights.
    - A button, card, tag or pagination link looks the same on every page type.
-5. **Not generic.** Unless the user asked for it, avoid what makes a page look
-   like a default template:
+5. **No AI look.** This group is strict. Never use any of the following on
+   your own, and don't carry them over from reference images or a captured
+   site:
    - rows of identical icon-heading-text cards that fill space
-   - purple-to-blue gradients, gradient text, glowing blobs, frosted glass
+   - purple-to-blue or neon gradients, gradient text, glowing blobs, frosted
+     glass, dark backgrounds with neon accents
    - emoji as icons, headings and navigation in capitals
-   - everything centered, cards inside cards, the same large radius everywhere
-   - buttons that say "Learn more" or "Get started" when the page has a real
-     action to name
+   - a small pill badge above the hero headline, a tiny label above every
+     section heading
+   - a centered hero with a big headline and two buttons as the default
+     layout; everything centered
+   - cards inside cards, the same large radius and soft shadow everywhere
+   - buttons that say "Learn more" or "Get started" (in any language) when the
+     page has a real action to name
+
+   Words like "modern", "premium", "sleek" or "techy" are not a request for
+   any of these. If the user names one of them in the conversation and asks
+   for it, first tell them it is a common sign of AI-generated design and ask
+   them to confirm. Use it only after they confirm, and only what they named.
 
    If something would look good in a screenshot but makes the page harder to
    read or use, leave it out.
