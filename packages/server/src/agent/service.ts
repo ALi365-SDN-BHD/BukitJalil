@@ -111,6 +111,8 @@ interface Live {
 interface Message {
   text: string;
   images: ReferenceImage[];
+  /** A content conversation's message: the entry open as it was sent (null: none). */
+  entryId?: string | null;
 }
 
 interface Pending {
@@ -363,14 +365,19 @@ export class AgentService {
     const session = this.get(id);
     this.assertWritable(session.project);
     // Content conversations take no images: there is nowhere to keep them but the conversation.
-    if (this.contentOf(session.project)) {
+    const content = this.contentOf(session.project) !== null;
+    let entryId: string | null | undefined;
+    if (content) {
       if ((opts.images?.length ?? 0) > 0) throw new SiteError("request.invalid_body", 400);
-      const entry = opts.entryId ? notionId(opts.entryId) : null;
-      if (opts.entryId && !entry) throw new SiteError("request.invalid_body", 400);
-      // The entry open as this message is sent is what the tools read as "the open entry".
-      this.opts.content?.setCurrent(id, entry);
+      entryId = opts.entryId ? notionId(opts.entryId) : null;
+      if (opts.entryId && !entryId) throw new SiteError("request.invalid_body", 400);
     }
-    const message: Message = { text, images: (opts.images ?? []).map(cleanReferenceImage) };
+    // The entry goes with its message: the tools read it as "the open entry" once that message is taken in.
+    const message: Message = {
+      text,
+      images: (opts.images ?? []).map(cleanReferenceImage),
+      ...(content ? { entryId } : {}),
+    };
     if (message.images.length > 0 && !(await this.model()).input.includes("image")) {
       throw new SiteError("image.model_unsupported", 400);
     }
@@ -386,7 +393,10 @@ export class AgentService {
     const run = this.running.get(session.project);
     if (run?.sessionId === id && !run.cancelled) {
       const live = this.live.get(id);
-      if (live?.session.isStreaming) {
+      // A content follow-up waits for the next prompt, so the turn running now keeps its entry.
+      if (live?.session.isStreaming && !(content && opts.followUp)) {
+        // A steering message joins the running turn now, and so does its entry.
+        if (content) this.opts.content?.setCurrent(id, entryId ?? null);
         const input = this.input(session.project, run.cwd, [message]);
         await (opts.followUp
           ? live.session.followUp(input.text, input.images)
@@ -723,6 +733,9 @@ export class AgentService {
       }
       let batch: Message[] = messages;
       while (batch.length > 0 && !run.cancelled) {
+        // Joined messages: the latest one's entry is the open one.
+        const sent = batch.findLast((m) => m.entryId !== undefined);
+        if (sent) this.opts.content?.setCurrent(id, sent.entryId ?? null);
         const input = this.input(record.project, run.cwd, batch);
         await live.session.prompt(input.text, input.images ? { images: input.images } : undefined);
         await live.session.waitForIdle();

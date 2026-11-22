@@ -1188,8 +1188,12 @@ describe("content management conversations", () => {
     faux.setResponses([
       pi.ai.fauxAssistantMessage(
         [
-          pi.ai.fauxToolCall("propose_update", { properties: { Name: "Hello again" } }, { id: "p1" }),
-          pi.ai.fauxToolCall("propose_update", { properties: { Name: "Other" } }, { id: "p2" }),
+          pi.ai.fauxToolCall(
+            "propose_update",
+            { lastEditedTime: "t1", properties: { Name: "Hello again" } },
+            { id: "p1" },
+          ),
+          pi.ai.fauxToolCall("propose_update", { lastEditedTime: "t1", properties: { Name: "Other" } }, { id: "p2" }),
         ],
         { stopReason: "toolUse" },
       ),
@@ -1231,6 +1235,51 @@ describe("content management conversations", () => {
     // Not for site conversations.
     const siteSession = agent.create((await site()).id);
     await expect(agent.proposals(siteSession.id)).rejects.toMatchObject({ code: "session.not_found" });
+  });
+
+  it("keep each message's open entry with that message, so a follow-up does not move the running turn", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const read: string[] = [];
+    const content = {
+      page: async (_s: string, _d: string, id: string) => {
+        read.push(id);
+        return { id, databaseId: DB, title: id.slice(0, 1), url: null, lastEditedTime: "t", properties: [] };
+      },
+      body: async () => ({ blocks: [], editable: true, unsupported: [], lastEditedTime: "t" }),
+    } as unknown as NotionContentService;
+    const { agent, settled } = service({ content });
+    const session = agent.create(key);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let started!: () => void;
+    const running = new Promise<void>((r) => {
+      started = r;
+    });
+    const readOpen = () =>
+      pi.ai.fauxAssistantMessage([pi.ai.fauxToolCall("read_entry", {})], { stopReason: "toolUse" });
+    faux.setResponses([
+      async () => {
+        started();
+        await gate;
+        return readOpen();
+      },
+      pi.ai.fauxAssistantMessage("A done"),
+      readOpen(),
+      pi.ai.fauxAssistantMessage("B done"),
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "about A", { entryId: A });
+    await running;
+    // The user opens B and sends a follow-up while A's turn still runs.
+    await agent.send(session.id, "now B", { entryId: B, followUp: true });
+    release();
+    await done;
+    await vi.waitFor(() => expect(read).toEqual([A, B]));
   });
 
   it("go with their data source, and need the content agent", async () => {

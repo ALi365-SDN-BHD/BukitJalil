@@ -30,6 +30,8 @@ function stub(s: Stub) {
     lastEditedTime: BASE,
     properties: [
       { name: "Name", type: "title", value: { type: "title", text: "Hello" }, display: "Hello" },
+      // Its display text is cut; the proposal shows the whole value.
+      { name: "Summary", type: "rich_text", value: { type: "rich_text", text: "Long text" }, display: "Long…" },
       { name: "Stage", type: "status", value: { type: "status", option: "Draft" }, display: "Draft" },
       { name: "Tags", type: "multi_select", value: { type: "multi_select", options: [] }, display: "" },
       { name: "Due", type: "date", value: { type: "date", start: null, end: null }, display: "" },
@@ -98,7 +100,9 @@ function tools(s: Stub, current: string | null = OPEN, sourceId = "ds_0123456789
     createProposeTools({ content: stub(s), ref: ref(sourceId), current: () => current }).map((t) => [
       t.name,
       async (params: Record<string, unknown>) => {
-        const r = (await t.execute("call_1", params as never, undefined, undefined as never, undefined as never)) as {
+        const withBase =
+          t.name === "propose_update" && !("lastEditedTime" in params) ? { lastEditedTime: BASE, ...params } : params;
+        const r = (await t.execute("call_1", withBase as never, undefined, undefined as never, undefined as never)) as {
           details: { proposal: ContentProposal };
         };
         return r.details.proposal;
@@ -112,7 +116,7 @@ describe("propose tools", () => {
     const calls: string[] = [];
     const t = tools({ calls });
     const proposal = await t.propose_update?.({
-      properties: { Name: "Hello", Stage: "Done", Tags: ["a", "b"], Due: "2026-12-01" },
+      properties: { Name: "Hello", Stage: "Done", Tags: ["a", "b"], Due: "2026-12-01", Summary: "Long text, more" },
       body: `New **text**\n\n![](notion-image:${IMAGE})`,
     });
     expect(calls).toEqual([]);
@@ -126,6 +130,7 @@ describe("propose tools", () => {
         { name: "Stage", before: "Draft", after: { type: "status", option: "Done" } },
         { name: "Tags", before: "", after: { type: "multi_select", options: ["a", "b"] } },
         { name: "Due", after: { type: "date", start: "2026-12-01", end: null } },
+        { name: "Summary", before: "Long text", after: { type: "rich_text", text: "Long text, more" } },
       ],
       body: { before: `Old\n\n![](notion-image:${IMAGE})`, after: `New **text**\n\n![](notion-image:${IMAGE})` },
     });
@@ -148,6 +153,8 @@ describe("propose tools", () => {
     await refused({ body: "![](notion-image:55555555555555555555555555555555)" }, /notion-image/);
     await refused({ body: `![](notion-image:${IMAGE})\n\n![](notion-image:${IMAGE})` }, /in their order/);
     await refused({ properties: { Related: 1 } }, /cannot be edited/, t.propose_create);
+    // Made from an older version than the entry has now: read it again first.
+    await refused({ lastEditedTime: "2026-11-22T07:00:00.000Z", properties: { Stage: "Done" } }, /read it again/);
     await expect(tools({ calls: [] }, null).propose_update?.({ properties: { Stage: "Done" } })).rejects.toThrow(
       /no entry open/,
     );

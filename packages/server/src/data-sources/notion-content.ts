@@ -464,7 +464,7 @@ export function formValue(type: string, raw: unknown): ContentValue | null {
   }
 }
 
-function displayOfValue(value: ContentValue): string {
+export function displayOfValue(value: ContentValue): string {
   switch (value.type) {
     case "title":
     case "rich_text":

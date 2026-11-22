@@ -8,6 +8,7 @@ import type { ToolView } from "@/features/chat/model";
 import { SessionMenu, StatusDot, useSessions } from "@/features/chat/sessions";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
+import { canonicalNotionId } from "@/lib/project";
 import { NEW_PAGE, useContentParams } from "./hooks";
 import { ProposalCard, proposalOf } from "./ProposalCard";
 
@@ -37,17 +38,19 @@ function store(key: string, value: string | null): void {
 export function ContentAssistant() {
   const { sourceId, databaseId } = useContentParams();
   const sources = useQuery({ queryKey: keys.dataSources, queryFn: api.dataSources });
-  if (!sourceId || !databaseId || !sources.data?.some((x) => x.id === sourceId)) return null;
-  return <Panel key={`${sourceId}/${databaseId}`} sourceId={sourceId} databaseId={databaseId} />;
+  // Conversations are kept by the database's id as the server keeps it (Notion's ids may have dashes).
+  const database = databaseId ? canonicalNotionId(databaseId) : null;
+  if (!sourceId || !databaseId || !database || !sources.data?.some((x) => x.id === sourceId)) return null;
+  return <Panel key={`${sourceId}/${database}`} sourceId={sourceId} databaseId={databaseId} database={database} />;
 }
 
-function Panel({ sourceId, databaseId }: { sourceId: string; databaseId: string }) {
+function Panel({ sourceId, databaseId, database }: { sourceId: string; databaseId: string; database: string }) {
   const { m, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const { pageId } = useContentParams();
-  const project = contentKey({ sourceId, databaseId });
+  const project = contentKey({ sourceId, databaseId: database });
   const [open, setOpen] = useState(() => stored(OPEN_KEY) === "1");
-  const [chosen, setChosen] = useState(() => stored(chosenKey(sourceId, databaseId)));
+  const [chosen, setChosen] = useState(() => stored(chosenKey(sourceId, database)));
   const sessions = useSessions(project);
   const list = sessions.data ?? [];
   // The remembered conversation, else the most recent one.
@@ -55,9 +58,9 @@ function Panel({ sourceId, databaseId }: { sourceId: string; databaseId: string 
   const choose = useCallback(
     (id: string | null) => {
       setChosen(id);
-      store(chosenKey(sourceId, databaseId), id);
+      store(chosenKey(sourceId, database), id);
     },
-    [sourceId, databaseId],
+    [sourceId, database],
   );
   const create = useMutation({
     mutationFn: () => api.createSession(project),

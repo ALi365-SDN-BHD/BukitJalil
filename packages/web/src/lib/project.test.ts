@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fileUrl, keys } from "@/lib/api";
-import { contentDatabasePath, modeOf, projectPath } from "@/lib/project";
+import { canonicalNotionId, contentDatabasePath, modeOf, projectPath } from "@/lib/project";
 
 // Theme development design 3.3 (T0 layer 3): the views address a site or a theme project by its key.
 const site = "0123456789abcdef";
@@ -10,6 +10,9 @@ describe("project addressing", () => {
   it("puts a site under /sites and a theme project under /themes", () => {
     expect(projectPath(site)).toBe(`/sites/${site}`);
     expect(projectPath(theme)).toBe("/themes/fedcba9876543210");
+    // Notion's ids with dashes are the same database to the server.
+    expect(canonicalNotionId("01234567-89AB-cdef-0123-456789abcdef")).toBe("0123456789abcdef0123456789abcdef");
+    expect(canonicalNotionId("db_posts")).toBeNull();
     // A content database's conversations live under the database, in the API and in the app.
     expect(projectPath("content/ds_0123456789ab/0123456789abcdef0123456789abcdef")).toBe(
       contentDatabasePath("ds_0123456789ab", "0123456789abcdef0123456789abcdef"),

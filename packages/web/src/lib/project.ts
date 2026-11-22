@@ -36,6 +36,15 @@ const under = (pathname: string, prefix: string) => pathname === prefix || pathn
 export const modeOf = (pathname: string): Mode =>
   under(pathname, "/themes") ? "theme" : under(pathname, "/content") ? "content" : "site";
 
+/**
+ * A Notion id as the server keeps it: 32 lowercase hex digits, without the dashes Notion's own ids may have;
+ * null for anything else. Routes keep the id as it came, so compare and key by this.
+ */
+export function canonicalNotionId(id: string): string | null {
+  const plain = id.replace(/-/g, "").toLowerCase();
+  return /^[0-9a-f]{32}$/.test(plain) ? plain : null;
+}
+
 /** A Notion database in content management (plan 5.6): `/content/sources/<id>/databases/<id>`. */
 export const contentDatabasePath = (sourceId: string, databaseId: string): string =>
   `/content/sources/${encodeURIComponent(sourceId)}/databases/${encodeURIComponent(databaseId)}`;

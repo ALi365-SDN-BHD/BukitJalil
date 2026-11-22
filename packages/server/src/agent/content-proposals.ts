@@ -10,7 +10,7 @@ import {
 } from "@bukitjalil/shared";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { contentToItems, contentToMarkdown, markdownToContent } from "../data-sources/notion-blocks.ts";
-import type { NotionContentService } from "../data-sources/notion-content.ts";
+import { displayOfValue, type NotionContentService } from "../data-sources/notion-content.ts";
 import { asSiteError, SiteError } from "../sites/location.ts";
 import type { Db } from "../store/db.ts";
 
@@ -142,9 +142,18 @@ export function createProposeTools({ content, ref, current }: ProposeToolOptions
       name: "propose_update",
       label: "Propose a change",
       description:
-        "Propose changes to the entry the user has open: properties to change and/or the whole new body. Read it with read_entry first. Nothing is written until the user confirms.",
-      parameters: { type: "object", properties: { properties, body }, additionalProperties: false } as never,
-      async execute(toolCallId, params: { properties?: Raw; body?: string }) {
+        "Propose changes to the entry the user has open: properties to change and/or the whole new body. Read it with read_entry first and pass its lastEditedTime: if the entry changed since, the proposal is refused and you read it again. Nothing is written until the user confirms.",
+      parameters: {
+        type: "object",
+        properties: {
+          lastEditedTime: { type: "string", description: "lastEditedTime from read_entry.", maxLength: 40 },
+          properties,
+          body,
+        },
+        required: ["lastEditedTime"],
+        additionalProperties: false,
+      } as never,
+      async execute(toolCallId, params: { lastEditedTime?: string; properties?: Raw; body?: string }) {
         const entryId = current();
         if (!entryId) throw new Error("The user has no entry open: an update is only for the open entry.");
         const [db, page, current_body] = await Promise.all([
@@ -152,6 +161,11 @@ export function createProposeTools({ content, ref, current }: ProposeToolOptions
           content.page(sourceId, databaseId, entryId),
           params.body === undefined ? null : content.body(sourceId, databaseId, entryId),
         ]);
+        // What the change was made from: an edit since would be overwritten with what it did not see.
+        if (params.lastEditedTime !== page.lastEditedTime)
+          throw new Error(
+            `The entry was edited at ${page.lastEditedTime}, after the version you read (${params.lastEditedTime ?? "none"}): read it again with read_entry, then propose again.`,
+          );
         const changed: ContentProposal["properties"] = [];
         for (const [name, raw] of Object.entries(params.properties ?? {})) {
           const property = page.properties.find((p) => p.name === name);
@@ -159,7 +173,7 @@ export function createProposeTools({ content, ref, current }: ProposeToolOptions
           if (!property.value) throw new Error(`Property "${name}" (${property.type}) cannot be edited here.`);
           const after = modelValue(name, property.type, raw, db);
           if (JSON.stringify(after) !== JSON.stringify(property.value))
-            changed.push({ name, type: property.type, before: property.display, after });
+            changed.push({ name, type: property.type, before: displayOfValue(property.value), after });
         }
         let bodyChange: ContentProposal["body"] = null;
         let blocks: ContentBlock[] | null = null;

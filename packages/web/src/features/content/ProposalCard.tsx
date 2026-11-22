@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import type { ToolView } from "@/features/chat/model";
 import { useI18n } from "@/i18n";
 import { api, keys } from "@/lib/api";
-import { contentPagePath } from "@/lib/project";
+import { canonicalNotionId, contentPagePath } from "@/lib/project";
 import { lineDiff } from "./diff";
 import { draftKey, useDraft } from "./draft";
+import { useContentParams } from "./hooks";
 
 /** The tools whose results are proposals (content editor and AI design, A2). */
 const PROPOSE_TOOLS = new Set(["propose_update", "propose_create"]);
@@ -61,13 +62,17 @@ export function ProposalCard({
   proposal: ContentProposal;
   sessionId: string;
   sourceId: string;
+  /** The database as the route has it, which the editor keys its draft by. */
   databaseId: string;
 }) {
   const { m, t, errorText, errorOf } = useI18n();
   const queryClient = useQueryClient();
   const states = useQuery({ queryKey: keys.proposals(sessionId), queryFn: () => api.proposals(sessionId) });
   const state = states.data?.find((s) => s.callId === tool.id) ?? PENDING(tool.id);
-  const draft = useDraft(proposal.entryId ? draftKey(sourceId, databaseId, proposal.entryId) : "");
+  // The server's ids have no dashes; the editor keeps the open page's id as its route has it.
+  const { pageId: openPageId } = useContentParams();
+  const open = openPageId !== null && canonicalNotionId(openPageId) === proposal.entryId;
+  const draft = useDraft(open ? draftKey(sourceId, databaseId, openPageId) : "");
   const blocked = proposal.kind === "update" && draft.dirty;
   const decide = useMutation({
     mutationFn: (decision: "apply" | "reject") => api.decideProposal(sessionId, tool.id, decision),
@@ -77,16 +82,15 @@ export function ProposalCard({
         next,
       ]);
       if (next.status !== "applied" && next.status !== "failed") return;
-      // What was written shows in the list and, if it is open, in the editor.
-      void queryClient.invalidateQueries({ queryKey: keys.contentEntries(sourceId, databaseId) });
-      if (next.entryId) {
-        void queryClient.invalidateQueries({ queryKey: keys.contentPage(sourceId, databaseId, next.entryId) });
-        void queryClient.invalidateQueries({ queryKey: keys.contentBody(sourceId, databaseId, next.entryId) });
-      }
+      // What was written shows in the list and, if it is open, in the editor. Cached keys may hold the ids
+      // with or without dashes, so every entry of the source is refreshed (only shown ones refetch).
+      for (const kind of ["content-entries", "content-page", "content-body"])
+        void queryClient.invalidateQueries({ queryKey: [kind, sourceId] });
     },
   });
   const title = proposal.title || m.content.ai.proposal.untitled;
-  const open = state.status === "pending" || (state.status === "failed" && state.error !== "content.proposal_partial");
+  const undecided =
+    state.status === "pending" || (state.status === "failed" && state.error !== "content.proposal_partial");
   const failure = state.error ? (state.error in m.errors ? errorText(state.error as ErrorCode) : state.error) : null;
 
   return (
@@ -154,7 +158,7 @@ export function ProposalCard({
           {errorOf(decide.error)}
         </p>
       )}
-      {open && (
+      {undecided && (
         <>
           {blocked && <p className="text-xs text-amber-700 dark:text-amber-400">{m.content.ai.proposal.draft}</p>}
           <div className="flex justify-end gap-2">

@@ -1,4 +1,4 @@
-import type { ContentRef } from "@bukitjalil/shared";
+import type { ContentRef, ContentValue } from "@bukitjalil/shared";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { contentToMarkdown } from "../data-sources/notion-blocks.ts";
 import type { NotionContentService } from "../data-sources/notion-content.ts";
@@ -30,6 +30,31 @@ const json = (value: unknown): Result => {
 const object = (properties: Record<string, unknown>, required: string[] = []) =>
   ({ type: "object", properties, required, additionalProperties: false }) as never;
 const str = (description: string, maxLength = 200) => ({ type: "string", description, maxLength });
+
+/**
+ * An editable value whole, in the form the propose tools take it back; the display text of a property is
+ * shortened, and a change made from it would drop what was cut.
+ */
+export function modelValueOf(value: ContentValue): unknown {
+  switch (value.type) {
+    case "title":
+    case "rich_text":
+      return value.text;
+    case "number":
+      return value.number;
+    case "select":
+    case "status":
+      return value.option;
+    case "multi_select":
+      return value.options;
+    case "date":
+      return value.end ? { start: value.start, end: value.end } : value.start;
+    case "checkbox":
+      return value.checked;
+    default:
+      return value.text;
+  }
+}
 
 /** The entry a tool call names, or the open one; refuses (to the model) when there is neither. */
 export function entryOf(id: unknown, current: () => string | null): string {
@@ -88,7 +113,7 @@ export function createContentReadTools({ content, ref, current }: ContentToolOpt
       name: "read_entry",
       label: "Read entry",
       description:
-        "One entry's properties and body. Without entryId it reads the entry the user has open, which can change between messages. The body is Markdown (headings 1-3, lists, to-dos, quotes, code, dividers, images, bold, italic, strikethrough, inline code, links); a body with other Notion blocks cannot be read or edited here, and the result says why.",
+        "One entry's properties and body, and lastEditedTime, which propose_update needs. Editable properties have their whole value; read-only ones their display text. Without entryId it reads the entry the user has open, which can change between messages. The body is Markdown (headings 1-3, lists, to-dos, quotes, code, dividers, images, bold, italic, strikethrough, inline code, links); a body with other Notion blocks cannot be read or edited here, and the result says why.",
       parameters: object({ entryId: str("An entry id from search_entries; omit for the open entry.", 40) }),
       async execute(_id, params: { entryId?: string }) {
         const pageId = entryOf(params.entryId, current);
@@ -105,7 +130,7 @@ export function createContentReadTools({ content, ref, current }: ContentToolOpt
             name,
             type,
             editable: value !== null,
-            value: display,
+            value: value === null ? display : modelValueOf(value),
           })),
           body: body.editable ? contentToMarkdown(body.blocks) : null,
           bodyReadOnly: body.editable ? null : body.unsupported,

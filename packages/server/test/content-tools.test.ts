@@ -18,7 +18,7 @@ function stub(calls: string[], body: Partial<ContentBody> = {}) {
     url: null,
     lastEditedTime: "2026-11-22T08:00:00.000Z",
     properties: [
-      { name: "Name", type: "title", value: { type: "title", text: "Hi" }, display: "Hi" },
+      { name: "Name", type: "title", value: { type: "title", text: "Hi there, all of it" }, display: "Hi…" },
       { name: "Related", type: "relation", value: null, display: "2" },
     ],
   });
@@ -105,7 +105,8 @@ describe("content read tools", () => {
       body: "# Title\n\n**Hello**",
       bodyReadOnly: null,
       properties: [
-        { name: "Name", editable: true, value: "Hi" },
+        // The whole value of an editable property, not its shortened display text.
+        { name: "Name", editable: true, value: "Hi there, all of it" },
         { name: "Related", editable: false, value: "2" },
       ],
     });

@@ -616,6 +616,11 @@ test("the AI assistant talks about the open entry, and writes a proposal only wh
   // Nothing was written by the page itself: only the server writes a proposal.
   expect(notion.writes).toEqual([]);
 
+  // Opened by Notion's dashed id, it is the same database with the same conversations.
+  const dashed = `${DB.slice(0, 8)}-${DB.slice(8, 12)}-${DB.slice(12, 16)}-${DB.slice(16, 20)}-${DB.slice(20)}`;
+  await page.goto(`/content/sources/${id}/databases/${dashed}`);
+  await expect(page.getByTestId("content-ai-sessions")).toHaveValue(/^[0-9a-f]{16}$/);
+
   await page.unroute(/\/api\/sessions\/[0-9a-f]+$/);
   await removeSource(page, id);
   await putSettings(page, { model: null });
