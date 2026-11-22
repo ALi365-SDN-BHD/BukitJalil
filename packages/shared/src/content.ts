@@ -78,11 +78,202 @@ export const ContentPageUpdate = z
   .strict();
 export type ContentPageUpdate = z.infer<typeof ContentPageUpdate>;
 
-/** Longest body Markdown a save takes (Notion takes about 500 KB per request). */
-export const CONTENT_BODY_MAX = 500_000;
-const Markdown = z.string().max(CONTENT_BODY_MAX);
+/** The code languages Notion accepts (API 2022-06-28), as a code block's `language`. */
+export const CONTENT_CODE_LANGUAGES = [
+  "abap",
+  "agda",
+  "arduino",
+  "ascii art",
+  "assembly",
+  "bash",
+  "basic",
+  "bnf",
+  "c",
+  "c#",
+  "c++",
+  "clojure",
+  "coffeescript",
+  "coq",
+  "css",
+  "dart",
+  "dhall",
+  "diff",
+  "docker",
+  "ebnf",
+  "elixir",
+  "elm",
+  "erlang",
+  "f#",
+  "flow",
+  "fortran",
+  "gherkin",
+  "glsl",
+  "go",
+  "graphql",
+  "groovy",
+  "haskell",
+  "hcl",
+  "html",
+  "idris",
+  "java",
+  "javascript",
+  "json",
+  "julia",
+  "kotlin",
+  "latex",
+  "less",
+  "lisp",
+  "livescript",
+  "llvm ir",
+  "lua",
+  "makefile",
+  "markdown",
+  "markup",
+  "matlab",
+  "mathematica",
+  "mermaid",
+  "nix",
+  "notion formula",
+  "objective-c",
+  "ocaml",
+  "pascal",
+  "perl",
+  "php",
+  "plain text",
+  "powershell",
+  "prolog",
+  "protobuf",
+  "purescript",
+  "python",
+  "r",
+  "racket",
+  "reason",
+  "ruby",
+  "rust",
+  "sass",
+  "scala",
+  "scheme",
+  "scss",
+  "shell",
+  "smalltalk",
+  "solidity",
+  "sql",
+  "swift",
+  "toml",
+  "typescript",
+  "vb.net",
+  "verilog",
+  "vhdl",
+  "visual basic",
+  "webassembly",
+  "xml",
+  "yaml",
+  "java/c/c++/c#",
+] as const;
 
-export const ContentPageCreate = z.object({ properties: Properties, markdown: Markdown.optional() }).strict();
+/** Most characters of text (and addresses) a body save takes; a longer body is edited in Notion. */
+export const CONTENT_BODY_MAX = 500_000;
+/**
+ * Most characters of one run of body text, or of a code block: what one block's 100 segments hold. Notion
+ * returns a block's text in up to 100 segments, read back as fewer, longer runs; a run that cannot be split
+ * into 100 segments is refused when the body is written.
+ */
+export const CONTENT_SPAN_MAX = NOTION_TEXT_SEGMENT * 100;
+/** Most top-level blocks a body save takes. */
+export const CONTENT_BLOCKS_MAX = 5000;
+
+/**
+ * A run of text with one set of styles (plan 5.6 item 7): bold, italic, strikethrough, inline code and a link.
+ * Text may hold line breaks.
+ */
+export const ContentSpan = z
+  .object({
+    text: z.string().min(1).max(CONTENT_SPAN_MAX),
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    strike: z.boolean().optional(),
+    code: z.boolean().optional(),
+    href: z
+      .string()
+      .max(NOTION_URL_MAX)
+      .regex(/^(https?:\/\/|mailto:)/i)
+      .optional(),
+  })
+  .strict();
+export type ContentSpan = z.infer<typeof ContentSpan>;
+const Spans = z.array(ContentSpan).max(100);
+
+const listItem = <S extends z.ZodRawShape>(more: S) =>
+  z.discriminatedUnion("type", [
+    z.object({ type: z.literal("bulleted_list_item"), text: Spans, ...more }).strict(),
+    z.object({ type: z.literal("numbered_list_item"), text: Spans, ...more }).strict(),
+    z.object({ type: z.literal("to_do"), text: Spans, checked: z.boolean(), ...more }).strict(),
+  ]);
+/** A list item under another: it has no children of its own. */
+const ContentListLeaf = listItem({});
+const ContentListItem = listItem({ children: z.array(ContentListLeaf).max(100).optional() });
+export type ContentListItem = z.infer<typeof ContentListItem>;
+
+/**
+ * One block of a page body, only of the kinds this edits (plan 5.6 item 7): the names are Notion's block types.
+ * Only a top-level list item has children, and only list items. `notion_image` is an image uploaded to Notion:
+ * it can be moved, removed or given a new caption, never a new picture, and `url` (signed, for an hour) is
+ * only for showing it.
+ */
+export const ContentBlock = z.union([
+  ContentListItem,
+  z.discriminatedUnion("type", [
+    z.object({ type: z.literal("paragraph"), text: Spans }).strict(),
+    z.object({ type: z.literal("heading_1"), text: Spans }).strict(),
+    z.object({ type: z.literal("heading_2"), text: Spans }).strict(),
+    z.object({ type: z.literal("heading_3"), text: Spans }).strict(),
+    z.object({ type: z.literal("quote"), text: Spans }).strict(),
+    z
+      .object({ type: z.literal("code"), language: z.string().max(40), text: z.string().max(CONTENT_SPAN_MAX) })
+      .strict(),
+    z.object({ type: z.literal("divider") }).strict(),
+    z.object({ type: z.literal("image"), url: z.string().max(NOTION_URL_MAX), caption: Spans }).strict(),
+    z
+      .object({
+        type: z.literal("notion_image"),
+        id: z.string().max(100),
+        url: z.string().max(4000).optional(),
+        caption: Spans,
+      })
+      .strict(),
+  ]),
+]);
+export type ContentBlock = z.infer<typeof ContentBlock>;
+
+/** Characters of text and addresses in a body: what CONTENT_BODY_MAX counts. */
+export function contentLength(blocks: readonly ContentBlock[]): number {
+  const spans = (spans: readonly ContentSpan[]) => spans.reduce((n, s) => n + s.text.length + (s.href?.length ?? 0), 0);
+  return blocks.reduce((n, b) => {
+    switch (b.type) {
+      case "code":
+        return n + b.text.length;
+      case "divider":
+        return n;
+      case "image":
+        return n + b.url.length + spans(b.caption);
+      case "notion_image":
+        return n + spans(b.caption);
+      case "bulleted_list_item":
+      case "numbered_list_item":
+      case "to_do":
+        return n + spans(b.text) + contentLength(b.children ?? []);
+      default:
+        return n + spans(b.text);
+    }
+  }, 0);
+}
+
+const Blocks = z
+  .array(ContentBlock)
+  .max(CONTENT_BLOCKS_MAX)
+  .refine((blocks) => contentLength(blocks) <= CONTENT_BODY_MAX, "body too long");
+
+export const ContentPageCreate = z.object({ properties: Properties, blocks: Blocks.optional() }).strict();
 export type ContentPageCreate = z.infer<typeof ContentPageCreate>;
 
 export interface ContentOption {
@@ -148,17 +339,18 @@ export interface ContentPage {
 }
 
 /**
- * GET /api/content/sources/:sourceId/databases/:databaseId/pages/:pageId/body: the body as Markdown (plan 5.6
- * item 7). `unsupported` names what keeps it read-only: block types, or `children`, `color`, `underline`,
- * `mention`, `equation`, `link`, `toggle`, `caption`, `code_format`, `code_language`, `image_url`, `unwritable`, `too_long`.
+ * GET /api/content/sources/:sourceId/databases/:databaseId/pages/:pageId/body: the body as blocks (plan 5.6
+ * item 7), empty when it cannot be edited here. `unsupported` names what keeps it read-only: block types, or
+ * `children`, `color`, `underline`, `mention`, `equation`, `link`, `toggle`, `caption`, `code_format`,
+ * `code_language`, `image_url`, `unwritable`, `too_long`.
  */
 export interface ContentBody {
-  markdown: string;
+  blocks: ContentBlock[];
   editable: boolean;
   unsupported: string[];
   lastEditedTime: string;
 }
 
 /** PUT …/body: replaces the whole body. */
-export const ContentBodyUpdate = z.object({ lastEditedTime: z.string().min(1).max(40), markdown: Markdown }).strict();
+export const ContentBodyUpdate = z.object({ lastEditedTime: z.string().min(1).max(40), blocks: Blocks }).strict();
 export type ContentBodyUpdate = z.infer<typeof ContentBodyUpdate>;

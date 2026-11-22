@@ -1,4 +1,5 @@
 import {
+  CONTENT_BLOCKS_MAX,
   CONTENT_BODY_MAX,
   CONTENT_PAGE_SIZE,
   CONTENT_PROPERTY_NAME_MAX,
@@ -14,6 +15,7 @@ import {
   type ContentSchemaProperty,
   type ContentSortDirection,
   type ContentValue,
+  contentLength,
   isEditablePropertyType,
   NOTION_MAX_PROPERTIES,
 } from "@bukitjalil/shared";
@@ -22,13 +24,13 @@ import { SiteError } from "../sites/location.ts";
 import {
   BATCH_BYTES,
   type BodyItem,
-  blocksToMarkdown,
   captionChanged,
   chunks,
+  contentToItems,
   isHostedImage,
   isListType,
-  markdownToItems,
   type RawBlock,
+  readBody,
   storedOf,
 } from "./notion-blocks.ts";
 import { type DataSourceService, type NotionMethod, notionId } from "./service.ts";
@@ -173,7 +175,7 @@ export class NotionContentService {
 
   /** A new page with the given properties and, optionally, a body. */
   async create(sourceId: string, databaseId: string, req: ContentPageCreate): Promise<ContentPage> {
-    const items = req.markdown ? markdownToItems(req.markdown) : [];
+    const items = contentToItems(req.blocks ?? []);
     if (items.some((item) => item.kind === "keep")) throw new SiteError("content.body_images", 400);
     const [first = [], ...rest] = batches(items.flatMap((item) => (item.kind === "block" ? [item.block] : [])));
     const json = await this.call(
@@ -205,16 +207,18 @@ export class NotionContentService {
     return viewOf(json);
   }
 
-  /** The body as Markdown, or what keeps it from being edited here. */
+  /** The body as blocks, or what keeps it from being edited here. */
   async body(sourceId: string, databaseId: string, pageId: string): Promise<ContentBody> {
     const page = await this.read(sourceId, databaseId, pageId);
     const tree = await this.tree(sourceId, idOf(pageId));
-    const read = tree.tooLong ? null : blocksToMarkdown(tree.blocks);
+    const read = tree.tooLong ? null : readBody(tree.blocks);
     // A body longer than a save takes could not be saved again, so it is edited in Notion.
-    const { markdown, unsupported } =
-      !read || read.markdown.length > CONTENT_BODY_MAX ? { markdown: "", unsupported: ["too_long"] } : read;
+    const { blocks, unsupported } =
+      !read || read.blocks.length > CONTENT_BLOCKS_MAX || contentLength(read.blocks) > CONTENT_BODY_MAX
+        ? { blocks: [], unsupported: ["too_long"] }
+        : read;
     return {
-      markdown,
+      blocks,
       editable: unsupported.length === 0,
       unsupported,
       lastEditedTime: str(page.last_edited_time, 40),
@@ -229,12 +233,11 @@ export class NotionContentService {
   async saveBody(sourceId: string, databaseId: string, pageId: string, req: ContentBodyUpdate): Promise<ContentBody> {
     const page = await this.read(sourceId, databaseId, pageId);
     if (str(page.last_edited_time, 40) !== req.lastEditedTime) throw new SiteError("content.conflict", 409);
-    const items = markdownToItems(req.markdown);
+    const items = contentToItems(req.blocks);
     const id = idOf(pageId);
     const tree = await this.tree(sourceId, id);
-    if (tree.tooLong || blocksToMarkdown(tree.blocks).unsupported.length > 0) {
-      throw new SiteError("content.body_unsupported", 409);
-    }
+    const current = tree.tooLong ? null : readBody(tree.blocks);
+    if (!current || current.unsupported.length > 0) throw new SiteError("content.body_unsupported", 409);
     await this.replaceBody(
       sourceId,
       id,
@@ -242,8 +245,13 @@ export class NotionContentService {
       items,
     );
     const after = await this.call(sourceId, "GET", `/pages/${id}`);
+    // Kept images are where they were: they keep the address they were shown with.
+    const shown = new Map(current.blocks.flatMap((b) => (b.type === "notion_image" && b.url ? [[b.id, b.url]] : [])));
     return {
-      markdown: blocksToMarkdown(storedOf(items)).markdown,
+      blocks: readBody(storedOf(items)).blocks.map((b) => {
+        const url = b.type === "notion_image" ? shown.get(b.id) : undefined;
+        return url ? { ...b, url } : b;
+      }),
       editable: true,
       unsupported: [],
       lastEditedTime: str(after.last_edited_time, 40),

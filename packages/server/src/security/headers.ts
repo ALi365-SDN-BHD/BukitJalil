@@ -11,13 +11,15 @@ export const newCspNonce = () => crypto.randomBytes(16).toString("base64");
 /**
  * Admin port CSP (plan 11). frame-ancestors / X-Frame-Options stop a preview page from framing the
  * admin UI (clickjacking, measured in M1). Pages served with a nonce may add <style> elements carrying
- * it: Radix (shadcn dialogs, selects) injects its scroll-lock styles that way.
+ * it: Radix (shadcn dialogs, selects) injects its scroll-lock styles that way. Images may come from any
+ * http or https address, the schemes a Notion body's external images may use, and Notion's signed ones
+ * (plan 5.6 item 7); the image host sees the request, without a referrer.
  */
 export function adminCsp(nonce: string | null): string {
   return [
     "default-src 'self'",
     nonce ? `style-src 'self' 'nonce-${nonce}'` : null,
-    "img-src 'self' data:",
+    "img-src 'self' data: http: https:",
     "connect-src 'self'",
     "object-src 'none'",
     "frame-src http://127.0.0.1:*",

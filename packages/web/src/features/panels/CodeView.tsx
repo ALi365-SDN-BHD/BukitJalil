@@ -1,17 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ThemedToken } from "shiki/core";
 import { type Lang, MAX_HIGHLIGHT_CHARS, tokenize } from "@/lib/highlight";
-
-/** Is the page in dark mode? Follows the class main.tsx sets from the system setting. */
-function useDark(): boolean {
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
-  useEffect(() => {
-    const observer = new MutationObserver(() => setDark(document.documentElement.classList.contains("dark")));
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, []);
-  return dark;
-}
+import { useDark } from "@/lib/theme";
 
 /** Read-only code with line numbers; highlighted when the language is known and the file is not huge. */
 export function CodeView({ code, lang }: { code: string; lang: Lang | null }) {
