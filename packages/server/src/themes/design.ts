@@ -94,7 +94,15 @@ export function stripComments(css: string): string {
 
 /** The bodies of the `@media` blocks whose condition matches `condition`, braces balanced. */
 export function mediaBlocks(css: string, condition: RegExp): string[] {
-  const blocks: string[] = [];
+  return mediaSpans(css, condition).map(([, , start, end]) => css.slice(start, end));
+}
+
+/**
+ * Where the `@media` blocks whose condition matches `condition` are: `[start, end, bodyStart, bodyEnd]`, from
+ * `@media` to past the closing brace, braces balanced.
+ */
+export function mediaSpans(css: string, condition: RegExp): [number, number, number, number][] {
+  const spans: [number, number, number, number][] = [];
   for (const m of css.matchAll(/@media([^{]*)\{/g)) {
     if (!condition.test(m[1] as string)) continue;
     const start = (m.index as number) + m[0].length;
@@ -104,7 +112,7 @@ export function mediaBlocks(css: string, condition: RegExp): string[] {
       if (css[i] === "{") depth++;
       else if (css[i] === "}") depth--;
     }
-    blocks.push(css.slice(start, i - 1));
+    spans.push([m.index as number, i, start, depth === 0 ? i - 1 : i]);
   }
-  return blocks;
+  return spans;
 }

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseYaml } from "../src/panels/yaml.ts";
 import { applyDesignSystem, makeThemeProject } from "../src/themes/demo.ts";
 import { contrastRatio, darkSchemeColors, missingTokens, TOKEN_CONTRACT } from "../src/themes/design.ts";
+import { lintTheme, lintThemeFiles } from "../src/themes/lint.ts";
 import { writeStarter } from "./fixtures/starter.ts";
 
 const DEMO = path.join(import.meta.dirname, "..", "assets", "theme-demo");
@@ -87,5 +88,142 @@ describe("the default design system (theme design spec D1)", () => {
     expect(() => applyDesignSystem(theme, DEMO)).toThrow(/no stylesheet link/);
     expect(fs.existsSync(path.join(theme, "tokens.yaml"))).toBe(false);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("the theme design lint (theme design spec D2)", () => {
+  const tokensText = fs.readFileSync(path.join(SYSTEM, "tokens.yaml"), "utf8");
+  const clean = () =>
+    new Map([
+      ["tokens.yaml", tokensText],
+      ["assets/style.css", css],
+      ["layouts/layouts/base.html", '<link rel="stylesheet" href="{{ asset_base_url }}/assets/style.css" />'],
+    ]);
+  const rules = (files: Map<string, string>) => lintTheme(files).map((i) => i.rule);
+
+  it("finds nothing in a new theme made from the default design system", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bj-lint-"));
+    const site = path.join(dir, "site");
+    writeStarter(site, { title: "Aurora", language: "en-US" });
+    makeThemeProject(site, { name: "aurora", displayName: "Aurora" }, DEMO);
+    const files = {
+      list: async (sub: string) =>
+        (fs.readdirSync(path.join(site, sub), { recursive: true, withFileTypes: true }) as fs.Dirent[])
+          .filter((d) => d.isFile())
+          .map((d) => path.relative(site, path.join(d.parentPath, d.name)).split(path.sep).join("/")),
+      read: async (paths: readonly string[]) =>
+        new Map(paths.map((p) => [p, fs.readFileSync(path.join(site, p), "utf8")] as const)),
+    };
+    expect(await lintThemeFiles("themes/aurora", files)).toEqual([]);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reports missing tokens and contrast in both schemes", () => {
+    const files = clean();
+    files.set(
+      "tokens.yaml",
+      tokensText.replace(/^ {2}muted: .*$/m, '  muted: "#bbbbbb"').replace(/^ {2}wide: .*$/m, ""),
+    );
+    files.set("assets/style.css", `${css}\n@media (prefers-color-scheme: dark) { :root { --color-link: #333333; } }\n`);
+    const issues = lintTheme(files);
+    expect(issues.find((i) => i.rule === "tokens_missing")?.detail).toContain("layout.wide");
+    const contrast = issues.filter((i) => i.rule === "contrast").map((i) => i.detail);
+    expect(contrast.some((d) => d.startsWith("light scheme: muted #bbbbbb on bg"))).toBe(true);
+    expect(contrast.some((d) => d.startsWith("dark scheme: link #333333 on bg"))).toBe(true);
+    files.delete("tokens.yaml");
+    expect(lintTheme(files).find((i) => i.rule === "tokens_missing")?.file).toBeNull();
+  });
+
+  it("reports literal colors, outside resources, focus, motion and AI-look patterns with their lines", () => {
+    const files = clean();
+    files.set(
+      "assets/extra.css",
+      [
+        "/* #ff00ff in a comment is fine */",
+        ".card { color: #ff00ff; transition: all 0.2s; }",
+        ".hero { background: url(https://cdn.example.com/x.png); }",
+        ".title { background-clip: text; -webkit-background-clip: text; }",
+        ".nav { backdrop-filter: blur(8px); }",
+        ".notion-red { color: #ff0000; }",
+        "@media print { a { color: #000; } }",
+        "@import url('//fonts.example.com/a.css');",
+      ].join("\n"),
+    );
+    files.set(
+      "layouts/partials/header.html",
+      '<a href="https://example.com">x</a>\n<h2>🚀 Fast</h2>\n<script src="https://cdn.example.com/a.js"></script>',
+    );
+    const issues = lintTheme(files);
+    const at = (rule: string, file: string) => issues.find((i) => i.rule === rule && i.file === file);
+    expect(at("literal_color", "assets/extra.css")).toMatchObject({ line: 2 });
+    expect(at("literal_color", "assets/extra.css")?.detail).toContain("line 2.");
+    expect(at("transition_all", "assets/extra.css")).toMatchObject({ line: 2 });
+    // style.css's reduced-motion block covers the other stylesheets too.
+    expect(at("reduced_motion", "assets/extra.css")).toBeUndefined();
+    expect(at("external_resource", "assets/extra.css")?.detail).toContain("lines 3, 8");
+    expect(at("gradient_text", "assets/extra.css")).toMatchObject({ line: 4 });
+    expect(at("frosted_glass", "assets/extra.css")).toMatchObject({ line: 5 });
+    expect(at("external_resource", "layouts/partials/header.html")).toMatchObject({ line: 3 });
+    expect(at("emoji", "layouts/partials/header.html")).toMatchObject({ line: 2 });
+    expect(issues.some((i) => i.rule === "focus_visible")).toBe(false);
+    expect(rules(clean())).toEqual([]);
+  });
+
+  it("reports a theme with no :focus-visible style, and © or arrows are not emoji", () => {
+    const files = new Map([
+      ["tokens.yaml", tokensText],
+      ["assets/style.css", "a { outline: none; color: var(--color-link); }"],
+      ["static/404.html", "<p>© 2026 → home</p>"],
+    ]);
+    expect(lintTheme(files).filter((i) => i.rule === "focus_visible")).toEqual([
+      { rule: "focus_visible", file: "assets/style.css", line: 1, detail: expect.stringContaining(":focus-visible") },
+    ]);
+    // A :focus-visible in a comment does not count.
+    files.set("assets/style.css", "/* a:focus-visible later */\na { color: var(--color-link); }");
+    expect(rules(files)).toEqual(["focus_visible"]);
+    files.set("assets/style.css", "a:focus-visible { outline: 2px solid; }\na { transition: color 0.2s; }");
+    expect(lintTheme(files).filter((i) => i.rule === "reduced_motion")).toMatchObject([
+      { file: "assets/style.css", line: 2 },
+    ]);
+    files.set("assets/motion.css", "@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }");
+    expect(rules(files)).toEqual([]);
+  });
+
+  it("does not report what is turned off, text symbols or non-palette rules, and finds real emoji", () => {
+    const run = (css: string, html = "") =>
+      rules(
+        new Map([
+          ["tokens.yaml", tokensText],
+          ["assets/a.css", `a:focus-visible { outline: 2px solid; }\n${css}`],
+          ["layouts/x.html", html],
+        ]),
+      );
+    expect(run(".a { backdrop-filter: none; transition: none; animation : none; }")).toEqual([]);
+    expect(run(".a { backdrop-filter:blur(2px); }")).toEqual(["frosted_glass"]);
+    expect(run("", "<button>☰</button><span>★ © ™ →</span>")).toEqual([]);
+    for (const emoji of ["✨", "✅", "⭐", "🚀", "❤️"])
+      expect(run("", `<h2>${emoji} New</h2>`), emoji).toEqual(["emoji"]);
+    // Only the `.token` class is a code highlighting palette, and `not print` is the screen.
+    expect(run(".token-list { color: #f00; }")).toEqual(["literal_color"]);
+    expect(run(".token.keyword { color: #f00; }")).toEqual([]);
+    expect(run("@media not print { .a { color: #f00; } }")).toEqual(["literal_color"]);
+    expect(
+      run("@media screen, print { .a { color: #f00; } }\n@media print and (color) { .b { color: #000; } }"),
+    ).toEqual([]);
+  });
+
+  it("removing the outline is only `none` or `0`, and line numbers hold in long files", () => {
+    const files = (css: string) =>
+      new Map([
+        ["tokens.yaml", tokensText],
+        ["assets/a.css", css],
+      ]);
+    const focus = (css: string) => lintTheme(files(css)).filter((i) => i.rule === "focus_visible");
+    expect(focus("a { outline: 0.5px solid; }")).toEqual([expect.objectContaining({ file: null })]);
+    expect(focus("a { outline: 0; }")).toEqual([expect.objectContaining({ file: "assets/a.css", line: 1 })]);
+    const long = `${"a { color: var(--color-text); }\n".repeat(20_000)}b { color: #f00; }\n`;
+    expect(lintTheme(files(`a:focus-visible { outline: 2px solid; }\n${long}`))).toEqual([
+      expect.objectContaining({ rule: "literal_color", line: 20_002 }),
+    ]);
   });
 });

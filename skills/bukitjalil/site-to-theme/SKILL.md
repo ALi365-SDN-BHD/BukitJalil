@@ -61,7 +61,8 @@ or wait for the user before you start.
    skill if the captured site does not have an equivalent.
 9. Run `bukit_check`, then `bukit_build`, and compare the preview with the
    screenshots at each width. Fix the largest differences first.
-10. Go through the design self-check in the `theme-design` skill. Where
+10. Run `theme_lint`, then go through the design self-check in the
+    `theme-design` skill. Where
     the captured site itself fails a check in groups 1-4, keep its look and
     name the check in `summarize_changes`. Group 5 (no AI look) is the
     exception: don't copy those elements; use a plain equivalent and list

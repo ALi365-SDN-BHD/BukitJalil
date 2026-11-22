@@ -354,7 +354,18 @@ describe("new theme projects (T1)", () => {
       existing: false,
       removed: [],
       configTheme: "starter",
+      // A new theme starts from the default design system, which the design lint passes.
+      lint: [],
     });
+    // The lint reads the theme project's default branch: warnings for the dialog, applying still works.
+    fs.writeFileSync(
+      path.join(dir, "themes", "deliver", "assets", "extra.css"),
+      ".nav { backdrop-filter: blur(4px); }\n",
+    );
+    commitAllAs(base, dir);
+    expect(
+      ((await (await call("GET", `/api/themes/${t.id}/apply?siteId=${s.id}`)).json()) as { lint: unknown }).lint,
+    ).toEqual([{ rule: "frosted_glass", file: "assets/extra.css", line: 1, detail: expect.any(String) }]);
     const planBody = (await (await call("GET", `/api/themes/${t.id}/apply?siteId=${s.id}`)).json()) as {
       added: string[];
     };

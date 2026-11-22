@@ -507,6 +507,7 @@ describe("AgentService", () => {
             call("write", { path: "_reference/note.md", content: "x" }),
             call("write", { path: "static/404.html", content: "x" }),
             call("theme_coverage", {}),
+            call("theme_lint", {}),
           ],
           { stopReason: "toolUse" },
         );
@@ -543,6 +544,9 @@ describe("AgentService", () => {
       searchPage: true,
       notFoundPage: false,
     });
+    const lint = ends.find((e) => e.toolName === "theme_lint");
+    expect(lint?.isError).toBe(false);
+    expect((lint?.result as { details: { issues: unknown } } | undefined)?.details.issues).toBeInstanceOf(Array);
     const ai = path.join(ctx.paths.worktrees, "themes", t.id, "ai");
     expect(fs.existsSync(path.join(ai, "themes", "aurora", "tokens.yaml"))).toBe(true);
     expect(fs.existsSync(path.join(ai, "layouts"))).toBe(false);

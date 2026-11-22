@@ -105,6 +105,13 @@ Go through this check before you ask the user to confirm a look, and again
 before you finish. Fix what fails. If you leave something on purpose, say what
 and why in `summarize_changes`.
 
+In a theme project, run `theme_lint` first. It tests what a program can: the
+token contract, the contrast of hex token colors in both schemes, literal
+colors, resources from other sites, `:focus-visible`, reduced motion,
+`transition: all`, gradient text, frosted glass and emoji. Fix what it reports,
+then check the rest yourself; an empty result does not mean the check passed.
+The user sees the same warnings when they apply the theme to a site.
+
 Go through the groups in order, and don't polish a later group while an
 earlier one fails. In group 4, the user's request and the reference images
 come first. Group 5 is strict and has its own rule for user requests. Groups
