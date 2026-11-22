@@ -28,6 +28,13 @@ function contentParam(c: Context): ProjectKey {
   return key;
 }
 
+/** A tool call id, as the model provider made it; 404 for one no proposal can have. */
+function callParam(c: Context): string {
+  const id = c.req.param("callId") ?? "";
+  if (id.length === 0 || id.length > 256) throw new SiteError("content.proposal_not_found", 404);
+  return id;
+}
+
 /** AI sessions (plan 9.1); what they do arrives on the event stream. */
 export function sessionRoutes(api: Hono<AppEnv>, agent: AgentService) {
   api.get(`${CONTENT}/sessions`, (c) => handle(c, () => c.json(agent.listInfo(contentParam(c)))));
@@ -96,6 +103,17 @@ export function sessionRoutes(api: Hono<AppEnv>, agent: AgentService) {
       await agent.stop(id);
       return c.json(agent.info(id));
     }),
+  );
+
+  // Proposals of a content conversation (content editor and AI design, A2): written only on the user's word.
+  api.get("/sessions/:sessionId/proposals", (c) =>
+    handle(c, async () => c.json(await agent.proposals(c.req.param("sessionId")))),
+  );
+  api.post("/sessions/:sessionId/proposals/:callId/apply", (c) =>
+    handle(c, async () => c.json(await agent.applyProposal(c.req.param("sessionId"), callParam(c)))),
+  );
+  api.post("/sessions/:sessionId/proposals/:callId/reject", (c) =>
+    handle(c, async () => c.json(await agent.rejectProposal(c.req.param("sessionId"), callParam(c)))),
   );
 
   api.post("/sessions/:sessionId/fork", (c) =>

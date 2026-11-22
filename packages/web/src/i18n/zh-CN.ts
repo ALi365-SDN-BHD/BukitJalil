@@ -1392,6 +1392,11 @@ const zhCN = {
     "datasource.notion_source_missing": "正式版本里这个源没有 Notion databaseId",
     "content.bad_id": "不是 Notion 的数据库或页面 ID",
     "content.not_in_database": "这个页面不在这个数据库里，或者已经移到回收站",
+    "content.proposal_busy": "这项改动正在写入，请稍候",
+    "content.proposal_decided": "这项改动已经处理过了",
+    "content.proposal_invalid": "这项改动的内容无效，没有写入。请让 AI 重新提议",
+    "content.proposal_not_found": "在这个对话里找不到这项改动",
+    "content.proposal_partial": "正文已写入，但属性没有写入。请重新打开条目检查，再让 AI 重新提议属性的改动",
     "content.conflict": "这个页面在你打开之后被修改过。请重新读取，再改一次",
     "content.notion_write_forbidden":
       "这个 integration 没有写入权限：请在 Notion 的 integration 设置里打开 Update content 和 Insert content",

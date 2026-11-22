@@ -1486,6 +1486,12 @@ const ms: Messages = {
     "datasource.notion_source_missing": "Sumber ini tiada databaseId Notion pada versi utama",
     "content.bad_id": "Bukan ID pangkalan data atau halaman Notion",
     "content.not_in_database": "Halaman ini tiada dalam pangkalan data ini, atau sudah dipindah ke tong sampah",
+    "content.proposal_busy": "Perubahan ini sedang ditulis. Sila tunggu",
+    "content.proposal_decided": "Perubahan ini sudah diputuskan",
+    "content.proposal_invalid": "Perubahan ini tidak sah dan tidak ditulis. Minta AI mencadangkannya semula",
+    "content.proposal_not_found": "Perubahan ini tiada dalam perbualan ini",
+    "content.proposal_partial":
+      "Kandungan telah ditulis tetapi sifat tidak. Buka semula entri untuk menyemak, kemudian minta AI mencadangkan perubahan sifat semula",
     "content.conflict": "Halaman ini diubah selepas anda membukanya. Muat semula dan buat perubahan sekali lagi",
     "content.notion_write_forbidden":
       "Integrasi ini tidak boleh menulis: hidupkan Update content dan Insert content dalam tetapan Notionnya",

@@ -208,7 +208,12 @@ export function makeApp(
     bukit: aiBukit,
     skillsDir: SKILLS_DIR,
     disabledSkills: () => settings.get().disabledSkills,
-    content: new NotionContentAgent({ dataSources, content: new NotionContentService(dataSources), tmp: paths.tmp }),
+    content: new NotionContentAgent({
+      dataSources,
+      content: new NotionContentService(dataSources),
+      db,
+      tmp: paths.tmp,
+    }),
     ...overrides.agent,
   });
   const events = new EventHub(overrides.replayBytes);

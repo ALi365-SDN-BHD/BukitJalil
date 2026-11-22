@@ -176,6 +176,13 @@ describe("session API", () => {
     ]) {
       expect((await get(path)).status, path).toBe(404);
     }
+    // Its proposals: none yet, and an unknown one is not found.
+    expect(await (await get(`/api/sessions/${session.id}/proposals`)).json()).toEqual([]);
+    for (const action of ["apply", "reject"]) {
+      expect(await (await call("POST", `/api/sessions/${session.id}/proposals/x/${action}`, {})).json()).toEqual({
+        code: "content.proposal_not_found",
+      });
+    }
     expect((await call("DELETE", `/api/data-sources/${ds.id}`)).status).toBe(204);
     expect((await get(`/api/sessions/${session.id}`)).status).toBe(404);
   });

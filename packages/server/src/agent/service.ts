@@ -1,4 +1,5 @@
 import {
+  type ContentProposalState,
   type ContentRef,
   type ProjectKey,
   parseContentKey,
@@ -29,6 +30,7 @@ import { storageErrorCode } from "../storage-errors.ts";
 import type { Db } from "../store/db.ts";
 import type { AiBukit } from "./ai-bukit.ts";
 import type { ContentAgent } from "./content-agent.ts";
+import { proposalIds, proposalIn } from "./content-proposals.ts";
 import { PathGate } from "./gate.ts";
 import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
@@ -131,6 +133,8 @@ interface Run {
 
 /** customType of the note that tells the model its working copy was reset (plan 6.2). */
 export const RESET_NOTE_TYPE = "bukitjalil.worktree_reset";
+/** The note that tells a content conversation what the user decided on its proposals. */
+export const PROPOSAL_NOTE_TYPE = "bukitjalil.proposal_decisions";
 
 const RESET_OUTCOME = {
   applied: "was applied to the main version",
@@ -405,6 +409,37 @@ export class AgentService {
     this.pump(session.project);
   }
 
+  /** What became of each proposal in a content conversation (content editor and AI design, A2). */
+  async proposals(id: string): Promise<ContentProposalState[]> {
+    const { ref, content } = this.contentSession(id);
+    return content.proposals.states(ref, proposalIds(await this.messages(id)));
+  }
+
+  /** Write a proposal of the conversation to Notion, as the user confirmed it. */
+  async applyProposal(id: string, callId: string): Promise<ContentProposalState> {
+    this.assertOpen();
+    const { ref, content } = this.contentSession(id);
+    const proposal = proposalIn(await this.messages(id), callId);
+    if (!proposal) throw new SiteError("content.proposal_not_found", 404);
+    content.check(ref);
+    return content.proposals.apply(ref, id, callId, proposal);
+  }
+
+  async rejectProposal(id: string, callId: string): Promise<ContentProposalState> {
+    const { ref, content } = this.contentSession(id);
+    if (!proposalIn(await this.messages(id), callId)) throw new SiteError("content.proposal_not_found", 404);
+    return content.proposals.reject(ref, id, callId);
+  }
+
+  /** A content conversation's database and the content agent; 404 for any other session. */
+  private contentSession(id: string): { ref: ContentRef; content: ContentAgent } {
+    const record = this.get(id);
+    const ref = this.contentOf(record.project);
+    const content = this.opts.content;
+    if (!ref || !content) throw new SiteError("session.not_found", 404);
+    return { ref, content };
+  }
+
   /** Stop a running session (plan 6.2), even one still opening, or drop its waiting messages. */
   async stop(id: string): Promise<void> {
     const session = this.get(id);
@@ -675,6 +710,16 @@ export class AgentService {
           display: false,
           details: { changeSetId: joined.change.id },
         });
+      }
+      // The user's decisions on proposals since the model last heard (content editor and AI design, A2).
+      const notes = this.contentOf(record.project) ? this.opts.content?.proposals.notes(id) : null;
+      if (notes) {
+        await live.session.sendCustomMessage({
+          customType: PROPOSAL_NOTE_TYPE,
+          content: notes.text,
+          display: false,
+        });
+        notes.ack();
       }
       let batch: Message[] = messages;
       while (batch.length > 0 && !run.cancelled) {

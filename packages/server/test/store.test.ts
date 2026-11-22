@@ -21,6 +21,7 @@ describe("SQLite store (plan 4.2)", () => {
         "builds",
         "change_set_sessions",
         "change_sets",
+        "content_proposals",
         "custom_models",
         "data_sources",
         "deploys",

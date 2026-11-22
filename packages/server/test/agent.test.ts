@@ -68,8 +68,8 @@ function service(
     rgReady?: () => boolean;
     settled?: () => Promise<void>;
     disabledSkills?: () => readonly string[];
-    /** Content management conversations are available. */
-    content?: boolean;
+    /** Content management conversations are available, over this content service if given. */
+    content?: boolean | NotionContentService;
   } = {},
 ) {
   const aiBukit = new AiBukit({
@@ -111,7 +111,8 @@ function service(
       ? {
           content: new NotionContentAgent({
             dataSources: ctx.dataSources,
-            content: new NotionContentService(ctx.dataSources),
+            content: opts.content === true ? new NotionContentService(ctx.dataSources) : opts.content,
+            db: ctx.db,
             tmp: ctx.paths.tmp,
           }),
         }
@@ -1153,6 +1154,83 @@ describe("content management conversations", () => {
     expect(results).toHaveLength(2);
     expect(results.find((r) => r.startsWith("read_schema"))).not.toMatch(/not found/i);
     expect(results.find((r) => r.startsWith("read:"))).toMatch(/not found/i);
+  });
+
+  it("propose changes that only the user's confirmation writes, and tell the model what was decided", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const ENTRY = "11111111111111111111111111111111";
+    const writes: string[] = [];
+    const page = {
+      id: ENTRY,
+      databaseId: DB,
+      title: "Hello",
+      url: null,
+      lastEditedTime: "t1",
+      properties: [{ name: "Name", type: "title", value: { type: "title", text: "Hello" }, display: "Hello" }],
+    };
+    const content = {
+      database: async () => ({
+        id: DB,
+        title: "Blog",
+        url: null,
+        properties: [{ name: "Name", type: "title", editable: true }],
+        propertiesTruncated: false,
+      }),
+      page: async () => page,
+      update: async (_s: string, _d: string, id: string, req: { lastEditedTime: string }) => {
+        writes.push(`update ${id} ${req.lastEditedTime}`);
+        return page;
+      },
+    } as unknown as NotionContentService;
+    const { agent, settled } = service({ content });
+    const session = agent.create(key);
+    faux.setResponses([
+      pi.ai.fauxAssistantMessage(
+        [
+          pi.ai.fauxToolCall("propose_update", { properties: { Name: "Hello again" } }, { id: "p1" }),
+          pi.ai.fauxToolCall("propose_update", { properties: { Name: "Other" } }, { id: "p2" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      pi.ai.fauxAssistantMessage("Proposed"),
+    ]);
+    const first = settled(session.id);
+    await agent.send(session.id, "rename this", { entryId: ENTRY });
+    await first;
+    expect(writes).toEqual([]);
+    expect(await agent.proposals(session.id)).toEqual([
+      { callId: "p1", status: "pending", entryId: null, error: null },
+      { callId: "p2", status: "pending", entryId: null, error: null },
+    ]);
+    expect(await agent.applyProposal(session.id, "p1")).toMatchObject({ status: "applied", entryId: ENTRY });
+    expect(writes).toEqual([`update ${ENTRY} t1`]);
+    expect(await agent.rejectProposal(session.id, "p2")).toMatchObject({ status: "rejected" });
+    await expect(agent.applyProposal(session.id, "nope")).rejects.toMatchObject({ code: "content.proposal_not_found" });
+    // A fork shares the decisions: it cannot write p1 again.
+    const forked = await agent.fork(session.id, (await agent.messages(session.id)).at(-1)?.entryId ?? "");
+    await expect(agent.applyProposal(forked.id, "p1")).rejects.toMatchObject({ code: "content.proposal_decided" });
+
+    // The next message carries the decisions to the model, once; the transcript does not show them.
+    const seen: string[] = [];
+    const reply = (context: { messages: unknown[] }) => {
+      seen.push(JSON.stringify(context.messages));
+      return pi.ai.fauxAssistantMessage("ok");
+    };
+    faux.setResponses([reply, reply]);
+    let done = settled(session.id);
+    await agent.send(session.id, "thanks");
+    await done;
+    done = settled(session.id);
+    await agent.send(session.id, "and?");
+    await done;
+    expect(seen[0]).toContain(`p1: written to Notion (entry ${ENTRY})`);
+    expect(seen[0]).toContain("p2: declined by the user");
+    expect(seen[1]?.match(/p1: written to Notion/g)).toHaveLength(1);
+    expect(JSON.stringify(await agent.messages(session.id))).not.toContain("decisions on your proposals");
+    // Not for site conversations.
+    const siteSession = agent.create((await site()).id);
+    await expect(agent.proposals(siteSession.id)).rejects.toMatchObject({ code: "session.not_found" });
   });
 
   it("go with their data source, and need the content agent", async () => {

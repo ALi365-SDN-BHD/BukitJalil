@@ -311,7 +311,7 @@ function startServices(db: Db): Runtime {
     bukit: aiBukit,
     skillsDir,
     disabledSkills: () => settingsStore.get().disabledSkills,
-    content: new NotionContentAgent({ dataSources, content, tmp: paths.tmp }),
+    content: new NotionContentAgent({ dataSources, content, db, tmp: paths.tmp }),
   });
   // A removed data source took its content conversations with it (ON DELETE CASCADE): stop them too.
   dataSources.onRemoved((id) => void agent.closeContentSource(id));
