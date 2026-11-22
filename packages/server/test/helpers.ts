@@ -15,6 +15,7 @@ import { createAdminApp } from "../src/app.ts";
 import { BuildService } from "../src/builds/service.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { ChangeService } from "../src/changes/service.ts";
+import { NotionContentService } from "../src/data-sources/notion-content.ts";
 import { DataSourceService } from "../src/data-sources/service.ts";
 import { DeployService } from "../src/deploys/service.ts";
 import { connectEvents } from "../src/events/bridge.ts";
@@ -207,7 +208,7 @@ export function makeApp(
     bukit: aiBukit,
     skillsDir: SKILLS_DIR,
     disabledSkills: () => settings.get().disabledSkills,
-    content: new NotionContentAgent({ dataSources, tmp: paths.tmp }),
+    content: new NotionContentAgent({ dataSources, content: new NotionContentService(dataSources), tmp: paths.tmp }),
     ...overrides.agent,
   });
   const events = new EventHub(overrides.replayBytes);

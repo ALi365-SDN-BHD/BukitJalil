@@ -18,6 +18,7 @@ import type {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { ChangeService } from "../changes/service.ts";
+import { notionId } from "../data-sources/service.ts";
 import type { Logger } from "../log.ts";
 import { cleanReferenceImage, type ReferenceImage, writeReferenceImages } from "../media/reference.ts";
 import type { AppPaths } from "../paths.ts";
@@ -352,14 +353,18 @@ export class AgentService {
   async send(
     id: string,
     text: string,
-    opts: { followUp?: boolean; images?: readonly ReferenceImageRequest[] } = {},
+    opts: { followUp?: boolean; images?: readonly ReferenceImageRequest[]; entryId?: string | null } = {},
   ): Promise<void> {
     this.assertOpen();
     const session = this.get(id);
     this.assertWritable(session.project);
     // Content conversations take no images: there is nowhere to keep them but the conversation.
-    if (this.contentOf(session.project) && (opts.images?.length ?? 0) > 0) {
-      throw new SiteError("request.invalid_body", 400);
+    if (this.contentOf(session.project)) {
+      if ((opts.images?.length ?? 0) > 0) throw new SiteError("request.invalid_body", 400);
+      const entry = opts.entryId ? notionId(opts.entryId) : null;
+      if (opts.entryId && !entry) throw new SiteError("request.invalid_body", 400);
+      // The entry open as this message is sent is what the tools read as "the open entry".
+      this.opts.content?.setCurrent(id, entry);
     }
     const message: Message = { text, images: (opts.images ?? []).map(cleanReferenceImage) };
     if (message.images.length > 0 && !(await this.model()).input.includes("image")) {

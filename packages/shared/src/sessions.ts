@@ -84,6 +84,15 @@ export const SendMessageRequest = z
     mode: z.enum(["prompt", "steer", "followUp"]).default("prompt"),
     /** Only when the selected model reads images; a theme project also keeps them in _reference/. */
     images: ReferenceImages.optional(),
+    /**
+     * Content conversations (content editor and AI design, A1): the Notion entry open in the editor as the
+     * message is sent, or null for none; the AI's tools read it as "the open entry". Other sessions ignore it.
+     */
+    entryId: z
+      .string()
+      .regex(/^[0-9a-fA-F-]{32,36}$/)
+      .nullable()
+      .optional(),
   })
   .strict();
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;

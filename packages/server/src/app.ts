@@ -86,6 +86,8 @@ export interface AdminAppOptions {
   changes: ChangeService;
   customModels: CustomModelStore;
   dataSources: DataSourceService;
+  /** Notion pages of content management; one instance, so its per-source request queue is shared with the AI. */
+  content?: NotionContentService;
   publishAccounts: PublishAccountService;
   deploys: DeployService;
   /** npm lookup for Pi's latest release; null (tests, `BUKITJALIL_OFFLINE=1`) leaves it unknown. */
@@ -184,7 +186,7 @@ export function createAdminApp(opts: AdminAppOptions) {
   pluginRoutes(api, { changes: opts.changes, agent: opts.agent });
   buildRoutes(api, opts.builds);
   dataSourceRoutes(api, opts.dataSources);
-  contentRoutes(api, new NotionContentService(opts.dataSources));
+  contentRoutes(api, opts.content ?? new NotionContentService(opts.dataSources));
   publishAccountRoutes(api, opts.publishAccounts);
   deployRoutes(api, opts.deploys);
   gitRoutes(api, opts.gitStatus);

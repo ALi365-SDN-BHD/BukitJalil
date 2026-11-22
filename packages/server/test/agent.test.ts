@@ -9,6 +9,7 @@ import { NotionContentAgent } from "../src/agent/content-agent.ts";
 import { assertPiEnvironment, preparePiEnvironment } from "../src/agent/env.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { type AgentEvent, AgentService } from "../src/agent/service.ts";
+import { NotionContentService } from "../src/data-sources/notion-content.ts";
 import { agentEventTranslator } from "../src/events/bridge.ts";
 import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
@@ -106,7 +107,15 @@ function service(
     disabledSkills: opts.disabledSkills,
     idleMs: opts.idleMs,
     shutdownMs: opts.shutdownMs,
-    ...(opts.content ? { content: new NotionContentAgent({ dataSources: ctx.dataSources, tmp: ctx.paths.tmp }) } : {}),
+    ...(opts.content
+      ? {
+          content: new NotionContentAgent({
+            dataSources: ctx.dataSources,
+            content: new NotionContentService(ctx.dataSources),
+            tmp: ctx.paths.tmp,
+          }),
+        }
+      : {}),
   });
   services.push(agent);
   const events: AgentEvent[] = [];
@@ -1087,7 +1096,7 @@ describe("content management conversations", () => {
       token: `ntn_contentagenttoken${sourceCount}`,
     });
 
-  it("belong to a Notion database and run with no files, lock, change set or skills", async () => {
+  it("belong to a Notion database and run with no files, lock, change set or skills, only the content tools", async () => {
     const ds = source();
     const key = contentKey({ sourceId: ds.id, databaseId: DB });
     const { agent, settled, statuses } = service({ content: true });
@@ -1113,17 +1122,37 @@ describe("content management conversations", () => {
     expect(system).toContain("BukitJalil content assistant");
     expect(system).toContain(`"Notes ${sourceCount}"`);
     expect(system).not.toContain("SKILL.md");
-    expect(JSON.stringify((seen as { tools?: unknown[] }).tools ?? [])).toBe("[]");
     expect(statuses(session.id)).toEqual(["running", "idle"]);
     expect(JSON.stringify(agent.store.entries(session.id))).toContain("Hello from the content assistant");
     expect(ctx.locks.holder(key)).toBeNull();
 
+    await expect(agent.send(session.id, "this one", { entryId: "not-an-id" })).rejects.toMatchObject({
+      code: "request.invalid_body",
+    });
     // No images, and a session is forked within its database.
     await expect(
       agent.send(session.id, "look", { images: [{ data: PNG, mimeType: "image/png" }] }),
     ).rejects.toMatchObject({ code: "request.invalid_body" });
     const entry = (await agent.messages(session.id))[0]?.entryId ?? "";
     expect((await agent.fork(session.id, entry)).project).toBe(key);
+
+    // The content tools are there (this test's Notion is offline, so the call fails), and file tools are not.
+    faux.setResponses([
+      pi.ai.fauxAssistantMessage([pi.ai.fauxToolCall("read_schema", {}), pi.ai.fauxToolCall("read", { path: "x" })], {
+        stopReason: "toolUse",
+      }),
+      pi.ai.fauxAssistantMessage("done"),
+    ]);
+    const second = settled(session.id);
+    await agent.send(session.id, "fields?");
+    await second;
+    const results = agent.store.entries(session.id).flatMap((e) => {
+      const m = (e as { message?: { role?: string; toolName?: string; content?: { text?: string }[] } }).message;
+      return m?.role === "toolResult" ? [`${m.toolName}: ${m.content?.[0]?.text ?? ""}`] : [];
+    });
+    expect(results).toHaveLength(2);
+    expect(results.find((r) => r.startsWith("read_schema"))).not.toMatch(/not found/i);
+    expect(results.find((r) => r.startsWith("read:"))).toMatch(/not found/i);
   });
 
   it("go with their data source, and need the content agent", async () => {

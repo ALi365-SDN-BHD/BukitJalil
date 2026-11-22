@@ -81,7 +81,11 @@ export function sessionRoutes(api: Hono<AppEnv>, agent: AgentService) {
       const req = await body(c, SendMessageRequest);
       if (!req) return apiError(c, 400, "request.invalid_body");
       const id = c.req.param("sessionId");
-      await agent.send(id, req.text, { followUp: req.mode === "followUp", images: req.images });
+      await agent.send(id, req.text, {
+        followUp: req.mode === "followUp",
+        images: req.images,
+        ...(req.entryId !== undefined ? { entryId: req.entryId } : {}),
+      });
       return c.json(agent.info(id), 202);
     }),
   );
