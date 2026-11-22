@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+/* The block editor's shadcn parts (content management body) are styled with this app's Tailwind. */
+@source "../node_modules/@blocknote/shadcn/dist";
 
 @custom-variant dark (&:is(.dark *));
 

@@ -1,10 +1,13 @@
+import type { ContentBlock } from "@bukitjalil/shared";
 import { describe, expect, it } from "vitest";
 import {
   blocksToMarkdown,
   chunks,
+  contentToItems,
   markdownToItems,
   parseInline,
   type RawBlock,
+  readBody,
   storedOf,
 } from "../src/data-sources/notion-blocks.ts";
 
@@ -195,6 +198,93 @@ describe("body Markdown", () => {
       { text: " ", format: { bold: false, italic: false, strike: false, code: false, href: null } },
       { text: "d", format: { bold: false, italic: false, strike: false, code: true, href: null } },
     ]);
+  });
+});
+
+describe("body blocks", () => {
+  const blockRoundTrip = (blocks: ContentBlock[]) => readBody(storedOf(contentToItems(blocks)));
+
+  it("keeps every kind of block and inline style unchanged", () => {
+    const blocks: ContentBlock[] = [
+      { type: "heading_1", text: [{ text: "One" }] },
+      { type: "heading_2", text: [{ text: "Two" }] },
+      { type: "heading_3", text: [{ text: "Three" }] },
+      {
+        type: "paragraph",
+        text: [
+          { text: "plain " },
+          { text: "bold", bold: true },
+          { text: " " },
+          { text: "all", bold: true, italic: true, strike: true },
+          { text: " " },
+          { text: "code", code: true },
+          { text: " " },
+          { text: "link", href: "https://example.com/a" },
+          { text: "\nsecond line 中文 😀" },
+        ],
+      },
+      { type: "paragraph", text: [] },
+      {
+        type: "bulleted_list_item",
+        text: [{ text: "parent" }],
+        children: [
+          { type: "to_do", text: [{ text: "child" }], checked: true },
+          { type: "numbered_list_item", text: [{ text: "numbered child" }] },
+        ],
+      },
+      { type: "numbered_list_item", text: [{ text: "one" }] },
+      { type: "to_do", text: [{ text: "todo" }], checked: false },
+      { type: "quote", text: [{ text: "a quote\non two lines" }] },
+      { type: "code", language: "typescript", text: "const a = `x`;\n" },
+      { type: "code", language: "plain text", text: "" },
+      { type: "divider" },
+      { type: "image", url: "https://example.com/cat.png", caption: [{ text: "A cat", italic: true }] },
+      { type: "notion_image", id: "0123456789abcdef0123456789abcdef", caption: [] },
+    ];
+    expect(blockRoundTrip(blocks)).toEqual({ blocks, unsupported: [] });
+  });
+
+  it("can edit one code span of many lines, which the Markdown cannot write back", () => {
+    const lines = Array.from({ length: 51 }, () => "x").join("\n");
+    const raw: RawBlock = {
+      block: {
+        type: "paragraph",
+        paragraph: { rich_text: [{ type: "text", text: { content: lines }, annotations: { code: true } }] },
+      },
+    };
+    expect(readBody([raw])).toEqual({
+      blocks: [{ type: "paragraph", text: [{ text: lines, code: true }] }],
+      unsupported: [],
+    });
+    expect(blocksToMarkdown([raw]).unsupported).toEqual(["unwritable"]);
+  });
+
+  it("names what keeps a body read-only, with no blocks", () => {
+    expect(readBody([raw("paragraph", { rich_text: [text("x", { underline: true })] }), raw("table", {})])).toEqual({
+      blocks: [],
+      unsupported: ["table", "underline"],
+    });
+    // What reads fine but Notion would not take back: a block too big for one request.
+    expect(
+      readBody([raw("paragraph", { rich_text: Array.from({ length: 100 }, () => text("中".repeat(1999))) })]),
+    ).toEqual({ blocks: [], unsupported: ["unwritable"] });
+  });
+
+  it("refuses what Notion would not take", () => {
+    const refuse = (blocks: ContentBlock[]) => expect(() => contentToItems(blocks)).toThrow("content.body_invalid");
+    refuse([{ type: "image", url: "ftp://example.com/a.png", caption: [] }]);
+    refuse([{ type: "image", url: "https://example.com/a b.png", caption: [] }]);
+    refuse([{ type: "code", language: "klingon", text: "x" }]);
+    refuse([{ type: "notion_image", id: "nothex", caption: [] }]);
+    refuse([
+      {
+        type: "bulleted_list_item",
+        text: [],
+        children: Array.from({ length: 101 }, () => ({ type: "bulleted_list_item" as const, text: [] })),
+      },
+    ]);
+    // More than 100 rich text items once long text is split at 2000 characters.
+    refuse([{ type: "paragraph", text: [{ text: "x".repeat(2000 * 100 + 1) }] }]);
   });
 });
 

@@ -1,14 +1,18 @@
-import { CONTENT_BODY_MAX, type ContentBody, type ContentDatabase, type ContentPage } from "@bukitjalil/shared";
+import type { ContentBlock, ContentBody, ContentDatabase, ContentPage } from "@bukitjalil/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Loader2, Save } from "lucide-react";
-import { useId } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { ApiRequestError, api, keys } from "@/lib/api";
 import { contentDatabasePath, contentPagePath } from "@/lib/project";
+import { sameBlocks } from "./blocks";
 import { changeOf, draftKey, saveKey, useDraft } from "./draft";
 import { emptyValue, NEW_PAGE, useContentBody, useContentPage } from "./hooks";
+
+// The block editor loads on first use, keeping it out of the main chunk.
+const BodyEditor = lazy(() => import("./BodyEditor"));
 
 /**
  * The open entry in the middle column (plan 5.6): its title and body, and the save that writes them and the
@@ -72,7 +76,7 @@ export function PageEditor({
         )}
         <Button
           size="sm"
-          disabled={(!isNew && !draft.dirty) || save.isPending}
+          disabled={(!isNew && !draft.dirty) || draft.problem !== null || save.isPending}
           onClick={() => save.mutate()}
           data-testid="content-save"
         >
@@ -131,37 +135,35 @@ export function PageEditor({
         </p>
       )}
       <p className="text-xs text-muted-foreground">{m.content.saveNotice}</p>
-      <BodyField
-        isNew={isNew}
-        body={body}
-        value={draft.body}
-        saving={save.isPending}
-        onChange={(value) => draft.setBody(value, body.data?.markdown ?? "", body.data?.lastEditedTime ?? "")}
-        notionUrl={page.data?.url ?? null}
-      />
+      <BodyField isNew={isNew} body={body} draft={draft} saving={save.isPending} notionUrl={page.data?.url ?? null} />
     </div>
   );
 }
 
-/** The body: Markdown to edit, or why it cannot be edited here. */
+/** The body: blocks to edit, or why they cannot be edited here. */
 function BodyField({
   isNew,
   body,
-  value,
+  draft,
   saving,
-  onChange,
   notionUrl,
 }: {
   isNew: boolean;
   body: ReturnType<typeof useContentBody>;
-  value: string | null;
+  draft: ReturnType<typeof useDraft>;
   /** Read-only while a save runs, so nothing typed meanwhile is lost when it ends. */
   saving: boolean;
-  onChange: (value: string) => void;
   notionUrl: string | null;
 }) {
   const { locale, m, t, errorOf } = useI18n();
-  const id = useId();
+  const saved = body.data?.blocks ?? EMPTY;
+  // What the editor shows last, to tell a body read again (a save, a reload) from the one it already has.
+  const shown = useRef<readonly ContentBlock[] | null>(null);
+  const [mount, setMount] = useState({ at: body.dataUpdatedAt, key: 0 });
+  if (body.dataUpdatedAt !== mount.at && draft.body === null && draft.problem === null) {
+    const same = shown.current === null || sameBlocks(shown.current, saved);
+    setMount({ at: body.dataUpdatedAt, key: same ? mount.key : mount.key + 1 });
+  }
   if (!isNew && body.isPending) return <p className="text-muted-foreground">{m.common.loading}</p>;
   if (!isNew && body.error) {
     return (
@@ -194,24 +196,45 @@ function BodyField({
       </div>
     );
   }
+  const base = body.data?.lastEditedTime ?? "";
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="font-medium">
-        {m.content.bodyLabel}
-      </label>
-      <textarea
-        id={id}
-        className="min-h-80 w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-sm leading-relaxed outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-        value={value ?? body.data?.markdown ?? ""}
-        maxLength={CONTENT_BODY_MAX}
-        readOnly={saving}
-        spellCheck={false}
-        onChange={(e) => onChange(e.target.value)}
-        data-testid="content-body"
-      />
+      <span className="font-medium">{m.content.bodyLabel}</span>
+      <Suspense fallback={<p className="text-muted-foreground">{m.common.loading}</p>}>
+        <BodyEditor
+          key={mount.key}
+          blocks={withShownImages(draft.body ?? saved, saved)}
+          editable={!saving}
+          onLoad={() => {
+            shown.current = draft.body ?? saved;
+            draft.setProblem(null, base);
+          }}
+          onChange={(change) => {
+            if ("problem" in change) return draft.setProblem(change.problem, base);
+            shown.current = change.blocks;
+            draft.setBody(change.blocks, saved, base);
+          }}
+        />
+      </Suspense>
+      {draft.problem && (
+        <p role="alert" className="text-destructive" data-testid="content-body-problem">
+          {m.content.bodyProblems[draft.problem]}
+        </p>
+      )}
       <p className="text-xs text-muted-foreground">{m.content.bodyHint}</p>
     </div>
   );
+}
+
+const EMPTY: readonly ContentBlock[] = [];
+
+/** A draft body with the addresses its images in Notion are shown with, which a draft does not keep. */
+function withShownImages(blocks: readonly ContentBlock[], saved: readonly ContentBlock[]): ContentBlock[] {
+  const urls = new Map(saved.flatMap((b) => (b.type === "notion_image" && b.url ? [[b.id, b.url]] : [])));
+  return blocks.map((b) => {
+    const url = b.type === "notion_image" && !b.url ? urls.get(b.id) : undefined;
+    return url ? { ...b, url } : b;
+  });
 }
 
 /**
@@ -237,7 +260,7 @@ function useSavePage(
       if (pageId === NEW_PAGE) {
         const created = await api.createContentPage(sourceId, databaseId, {
           properties: { ...draft.changes },
-          ...(draft.body ? { markdown: draft.body } : {}),
+          ...(draft.body ? { blocks: [...draft.body] } : {}),
         });
         draft.clear();
         queryClient.setQueryData(keys.contentPage(sourceId, databaseId, created.id), created);
@@ -251,7 +274,7 @@ function useSavePage(
         const checked = edited;
         const saved = await api.saveContentBody(sourceId, databaseId, pageId, {
           lastEditedTime: checked,
-          markdown: sentBody,
+          blocks: [...sentBody],
         });
         edited = saved.lastEditedTime;
         queryClient.setQueryData(bodyKey, saved);

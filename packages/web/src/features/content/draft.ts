@@ -1,5 +1,6 @@
-import type { ContentValue } from "@bukitjalil/shared";
+import type { ContentBlock, ContentValue } from "@bukitjalil/shared";
 import { useSyncExternalStore } from "react";
+import { type BlocksProblem, sameBlocks } from "./blocks";
 
 /**
  * The unsaved changes of the open page (plan 5.6): its properties and its body. The title and body are edited
@@ -10,8 +11,10 @@ type Changes = Readonly<Record<string, ContentValue>>;
 interface Draft {
   key: string;
   changes: Changes;
-  /** The edited body Markdown; null while it is unchanged. */
-  body: string | null;
+  /** The edited body; null while it is unchanged. */
+  body: readonly ContentBlock[] | null;
+  /** Why the body as it is in the editor cannot be saved; `body` is then its last version that can. */
+  problem: BlocksProblem | null;
   /**
    * Notion's edit time of what the first change was made on; a save sends it, so anything written in Notion
    * since (also while the draft waited on another page, or a cached body was shown) is a conflict.
@@ -20,7 +23,7 @@ interface Draft {
 }
 
 const NONE: Changes = {};
-const empty = (key: string): Draft => ({ key, changes: NONE, body: null, base: "" });
+const empty = (key: string): Draft => ({ key, changes: NONE, body: null, problem: null, base: "" });
 let draft: Draft = empty("");
 const listeners = new Set<() => void>();
 
@@ -34,7 +37,7 @@ function replace(next: Draft) {
   for (const listener of listeners) listener();
 }
 
-const isEmpty = (d: Draft) => Object.keys(d.changes).length === 0 && d.body === null;
+const isEmpty = (d: Draft) => Object.keys(d.changes).length === 0 && d.body === null && d.problem === null;
 
 /** The draft of `key`, or an empty one to start from. */
 const current = (key: string): Draft => (draft.key === key ? draft : empty(key));
@@ -70,6 +73,7 @@ export function draftOf(key: string) {
   return {
     changes: mine.changes,
     body: mine.body,
+    problem: mine.problem,
     base: mine.base,
     propertiesDirty: Object.keys(mine.changes).length > 0,
     dirty: !isEmpty(mine),
@@ -79,16 +83,21 @@ export function draftOf(key: string) {
       const { [name]: _, ...rest } = before.changes;
       replace(changed(before, { ...before, changes: same(value, saved) ? rest : { ...rest, [name]: value } }, base));
     },
-    setBody(value: string, saved: string, base: string) {
+    setBody(value: readonly ContentBlock[], saved: readonly ContentBlock[], base: string) {
       const before = current(key);
-      replace(changed(before, { ...before, body: value === saved ? null : value }, base));
+      replace(changed(before, { ...before, body: sameBlocks(value, saved) ? null : value, problem: null }, base));
+    },
+    /** The body in the editor cannot be saved as it is (null: it can again, unchanged). */
+    setProblem(problem: BlocksProblem | null, base: string) {
+      const before = current(key);
+      if (before.problem !== problem) replace(changed(before, { ...before, problem }, base));
     },
     /**
      * The body `sent` is in Notion as of `edited`. Typing since the save began stays, now based on `edited`.
      */
-    bodySaved(sent: string, edited: string) {
+    bodySaved(sent: readonly ContentBlock[], edited: string) {
       if (draft.key !== key) return;
-      const next = { ...draft, body: draft.body === sent ? null : draft.body };
+      const next = { ...draft, body: draft.body && sameBlocks(draft.body, sent) ? null : draft.body };
       replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });
     },
     /** The property values `sent` are in Notion as of `edited`; changes made since the save began stay. */

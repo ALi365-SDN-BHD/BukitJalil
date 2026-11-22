@@ -1,12 +1,13 @@
-import { NOTION_TEXT_SEGMENT } from "@bukitjalil/shared";
+import { CONTENT_CODE_LANGUAGES, type ContentBlock, type ContentSpan, NOTION_TEXT_SEGMENT } from "@bukitjalil/shared";
 import { isRecord } from "../bukit/guard.ts";
 import { SiteError } from "../sites/location.ts";
 import { notionId } from "./service.ts";
 
 /**
- * A page body as Markdown and back (plan 5.6 item 7). Only the supported blocks and inline styles convert;
+ * A page body as blocks and back (plan 5.6 item 7). Only the supported blocks and inline styles convert;
  * anything else is reported so the body stays read-only, because saving replaces the whole body and would
- * drop it. The Markdown is BukitJalil's own small dialect:
+ * drop it. The editor works on `ContentBlock`s; the same blocks also read and write BukitJalil's own small
+ * Markdown dialect, kept for the AI (plan: docs/plans/2026-11-22-content-editor-and-ai-design.md):
  *
  * - blocks are separated by a blank line; list items follow each other line by line, and a list item's
  *   children are its following lines indented by spaces (one level only);
@@ -27,98 +28,8 @@ const RICH_TEXT_MAX = 100;
 export const BATCH_BYTES = 300_000;
 const INDENT = "    ";
 
-/** The code languages Notion accepts (API 2022-06-28); anything else would be refused half way through a save. */
-const CODE_LANGUAGES = new Set([
-  "abap",
-  "agda",
-  "arduino",
-  "ascii art",
-  "assembly",
-  "bash",
-  "basic",
-  "bnf",
-  "c",
-  "c#",
-  "c++",
-  "clojure",
-  "coffeescript",
-  "coq",
-  "css",
-  "dart",
-  "dhall",
-  "diff",
-  "docker",
-  "ebnf",
-  "elixir",
-  "elm",
-  "erlang",
-  "f#",
-  "flow",
-  "fortran",
-  "gherkin",
-  "glsl",
-  "go",
-  "graphql",
-  "groovy",
-  "haskell",
-  "hcl",
-  "html",
-  "idris",
-  "java",
-  "javascript",
-  "json",
-  "julia",
-  "kotlin",
-  "latex",
-  "less",
-  "lisp",
-  "livescript",
-  "llvm ir",
-  "lua",
-  "makefile",
-  "markdown",
-  "markup",
-  "matlab",
-  "mathematica",
-  "mermaid",
-  "nix",
-  "notion formula",
-  "objective-c",
-  "ocaml",
-  "pascal",
-  "perl",
-  "php",
-  "plain text",
-  "powershell",
-  "prolog",
-  "protobuf",
-  "purescript",
-  "python",
-  "r",
-  "racket",
-  "reason",
-  "ruby",
-  "rust",
-  "sass",
-  "scala",
-  "scheme",
-  "scss",
-  "shell",
-  "smalltalk",
-  "solidity",
-  "sql",
-  "swift",
-  "toml",
-  "typescript",
-  "vb.net",
-  "verilog",
-  "vhdl",
-  "visual basic",
-  "webassembly",
-  "xml",
-  "yaml",
-  "java/c/c++/c#",
-]);
+/** The code languages Notion accepts; anything else would be refused half way through a save. */
+export const CODE_LANGUAGES: ReadonlySet<string> = new Set(CONTENT_CODE_LANGUAGES);
 /** Common fence names for Notion's languages. */
 const CODE_ALIASES: Record<string, string> = {
   js: "javascript",
@@ -164,6 +75,25 @@ interface Span {
 }
 const PLAIN: Format = { bold: false, italic: false, strike: false, code: false, href: null };
 
+const toContent = ({ text, format }: Span): ContentSpan => ({
+  text,
+  ...(format.bold ? { bold: true } : {}),
+  ...(format.italic ? { italic: true } : {}),
+  ...(format.strike ? { strike: true } : {}),
+  ...(format.code ? { code: true } : {}),
+  ...(format.href ? { href: format.href } : {}),
+});
+const fromContent = (span: ContentSpan): Span => ({
+  text: span.text,
+  format: {
+    bold: span.bold === true,
+    italic: span.italic === true,
+    strike: span.strike === true,
+    code: span.code === true,
+    href: span.href ?? null,
+  },
+});
+
 /** A block as Notion returned it, with its children read when it has any. */
 export interface RawBlock {
   block: Record<string, unknown>;
@@ -175,7 +105,11 @@ export type BodyItem =
   | { kind: "block"; block: Record<string, unknown> }
   | { kind: "keep"; id: string; caption: Record<string, unknown>[] };
 
+type ListItem = Extract<ContentBlock, { type: "bulleted_list_item" | "numbered_list_item" | "to_do" }>;
+type ListLeaf = NonNullable<ListItem["children"]>[number];
+
 export const isListType = (type: string) => LIST_TYPES.has(type);
+const isListBlock = (b: ContentBlock): b is ListItem => isListType(b.type);
 
 const typeOf = (block: Record<string, unknown>) => (typeof block.type === "string" ? block.type : "unknown");
 const dataOf = (block: Record<string, unknown>) => {
@@ -187,104 +121,94 @@ const richOf = (data: Record<string, unknown>, key = "rich_text") => (Array.isAr
 export const isHostedImage = (block: Record<string, unknown>) =>
   typeOf(block) === "image" && dataOf(block).type === "file";
 
-// ── Notion → Markdown ────────────────────────────────────────────────────────
+const invalid = () => new SiteError("content.body_invalid", 400);
 
-/** The body as Markdown, and what keeps it from being edited here (empty when nothing does). */
-export function blocksToMarkdown(blocks: RawBlock[]): { markdown: string; unsupported: string[] } {
+// ── Notion → blocks ─────────────────────────────────────────────────────────
+
+/**
+ * The body as blocks, and what keeps it from being edited here (when anything does, the blocks are empty).
+ * Whatever reads fine but could not be written back would make every save fail, so it is read-only too.
+ */
+export function readBody(raw: RawBlock[]): { blocks: ContentBlock[]; unsupported: string[] } {
   const problems = new Set<string>();
-  let markdown = "";
-  blocks.forEach((raw, index) => {
-    const list = isListType(typeOf(raw.block));
-    // List items follow each other line by line; every other block needs a blank line before it.
-    if (index > 0) markdown += list && isListType(typeOf(blocks[index - 1]?.block ?? {})) ? "\n" : "\n\n";
-    markdown += blockMarkdown(raw, problems, 0);
-  });
+  const blocks = raw.flatMap((b) => contentOf(b, problems, 0));
   if (problems.size === 0) {
-    // Whatever reads fine but cannot be written back (say, one code span of many lines, which becomes more
-    // rich text items than Notion takes in a block) would make every save fail: it is read-only too.
     try {
-      markdownToItems(markdown);
+      contentToItems(blocks);
     } catch (err) {
       if (!(err instanceof SiteError)) throw err;
       problems.add("unwritable");
     }
   }
-  return { markdown: problems.size > 0 ? "" : markdown, unsupported: [...problems].sort() };
+  return problems.size > 0 ? { blocks: [], unsupported: [...problems].sort() } : { blocks, unsupported: [] };
 }
 
-function blockMarkdown(raw: RawBlock, problems: Set<string>, depth: number): string {
+function contentOf(raw: RawBlock, problems: Set<string>, depth: number): ContentBlock[] {
   const { block } = raw;
   const type = typeOf(block);
   const data = dataOf(block);
   const list = isListType(type);
-  // Only a top-level list item may have children, and only list items: the dialect nests nothing else.
+  // Only a top-level list item may have children, and only list items: nothing else nests here.
   if ((block.has_children === true && !(list && depth === 0)) || (depth > 0 && !list)) problems.add("children");
   // A save writes a block's children in one request, which Notion caps at 100.
   if ((raw.children?.length ?? 0) > 100) problems.add("children");
   if (typeof data.color === "string" && data.color !== "default") problems.add("color");
-  const text = () => inlineMarkdown(richOf(data), problems);
-  let out: string;
+  const text = () => spansOf(richOf(data), problems).map(toContent);
   switch (type) {
-    case "paragraph": {
-      const md = text();
-      out = md === "" ? "&nbsp;" : leadEscape(md);
-      break;
-    }
+    case "paragraph":
+    case "quote":
+      return [{ type, text: text() }];
     case "heading_1":
     case "heading_2":
     case "heading_3":
       if (data.is_toggleable === true) problems.add("toggle");
-      out = `${"#".repeat(Number(type.slice(-1)))} ${text()}`;
-      break;
+      return [{ type, text: text() }];
     case "bulleted_list_item":
-      out = `- ${text()}`;
-      break;
     case "numbered_list_item":
-      out = `1. ${text()}`;
-      break;
-    case "to_do":
-      out = `- [${data.checked === true ? "x" : " "}] ${text()}`;
-      break;
-    case "quote":
-      out = `> ${text()}`;
-      break;
+    case "to_do": {
+      // A nested block that is not a list item was reported above; the body is read-only then.
+      const children = (raw.children ?? [])
+        .flatMap((child) => contentOf(child, problems, depth + 1))
+        .filter(isListBlock)
+        .map(({ children: _, ...leaf }) => leaf as ListLeaf);
+      const more = children.length > 0 ? { children } : {};
+      return [
+        type === "to_do"
+          ? { type, text: text(), checked: data.checked === true, ...more }
+          : { type, text: text(), ...more },
+      ];
+    }
     case "code": {
       if (richOf(data, "caption").length > 0) problems.add("caption");
       const spans = spansOf(richOf(data), problems);
       if (spans.some((s) => s.format.bold || s.format.italic || s.format.strike || s.format.href))
         problems.add("code_format");
-      const content = spans.map((s) => s.text).join("");
-      const longest = Math.max(0, ...(content.match(/`+/g) ?? []).map((run) => run.length));
-      const fence = "`".repeat(Math.max(3, longest + 1));
-      const language = typeof data.language === "string" && data.language !== "plain text" ? data.language : "";
+      const language = typeof data.language === "string" && data.language ? data.language : "plain text";
       // A language this cannot write back would make every save fail.
-      if (language && !CODE_LANGUAGES.has(language)) problems.add("code_language");
-      out = `${fence}${language}\n${content}\n${fence}`;
-      break;
+      if (!CODE_LANGUAGES.has(language)) problems.add("code_language");
+      return [{ type, language, text: spans.map((s) => s.text).join("") }];
     }
     case "divider":
-      out = "---";
-      break;
+      return [{ type }];
     case "image": {
-      let url: string;
-      if (data.type === "file") url = `${HOSTED_IMAGE}${notionId(String(block.id ?? "")) ?? ""}`;
-      else {
-        const external = isRecord(data.external) ? data.external : {};
-        url = typeof external.url === "string" ? external.url : "";
-        if (!/^https?:\/\//i.test(url)) problems.add("image_url");
+      const caption = spansOf(richOf(data, "caption"), problems).map(toContent);
+      if (data.type === "file") {
+        const file = isRecord(data.file) ? data.file : {};
+        const shown = typeof file.url === "string" ? { url: file.url } : {};
+        return [{ type: "notion_image", id: notionId(String(block.id ?? "")) ?? "", ...shown, caption }];
       }
-      out = `![${inlineMarkdown(richOf(data, "caption"), problems)}](${escapeUrl(url)})`;
-      break;
+      const external = isRecord(data.external) ? data.external : {};
+      const url = typeof external.url === "string" ? external.url : "";
+      if (!/^https?:\/\//i.test(url)) problems.add("image_url");
+      return [{ type, url, caption }];
     }
     default:
       problems.add(type);
-      return "";
+      return [];
   }
-  for (const child of raw.children ?? []) out += `\n${INDENT}${blockMarkdown(child, problems, depth + 1)}`;
-  return out;
 }
 
-/** Notion rich text as spans, noting what the dialect cannot hold. */
+/** Notion rich text as spans, noting what cannot be held here. */
 function spansOf(rich: unknown[], problems: Set<string>): Span[] {
   const spans: Span[] = [];
   for (const part of rich) {
@@ -316,10 +240,216 @@ function spansOf(rich: unknown[], problems: Set<string>): Span[] {
   return merge(spans);
 }
 
-function inlineMarkdown(rich: unknown[], problems: Set<string>): string {
+const safeHref = (href: string) => /^(https?:\/\/|mailto:)/i.test(href);
+
+function sameFormat(a: Format, b: Format): boolean {
+  return a.bold === b.bold && a.italic === b.italic && a.strike === b.strike && a.code === b.code && a.href === b.href;
+}
+
+function merge(spans: Span[]): Span[] {
+  const out: Span[] = [];
+  for (const span of spans) {
+    if (!span.text) continue;
+    const last = out.at(-1);
+    if (last && sameFormat(last.format, span.format)) last.text += span.text;
+    else out.push({ text: span.text, format: { ...span.format } });
+  }
+  return out;
+}
+
+// ── blocks → Notion ─────────────────────────────────────────────────────────
+
+/** The blocks to write. Throws `content.body_invalid` for what Notion would not take. */
+export function contentToItems(blocks: readonly ContentBlock[]): BodyItem[] {
+  const items = blocks.map((b): BodyItem => {
+    if (b.type !== "notion_image") return { kind: "block", block: notionBlock(b) };
+    const id = notionId(b.id);
+    if (!id) throw invalid();
+    return { kind: "keep", id, caption: richText(b.caption.map(fromContent)) };
+  });
+  // Refused before anything is written, and so a body holding such a block reads as read-only.
+  for (const item of items) {
+    if (item.kind === "block" && Buffer.byteLength(JSON.stringify(item.block)) > BATCH_BYTES) throw invalid();
+  }
+  return items;
+}
+
+function notionBlock(b: Exclude<ContentBlock, { type: "notion_image" }> | ListLeaf): Record<string, unknown> {
+  const rich = (spans: readonly ContentSpan[]) => richText(spans.map(fromContent));
+  switch (b.type) {
+    case "paragraph":
+    case "heading_1":
+    case "heading_2":
+    case "heading_3":
+    case "quote":
+      return block(b.type, { rich_text: rich(b.text) });
+    case "bulleted_list_item":
+    case "numbered_list_item":
+    case "to_do": {
+      const data: Record<string, unknown> = { rich_text: rich(b.text) };
+      if (b.type === "to_do") data.checked = b.checked;
+      const children = "children" in b ? (b.children ?? []) : [];
+      if (children.length > 100) throw invalid();
+      if (children.length > 0) data.children = children.map(notionBlock);
+      return block(b.type, data);
+    }
+    case "code":
+      if (!CODE_LANGUAGES.has(b.language)) throw invalid();
+      return block("code", { rich_text: richText([{ text: b.text, format: PLAIN }]), language: b.language });
+    case "divider":
+      return block("divider", {});
+    case "image":
+      if (!/^https?:\/\/\S+$/i.test(b.url) || b.url.length > 2000) throw invalid();
+      return block("image", { type: "external", external: { url: b.url }, caption: rich(b.caption) });
+  }
+}
+
+function block(type: string, data: Record<string, unknown>): Record<string, unknown> {
+  return { object: "block", type, [type]: data };
+}
+
+/** Spans as Notion rich text: long text split at 2000 characters, at most 100 items per block. */
+function richText(spans: Span[]): Record<string, unknown>[] {
+  const items: Record<string, unknown>[] = [];
+  for (const { text, format } of spans) {
+    for (const content of chunks(text)) {
+      items.push({
+        type: "text",
+        text: { content, link: format.href ? { url: format.href } : null },
+        annotations: {
+          bold: format.bold,
+          italic: format.italic,
+          strikethrough: format.strike,
+          underline: false,
+          code: format.code,
+          color: "default",
+        },
+      });
+    }
+  }
+  if (items.length > RICH_TEXT_MAX) throw invalid();
+  return items;
+}
+
+/** Text in pieces of at most 2000 characters, never splitting a surrogate pair. */
+export function chunks(text: string): string[] {
+  const parts: string[] = [];
+  let at = 0;
+  while (at < text.length) {
+    let end = Math.min(at + NOTION_TEXT_SEGMENT, text.length);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
+    parts.push(text.slice(at, end));
+    at = end;
+  }
+  return parts;
+}
+
+/**
+ * The items as Notion would return them once written, so the saved body can be shown without reading it
+ * again. A kept image's signed address is not known here; the caller adds it back.
+ */
+export function storedOf(items: BodyItem[]): RawBlock[] {
+  return items.map((item) =>
+    item.kind === "keep"
+      ? { block: { id: item.id, type: "image", image: { type: "file", caption: stored(item.caption) } } }
+      : storedBlock(item.block),
+  );
+}
+
+function storedBlock(payload: Record<string, unknown>): RawBlock {
+  const type = typeOf(payload);
+  const { children, ...data } = dataOf(payload) as Record<string, unknown> & { children?: Record<string, unknown>[] };
+  for (const key of ["rich_text", "caption"]) if (Array.isArray(data[key])) data[key] = stored(data[key] as unknown[]);
+  return {
+    block: { type, has_children: (children?.length ?? 0) > 0, [type]: data },
+    ...(children?.length ? { children: children.map(storedBlock) } : {}),
+  };
+}
+
+function stored(rich: unknown[]): Record<string, unknown>[] {
+  return rich.filter(isRecord).map((part) => {
+    const text = isRecord(part.text) ? part.text : {};
+    const link = isRecord(text.link) ? text.link : null;
+    return { ...part, plain_text: text.content, href: link?.url ?? null };
+  });
+}
+
+/** Whether a kept image's new caption differs from the one it has. */
+export function captionChanged(old: Record<string, unknown>, caption: Record<string, unknown>[]): boolean {
+  const read = (rich: unknown[]) => JSON.stringify(spansOf(rich, new Set()));
+  return read(richOf(dataOf(old), "caption")) !== read(stored(caption));
+}
+
+// ── blocks ↔ Markdown (the dialect at the top of this file) ─────────────────
+
+/** The body as Markdown, and what keeps it from being edited (the Markdown is then empty). */
+export function blocksToMarkdown(raw: RawBlock[]): { markdown: string; unsupported: string[] } {
+  const problems = new Set<string>();
+  const blocks = raw.flatMap((b) => contentOf(b, problems, 0));
+  let markdown = "";
+  if (problems.size === 0) {
+    markdown = contentToMarkdown(blocks);
+    // What reads fine but cannot be written back as Markdown (say, one code span of many lines, which becomes
+    // more rich text items than Notion takes in a block) is read-only too.
+    try {
+      markdownToItems(markdown);
+    } catch (err) {
+      if (!(err instanceof SiteError)) throw err;
+      problems.add("unwritable");
+    }
+  }
+  return { markdown: problems.size > 0 ? "" : markdown, unsupported: [...problems].sort() };
+}
+
+export function contentToMarkdown(blocks: readonly ContentBlock[]): string {
+  let markdown = "";
+  blocks.forEach((b, index) => {
+    // List items follow each other line by line; every other block needs a blank line before it.
+    if (index > 0) markdown += isListType(b.type) && isListType(blocks[index - 1]?.type ?? "") ? "\n" : "\n\n";
+    markdown += blockMarkdown(b);
+  });
+  return markdown;
+}
+
+function blockMarkdown(b: ContentBlock | ListLeaf): string {
+  switch (b.type) {
+    case "paragraph": {
+      const md = inlineMarkdown(b.text);
+      return md === "" ? "&nbsp;" : leadEscape(md);
+    }
+    case "heading_1":
+    case "heading_2":
+    case "heading_3":
+      return `${"#".repeat(Number(b.type.slice(-1)))} ${inlineMarkdown(b.text)}`;
+    case "quote":
+      return `> ${inlineMarkdown(b.text)}`;
+    case "bulleted_list_item":
+    case "numbered_list_item":
+    case "to_do": {
+      const marker = b.type === "to_do" ? `- [${b.checked ? "x" : " "}]` : b.type === "numbered_list_item" ? "1." : "-";
+      let out = `${marker} ${inlineMarkdown(b.text)}`;
+      for (const child of "children" in b ? (b.children ?? []) : []) out += `\n${INDENT}${blockMarkdown(child)}`;
+      return out;
+    }
+    case "code": {
+      const longest = Math.max(0, ...(b.text.match(/`+/g) ?? []).map((run) => run.length));
+      const fence = "`".repeat(Math.max(3, longest + 1));
+      return `${fence}${b.language === "plain text" ? "" : b.language}\n${b.text}\n${fence}`;
+    }
+    case "divider":
+      return "---";
+    case "image":
+      return `![${inlineMarkdown(b.caption)}](${escapeUrl(b.url)})`;
+    case "notion_image":
+      return `![${inlineMarkdown(b.caption)}](${HOSTED_IMAGE}${b.id})`;
+  }
+}
+
+function inlineMarkdown(content: readonly ContentSpan[]): string {
   // Neighbouring spans with the same link make one link, with their styles inside.
   const groups: Span[][] = [];
-  for (const span of spansOf(rich, problems)) {
+  for (const span of content.map(fromContent)) {
     const last = groups.at(-1);
     if (last && last[0]?.format.href === span.format.href) last.push(span);
     else groups.push([span]);
@@ -379,25 +509,6 @@ function escapeUrl(url: string): string {
   return url.replace(/[\\()]/g, "\\$&").replace(/\s/g, (c) => encodeURIComponent(c));
 }
 
-const safeHref = (href: string) => /^(https?:\/\/|mailto:)/i.test(href);
-
-function sameFormat(a: Format, b: Format): boolean {
-  return a.bold === b.bold && a.italic === b.italic && a.strike === b.strike && a.code === b.code && a.href === b.href;
-}
-
-function merge(spans: Span[]): Span[] {
-  const out: Span[] = [];
-  for (const span of spans) {
-    if (!span.text) continue;
-    const last = out.at(-1);
-    if (last && sameFormat(last.format, span.format)) last.text += span.text;
-    else out.push({ text: span.text, format: { ...span.format } });
-  }
-  return out;
-}
-
-// ── Markdown → Notion ────────────────────────────────────────────────────────
-
 // As in CommonMark, a fence's info string has no backticks: a line that opens with a long code span is not one.
 const FENCE = /^(`{3,})([^`]*)$/;
 const HEADING = /^(#{1,3})(?: (.*))?$/;
@@ -416,16 +527,19 @@ const startsBlock = (line: string) =>
   isImageLine(line) ||
   line.trim() === "&nbsp;";
 
-const invalid = () => new SiteError("content.body_invalid", 400);
-
 /** The Markdown as the blocks to write. Throws `content.body_invalid` for what Notion would not take. */
 export function markdownToItems(markdown: string): BodyItem[] {
+  return contentToItems(markdownToContent(markdown));
+}
+
+/** The Markdown as blocks. Throws `content.body_invalid` for what the dialect cannot mean. */
+export function markdownToContent(markdown: string): ContentBlock[] {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  const items: BodyItem[] = [];
+  const blocks: ContentBlock[] = [];
   /** The top-level list item that indented list lines go under, and how far its first child is indented. */
-  let parent: Record<string, unknown> | null = null;
+  let parent: ListItem | null = null;
   let childIndent = 0;
-  const push = (block: Record<string, unknown>) => items.push({ kind: "block", block });
+  const text = (source: string) => parseInline(source).map(toContent);
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] ?? "";
@@ -440,30 +554,26 @@ export function markdownToItems(markdown: string): BodyItem[] {
       i++;
       while (i < lines.length && !close.test(lines[i] ?? "")) body.push(lines[i++] ?? "");
       i++;
-      push(
-        block("code", {
-          rich_text: richText([{ text: body.join("\n"), format: PLAIN }]),
-          language: codeLanguage(fence[2] ?? ""),
-        }),
-      );
+      blocks.push({ type: "code", language: codeLanguage(fence[2] ?? ""), text: body.join("\n") });
       parent = null;
       continue;
     }
     const heading = HEADING.exec(line);
     if (heading) {
-      push(block(`heading_${heading[1]?.length}`, { rich_text: richText(parseInline(heading[2] ?? "")) }));
+      const type = `heading_${heading[1]?.length ?? 1}` as "heading_1" | "heading_2" | "heading_3";
+      blocks.push({ type, text: text(heading[2] ?? "") });
       parent = null;
       i++;
       continue;
     }
     if (DIVIDER.test(line)) {
-      push(block("divider", {}));
+      blocks.push({ type: "divider" });
       parent = null;
       i++;
       continue;
     }
     if (isImageLine(line)) {
-      items.push(imageItem(line.trimEnd()));
+      blocks.push(imageBlock(line.trimEnd()));
       parent = null;
       i++;
       continue;
@@ -471,29 +581,20 @@ export function markdownToItems(markdown: string): BodyItem[] {
     const list = LIST.exec(line);
     if (list) {
       const marker = list[2] ?? "-";
-      let content = list[3] ?? "";
-      let type = /\d/.test(marker) ? "numbered_list_item" : "bulleted_list_item";
-      const data: Record<string, unknown> = {};
-      const todo = type === "bulleted_list_item" ? TODO.exec(content) : null;
-      if (todo) {
-        type = "to_do";
-        data.checked = todo[1] !== " ";
-        content = todo[2] ?? "";
-      }
-      data.rich_text = richText(parseInline(content));
-      const item = block(type, data);
+      const content = list[3] ?? "";
+      const todo = /\d/.test(marker) ? null : TODO.exec(content);
+      const item: ListItem = todo
+        ? { type: "to_do", text: text(todo[2] ?? ""), checked: todo[1] !== " " }
+        : { type: /\d/.test(marker) ? "numbered_list_item" : "bulleted_list_item", text: text(content) };
       const indent = list[1]?.length ?? 0;
       if (indent > 0 && parent) {
         // One level only: a line indented further than the first child would be a grandchild.
         if (childIndent === 0) childIndent = indent;
         else if (indent > childIndent) throw invalid();
-        const parentData = parent[parent.type as string] as Record<string, unknown>;
-        if (!Array.isArray(parentData.children)) parentData.children = [];
-        const children = parentData.children as Record<string, unknown>[];
-        if (children.length >= 100) throw invalid();
-        children.push(item);
+        parent.children ??= [];
+        parent.children.push(item as ListLeaf);
       } else {
-        push(item);
+        blocks.push(item);
         parent = item;
         childIndent = 0;
       }
@@ -504,11 +605,11 @@ export function markdownToItems(markdown: string): BodyItem[] {
     if (QUOTE.test(line)) {
       const quote: string[] = [];
       while (i < lines.length && QUOTE.test(lines[i] ?? "")) quote.push(QUOTE.exec(lines[i++] ?? "")?.[1] ?? "");
-      push(block("quote", { rich_text: richText(parseInline(quote.join("\n"))) }));
+      blocks.push({ type: "quote", text: text(quote.join("\n")) });
       continue;
     }
     if (line.trim() === "&nbsp;") {
-      push(block("paragraph", { rich_text: [] }));
+      blocks.push({ type: "paragraph", text: [] });
       i++;
       continue;
     }
@@ -516,35 +617,26 @@ export function markdownToItems(markdown: string): BodyItem[] {
     i++;
     while (i < lines.length && (lines[i] ?? "").trim() !== "" && !startsBlock(lines[i] ?? ""))
       paragraph.push(lines[i++] ?? "");
-    push(block("paragraph", { rich_text: richText(parseInline(paragraph.join("\n"))) }));
+    blocks.push({ type: "paragraph", text: text(paragraph.join("\n")) });
   }
-  // Refused before anything is written, and so a body holding such a block reads as read-only.
-  for (const item of items) {
-    if (item.kind === "block" && Buffer.byteLength(JSON.stringify(item.block)) > BATCH_BYTES) throw invalid();
-  }
-  return items;
+  return blocks;
 }
 
-function block(type: string, data: Record<string, unknown>): Record<string, unknown> {
-  return { object: "block", type, [type]: data };
-}
-
-function imageItem(line: string): BodyItem {
+function imageBlock(line: string): ContentBlock {
   // The caption ends at the first `](` outside its own links and code; the URL, whose parentheses are escaped,
   // is the rest of the line.
   const j = labelEnd(line, 2);
   if (line[j] !== "]" || line[j + 1] !== "(") throw invalid();
   const raw = line.slice(j + 2, -1);
   if (/(^|[^\\])(\\\\)*[()]/.test(raw)) throw invalid();
-  const caption = richText(parseInline(line.slice(2, j)));
+  const caption = parseInline(line.slice(2, j)).map(toContent);
   const url = unescapeUrl(raw);
   if (url.startsWith(HOSTED_IMAGE)) {
     const id = notionId(url.slice(HOSTED_IMAGE.length));
     if (!id) throw invalid();
-    return { kind: "keep", id, caption };
+    return { type: "notion_image", id, caption };
   }
-  if (!/^https?:\/\/\S+$/i.test(url) || url.length > 2000) throw invalid();
-  return { kind: "block", block: block("image", { type: "external", external: { url }, caption }) };
+  return { type: "image", url, caption };
 }
 
 function unescapeUrl(url: string): string {
@@ -665,76 +757,4 @@ function linkAt(source: string, at: number): { text: string; url: string; end: n
   }
   if (source[k] !== ")" || !url || !safeHref(url) || url.length > 2000) return null;
   return { text: source.slice(at + 1, j), url, end: k + 1 };
-}
-
-/** Spans as Notion rich text: long text split at 2000 characters, at most 100 items per block. */
-function richText(spans: Span[]): Record<string, unknown>[] {
-  const items: Record<string, unknown>[] = [];
-  for (const { text, format } of spans) {
-    for (const content of chunks(text)) {
-      items.push({
-        type: "text",
-        text: { content, link: format.href ? { url: format.href } : null },
-        annotations: {
-          bold: format.bold,
-          italic: format.italic,
-          strikethrough: format.strike,
-          underline: false,
-          code: format.code,
-          color: "default",
-        },
-      });
-    }
-  }
-  if (items.length > RICH_TEXT_MAX) throw invalid();
-  return items;
-}
-
-/** Text in pieces of at most 2000 characters, never splitting a surrogate pair. */
-export function chunks(text: string): string[] {
-  const parts: string[] = [];
-  let at = 0;
-  while (at < text.length) {
-    let end = Math.min(at + NOTION_TEXT_SEGMENT, text.length);
-    const last = text.charCodeAt(end - 1);
-    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
-    parts.push(text.slice(at, end));
-    at = end;
-  }
-  return parts;
-}
-
-/**
- * The items as Notion would return them once written, so the saved body can be shown as Markdown without
- * reading it again.
- */
-export function storedOf(items: BodyItem[]): RawBlock[] {
-  return items.map((item) =>
-    item.kind === "keep"
-      ? { block: { id: item.id, type: "image", image: { type: "file", caption: stored(item.caption) } } }
-      : storedBlock(item.block),
-  );
-}
-
-function storedBlock(payload: Record<string, unknown>): RawBlock {
-  const type = typeOf(payload);
-  const { children, ...data } = dataOf(payload) as Record<string, unknown> & { children?: Record<string, unknown>[] };
-  for (const key of ["rich_text", "caption"]) if (Array.isArray(data[key])) data[key] = stored(data[key] as unknown[]);
-  return {
-    block: { type, has_children: (children?.length ?? 0) > 0, [type]: data },
-    ...(children?.length ? { children: children.map(storedBlock) } : {}),
-  };
-}
-
-function stored(rich: unknown[]): Record<string, unknown>[] {
-  return rich.filter(isRecord).map((part) => {
-    const text = isRecord(part.text) ? part.text : {};
-    const link = isRecord(text.link) ? text.link : null;
-    return { ...part, plain_text: text.content, href: link?.url ?? null };
-  });
-}
-
-/** Whether a kept image's new caption differs from the one it has. */
-export function captionChanged(old: Record<string, unknown>, caption: Record<string, unknown>[]): boolean {
-  return inlineMarkdown(richOf(dataOf(old), "caption"), new Set()) !== inlineMarkdown(stored(caption), new Set());
 }

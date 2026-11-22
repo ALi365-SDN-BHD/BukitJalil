@@ -63,8 +63,16 @@ const en: Messages = {
     saveNotice: "Saving writes straight to Notion and cannot be undone in BukitJalil.",
     saved: "Saved to Notion.",
     bodyLabel: "Body",
+    bodyPlaceholder: "Type here, or / to pick a block type",
     bodyHint:
-      "Markdown: a blank line between paragraphs; # headings (levels 1–3), - lists, 1. numbered, - [ ] to-dos, > quotes, ``` code, ---, ![caption](image URL); **bold**, _italic_, ~~strike~~, `code`, [text](URL), <br> for a line break; an indented list item belongs to the one above.",
+      "Type / for headings, lists, to-dos, quotes, code, dividers or images (by URL); select text to make it bold, italic, struck through, inline code or a link; Tab makes a list item part of the one above (one level only).",
+    bodyProblems: {
+      nesting:
+        "Only list items can hold items under them, one level deep. Move the indented content back to the top level.",
+      image_copy: "Images uploaded to Notion cannot be copied, only moved or removed.",
+      link: "Links must start with http, https or mailto; change the link.",
+      unsupported: "The body has content that cannot be saved; remove it.",
+    },
     bodyReadOnly: "The body has content that cannot be edited here ({types}). Edit it in Notion.",
     readOnlyReasons: {
       children: "nested content",

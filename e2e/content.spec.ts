@@ -40,7 +40,7 @@ interface FakePage {
   tags: string[];
   featured: boolean;
   edited: string;
-  body: string;
+  body: unknown[];
   /** The body has blocks that cannot be edited here. */
   readOnly?: boolean;
 }
@@ -59,7 +59,7 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
         tags: ["news"],
         featured: false,
         edited: "2026-11-21T08:00:00.000Z",
-        body: "Hello **world**",
+        body: [{ type: "paragraph", text: [{ text: "Hello " }, { text: "world", bold: true }] }],
       },
       {
         id: "22222222222222222222222222222222",
@@ -68,7 +68,7 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
         tags: [],
         featured: true,
         edited: "2026-11-20T08:00:00.000Z",
-        body: "",
+        body: [],
         readOnly: true,
       },
     ] as FakePage[],
@@ -180,7 +180,7 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
         tags: [],
         featured: false,
         edited: "2026-11-21T10:00:00.000Z",
-        body: String(body?.markdown ?? ""),
+        body: (body?.blocks as unknown[] | undefined) ?? [],
       };
       apply(created, (body?.properties ?? {}) as Record<string, Record<string, unknown>>);
       state.pages.unshift(created);
@@ -190,12 +190,12 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
     if (!found) return route.fulfill({ status: 404, json: { code: "content.not_in_database" } });
     if (parts[9] === "body") {
       if (req.method() === "PUT") {
-        found.body = String(body?.markdown ?? "");
+        found.body = (body?.blocks as unknown[] | undefined) ?? [];
         found.edited = new Date(Date.parse(found.edited) + 60_000).toISOString();
       }
       return route.fulfill({
         json: {
-          markdown: found.readOnly ? "" : found.body,
+          blocks: found.readOnly ? [] : found.body,
           editable: !found.readOnly,
           unsupported: found.readOnly ? ["breadcrumb_v2", "color", "table"] : [],
           lastEditedTime: found.edited,
@@ -321,8 +321,14 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
   await expect(page.getByTestId("content-title")).toHaveValue("First post");
   await expect(page.getByTestId("content-save")).toBeDisabled();
   await expect(page.getByTestId("content-property-Related")).toContainText(/2 related|2 个关联/);
-  await expect(page.getByTestId("content-body")).toHaveValue("Hello **world**");
-  await page.getByTestId("content-body").fill("Hello **body**\n\n- item");
+  // The body is blocks: typing `- ` starts a list, as in Notion.
+  const editor = page.getByTestId("content-body").locator('[contenteditable="true"]');
+  await expect(editor.locator("strong")).toHaveText("world");
+  // The caret goes after "world": End does not move to the line end in every browser on macOS.
+  const word = await editor.locator("strong").boundingBox();
+  await editor.locator("strong").click({ position: { x: (word?.width ?? 1) - 1, y: (word?.height ?? 2) / 2 } });
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("- item");
   // A body change alone is something to save.
   await expect(page.getByTestId("content-save")).toBeEnabled();
   await page.getByTestId("content-title").fill("First post, edited");
@@ -340,9 +346,15 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
   // The body goes first; the property save checks the edit time the body save returned.
   expect(notion.writes.at(-2)).toMatchObject({
     method: "PUT",
-    body: { lastEditedTime: "2026-11-21T08:00:00.000Z", markdown: "Hello **body**\n\n- item" },
+    body: {
+      lastEditedTime: "2026-11-21T08:00:00.000Z",
+      blocks: [
+        { type: "paragraph", text: [{ text: "Hello " }, { text: "world", bold: true }] },
+        { type: "bulleted_list_item", text: [{ text: "item" }] },
+      ],
+    },
   });
-  await expect(page.getByTestId("content-body")).toHaveValue("Hello **body**\n\n- item");
+  await expect(editor.locator("li, [data-content-type=bulletListItem]").first()).toContainText("item");
   expect(notion.writes.at(-1)).toMatchObject({
     method: "PATCH",
     body: {
@@ -378,7 +390,8 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
   await expect(page).toHaveURL(new RegExp(`/databases/${DB}/pages/new$`));
   await expect(page.getByTestId("content-property-Related")).toHaveCount(0);
   await page.getByTestId("content-title").fill("Third post");
-  await page.getByTestId("content-body").fill("The third body");
+  await page.getByTestId("content-body").locator('[contenteditable="true"]').click();
+  await page.keyboard.type("The third body");
   await page.getByTestId("content-property-Featured").getByRole("checkbox").check();
   await page.getByTestId("content-save").click();
   await expect(page).toHaveURL(new RegExp(`/databases/${DB}/pages/33333333333333333333333333333333$`));
@@ -386,7 +399,7 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
     method: "POST",
     body: {
       properties: { Name: { type: "title", text: "Third post" }, Featured: { type: "checkbox", checked: true } },
-      markdown: "The third body",
+      blocks: [{ type: "paragraph", text: [{ text: "The third body" }] }],
     },
   });
   await expect(page.getByTestId("content-title")).toHaveValue("Third post");

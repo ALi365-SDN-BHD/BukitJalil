@@ -60,8 +60,16 @@ const zhCN = {
     saveNotice: "保存后直接写进 Notion，不能在 BukitJalil 里撤销。",
     saved: "已保存到 Notion。",
     bodyLabel: "正文",
+    bodyPlaceholder: "输入正文，或输入 / 选择块类型",
     bodyHint:
-      "Markdown：段落之间空一行；# 标题（1–3 级）、- 列表、1. 编号、- [ ] 待办、> 引用、``` 代码、---、![说明](图片网址)；**粗体**、_斜体_、~~删除线~~、`代码`、[文字](网址)、<br> 换行；缩进的列表项是上一项的子项。",
+      "输入 / 插入标题、列表、待办、引用、代码、分隔线或图片（图片网址）；选中文字可以加粗、斜体、删除线、行内代码和链接；列表项按 Tab 成为上一项的子项（只能一层）。",
+    /** Why the body in the editor cannot be saved (BlocksProblem). */
+    bodyProblems: {
+      nesting: "只有列表项下面可以放子项，而且只能一层。请把缩进的内容移回顶层。",
+      image_copy: "Notion 里上传的图片不能复制，只能移动或删除。",
+      link: "链接只能是 http、https 或 mailto 开头的地址，请改一下链接。",
+      unsupported: "正文里有不能保存的内容，请删掉它。",
+    },
     bodyReadOnly: "正文里有这里不能编辑的内容（{types}），请在 Notion 中编辑。",
     /** Why a body is read-only, by the server's code (ContentBody.unsupported); any other code is a block type. */
     readOnlyReasons: {

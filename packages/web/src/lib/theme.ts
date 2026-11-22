@@ -1,4 +1,5 @@
 import type { Appearance } from "@bukitjalil/shared";
+import { useEffect, useState } from "react";
 
 const KEY = "bj-appearance";
 const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -35,4 +36,15 @@ export function setAppearance(appearance: Appearance): void {
     // the setting on the server is what counts; this only avoids a flash at start
   }
   paint();
+}
+
+/** Is the page in dark mode? Follows the class main.tsx sets from the system setting. */
+export function useDark(): boolean {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+  useEffect(() => {
+    const observer = new MutationObserver(() => setDark(document.documentElement.classList.contains("dark")));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
 }

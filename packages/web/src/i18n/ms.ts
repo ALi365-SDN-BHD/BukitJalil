@@ -64,8 +64,16 @@ const ms: Messages = {
     saveNotice: "Simpan menulis terus ke Notion dan tidak boleh dibuat asal dalam BukitJalil.",
     saved: "Disimpan ke Notion.",
     bodyLabel: "Kandungan",
+    bodyPlaceholder: "Taip di sini, atau / untuk memilih jenis blok",
     bodyHint:
-      "Markdown: baris kosong antara perenggan; # tajuk (aras 1–3), - senarai, 1. bernombor, - [ ] tugasan, > petikan, ``` kod, ---, ![kapsyen](URL imej); **tebal**, _condong_, ~~coret~~, `kod`, [teks](URL), <br> untuk baris baharu; item senarai berinden milik item di atasnya.",
+      "Taip / untuk tajuk, senarai, tugasan, petikan, kod, pembahagi atau imej (melalui URL); pilih teks untuk tebal, condong, coret, kod sebaris atau pautan; Tab menjadikan item senarai sebahagian item di atasnya (satu aras sahaja).",
+    bodyProblems: {
+      nesting:
+        "Hanya item senarai boleh memegang item di bawahnya, satu aras sahaja. Alihkan kandungan berinden kembali ke aras atas.",
+      image_copy: "Imej yang dimuat naik ke Notion tidak boleh disalin, hanya dialihkan atau dibuang.",
+      link: "Pautan mesti bermula dengan http, https atau mailto; ubah pautan itu.",
+      unsupported: "Kandungan ini ada bahagian yang tidak boleh disimpan; buangkannya.",
+    },
     bodyReadOnly: "Kandungan ini ada bahagian yang tidak boleh disunting di sini ({types}). Sunting dalam Notion.",
     readOnlyReasons: {
       children: "kandungan bersarang",
