@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { SITE_ONLY_SKILLS, type SkillsResponse, THEME_SKILLS } from "@bukitjalil/shared";
+import { contentKey, SITE_ONLY_SKILLS, type SkillsResponse, THEME_SKILLS } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AiBukit } from "../src/agent/ai-bukit.ts";
+import { NotionContentAgent } from "../src/agent/content-agent.ts";
 import { assertPiEnvironment, preparePiEnvironment } from "../src/agent/env.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { type AgentEvent, AgentService } from "../src/agent/service.ts";
@@ -66,6 +67,8 @@ function service(
     rgReady?: () => boolean;
     settled?: () => Promise<void>;
     disabledSkills?: () => readonly string[];
+    /** Content management conversations are available. */
+    content?: boolean;
   } = {},
 ) {
   const aiBukit = new AiBukit({
@@ -103,6 +106,7 @@ function service(
     disabledSkills: opts.disabledSkills,
     idleMs: opts.idleMs,
     shutdownMs: opts.shutdownMs,
+    ...(opts.content ? { content: new NotionContentAgent({ dataSources: ctx.dataSources, tmp: ctx.paths.tmp }) } : {}),
   });
   services.push(agent);
   const events: AgentEvent[] = [];
@@ -1070,5 +1074,69 @@ describe("AgentService", () => {
     expect(s.readOnly).not.toBeNull();
     const { agent } = service();
     expect(() => agent.create(s.id)).toThrow(expect.objectContaining({ code: "site.read_only" }));
+  });
+});
+
+describe("content management conversations", () => {
+  const DB = "0123456789abcdef0123456789abcdef";
+  let sourceCount = 0;
+  const source = () =>
+    ctx.dataSources.create({
+      platform: "notion",
+      name: `Notes ${++sourceCount}`,
+      token: `ntn_contentagenttoken${sourceCount}`,
+    });
+
+  it("belong to a Notion database and run with no files, lock, change set or skills", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const { agent, settled, statuses } = service({ content: true });
+    const session = agent.create(key);
+    expect(agent.listInfo(key).map((s) => s.id)).toEqual([session.id]);
+    expect(agent.info(session.id).project).toBe(key);
+
+    let seen: unknown;
+    faux.setResponses([
+      (context) => {
+        seen = context;
+        return pi.ai.fauxAssistantMessage("Hello from the content assistant");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Hi");
+    const end = await done;
+    expect(end.type === "status" && end.error).toBeFalsy();
+    const messages = (seen as { messages: { role: string; sections?: Record<string, string> }[] }).messages;
+    const sections = messages.find((m) => m.role === "system")?.sections ?? {};
+    expect(Object.keys(sections).sort()).toEqual(["cwd", "preamble"]);
+    const system = sections.preamble ?? "";
+    expect(system).toContain("BukitJalil content assistant");
+    expect(system).toContain(`"Notes ${sourceCount}"`);
+    expect(system).not.toContain("SKILL.md");
+    expect(JSON.stringify((seen as { tools?: unknown[] }).tools ?? [])).toBe("[]");
+    expect(statuses(session.id)).toEqual(["running", "idle"]);
+    expect(JSON.stringify(agent.store.entries(session.id))).toContain("Hello from the content assistant");
+    expect(ctx.locks.holder(key)).toBeNull();
+
+    // No images, and a session is forked within its database.
+    await expect(
+      agent.send(session.id, "look", { images: [{ data: PNG, mimeType: "image/png" }] }),
+    ).rejects.toMatchObject({ code: "request.invalid_body" });
+    const entry = (await agent.messages(session.id))[0]?.entryId ?? "";
+    expect((await agent.fork(session.id, entry)).project).toBe(key);
+  });
+
+  it("go with their data source, and need the content agent", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const { agent } = service({ content: true });
+    const session = agent.create(key);
+    ctx.dataSources.remove(ds.id);
+    await agent.closeContentSource(ds.id);
+    expect(agent.store.get(session.id)).toBeNull();
+    expect(() => agent.create(key)).toThrow(expect.objectContaining({ code: "datasource.not_found" }));
+    expect(() => service().agent.create(contentKey({ sourceId: source().id, databaseId: DB }))).toThrow(
+      expect.objectContaining({ code: "session.not_found" }),
+    );
   });
 });

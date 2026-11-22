@@ -1,11 +1,13 @@
-import type {
-  ProjectKey,
-  ReferenceImageRequest,
-  SessionInfo,
-  SessionMessage,
-  SessionStatus,
-  SkillsResponse,
-  ThinkingLevel,
+import {
+  type ContentRef,
+  type ProjectKey,
+  parseContentKey,
+  type ReferenceImageRequest,
+  type SessionInfo,
+  type SessionMessage,
+  type SessionStatus,
+  type SkillsResponse,
+  type ThinkingLevel,
 } from "@bukitjalil/shared";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import type {
@@ -25,6 +27,7 @@ import type { SiteLocks } from "../sites/locks.ts";
 import { storageErrorCode } from "../storage-errors.ts";
 import type { Db } from "../store/db.ts";
 import type { AiBukit } from "./ai-bukit.ts";
+import type { ContentAgent } from "./content-agent.ts";
 import { PathGate } from "./gate.ts";
 import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
@@ -81,6 +84,11 @@ export interface AgentServiceOptions {
   skillsDir: string;
   /** Optional skills turned off in Settings; read before every session opens. */
   disabledSkills?: () => readonly string[];
+  /**
+   * Conversations of a Notion database (content editor and AI design, part 2), keyed `content/…`: no lock,
+   * change set or files, only the content tools. Without it, such keys are refused.
+   */
+  content?: ContentAgent;
   /** Dispose an unused AgentSession after this long; its file stays (plan 6.2). */
   idleMs?: number;
   /** Longest shutdown waits for runs that ignore abort (tests set it short). */
@@ -198,8 +206,22 @@ export class AgentService {
   }
 
   list(project: ProjectKey): SessionRecord[] {
-    this.opts.projects.get(project);
+    const content = this.contentOf(project);
+    if (content) this.opts.content?.check(content);
+    else this.opts.projects.get(project);
     return this.store.list(project);
+  }
+
+  /** Stop and dispose every conversation of a data source's databases, once the data source is removed. */
+  async closeContentSource(sourceId: string): Promise<void> {
+    const keys = new Set([
+      ...this.pending.keys(),
+      ...this.running.keys(),
+      ...[...this.live.values()].map((l) => l.project),
+    ]);
+    await Promise.all(
+      [...keys].filter((k) => parseContentKey(k)?.sourceId === sourceId).map((k) => this.closeProject(k)),
+    );
   }
 
   get(id: string): SessionRecord {
@@ -261,14 +283,13 @@ export class AgentService {
   async fork(id: string, entryId: string): Promise<SessionRecord> {
     this.assertOpen();
     const source = this.get(id);
-    const site = this.opts.projects.get(source.project);
-    if (site.readOnly) throw new SiteError("site.read_only", 409);
+    this.assertWritable(source.project);
     const manager = await this.openEntries(source);
     if (!manager?.getEntry(entryId)) throw new SiteError("session.entry_not_found", 404);
     this.assertOpen();
     const newId = newSessionId();
     manager.createBranchedSession(entryId);
-    this.store.insert({ id: newId, project: site.key }, entriesOf(manager));
+    this.store.insert({ id: newId, project: source.project }, entriesOf(manager));
     if (source.title) this.store.rename(newId, source.title);
     return this.announce(newId);
   }
@@ -298,8 +319,7 @@ export class AgentService {
   /** Record a new session; its AgentSession and entries are made with the first message. */
   create(project: ProjectKey): SessionRecord {
     this.assertOpen();
-    const site = this.opts.projects.get(project);
-    if (site.readOnly) throw new SiteError("site.read_only", 409);
+    this.assertWritable(project);
     const id = newSessionId();
     this.store.insert({ id, project });
     return this.announce(id);
@@ -336,7 +356,11 @@ export class AgentService {
   ): Promise<void> {
     this.assertOpen();
     const session = this.get(id);
-    if (this.opts.projects.get(session.project).readOnly) throw new SiteError("site.read_only", 409);
+    this.assertWritable(session.project);
+    // Content conversations take no images: there is nowhere to keep them but the conversation.
+    if (this.contentOf(session.project) && (opts.images?.length ?? 0) > 0) {
+      throw new SiteError("request.invalid_body", 400);
+    }
     const message: Message = { text, images: (opts.images ?? []).map(cleanReferenceImage) };
     if (message.images.length > 0 && !(await this.model()).input.includes("image")) {
       throw new SiteError("image.model_unsupported", 400);
@@ -422,6 +446,20 @@ export class AgentService {
     if (this.closing) throw new SiteError("server.shutting_down", 503);
   }
 
+  /** The database of a content key, or null for a site or theme key; a content key without the agent is 404. */
+  private contentOf(project: ProjectKey): ContentRef | null {
+    const ref = parseContentKey(project);
+    if (ref && !this.opts.content) throw new SiteError("session.not_found", 404);
+    return ref;
+  }
+
+  /** The project can take new conversations and messages: a usable site or theme, or an existing data source. */
+  private assertWritable(project: ProjectKey): void {
+    const content = this.contentOf(project);
+    if (content) this.opts.content?.check(content);
+    else if (this.opts.projects.get(project).readOnly) throw new SiteError("site.read_only", 409);
+  }
+
   private emit(event: AgentEvent): void {
     for (const listener of this.listeners) {
       try {
@@ -496,7 +534,8 @@ export class AgentService {
     if (!this.pending.get(project)?.length) return;
     let release: () => void;
     try {
-      release = this.opts.locks.acquire(project, "session");
+      // A content conversation touches no repository: it needs no site lock.
+      release = this.contentOf(project) ? () => {} : this.opts.locks.acquire(project, "session");
     } catch (err) {
       if (!(err instanceof SiteError) || err.code !== "site.busy") throw err;
       if (!this.waiting.has(project)) {
@@ -520,6 +559,7 @@ export class AgentService {
     run.done = this.execute(run, next.messages)
       .then(async (error) => {
         // An aborted check or build may still be stopping Bukit: the lock stays until it has.
+        if (this.contentOf(project)) return error;
         await this.opts.bukit.settled(project);
         return (await this.snapshotAfter(project, run)) ?? error;
       })
@@ -612,8 +652,8 @@ export class AgentService {
       // Every run joins the site's open change set, or starts one (plan 7.2), before the AI touches files.
       const record = this.store.get(id);
       if (!record || run.cancelled || this.closing) return undefined;
-      const joined = await this.opts.changes.begin(record.project, id);
-      run.cwd = joined.cwd;
+      const joined = this.contentOf(record.project) ? null : await this.opts.changes.begin(record.project, id);
+      if (joined) run.cwd = joined.cwd;
       live = await this.open(run);
       if (!live) return undefined;
       if (live.idleTimer) clearTimeout(live.idleTimer);
@@ -623,7 +663,7 @@ export class AgentService {
       // The working copy was reset since this conversation last changed files (plan 6.2): tell the model
       // before the user's message, once per change set (a run that ended before sending it leaves no note,
       // and the next run sends it). Only the model sees it; the transcript shows message entries only.
-      if (joined.previous && !this.hasResetNote(live, joined.change.id)) {
+      if (joined?.previous && !this.hasResetNote(live, joined.change.id)) {
         await live.session.sendCustomMessage({
           customType: RESET_NOTE_TYPE,
           content: resetNote(joined.previous, joined.change.restoreCommit !== null),
@@ -667,6 +707,8 @@ export class AgentService {
     const existing = this.live.get(id);
     if (existing) return existing;
     const record = this.get(id);
+    const content = this.contentOf(record.project);
+    if (content) return this.openContent(run, record, content);
     const site = this.opts.projects.get(record.project);
     const cwd = run.cwd;
     if (!cwd) throw new Error("open() before the run has a change set");
@@ -724,14 +766,63 @@ export class AgentService {
       sessionManager,
       settingsManager,
     });
-    const live: Live = { project: site.key, session, unsubscribe: () => {}, idleTimer: null, saved };
+    return this.keep(run, site.key, session, saved);
+  }
+
+  /**
+   * A content conversation's AgentSession (content editor and AI design, part 2): an empty working
+   * directory, the content system prompt, no skills and only the content tools.
+   */
+  private async openContent(run: Run, record: SessionRecord, ref: ContentRef): Promise<Live | null> {
+    const content = this.opts.content;
+    if (!content) throw new SiteError("session.not_found", 404);
+    const id = run.sessionId;
+    const gone = () => run.cancelled || this.closing || !this.store.get(id);
+    const pi = await this.pi();
+    const [modelRuntime, model] = await Promise.all([this.modelRuntime(), this.model()]);
+    if (gone()) return null;
+    const cwd = content.cwd();
+    const settingsManager = createSettings(pi);
+    const piDir = this.opts.paths.pi;
+    const resourceLoader = await createResourceLoader(pi, {
+      cwd,
+      piDir,
+      settings: settingsManager,
+      systemPrompt: content.systemPrompt(ref),
+      projectKind: "site",
+      skillsDir: null,
+    });
+    if (gone()) return null;
+    const sessionManager = (await this.openEntries(record, cwd)) ?? pi.pi.SessionManager.inMemory(cwd);
+    const saved = sessionManager.getEntryCount() === 0 ? 0 : sessionManager.getEntryCount() + 1;
+    const customTools = content.tools(ref, { sessionId: id });
+    const { session } = await pi.pi.createAgentSession({
+      cwd,
+      agentDir: piDir,
+      modelRuntime,
+      model,
+      thinkingLevel: this.opts.thinkingLevel?.(),
+      // Only the content tools: no files, commands or Bukit.
+      tools: customTools.map((t) => t.name),
+      customTools,
+      resourceLoader,
+      sessionManager,
+      settingsManager,
+    });
+    return this.keep(run, record.project, session, saved);
+  }
+
+  /** Keep a new AgentSession in memory, saving and announcing its events; null if the run ended meanwhile. */
+  private keep(run: Run, project: ProjectKey, session: AgentSession, saved: number): Live | null {
+    const id = run.sessionId;
+    const live: Live = { project, session, unsubscribe: () => {}, idleTimer: null, saved };
     live.unsubscribe = session.subscribe((event) => {
       // Saved as Pi adds entries (plan 6.9), before anyone hears of them.
       this.save(id, live);
-      this.emit({ project: site.key, sessionId: id, type: "pi", event });
+      this.emit({ project, sessionId: id, type: "pi", event });
     });
     this.live.set(id, live);
-    if (gone()) {
+    if (run.cancelled || this.closing || !this.store.get(id)) {
       this.dispose(id);
       return null;
     }

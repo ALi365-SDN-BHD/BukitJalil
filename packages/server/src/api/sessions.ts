@@ -1,12 +1,43 @@
-import { ForkRequest, SendMessageRequest, type SessionDetail, SessionPatch } from "@bukitjalil/shared";
-import type { Hono } from "hono";
+import {
+  contentKey,
+  ForkRequest,
+  type ProjectKey,
+  parseContentKey,
+  SendMessageRequest,
+  type SessionDetail,
+  SessionPatch,
+} from "@bukitjalil/shared";
+import type { Context, Hono } from "hono";
 import type { AgentService } from "../agent/service.ts";
 import type { AppEnv } from "../app.ts";
+import { notionId } from "../data-sources/service.ts";
 import { apiError } from "../security/guard.ts";
+import { SiteError } from "../sites/location.ts";
 import { body, handle, PROJECT_PREFIXES, projectParam } from "./common.ts";
+
+/** A Notion database's conversations in content management (content editor and AI design, part 2). */
+const CONTENT = "/content/sources/:sourceId/databases/:databaseId";
+
+/** The content key of a route under CONTENT; 404 for ids that cannot be one. */
+function contentParam(c: Context): ProjectKey {
+  const key = contentKey({
+    sourceId: c.req.param("sourceId") ?? "",
+    databaseId: notionId(c.req.param("databaseId") ?? "") ?? "",
+  });
+  if (!parseContentKey(key)) throw new SiteError("datasource.not_found", 404);
+  return key;
+}
 
 /** AI sessions (plan 9.1); what they do arrives on the event stream. */
 export function sessionRoutes(api: Hono<AppEnv>, agent: AgentService) {
+  api.get(`${CONTENT}/sessions`, (c) => handle(c, () => c.json(agent.listInfo(contentParam(c)))));
+  api.post(`${CONTENT}/sessions`, (c) =>
+    handle(c, () => {
+      const record = agent.create(contentParam(c));
+      return c.json(agent.info(record.id), 201);
+    }),
+  );
+
   for (const prefix of PROJECT_PREFIXES)
     api.get(`${prefix}/sessions`, (c) => handle(c, () => c.json(agent.listInfo(projectParam(c)))));
 

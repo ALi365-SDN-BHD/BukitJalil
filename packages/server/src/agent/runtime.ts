@@ -42,8 +42,8 @@ export interface ResourceOptions {
   systemPrompt: string;
   /** Skills that belong to the other kind of project are not loaded (theme development design 4.1). */
   projectKind: ProjectKind;
-  /** BukitJalil's skills directory; the only skills loaded. */
-  skillsDir: string;
+  /** BukitJalil's skills directory; the only skills loaded. Null loads none (content conversations). */
+  skillsDir: string | null;
   /** Optional skills turned off in Settings; required skills stay on. */
   disabledSkills?: readonly string[];
 }
@@ -66,7 +66,7 @@ export async function createResourceLoader({ pi }: PiModules, opts: ResourceOpti
     noPromptTemplates: true,
     noThemes: true,
     noSkills: true,
-    additionalSkillPaths: [opts.skillsDir],
+    additionalSkillPaths: opts.skillsDir === null ? [] : [opts.skillsDir],
     // Settings can hide a skill from the prompt; the required skills are part of the workflow and stay.
     skillsOverride: ({ skills, diagnostics }) => ({
       skills: skills.filter(

@@ -85,6 +85,15 @@ E2（2026-11-22）：Markdown 提示文字已在 E1 换成块编辑器的说明�
 - **A3 界面**：拆出通用对话组件；中栏底部可折叠面板（会话列表、新对话、消息、输入框）；确认卡（属性对比、正文差异、写入/不要）；写入后刷新列表和条目；窄屏布局。
 - **A4 收尾**：开发方案 5.6 和第 14 节、README、AGENTS.md；e2e（用假模型）覆盖读取、提议、确认写入、拒绝、冲突；三种浏览器完整 e2e。
 
+### A0 实现说明（2026-11-22）
+
+- **键**：`ProjectKey` 加 `content/<数据源 id>/<数据库 id>`（`shared/src/projects.ts` 的 `contentKey`、`parseContentKey`）。它不是项目，`parseProjectKey` 不认，只用于会话、事件和锁的键。
+- **存储**：迁移 016 重建 `sessions`，加 `data_source_id`（外键到 `data_sources`，删除时级联）和 `database_id`，三种归属正好一种。`SessionStore` 按键选列。
+- **服务**：`AgentService` 加可选的 `content`（`ContentAgent`，实现是 `NotionContentAgent`）。内容键的会话：不加网站锁、不建改动集、不等 Bukit、不快照；工作目录是应用临时目录下的空目录 `content-ai`；不加载技能；系统提示是内容助手的；Pi 的工具只有 `ContentAgent.tools` 给的（A0 还是空的）；不收图片。没有 `content` 时内容键一律 404。
+- **接口**：`GET/POST /api/content/sources/:sourceId/databases/:databaseId/sessions`（数据库 id 可以带短横线）；其余会话接口（消息、停止、分叉、改名、删除）和网站的共用。
+- **删除数据源**：会话随行删除（级联），`DataSourceService.onRemoved` 通知 `AgentService.closeContentSource` 停掉还在跑的对话。
+- **测试**：`agent.test.ts` 覆盖内容会话的运行（系统提示、没有技能和工具、不占锁）、不收图片、分叉留在同一数据库、随数据源删除、没有 `content` 时 404；`sessions-api.test.ts` 覆盖内容路径下的创建和列表。
+
 ### PR #18 评审意见（2026-11-22，Codex 3 条，已修）
 
 - **合并后的长文字存不回**：Notion 一块最多 100 段、每段 2000 字，读回来合成一段可达 200,000 字，原来每段上限 199,900，能编辑的正文保存时被拒。正文的文字段和代码块改用 `CONTENT_SPAN_MAX`（100 × 2000），真正写不进的仍由服务端按 100 段检查拒绝。

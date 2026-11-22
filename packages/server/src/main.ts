@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/shared";
 import { serve } from "@hono/node-server";
 import { AiBukit } from "./agent/ai-bukit.ts";
+import { NotionContentAgent } from "./agent/content-agent.ts";
 import { CustomModelStore } from "./agent/custom-models.ts";
 import { preparePiEnvironment } from "./agent/env.ts";
 import { registerFakeModel } from "./agent/fake-model.ts";
@@ -307,7 +308,10 @@ function startServices(db: Db): Runtime {
     bukit: aiBukit,
     skillsDir,
     disabledSkills: () => settingsStore.get().disabledSkills,
+    content: new NotionContentAgent({ dataSources, tmp: paths.tmp }),
   });
+  // A removed data source took its content conversations with it (ON DELETE CASCADE): stop them too.
+  dataSources.onRemoved((id) => void agent.closeContentSource(id));
   const panels = new PanelService({
     git,
     projects,

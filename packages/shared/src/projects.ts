@@ -41,6 +41,34 @@ export function parseProjectKey(key: string): ProjectRef | null {
 
 export const isThemeKey = (key: ProjectKey) => key.startsWith(THEME_KEY_PREFIX);
 
+/**
+ * The conversations of one Notion database in content management (content editor and AI design, part 2):
+ * `content/<dataSourceId>/<databaseId>`. Not a project: it has no repository, change sets or builds, only
+ * sessions, so `parseProjectKey` does not accept it.
+ */
+export const CONTENT_KEY_PREFIX = "content/";
+const DATA_SOURCE_ID = /^ds_[0-9a-f]{12}$/;
+const DATABASE_ID = /^[0-9a-f]{32}$/;
+
+export interface ContentRef {
+  sourceId: string;
+  /** 32 lower-case hex characters, without dashes. */
+  databaseId: string;
+}
+
+export const contentKey = (ref: ContentRef): ProjectKey => `${CONTENT_KEY_PREFIX}${ref.sourceId}/${ref.databaseId}`;
+
+/** The database a content key names, or null when it is not a well-formed one. */
+export function parseContentKey(key: string): ContentRef | null {
+  if (!key.startsWith(CONTENT_KEY_PREFIX)) return null;
+  const [sourceId, databaseId, ...rest] = key.slice(CONTENT_KEY_PREFIX.length).split("/");
+  return rest.length === 0 && DATA_SOURCE_ID.test(sourceId ?? "") && DATABASE_ID.test(databaseId ?? "")
+    ? { sourceId: sourceId as string, databaseId: databaseId as string }
+    : null;
+}
+
+export const isContentKey = (key: ProjectKey) => key.startsWith(CONTENT_KEY_PREFIX);
+
 /** How a theme project was made (design 4, 5, 6). */
 export type ThemeOrigin = "new" | "import" | "clone";
 
