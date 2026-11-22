@@ -57,6 +57,9 @@ project layout, the page types, escaping and the checking order.
    skill if the captured site does not have an equivalent.
 9. Run `bukit_check`, then `bukit_build`, and compare the preview with the
    screenshots at each width. Fix the largest differences first.
+10. Go through the design self-check in the `theme-development` skill. Where
+    the captured site itself fails a check, keep its look and name the check
+    in `summarize_changes`.
 
 Keep the sample content generic: do not paste paragraphs, names or contact
 details from the captured site into `content/`.

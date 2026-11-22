@@ -68,16 +68,18 @@ whether `tokens.yaml`, the search page and `static/404.html` exist.
    values.
 3. Then the base layout, the partials (header, navigation, footer) and the
    home page.
-4. **Confirm the style first.** Run `bukit_check` and `bukit_build`, then stop:
-   call `summarize_changes`, tell the user the home page is ready in the
-   preview, and ask them to confirm the look or say what to change. Do not
+4. **Confirm the style first.** Run `bukit_check` and `bukit_build`, go
+   through the design self-check below, then stop: call `summarize_changes`,
+   tell the user the home page is ready in the preview, and ask them to
+   confirm the look or say what to change. Do not
    build the other page types yet. Repeat this step until they confirm. Skip
    it only when the user said to finish the whole theme in one go.
 5. After they confirm, do each remaining page type: post, page, list,
    pagination, archive, taxonomy index and term, search, 404.
 6. After each step run `bukit_check` (its doctor part checks the manifest,
    templates and includes), then `bukit_build`, and fix what they report.
-7. Finish with `theme_coverage`: nothing missing. Then `summarize_changes`.
+7. Finish with `theme_coverage`: nothing missing. Go through the design
+   self-check again for every page type. Then `summarize_changes`.
 
 ## Rules for templates and styles
 
@@ -93,8 +95,77 @@ whether `tokens.yaml`, the search page and `static/404.html` exist.
   theme works under a sub-path.
 - Make pages work without JavaScript; use it only for small enhancements.
 - Write accessible markup: landmarks (`header`, `nav`, `main`, `footer`), a
-  skip link, visible focus styles, enough color contrast, and `alt` text from
-  the content.
+  skip link, visible focus styles, enough color contrast (see the design
+  self-check), and `alt` text from the content.
 - Change `content/` only when a page type has no example; keep the sample
   content generic.
 - Keep `theme.yaml` `name` equal to the directory name.
+
+## Design self-check
+
+You cannot see the preview, so check the source: `tokens.yaml`, the CSS and
+the templates. Fix what fails. If you leave something on purpose, say what and
+why in `summarize_changes`.
+
+Go through the groups in order, and don't polish a later group while an
+earlier one fails. In groups 4 and 5, the user's request and the reference
+images come first. Groups 1-3 apply even then; if the user asks for something
+that fails one of them, or their own site does, keep their choice and name the
+failing check in `summarize_changes`.
+
+1. **Content.** Every section on a page has a job; no filler sections.
+   Templates don't hard-code page copy such as headlines and paragraphs
+   (interface labels and the text of the search and 404 pages are fine), and
+   nothing invents numbers, testimonials, client logos or contact details (see
+   `content-writing`). One `h1` per page, and headings go down one level at a
+   time.
+2. **Readable.**
+   - Text contrast at least 4.5:1 against its background; 3:1 for text 24px
+     and larger (or 18.66px bold), for borders that mark out inputs and
+     buttons, and for focus outlines. Work it out from the colors in
+     `tokens.yaml` and in the CSS (the tokens hold only one set of colors; a
+     dark color scheme, mixed colors and code blocks are in the CSS) for every
+     pair the theme uses: body text, muted text, links, text on the accent
+     color, code, the footer, in both light and dark schemes when there are
+     two.
+   - Body text `1rem`-`1.125rem` (16-18px) with line-height 1.5-1.7; headings
+     line-height 1.1-1.3. Font sizes in `rem`, so the reader's zoom works.
+   - Article text no wider than about `65ch`.
+   - Four to six font sizes in all, defined in the tokens. The home page `h1`
+     is clearly larger than the next size down.
+3. **Usable.**
+   - Links, buttons and inputs have a `:focus-visible` style. Never
+     `outline: none` without one.
+   - Links in running text are underlined, not shown by color alone.
+   - Navigation links, buttons and pagination are at least 44px tall (padding
+     counts).
+   - Hover effects sit inside `@media (hover: hover)`.
+   - Transitions are 300ms or less and not `transition: all`. Transitions and
+     animations are turned off in `@media (prefers-reduced-motion: reduce)`.
+   - At 320px wide the page doesn't scroll sideways: code blocks and wide
+     tables scroll inside their own box (`overflow-x: auto`), long words and
+     URLs in content wrap (`overflow-wrap: break-word`), and images have
+     `max-width: 100%; height: auto`. The navigation works without
+     JavaScript. Inputs use at least 16px text.
+4. **Consistent.**
+   - Colors, fonts, radii and spacing come from the tokens, not literal values.
+     The tokens hold one set of colors, so a dark color scheme redefines the
+     same variables in one `@media (prefers-color-scheme: dark)` block in the
+     CSS.
+   - One spacing scale (for example 4, 8, 16, 24, 32, 48, 64, 96px): gaps
+     inside a group are smaller than gaps between groups, and those are
+     smaller than gaps between sections.
+   - Mostly neutral colors and one accent, used for links, the main action and
+     a few highlights.
+   - A button, card, tag or pagination link looks the same on every page type.
+5. **Not generic.** Unless the user asked for it, avoid what makes a page look
+   like a default template:
+   - rows of identical icon-heading-text cards that fill space
+   - purple-to-blue gradients, gradient text, glowing blobs, frosted glass
+   - emoji as icons, headings and navigation in capitals
+   - everything centered, cards inside cards, the same large radius everywhere
+   - buttons that say "Learn more" or "Get started" when the page has a real
+     action to name
+
+   If something would look good in a screenshot but makes the page harder to
+   read or use, leave it out.
