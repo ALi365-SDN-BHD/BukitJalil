@@ -1,13 +1,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { SITE_ONLY_SKILLS, type SkillsResponse, THEME_SKILLS } from "@bukitjalil/shared";
+import { contentKey, SITE_ONLY_SKILLS, type SkillsResponse, THEME_SKILLS } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AiBukit } from "../src/agent/ai-bukit.ts";
+import { NotionContentAgent } from "../src/agent/content-agent.ts";
 import { assertPiEnvironment, preparePiEnvironment } from "../src/agent/env.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
 import { type AgentEvent, AgentService } from "../src/agent/service.ts";
+import { NotionContentService } from "../src/data-sources/notion-content.ts";
 import { agentEventTranslator } from "../src/events/bridge.ts";
 import { silentLogger } from "../src/log.ts";
 import { SiteError } from "../src/sites/location.ts";
@@ -66,6 +68,8 @@ function service(
     rgReady?: () => boolean;
     settled?: () => Promise<void>;
     disabledSkills?: () => readonly string[];
+    /** Content management conversations are available, over this content service if given. */
+    content?: boolean | NotionContentService;
   } = {},
 ) {
   const aiBukit = new AiBukit({
@@ -103,6 +107,16 @@ function service(
     disabledSkills: opts.disabledSkills,
     idleMs: opts.idleMs,
     shutdownMs: opts.shutdownMs,
+    ...(opts.content
+      ? {
+          content: new NotionContentAgent({
+            dataSources: ctx.dataSources,
+            content: opts.content === true ? new NotionContentService(ctx.dataSources) : opts.content,
+            db: ctx.db,
+            tmp: ctx.paths.tmp,
+          }),
+        }
+      : {}),
   });
   services.push(agent);
   const events: AgentEvent[] = [];
@@ -1070,5 +1084,267 @@ describe("AgentService", () => {
     expect(s.readOnly).not.toBeNull();
     const { agent } = service();
     expect(() => agent.create(s.id)).toThrow(expect.objectContaining({ code: "site.read_only" }));
+  });
+});
+
+describe("content management conversations", () => {
+  const DB = "0123456789abcdef0123456789abcdef";
+  let sourceCount = 0;
+  const source = () =>
+    ctx.dataSources.create({
+      platform: "notion",
+      name: `Notes ${++sourceCount}`,
+      token: `ntn_contentagenttoken${sourceCount}`,
+    });
+
+  it("belong to a Notion database and run with no files, lock, change set or skills, only the content tools", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const { agent, settled, statuses } = service({ content: true });
+    const session = agent.create(key);
+    expect(agent.listInfo(key).map((s) => s.id)).toEqual([session.id]);
+    expect(agent.info(session.id).project).toBe(key);
+
+    let seen: unknown;
+    faux.setResponses([
+      (context) => {
+        seen = context;
+        return pi.ai.fauxAssistantMessage("Hello from the content assistant");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "Hi");
+    const end = await done;
+    expect(end.type === "status" && end.error).toBeFalsy();
+    const messages = (seen as { messages: { role: string; sections?: Record<string, string> }[] }).messages;
+    const sections = messages.find((m) => m.role === "system")?.sections ?? {};
+    expect(Object.keys(sections).sort()).toEqual(["cwd", "preamble"]);
+    const system = sections.preamble ?? "";
+    expect(system).toContain("BukitJalil content assistant");
+    expect(system).toContain(`"Notes ${sourceCount}"`);
+    expect(system).not.toContain("SKILL.md");
+    expect(statuses(session.id)).toEqual(["running", "idle"]);
+    expect(JSON.stringify(agent.store.entries(session.id))).toContain("Hello from the content assistant");
+    expect(ctx.locks.holder(key)).toBeNull();
+
+    await expect(agent.send(session.id, "this one", { entryId: "not-an-id" })).rejects.toMatchObject({
+      code: "request.invalid_body",
+    });
+    // No images, and a session is forked within its database.
+    await expect(
+      agent.send(session.id, "look", { images: [{ data: PNG, mimeType: "image/png" }] }),
+    ).rejects.toMatchObject({ code: "request.invalid_body" });
+    const entry = (await agent.messages(session.id))[0]?.entryId ?? "";
+    expect((await agent.fork(session.id, entry)).project).toBe(key);
+
+    // The content tools are there (this test's Notion is offline, so the call fails), and file tools are not.
+    faux.setResponses([
+      pi.ai.fauxAssistantMessage([pi.ai.fauxToolCall("read_schema", {}), pi.ai.fauxToolCall("read", { path: "x" })], {
+        stopReason: "toolUse",
+      }),
+      pi.ai.fauxAssistantMessage("done"),
+    ]);
+    const second = settled(session.id);
+    await agent.send(session.id, "fields?");
+    await second;
+    const results = agent.store.entries(session.id).flatMap((e) => {
+      const m = (e as { message?: { role?: string; toolName?: string; content?: { text?: string }[] } }).message;
+      return m?.role === "toolResult" ? [`${m.toolName}: ${m.content?.[0]?.text ?? ""}`] : [];
+    });
+    expect(results).toHaveLength(2);
+    expect(results.find((r) => r.startsWith("read_schema"))).not.toMatch(/not found/i);
+    expect(results.find((r) => r.startsWith("read:"))).toMatch(/not found/i);
+  });
+
+  it("propose changes that only the user's confirmation writes, and tell the model what was decided", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const ENTRY = "11111111111111111111111111111111";
+    const writes: string[] = [];
+    const page = {
+      id: ENTRY,
+      databaseId: DB,
+      title: "Hello",
+      url: null,
+      lastEditedTime: "t1",
+      properties: [{ name: "Name", type: "title", value: { type: "title", text: "Hello" }, display: "Hello" }],
+    };
+    const content = {
+      database: async () => ({
+        id: DB,
+        title: "Blog",
+        url: null,
+        properties: [{ name: "Name", type: "title", editable: true }],
+        propertiesTruncated: false,
+      }),
+      page: async () => page,
+      update: async (_s: string, _d: string, id: string, req: { lastEditedTime: string }) => {
+        writes.push(`update ${id} ${req.lastEditedTime}`);
+        return page;
+      },
+    } as unknown as NotionContentService;
+    const { agent, settled } = service({ content });
+    const session = agent.create(key);
+    faux.setResponses([
+      pi.ai.fauxAssistantMessage(
+        [
+          pi.ai.fauxToolCall(
+            "propose_update",
+            { lastEditedTime: "t1", properties: { Name: "Hello again" } },
+            { id: "p1" },
+          ),
+          pi.ai.fauxToolCall("propose_update", { lastEditedTime: "t1", properties: { Name: "Other" } }, { id: "p2" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      pi.ai.fauxAssistantMessage("Proposed"),
+    ]);
+    const first = settled(session.id);
+    await agent.send(session.id, "rename this", { entryId: ENTRY });
+    await first;
+    expect(writes).toEqual([]);
+    expect(await agent.proposals(session.id)).toEqual([
+      { callId: "p1", status: "pending", entryId: null, error: null },
+      { callId: "p2", status: "pending", entryId: null, error: null },
+    ]);
+    expect(await agent.applyProposal(session.id, "p1")).toMatchObject({ status: "applied", entryId: ENTRY });
+    expect(writes).toEqual([`update ${ENTRY} t1`]);
+    expect(await agent.rejectProposal(session.id, "p2")).toMatchObject({ status: "rejected" });
+    await expect(agent.applyProposal(session.id, "nope")).rejects.toMatchObject({ code: "content.proposal_not_found" });
+    // A fork shares the decisions: it cannot write p1 again.
+    const forked = await agent.fork(session.id, (await agent.messages(session.id)).at(-1)?.entryId ?? "");
+    await expect(agent.applyProposal(forked.id, "p1")).rejects.toMatchObject({ code: "content.proposal_decided" });
+
+    // The next message carries the decisions to the model, once; the transcript does not show them.
+    const seen: string[] = [];
+    const reply = (context: { messages: unknown[] }) => {
+      seen.push(JSON.stringify(context.messages));
+      return pi.ai.fauxAssistantMessage("ok");
+    };
+    faux.setResponses([reply, reply]);
+    let done = settled(session.id);
+    await agent.send(session.id, "thanks");
+    await done;
+    done = settled(session.id);
+    await agent.send(session.id, "and?");
+    await done;
+    expect(seen[0]).toContain(`p1: written to Notion (entry ${ENTRY})`);
+    expect(seen[0]).toContain("p2: declined by the user");
+    expect(seen[1]?.match(/p1: written to Notion/g)).toHaveLength(1);
+    expect(JSON.stringify(await agent.messages(session.id))).not.toContain("decisions on your proposals");
+    // Not for site conversations.
+    const siteSession = agent.create((await site()).id);
+    await expect(agent.proposals(siteSession.id)).rejects.toMatchObject({ code: "session.not_found" });
+  });
+
+  it("keep each message's open entry with that message, so a follow-up does not move the running turn", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const read: string[] = [];
+    const content = {
+      page: async (_s: string, _d: string, id: string) => {
+        read.push(id);
+        return { id, databaseId: DB, title: id.slice(0, 1), url: null, lastEditedTime: "t", properties: [] };
+      },
+      body: async () => ({ blocks: [], editable: true, unsupported: [], lastEditedTime: "t" }),
+    } as unknown as NotionContentService;
+    const { agent, settled } = service({ content });
+    const session = agent.create(key);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let started!: () => void;
+    const running = new Promise<void>((r) => {
+      started = r;
+    });
+    const readOpen = () =>
+      pi.ai.fauxAssistantMessage([pi.ai.fauxToolCall("read_entry", {})], { stopReason: "toolUse" });
+    faux.setResponses([
+      async () => {
+        started();
+        await gate;
+        return readOpen();
+      },
+      pi.ai.fauxAssistantMessage("A done"),
+      readOpen(),
+      pi.ai.fauxAssistantMessage("B done"),
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "about A", { entryId: A });
+    await running;
+    // The user opens B and sends a follow-up while A's turn still runs.
+    await agent.send(session.id, "now B", { entryId: B, followUp: true });
+    release();
+    await done;
+    await vi.waitFor(() => expect(read).toEqual([A, B]));
+  });
+
+  it("tell a follow-up what the user decided while the turn before it ran", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const ENTRY = "cccccccccccccccccccccccccccccccc";
+    const page = {
+      id: ENTRY,
+      databaseId: DB,
+      title: "C",
+      url: null,
+      lastEditedTime: "t",
+      properties: [{ name: "Name", type: "title", value: { type: "title", text: "C" }, display: "C" }],
+    };
+    const content = {
+      database: async () => ({ id: DB, title: "Blog", url: null, properties: [], propertiesTruncated: false }),
+      page: async () => page,
+    } as unknown as NotionContentService;
+    const { agent, settled } = service({ content });
+    const session = agent.create(key);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let proposed!: () => void;
+    const waiting = new Promise<void>((r) => {
+      proposed = r;
+    });
+    let seen = "";
+    faux.setResponses([
+      pi.ai.fauxAssistantMessage(
+        [pi.ai.fauxToolCall("propose_update", { lastEditedTime: "t", properties: { Name: "D" } }, { id: "q1" })],
+        { stopReason: "toolUse" },
+      ),
+      async () => {
+        proposed();
+        await gate;
+        return pi.ai.fauxAssistantMessage("proposed");
+      },
+      (context) => {
+        seen = JSON.stringify(context.messages);
+        return pi.ai.fauxAssistantMessage("ok");
+      },
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "rename", { entryId: ENTRY });
+    await waiting;
+    await agent.rejectProposal(session.id, "q1");
+    await agent.send(session.id, "why not?", { entryId: ENTRY, followUp: true });
+    release();
+    await done;
+    await vi.waitFor(() => expect(seen).toContain("q1: declined by the user"));
+  });
+
+  it("go with their data source, and need the content agent", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const { agent } = service({ content: true });
+    const session = agent.create(key);
+    ctx.dataSources.remove(ds.id);
+    await agent.closeContentSource(ds.id);
+    expect(agent.store.get(session.id)).toBeNull();
+    expect(() => agent.create(key)).toThrow(expect.objectContaining({ code: "datasource.not_found" }));
+    expect(() => service().agent.create(contentKey({ sourceId: source().id, databaseId: DB }))).toThrow(
+      expect.objectContaining({ code: "session.not_found" }),
+    );
   });
 });

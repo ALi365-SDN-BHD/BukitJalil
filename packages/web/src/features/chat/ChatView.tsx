@@ -1,9 +1,17 @@
-import { type ErrorCode, isThemeKey, MAX_REFERENCE_IMAGES, type SessionInfo } from "@bukitjalil/shared";
+import {
+  type ErrorCode,
+  isThemeKey,
+  MAX_REFERENCE_IMAGES,
+  type ProjectKey,
+  type SendMessageRequest,
+  type SessionInfo,
+} from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitFork, ImagePlus, Loader2, Paperclip, Send, Square, X } from "lucide-react";
 import {
   type KeyboardEvent,
   memo,
+  type ReactNode,
   type Ref,
   type RefObject,
   useEffect,
@@ -31,15 +39,79 @@ import {
 } from "./attachments";
 import { composerDraft, composerImages, saveComposer } from "./drafts";
 import { type PendingMessage, unseen } from "./live";
-import { type ChatItem, chatItems, latestSummary, mergeMessages, modelErrorKind, tailSignature } from "./model";
+import {
+  type ChatItem,
+  chatItems,
+  latestSummary,
+  mergeMessages,
+  modelErrorKind,
+  type ToolView,
+  tailSignature,
+} from "./model";
 import { sessionPath } from "./sessions";
 import { liveStore, useDeleted, useLive } from "./store";
 import { ToolCard } from "./ToolCard";
 
-/** A conversation (plan 10.1): its messages, streamed reply and tool cards, and the composer. */
+/** A site or theme project's conversation (plan 10.1), with its change review and uploads. */
 export function ChatView({ project, sessionId }: { project: ProjectInfo; sessionId: string }) {
-  const { m, errorOf } = useI18n();
   const navigate = useNavigate();
+  const theme = isThemeKey(project.key);
+  return (
+    <Conversation
+      sessionId={sessionId}
+      project={project.key}
+      readOnly={!!project.readOnly}
+      // Deleted here or in another tab: back to the project's home.
+      onGone={() => navigate(projectPath(project.key), { replace: true })}
+      onForked={(id) => navigate(sessionPath(project.key, id))}
+      images
+      // A theme project has no media upload: dropped files become the message's reference images.
+      uploadSite={theme ? null : project.key}
+      footer={<ReviewCard project={project.key} />}
+    />
+  );
+}
+
+export interface ConversationProps {
+  sessionId: string;
+  /** Whose sessions these are: a fork joins that list. */
+  project: ProjectKey;
+  readOnly: boolean;
+  /** The session was deleted, here or in another tab. */
+  onGone: () => void;
+  onForked: (sessionId: string) => void;
+  /** Reference images can be attached. */
+  images: boolean;
+  /** The site the composer uploads media to; null for none. */
+  uploadSite: ProjectKey | null;
+  /** Between the messages and the composer. */
+  footer?: ReactNode;
+  /** Above the input. */
+  notice?: ReactNode;
+  /** What an empty conversation says. */
+  emptyText?: string;
+  /** What each message sent carries besides its text. */
+  sendExtra?: () => Pick<SendMessageRequest, "entryId">;
+  /** A tool call's own card, or null for the usual one. Keep it stable: messages are memoized. */
+  renderTool?: (tool: ToolView) => ReactNode | null;
+}
+
+/** A conversation (plan 10.1): its messages, streamed reply and tool cards, and the composer. */
+export function Conversation({
+  sessionId,
+  project,
+  readOnly,
+  onGone,
+  onForked,
+  images,
+  uploadSite,
+  footer,
+  notice,
+  emptyText,
+  sendExtra,
+  renderTool,
+}: ConversationProps) {
+  const { m, errorOf } = useI18n();
   const deleted = useDeleted(sessionId);
   const detail = useQuery({
     queryKey: keys.session(sessionId),
@@ -51,10 +123,11 @@ export function ChatView({ project, sessionId }: { project: ProjectInfo; session
   const uploader = useRef<MediaUploadHandle>(null);
   const composer = useRef<ComposerHandle>(null);
 
-  // Deleted here or in another tab: back to the project's home.
+  const gone = useRef(onGone);
+  gone.current = onGone;
   useEffect(() => {
-    if (deleted) navigate(projectPath(project.key), { replace: true });
-  }, [deleted, navigate, project.key]);
+    if (deleted) gone.current();
+  }, [deleted]);
 
   // Messages that ended live are dropped once the stored session has them.
   useEffect(() => {
@@ -105,13 +178,16 @@ export function ChatView({ project, sessionId }: { project: ProjectInfo; session
       onDrop={(e) => {
         e.preventDefault();
         if (e.dataTransfer.files.length === 0) return;
-        // A theme project has no media upload: files become the message's reference images.
-        if (isThemeKey(project.key)) composer.current?.addImages(Array.from(e.dataTransfer.files));
-        else uploader.current?.addFiles(e.dataTransfer.files);
+        if (uploadSite) uploader.current?.addFiles(e.dataTransfer.files);
+        else if (images) composer.current?.addImages(Array.from(e.dataTransfer.files));
       }}
     >
       <MessageList
         project={project}
+        readOnly={readOnly}
+        onForked={onForked}
+        renderTool={renderTool}
+        emptyText={emptyText}
         session={session}
         items={items}
         streaming={live.text}
@@ -119,8 +195,17 @@ export function ChatView({ project, sessionId }: { project: ProjectInfo; session
         error={live.error}
         summary={summary}
       />
-      <ReviewCard project={project.key} />
-      <Composer ref={composer} project={project} session={session} uploader={uploader} />
+      {footer}
+      <Composer
+        ref={composer}
+        session={session}
+        readOnly={readOnly}
+        images={images}
+        uploadSite={uploadSite}
+        uploader={uploader}
+        notice={notice}
+        sendExtra={sendExtra}
+      />
     </section>
   );
 }
@@ -128,6 +213,10 @@ export function ChatView({ project, sessionId }: { project: ProjectInfo; session
 /** Messages, newest at the bottom; follows new output while the user is at the bottom. */
 function MessageList({
   project,
+  readOnly,
+  onForked,
+  renderTool,
+  emptyText,
   session,
   items,
   streaming,
@@ -135,7 +224,11 @@ function MessageList({
   error,
   summary,
 }: {
-  project: ProjectInfo;
+  project: ProjectKey;
+  readOnly: boolean;
+  onForked: (sessionId: string) => void;
+  renderTool: ConversationProps["renderTool"];
+  emptyText: string | undefined;
   session: SessionInfo;
   items: ChatItem[];
   streaming: string | null;
@@ -146,13 +239,12 @@ function MessageList({
   const { m, t, errorText, errorOf } = useI18n();
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fork = useMutation({
     mutationFn: (entryId: string) => api.forkSession(session.id, entryId),
     onSuccess: (created) => {
-      void queryClient.invalidateQueries({ queryKey: keys.sessions(project.key) });
-      navigate(sessionPath(project.key, created.id));
+      void queryClient.invalidateQueries({ queryKey: keys.sessions(project) });
+      onForked(created.id);
     },
   });
   // Whatever adds output: a message, streamed text, a tool result, a waiting message, an error, a summary.
@@ -163,7 +255,7 @@ function MessageList({
     if (el && atBottom.current && contentSize) el.scrollTop = el.scrollHeight;
   }, [contentSize]);
 
-  const onFork = project.readOnly ? null : fork.mutate;
+  const onFork = readOnly ? null : fork.mutate;
   return (
     <div
       ref={scroller}
@@ -175,11 +267,11 @@ function MessageList({
       }}
     >
       {items.length === 0 && streaming === null && pending.length === 0 && (
-        <p className="py-8 text-center text-sm text-muted-foreground">{m.chat.empty}</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">{emptyText ?? m.chat.empty}</p>
       )}
       <ol className="flex flex-col gap-4">
         {items.map((item) => (
-          <MessageRow key={item.key} item={item} onFork={onFork} forking={fork.isPending} />
+          <MessageRow key={item.key} item={item} onFork={onFork} forking={fork.isPending} renderTool={renderTool} />
         ))}
         {streaming !== null && (
           <li data-testid="message-streaming">
@@ -228,16 +320,18 @@ const MessageRow = memo(function MessageRow({
   item,
   onFork,
   forking,
+  renderTool,
 }: {
   item: ChatItem;
   onFork: ((entryId: string) => void) | null;
   forking: boolean;
+  renderTool: ConversationProps["renderTool"];
 }) {
   const { m } = useI18n();
   const entryId = item.entryId;
   return (
     <li className="group relative" data-testid={`message-${item.kind}`}>
-      {item.kind === "user" ? <UserMessage item={item} /> : <AssistantMessage item={item} />}
+      {item.kind === "user" ? <UserMessage item={item} /> : <AssistantMessage item={item} renderTool={renderTool} />}
       {onFork && entryId && (
         <button
           type="button"
@@ -275,7 +369,13 @@ function UserMessage({ item }: { item: Extract<ChatItem, { kind: "user" }> }) {
   );
 }
 
-function AssistantMessage({ item }: { item: Extract<ChatItem, { kind: "assistant" }> }) {
+function AssistantMessage({
+  item,
+  renderTool,
+}: {
+  item: Extract<ChatItem, { kind: "assistant" }>;
+  renderTool: ConversationProps["renderTool"];
+}) {
   const { m } = useI18n();
   return (
     <div className="flex flex-col gap-2">
@@ -290,13 +390,17 @@ function AssistantMessage({ item }: { item: Extract<ChatItem, { kind: "assistant
             <p className="mt-1 whitespace-pre-wrap">{part.text}</p>
           </details>
         ) : (
-          <ToolCard key={part.tool.id} tool={part.tool} />
+          <ToolPart key={part.tool.id} tool={part.tool} renderTool={renderTool} />
         ),
       )}
       {item.aborted && <p className="text-xs text-muted-foreground">{m.chat.aborted}</p>}
       {item.error && <ModelError message={item.error} />}
     </div>
   );
+}
+
+function ToolPart({ tool, renderTool }: { tool: ToolView; renderTool: ConversationProps["renderTool"] }) {
+  return renderTool?.(tool) ?? <ToolCard tool={tool} />;
 }
 
 interface ComposerHandle {
@@ -311,14 +415,22 @@ interface ComposerHandle {
  */
 function Composer({
   ref,
-  project,
   session,
+  readOnly,
+  images: imagesAllowed,
+  uploadSite,
   uploader,
+  notice,
+  sendExtra,
 }: {
   ref: Ref<ComposerHandle>;
-  project: ProjectInfo;
   session: SessionInfo;
+  readOnly: boolean;
+  images: boolean;
+  uploadSite: ProjectKey | null;
   uploader: RefObject<MediaUploadHandle | null>;
+  notice: ReactNode;
+  sendExtra: ConversationProps["sendExtra"];
 }) {
   const { m, t, errorOf } = useI18n();
   const [text, setText] = useState(() => composerDraft(session.id));
@@ -330,16 +442,15 @@ function Composer({
   const imagesRef = useRef(images);
   const [attachProblem, setAttachProblem] = useState<AttachProblem | "model" | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const models = useQuery({ queryKey: keys.models, queryFn: api.models });
+  const models = useQuery({ queryKey: keys.models, queryFn: api.models, enabled: imagesAllowed });
   const readsImages = selectedModelReadsImages(models.data);
   const running = session.status === "running";
-  const theme = isThemeKey(project.key);
   const updateImages = (next: Attachment[]) => {
     imagesRef.current = next;
     setImages(next);
   };
   const addImages = async (files: File[]) => {
-    if (files.length === 0) return;
+    if (files.length === 0 || !imagesAllowed) return;
     if (readsImages === false) {
       setAttachProblem("model");
       return;
@@ -359,6 +470,7 @@ function Composer({
       pendingId: number;
     }) =>
       api.sendMessage(session.id, {
+        ...sendExtra?.(),
         text: vars.text,
         mode: vars.mode,
         ...(vars.images.length > 0 && { images: vars.images.map(({ mimeType, data }) => ({ mimeType, data })) }),
@@ -387,7 +499,7 @@ function Composer({
     send.mutate({ mode, text, images: attached, pendingId });
   };
   const stop = useMutation({ mutationFn: () => api.abortSession(session.id) });
-  const disabled = !!project.readOnly;
+  const disabled = readOnly;
   const empty = text.trim() === "";
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -423,6 +535,7 @@ function Composer({
             void addImages(files);
           }}
         >
+          {notice}
           {session.status === "queued" && <p className="text-xs text-amber-600 dark:text-amber-400">{m.chat.queued}</p>}
           {images.length > 0 && (
             <ul className="flex flex-wrap gap-2" aria-label={t(m.chat.images, { count: images.length })}>
@@ -514,23 +627,25 @@ function Composer({
                   e.target.value = "";
                 }}
               />
-              <span title={readsImages === false ? m.chat.attach.modelUnsupported : m.chat.attach.add}>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={m.chat.attach.add}
-                  data-testid="attach-images"
-                  disabled={readsImages === false || images.length >= MAX_REFERENCE_IMAGES}
-                  onClick={() => fileInput.current?.click()}
-                >
-                  <ImagePlus />
-                </Button>
-              </span>
-              {!theme && (
+              {imagesAllowed && (
+                <span title={readsImages === false ? m.chat.attach.modelUnsupported : m.chat.attach.add}>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={m.chat.attach.add}
+                    data-testid="attach-images"
+                    disabled={readsImages === false || images.length >= MAX_REFERENCE_IMAGES}
+                    onClick={() => fileInput.current?.click()}
+                  >
+                    <ImagePlus />
+                  </Button>
+                </span>
+              )}
+              {uploadSite && (
                 <MediaUpload
                   ref={uploader}
-                  siteId={project.key}
+                  siteId={uploadSite}
                   disabled={session.status !== "idle"}
                   disabledReason={m.media.busy}
                   trigger={<Paperclip />}

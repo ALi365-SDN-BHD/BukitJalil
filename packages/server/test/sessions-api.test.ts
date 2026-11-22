@@ -158,6 +158,35 @@ describe("session API", () => {
     expect(await (await get(`/api/sites/${s.id}/sessions`)).json()).toEqual([]);
   });
 
+  it("keeps a Notion database's conversations under its content path", async () => {
+    const ds = ctx.dataSources.create({ platform: "notion", name: "Content chats", token: "ntn_sessionsapitoken123" });
+    const db = "0123456789abcdef0123456789abcdef";
+    const dashed = "01234567-89ab-cdef-0123-456789abcdef";
+    const created = await call("POST", `/api/content/sources/${ds.id}/databases/${dashed}/sessions`, {});
+    expect(created.status).toBe(201);
+    const session = (await created.json()) as SessionInfo;
+    expect(session.project).toBe(`content/${ds.id}/${db}`);
+    const listed = (await (
+      await get(`/api/content/sources/${ds.id}/databases/${db}/sessions`)
+    ).json()) as SessionInfo[];
+    expect(listed.map((x) => x.id)).toEqual([session.id]);
+    for (const path of [
+      `/api/content/sources/ds_nope/databases/${db}/sessions`,
+      `/api/content/sources/${ds.id}/databases/x/sessions`,
+    ]) {
+      expect((await get(path)).status, path).toBe(404);
+    }
+    // Its proposals: none yet, and an unknown one is not found.
+    expect(await (await get(`/api/sessions/${session.id}/proposals`)).json()).toEqual([]);
+    for (const action of ["apply", "reject"]) {
+      expect(await (await call("POST", `/api/sessions/${session.id}/proposals/x/${action}`, {})).json()).toEqual({
+        code: "content.proposal_not_found",
+      });
+    }
+    expect((await call("DELETE", `/api/data-sources/${ds.id}`)).status).toBe(204);
+    expect((await get(`/api/sessions/${session.id}`)).status).toBe(404);
+  });
+
   it("answers 404 for unknown sites and sessions, and 400 for bad bodies", async () => {
     expect(await (await get("/api/sites/nope/sessions")).json()).toEqual({ code: "site.not_found" });
     expect((await call("POST", "/api/sites/nope/sessions", {})).status).toBe(404);

@@ -1,11 +1,14 @@
-import type {
-  ProjectKey,
-  ReferenceImageRequest,
-  SessionInfo,
-  SessionMessage,
-  SessionStatus,
-  SkillsResponse,
-  ThinkingLevel,
+import {
+  type ContentProposalState,
+  type ContentRef,
+  type ProjectKey,
+  parseContentKey,
+  type ReferenceImageRequest,
+  type SessionInfo,
+  type SessionMessage,
+  type SessionStatus,
+  type SkillsResponse,
+  type ThinkingLevel,
 } from "@bukitjalil/shared";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import type {
@@ -16,6 +19,7 @@ import type {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { ChangeService } from "../changes/service.ts";
+import { notionId } from "../data-sources/service.ts";
 import type { Logger } from "../log.ts";
 import { cleanReferenceImage, type ReferenceImage, writeReferenceImages } from "../media/reference.ts";
 import type { AppPaths } from "../paths.ts";
@@ -25,6 +29,8 @@ import type { SiteLocks } from "../sites/locks.ts";
 import { storageErrorCode } from "../storage-errors.ts";
 import type { Db } from "../store/db.ts";
 import type { AiBukit } from "./ai-bukit.ts";
+import type { ContentAgent } from "./content-agent.ts";
+import { proposalIds, proposalIn } from "./content-proposals.ts";
 import { PathGate } from "./gate.ts";
 import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
@@ -81,6 +87,11 @@ export interface AgentServiceOptions {
   skillsDir: string;
   /** Optional skills turned off in Settings; read before every session opens. */
   disabledSkills?: () => readonly string[];
+  /**
+   * Conversations of a Notion database (content editor and AI design, part 2), keyed `content/…`: no lock,
+   * change set or files, only the content tools. Without it, such keys are refused.
+   */
+  content?: ContentAgent;
   /** Dispose an unused AgentSession after this long; its file stays (plan 6.2). */
   idleMs?: number;
   /** Longest shutdown waits for runs that ignore abort (tests set it short). */
@@ -100,6 +111,8 @@ interface Live {
 interface Message {
   text: string;
   images: ReferenceImage[];
+  /** A content conversation's message: the entry open as it was sent (null: none). */
+  entryId?: string | null;
 }
 
 interface Pending {
@@ -122,6 +135,8 @@ interface Run {
 
 /** customType of the note that tells the model its working copy was reset (plan 6.2). */
 export const RESET_NOTE_TYPE = "bukitjalil.worktree_reset";
+/** The note that tells a content conversation what the user decided on its proposals. */
+export const PROPOSAL_NOTE_TYPE = "bukitjalil.proposal_decisions";
 
 const RESET_OUTCOME = {
   applied: "was applied to the main version",
@@ -198,8 +213,22 @@ export class AgentService {
   }
 
   list(project: ProjectKey): SessionRecord[] {
-    this.opts.projects.get(project);
+    const content = this.contentOf(project);
+    if (content) this.opts.content?.check(content);
+    else this.opts.projects.get(project);
     return this.store.list(project);
+  }
+
+  /** Stop and dispose every conversation of a data source's databases, once the data source is removed. */
+  async closeContentSource(sourceId: string): Promise<void> {
+    const keys = new Set([
+      ...this.pending.keys(),
+      ...this.running.keys(),
+      ...[...this.live.values()].map((l) => l.project),
+    ]);
+    await Promise.all(
+      [...keys].filter((k) => parseContentKey(k)?.sourceId === sourceId).map((k) => this.closeProject(k)),
+    );
   }
 
   get(id: string): SessionRecord {
@@ -261,14 +290,13 @@ export class AgentService {
   async fork(id: string, entryId: string): Promise<SessionRecord> {
     this.assertOpen();
     const source = this.get(id);
-    const site = this.opts.projects.get(source.project);
-    if (site.readOnly) throw new SiteError("site.read_only", 409);
+    this.assertWritable(source.project);
     const manager = await this.openEntries(source);
     if (!manager?.getEntry(entryId)) throw new SiteError("session.entry_not_found", 404);
     this.assertOpen();
     const newId = newSessionId();
     manager.createBranchedSession(entryId);
-    this.store.insert({ id: newId, project: site.key }, entriesOf(manager));
+    this.store.insert({ id: newId, project: source.project }, entriesOf(manager));
     if (source.title) this.store.rename(newId, source.title);
     return this.announce(newId);
   }
@@ -298,8 +326,7 @@ export class AgentService {
   /** Record a new session; its AgentSession and entries are made with the first message. */
   create(project: ProjectKey): SessionRecord {
     this.assertOpen();
-    const site = this.opts.projects.get(project);
-    if (site.readOnly) throw new SiteError("site.read_only", 409);
+    this.assertWritable(project);
     const id = newSessionId();
     this.store.insert({ id, project });
     return this.announce(id);
@@ -332,12 +359,25 @@ export class AgentService {
   async send(
     id: string,
     text: string,
-    opts: { followUp?: boolean; images?: readonly ReferenceImageRequest[] } = {},
+    opts: { followUp?: boolean; images?: readonly ReferenceImageRequest[]; entryId?: string | null } = {},
   ): Promise<void> {
     this.assertOpen();
     const session = this.get(id);
-    if (this.opts.projects.get(session.project).readOnly) throw new SiteError("site.read_only", 409);
-    const message: Message = { text, images: (opts.images ?? []).map(cleanReferenceImage) };
+    this.assertWritable(session.project);
+    // Content conversations take no images: there is nowhere to keep them but the conversation.
+    const content = this.contentOf(session.project) !== null;
+    let entryId: string | null | undefined;
+    if (content) {
+      if ((opts.images?.length ?? 0) > 0) throw new SiteError("request.invalid_body", 400);
+      entryId = opts.entryId ? notionId(opts.entryId) : null;
+      if (opts.entryId && !entryId) throw new SiteError("request.invalid_body", 400);
+    }
+    // The entry goes with its message: the tools read it as "the open entry" once that message is taken in.
+    const message: Message = {
+      text,
+      images: (opts.images ?? []).map(cleanReferenceImage),
+      ...(content ? { entryId } : {}),
+    };
     if (message.images.length > 0 && !(await this.model()).input.includes("image")) {
       throw new SiteError("image.model_unsupported", 400);
     }
@@ -353,7 +393,10 @@ export class AgentService {
     const run = this.running.get(session.project);
     if (run?.sessionId === id && !run.cancelled) {
       const live = this.live.get(id);
-      if (live?.session.isStreaming) {
+      // A content follow-up waits for the next prompt, so the turn running now keeps its entry.
+      if (live?.session.isStreaming && !(content && opts.followUp)) {
+        // A steering message joins the running turn now, and so does its entry.
+        if (content) this.opts.content?.setCurrent(id, entryId ?? null);
         const input = this.input(session.project, run.cwd, [message]);
         await (opts.followUp
           ? live.session.followUp(input.text, input.images)
@@ -374,6 +417,37 @@ export class AgentService {
     if (this.running.has(session.project) || this.opts.locks.holder(session.project) !== null)
       this.emit({ project: session.project, sessionId: id, type: "status", status: "queued" });
     this.pump(session.project);
+  }
+
+  /** What became of each proposal in a content conversation (content editor and AI design, A2). */
+  async proposals(id: string): Promise<ContentProposalState[]> {
+    const { ref, content } = this.contentSession(id);
+    return content.proposals.states(ref, proposalIds(await this.messages(id)));
+  }
+
+  /** Write a proposal of the conversation to Notion, as the user confirmed it. */
+  async applyProposal(id: string, callId: string): Promise<ContentProposalState> {
+    this.assertOpen();
+    const { ref, content } = this.contentSession(id);
+    const proposal = proposalIn(await this.messages(id), callId);
+    if (!proposal) throw new SiteError("content.proposal_not_found", 404);
+    content.check(ref);
+    return content.proposals.apply(ref, id, callId, proposal);
+  }
+
+  async rejectProposal(id: string, callId: string): Promise<ContentProposalState> {
+    const { ref, content } = this.contentSession(id);
+    if (!proposalIn(await this.messages(id), callId)) throw new SiteError("content.proposal_not_found", 404);
+    return content.proposals.reject(ref, id, callId);
+  }
+
+  /** A content conversation's database and the content agent; 404 for any other session. */
+  private contentSession(id: string): { ref: ContentRef; content: ContentAgent } {
+    const record = this.get(id);
+    const ref = this.contentOf(record.project);
+    const content = this.opts.content;
+    if (!ref || !content) throw new SiteError("session.not_found", 404);
+    return { ref, content };
   }
 
   /** Stop a running session (plan 6.2), even one still opening, or drop its waiting messages. */
@@ -420,6 +494,20 @@ export class AgentService {
 
   private assertOpen(): void {
     if (this.closing) throw new SiteError("server.shutting_down", 503);
+  }
+
+  /** The database of a content key, or null for a site or theme key; a content key without the agent is 404. */
+  private contentOf(project: ProjectKey): ContentRef | null {
+    const ref = parseContentKey(project);
+    if (ref && !this.opts.content) throw new SiteError("session.not_found", 404);
+    return ref;
+  }
+
+  /** The project can take new conversations and messages: a usable site or theme, or an existing data source. */
+  private assertWritable(project: ProjectKey): void {
+    const content = this.contentOf(project);
+    if (content) this.opts.content?.check(content);
+    else if (this.opts.projects.get(project).readOnly) throw new SiteError("site.read_only", 409);
   }
 
   private emit(event: AgentEvent): void {
@@ -496,7 +584,8 @@ export class AgentService {
     if (!this.pending.get(project)?.length) return;
     let release: () => void;
     try {
-      release = this.opts.locks.acquire(project, "session");
+      // A content conversation touches no repository: it needs no site lock.
+      release = this.contentOf(project) ? () => {} : this.opts.locks.acquire(project, "session");
     } catch (err) {
       if (!(err instanceof SiteError) || err.code !== "site.busy") throw err;
       if (!this.waiting.has(project)) {
@@ -520,6 +609,7 @@ export class AgentService {
     run.done = this.execute(run, next.messages)
       .then(async (error) => {
         // An aborted check or build may still be stopping Bukit: the lock stays until it has.
+        if (this.contentOf(project)) return error;
         await this.opts.bukit.settled(project);
         return (await this.snapshotAfter(project, run)) ?? error;
       })
@@ -612,8 +702,8 @@ export class AgentService {
       // Every run joins the site's open change set, or starts one (plan 7.2), before the AI touches files.
       const record = this.store.get(id);
       if (!record || run.cancelled || this.closing) return undefined;
-      const joined = await this.opts.changes.begin(record.project, id);
-      run.cwd = joined.cwd;
+      const joined = this.contentOf(record.project) ? null : await this.opts.changes.begin(record.project, id);
+      if (joined) run.cwd = joined.cwd;
       live = await this.open(run);
       if (!live) return undefined;
       if (live.idleTimer) clearTimeout(live.idleTimer);
@@ -623,7 +713,7 @@ export class AgentService {
       // The working copy was reset since this conversation last changed files (plan 6.2): tell the model
       // before the user's message, once per change set (a run that ended before sending it leaves no note,
       // and the next run sends it). Only the model sees it; the transcript shows message entries only.
-      if (joined.previous && !this.hasResetNote(live, joined.change.id)) {
+      if (joined?.previous && !this.hasResetNote(live, joined.change.id)) {
         await live.session.sendCustomMessage({
           customType: RESET_NOTE_TYPE,
           content: resetNote(joined.previous, joined.change.restoreCommit !== null),
@@ -631,8 +721,23 @@ export class AgentService {
           details: { changeSetId: joined.change.id },
         });
       }
+      const content = this.contentOf(record.project) !== null;
       let batch: Message[] = messages;
       while (batch.length > 0 && !run.cancelled) {
+        // The user's decisions on proposals since the model last heard (content editor and AI design, A2),
+        // before each prompt: a follow-up may come after a decision made while the last one ran.
+        const notes = content ? this.opts.content?.proposals.notes(id) : null;
+        if (notes) {
+          await live.session.sendCustomMessage({
+            customType: PROPOSAL_NOTE_TYPE,
+            content: notes.text,
+            display: false,
+          });
+          notes.ack();
+        }
+        // Joined messages: the latest one's entry is the open one.
+        const sent = batch.findLast((m) => m.entryId !== undefined);
+        if (sent) this.opts.content?.setCurrent(id, sent.entryId ?? null);
         const input = this.input(record.project, run.cwd, batch);
         await live.session.prompt(input.text, input.images ? { images: input.images } : undefined);
         await live.session.waitForIdle();
@@ -667,6 +772,8 @@ export class AgentService {
     const existing = this.live.get(id);
     if (existing) return existing;
     const record = this.get(id);
+    const content = this.contentOf(record.project);
+    if (content) return this.openContent(run, record, content);
     const site = this.opts.projects.get(record.project);
     const cwd = run.cwd;
     if (!cwd) throw new Error("open() before the run has a change set");
@@ -724,14 +831,63 @@ export class AgentService {
       sessionManager,
       settingsManager,
     });
-    const live: Live = { project: site.key, session, unsubscribe: () => {}, idleTimer: null, saved };
+    return this.keep(run, site.key, session, saved);
+  }
+
+  /**
+   * A content conversation's AgentSession (content editor and AI design, part 2): an empty working
+   * directory, the content system prompt, no skills and only the content tools.
+   */
+  private async openContent(run: Run, record: SessionRecord, ref: ContentRef): Promise<Live | null> {
+    const content = this.opts.content;
+    if (!content) throw new SiteError("session.not_found", 404);
+    const id = run.sessionId;
+    const gone = () => run.cancelled || this.closing || !this.store.get(id);
+    const pi = await this.pi();
+    const [modelRuntime, model] = await Promise.all([this.modelRuntime(), this.model()]);
+    if (gone()) return null;
+    const cwd = content.cwd();
+    const settingsManager = createSettings(pi);
+    const piDir = this.opts.paths.pi;
+    const resourceLoader = await createResourceLoader(pi, {
+      cwd,
+      piDir,
+      settings: settingsManager,
+      systemPrompt: content.systemPrompt(ref),
+      projectKind: "site",
+      skillsDir: null,
+    });
+    if (gone()) return null;
+    const sessionManager = (await this.openEntries(record, cwd)) ?? pi.pi.SessionManager.inMemory(cwd);
+    const saved = sessionManager.getEntryCount() === 0 ? 0 : sessionManager.getEntryCount() + 1;
+    const customTools = content.tools(ref, { sessionId: id });
+    const { session } = await pi.pi.createAgentSession({
+      cwd,
+      agentDir: piDir,
+      modelRuntime,
+      model,
+      thinkingLevel: this.opts.thinkingLevel?.(),
+      // Only the content tools: no files, commands or Bukit.
+      tools: customTools.map((t) => t.name),
+      customTools,
+      resourceLoader,
+      sessionManager,
+      settingsManager,
+    });
+    return this.keep(run, record.project, session, saved);
+  }
+
+  /** Keep a new AgentSession in memory, saving and announcing its events; null if the run ended meanwhile. */
+  private keep(run: Run, project: ProjectKey, session: AgentSession, saved: number): Live | null {
+    const id = run.sessionId;
+    const live: Live = { project, session, unsubscribe: () => {}, idleTimer: null, saved };
     live.unsubscribe = session.subscribe((event) => {
       // Saved as Pi adds entries (plan 6.9), before anyone hears of them.
       this.save(id, live);
-      this.emit({ project: site.key, sessionId: id, type: "pi", event });
+      this.emit({ project, sessionId: id, type: "pi", event });
     });
     this.live.set(id, live);
-    if (gone()) {
+    if (run.cancelled || this.closing || !this.store.get(id)) {
       this.dispose(id);
       return null;
     }

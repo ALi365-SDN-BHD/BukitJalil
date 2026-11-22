@@ -354,3 +354,46 @@ export interface ContentBody {
 /** PUT …/body: replaces the whole body. */
 export const ContentBodyUpdate = z.object({ lastEditedTime: z.string().min(1).max(40), blocks: Blocks }).strict();
 export type ContentBodyUpdate = z.infer<typeof ContentBodyUpdate>;
+
+/**
+ * A change the content assistant proposes (content editor and AI design, A2): written to Notion only when
+ * the user confirms it. It is the `details.proposal` of the propose tool's result, so it stays with the
+ * conversation; its decision is kept apart (`ContentProposalState`).
+ */
+export interface ContentProposal {
+  kind: "update" | "create";
+  /** The entry an update changes; null for a new entry. */
+  entryId: string | null;
+  /** The entry's title as it was read (an update) or will be (a new entry). */
+  title: string;
+  /** Notion's edit time the update was read at: a later edit makes writing it a conflict. */
+  base: string | null;
+  /** Changed properties: how each reads now (null for a new entry) and its new value. */
+  properties: { name: string; type: string; before: string | null; after: ContentValue }[];
+  /** The body as Markdown before (null for a new entry) and after; null when the body is not changed. */
+  body: { before: string | null; after: string } | null;
+  /** The body to write, as blocks; null when it is not changed. */
+  blocks: ContentBlock[] | null;
+}
+
+/**
+ * Failures after part of a proposal was written (its body but not its properties, or part of a body or of a
+ * new page): trying again would conflict or make a second page, so the user checks the entry in Notion.
+ */
+export const FINAL_PROPOSAL_ERRORS: readonly string[] = ["content.proposal_partial", "content.body_partial"];
+
+/** Whether a proposal in this state can still be written (or declined). */
+export const proposalOpen = (state: { status: ContentProposalStatus; error: string | null }): boolean =>
+  state.status === "pending" || (state.status === "failed" && !FINAL_PROPOSAL_ERRORS.includes(state.error ?? ""));
+
+export type ContentProposalStatus = "pending" | "applied" | "rejected" | "failed";
+
+/** What became of a proposal, by the propose tool call's id. */
+export interface ContentProposalState {
+  callId: string;
+  status: ContentProposalStatus;
+  /** The entry written: the updated one, or the new one. */
+  entryId: string | null;
+  /** The error code of a failed write. */
+  error: string | null;
+}

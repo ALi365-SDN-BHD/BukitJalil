@@ -67,6 +67,36 @@ const ms: Messages = {
     bodyPlaceholder: "Taip di sini, atau / untuk memilih jenis blok",
     bodyHint:
       "Taip / untuk tajuk, senarai, tugasan, petikan, kod, pembahagi atau imej (melalui URL); pilih teks untuk tebal, condong, coret, kod sebaris atau pautan; Tab menjadikan item senarai sebahagian item di atasnya (satu aras sahaja).",
+    /** The AI conversation at the bottom of the middle column (content editor and AI design, part 2). */
+    ai: {
+      title: "Pembantu AI",
+      show: "Tunjukkan pembantu AI",
+      hide: "Sembunyikan pembantu AI",
+      notice:
+        "Perbualan, termasuk entri yang dibaca AI, dihantar kepada penyedia model. AI tidak menulis ke Notion sendiri: anda mengesahkan setiap perubahan.",
+      noticeShort: "Dihantar kepada penyedia model. Perubahan sampai ke Notion hanya selepas anda sahkan.",
+      newChat: "Perbualan baharu",
+      sessions: "Pilih perbualan",
+      empty:
+        "Biar AI membantu anda menulis dan mengedit entri pangkalan data ini. Ia boleh membaca entri yang dibuka, medan dan entri lain dalam pangkalan data ini, dan menunjukkan sebarang perubahan dahulu.",
+      chatEmpty: "Nyatakan apa yang ingin ditulis atau diubah. Dengan entri dibuka, anda boleh sebut “entri ini”.",
+      proposal: {
+        update: "Ubah “{title}”",
+        create: "Entri baharu “{title}”",
+        untitled: "Tanpa tajuk",
+        properties: "Sifat",
+        body: "Kandungan",
+        empty: "(kosong)",
+        apply: "Tulis ke Notion",
+        reject: "Tidak",
+        applying: "Sedang menulis…",
+        applied: "Telah ditulis ke Notion.",
+        rejected: "Tidak ditulis.",
+        failed: "Tidak ditulis: {reason}",
+        open: "Buka entri",
+        draft: "Entri ini ada perubahan yang belum disimpan. Simpan atau buang dahulu sebelum menulis perubahan ini.",
+      },
+    },
     bodyProblems: {
       nesting:
         "Hanya item senarai boleh memegang item di bawahnya, satu aras sahaja. Alihkan kandungan berinden kembali ke aras atas.",
@@ -1486,6 +1516,12 @@ const ms: Messages = {
     "datasource.notion_source_missing": "Sumber ini tiada databaseId Notion pada versi utama",
     "content.bad_id": "Bukan ID pangkalan data atau halaman Notion",
     "content.not_in_database": "Halaman ini tiada dalam pangkalan data ini, atau sudah dipindah ke tong sampah",
+    "content.proposal_busy": "Perubahan ini sedang ditulis. Sila tunggu",
+    "content.proposal_decided": "Perubahan ini sudah diputuskan",
+    "content.proposal_invalid": "Perubahan ini tidak sah dan tidak ditulis. Minta AI mencadangkannya semula",
+    "content.proposal_not_found": "Perubahan ini tiada dalam perbualan ini",
+    "content.proposal_partial":
+      "Kandungan telah ditulis tetapi sifat tidak. Buka semula entri untuk menyemak, kemudian minta AI mencadangkan perubahan sifat semula",
     "content.conflict": "Halaman ini diubah selepas anda membukanya. Muat semula dan buat perubahan sekali lagi",
     "content.notion_write_forbidden":
       "Integrasi ini tidak boleh menulis: hidupkan Update content dan Insert content dalam tetapan Notionnya",

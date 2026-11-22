@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { DEFAULT_ADMIN_PORT, DEFAULT_PREVIEW_PORT_BASE } from "@bukitjalil/shared";
 import { serve } from "@hono/node-server";
 import { AiBukit } from "./agent/ai-bukit.ts";
+import { NotionContentAgent } from "./agent/content-agent.ts";
 import { CustomModelStore } from "./agent/custom-models.ts";
 import { preparePiEnvironment } from "./agent/env.ts";
 import { registerFakeModel } from "./agent/fake-model.ts";
@@ -16,6 +17,7 @@ import { createAdminApp, createLockedApp } from "./app.ts";
 import { BuildService } from "./builds/service.ts";
 import { BukitService, removeOldAppCopies } from "./bukit/locate.ts";
 import { ChangeService } from "./changes/service.ts";
+import { NotionContentService } from "./data-sources/notion-content.ts";
 import { DataSourceService } from "./data-sources/service.ts";
 import { DeployService } from "./deploys/service.ts";
 import { type DesktopChannel, desktopChannel, requestOpenInstaller } from "./desktop.ts";
@@ -287,6 +289,8 @@ function startServices(db: Db): Runtime {
   const customModels = new CustomModelStore({ db, vault });
   const credentials = new SecretCredentialStore({ db, vault });
 
+  // Content management's Notion calls, shared by its routes and the AI's tools (one request queue).
+  const content = new NotionContentService(dataSources);
   const agent = new AgentService({
     db,
     paths,
@@ -307,7 +311,10 @@ function startServices(db: Db): Runtime {
     bukit: aiBukit,
     skillsDir,
     disabledSkills: () => settingsStore.get().disabledSkills,
+    content: new NotionContentAgent({ dataSources, content, db, tmp: paths.tmp }),
   });
+  // A removed data source took its content conversations with it (ON DELETE CASCADE): stop them too.
+  dataSources.onRemoved((id) => void agent.closeContentSource(id));
   const panels = new PanelService({
     git,
     projects,
@@ -333,6 +340,7 @@ function startServices(db: Db): Runtime {
     changes,
     customModels,
     dataSources,
+    content,
     publishAccounts,
     deploys,
     // Tests set BUKITJALIL_OFFLINE=1; the Pi row then shows only the bundled version.

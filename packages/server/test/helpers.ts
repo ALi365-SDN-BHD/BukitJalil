@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect } from "vitest";
 import { AiBukit } from "../src/agent/ai-bukit.ts";
+import { NotionContentAgent } from "../src/agent/content-agent.ts";
 import { CustomModelStore } from "../src/agent/custom-models.ts";
 import { RgService } from "../src/agent/rg.ts";
 import { SecretCredentialStore } from "../src/agent/secret-credentials.ts";
@@ -14,6 +15,7 @@ import { createAdminApp } from "../src/app.ts";
 import { BuildService } from "../src/builds/service.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { ChangeService } from "../src/changes/service.ts";
+import { NotionContentService } from "../src/data-sources/notion-content.ts";
 import { DataSourceService } from "../src/data-sources/service.ts";
 import { DeployService } from "../src/deploys/service.ts";
 import { connectEvents } from "../src/events/bridge.ts";
@@ -206,6 +208,12 @@ export function makeApp(
     bukit: aiBukit,
     skillsDir: SKILLS_DIR,
     disabledSkills: () => settings.get().disabledSkills,
+    content: new NotionContentAgent({
+      dataSources,
+      content: new NotionContentService(dataSources),
+      db,
+      tmp: paths.tmp,
+    }),
     ...overrides.agent,
   });
   const events = new EventHub(overrides.replayBytes);

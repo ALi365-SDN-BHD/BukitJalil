@@ -64,6 +64,34 @@ const zhCN = {
     bodyHint:
       "输入 / 插入标题、列表、待办、引用、代码、分隔线或图片（图片网址）；选中文字可以加粗、斜体、删除线、行内代码和链接；列表项按 Tab 成为上一项的子项（只能一层）。",
     /** Why the body in the editor cannot be saved (BlocksProblem). */
+    /** The AI conversation at the bottom of the middle column (content editor and AI design, part 2). */
+    ai: {
+      title: "AI 助手",
+      show: "展开 AI 助手",
+      hide: "收起 AI 助手",
+      notice: "对话内容，包括 AI 读到的条目，会发给模型服务商。AI 不会自己写 Notion，每项改动都要你确认。",
+      noticeShort: "对话内容会发给模型服务商；改动要你确认后才写入 Notion。",
+      newChat: "新对话",
+      sessions: "选择对话",
+      empty: "让 AI 帮你写、改这个数据库里的条目。它能读打开的条目、字段和同一个数据库里的其他条目，要改动时先给你看。",
+      chatEmpty: "说说你想写什么、改什么。打开一个条目后，可以直接说“这个条目”。",
+      proposal: {
+        update: "修改“{title}”",
+        create: "新建“{title}”",
+        untitled: "无标题",
+        properties: "属性",
+        body: "正文",
+        empty: "（空）",
+        apply: "写入 Notion",
+        reject: "不要",
+        applying: "正在写入…",
+        applied: "已写入 Notion。",
+        rejected: "没有写入。",
+        failed: "没有写入：{reason}",
+        open: "打开条目",
+        draft: "这个条目有没保存的修改。先保存或放弃，再写入这项改动。",
+      },
+    },
     bodyProblems: {
       nesting: "只有列表项下面可以放子项，而且只能一层。请把缩进的内容移回顶层。",
       image_copy: "Notion 里上传的图片不能复制，只能移动或删除。",
@@ -1392,6 +1420,11 @@ const zhCN = {
     "datasource.notion_source_missing": "正式版本里这个源没有 Notion databaseId",
     "content.bad_id": "不是 Notion 的数据库或页面 ID",
     "content.not_in_database": "这个页面不在这个数据库里，或者已经移到回收站",
+    "content.proposal_busy": "这项改动正在写入，请稍候",
+    "content.proposal_decided": "这项改动已经处理过了",
+    "content.proposal_invalid": "这项改动的内容无效，没有写入。请让 AI 重新提议",
+    "content.proposal_not_found": "在这个对话里找不到这项改动",
+    "content.proposal_partial": "正文已写入，但属性没有写入。请重新打开条目检查，再让 AI 重新提议属性的改动",
     "content.conflict": "这个页面在你打开之后被修改过。请重新读取，再改一次",
     "content.notion_write_forbidden":
       "这个 integration 没有写入权限：请在 Notion 的 integration 设置里打开 Update content 和 Insert content",

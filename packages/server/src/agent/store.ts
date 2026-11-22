@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { ProjectKey } from "@bukitjalil/shared";
+import { contentKey, type ProjectKey, parseContentKey } from "@bukitjalil/shared";
 import { ownerOf, rowProject } from "../projects/owner.ts";
 import type { Db } from "../store/db.ts";
 
@@ -15,6 +15,8 @@ interface SessionRow {
   id: string;
   site_id: string | null;
   theme_id: string | null;
+  data_source_id: string | null;
+  database_id: string | null;
   title: string | null;
   created_at: string;
   updated_at: string;
@@ -22,11 +24,25 @@ interface SessionRow {
 
 const toRecord = (row: SessionRow): SessionRecord => ({
   id: row.id,
-  project: rowProject(row),
+  project:
+    row.data_source_id !== null && row.database_id !== null
+      ? contentKey({ sourceId: row.data_source_id, databaseId: row.database_id })
+      : rowProject(row),
   title: row.title,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+/**
+ * The columns that name a session's owner (migration 016): a site, a theme project, or a data source's
+ * database for a content key.
+ */
+function ownerColumns(key: ProjectKey): { columns: string[]; values: string[] } {
+  const content = parseContentKey(key);
+  if (content) return { columns: ["data_source_id", "database_id"], values: [content.sourceId, content.databaseId] };
+  const owner = ownerOf(key);
+  return { columns: [owner.column], values: [owner.id] };
+}
 
 /** Session ids are URL segments. */
 export const newSessionId = () => crypto.randomBytes(8).toString("hex");
@@ -42,13 +58,14 @@ export class SessionStore {
   /** A new session, with its first entries (a fork's branch) in the same transaction. */
   insert(session: { id: string; project: ProjectKey }, entries: readonly unknown[] = []): SessionRecord {
     const now = new Date().toISOString();
-    const owner = ownerOf(session.project);
+    const owner = ownerColumns(session.project);
+    const marks = owner.columns.map(() => "?").join(", ");
     this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO sessions (id, ${owner.column}, title, created_at, updated_at, status) VALUES (?, ?, NULL, ?, ?, 'idle')`,
+          `INSERT INTO sessions (id, ${owner.columns.join(", ")}, title, created_at, updated_at, status) VALUES (?, ${marks}, NULL, ?, ?, 'idle')`,
         )
-        .run(session.id, owner.id, now, now);
+        .run(session.id, ...owner.values, now, now);
       if (entries.length > 0) this.saveEntries(session.id, entries);
     })();
     return { ...session, title: null, createdAt: now, updatedAt: now };
@@ -61,10 +78,11 @@ export class SessionStore {
 
   /** Most recently used first. */
   list(project: ProjectKey): SessionRecord[] {
-    const owner = ownerOf(project);
+    const owner = ownerColumns(project);
+    const where = owner.columns.map((c) => `${c} = ?`).join(" AND ");
     const rows = this.db
-      .prepare(`SELECT * FROM sessions WHERE ${owner.column} = ? ORDER BY updated_at DESC, id`)
-      .all(owner.id) as unknown as SessionRow[];
+      .prepare(`SELECT * FROM sessions WHERE ${where} ORDER BY updated_at DESC, id`)
+      .all(...owner.values) as unknown as SessionRow[];
     return rows.map(toRecord);
   }
 
