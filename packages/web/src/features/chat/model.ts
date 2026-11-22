@@ -18,6 +18,8 @@ export interface ToolView {
   state: ToolState;
   /** The result's text, or the live partial result while running. */
   output: string;
+  /** The result's details (a content proposal, say); undefined until it has a result. */
+  details?: unknown;
 }
 
 export type ItemPart =
@@ -146,8 +148,15 @@ function toolView(
   running: boolean,
 ): ToolView {
   const base = { id: call.id, name: call.name, args: call.arguments };
-  if (result) return { ...base, state: result.isError ? "error" : "ok", output: resultText(result) };
-  if (live?.done) return { ...base, state: live.isError ? "error" : "ok", output: resultText(live.result) };
+  if (result)
+    return { ...base, state: result.isError ? "error" : "ok", output: resultText(result), details: result.details };
+  if (live?.done)
+    return {
+      ...base,
+      state: live.isError ? "error" : "ok",
+      output: resultText(live.result),
+      details: (live.result as { details?: unknown } | null)?.details,
+    };
   if (running) return { ...base, state: "running", output: resultText(live?.partial) };
   return { ...base, state: "not_run", output: "" };
 }

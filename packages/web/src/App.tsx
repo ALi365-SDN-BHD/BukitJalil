@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 import { ChatView } from "@/features/chat/ChatView";
+import { ContentAssistant } from "@/features/content/ContentAssistant";
 import { ContentMain, ContentProperties } from "@/features/content/ContentColumns";
 import { ContentSourceList } from "@/features/content/ContentSourceList";
 import { RightPanel } from "@/features/panels/RightPanel";
@@ -120,8 +121,11 @@ function Shell() {
     mode === "content" ? (
       <>
         <SectionTitle icon={<FileText className="size-4" />} title={m.content.entries} />
-        <div className="min-h-0 flex-1 overflow-auto">
-          <ContentMain />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-auto">
+            <ContentMain />
+          </div>
+          <ContentAssistant />
         </div>
       </>
     ) : (

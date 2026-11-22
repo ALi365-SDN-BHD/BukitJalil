@@ -1,12 +1,50 @@
-import { ForkRequest, SendMessageRequest, type SessionDetail, SessionPatch } from "@bukitjalil/shared";
-import type { Hono } from "hono";
+import {
+  contentKey,
+  ForkRequest,
+  type ProjectKey,
+  parseContentKey,
+  SendMessageRequest,
+  type SessionDetail,
+  SessionPatch,
+} from "@bukitjalil/shared";
+import type { Context, Hono } from "hono";
 import type { AgentService } from "../agent/service.ts";
 import type { AppEnv } from "../app.ts";
+import { notionId } from "../data-sources/service.ts";
 import { apiError } from "../security/guard.ts";
+import { SiteError } from "../sites/location.ts";
 import { body, handle, PROJECT_PREFIXES, projectParam } from "./common.ts";
+
+/** A Notion database's conversations in content management (content editor and AI design, part 2). */
+const CONTENT = "/content/sources/:sourceId/databases/:databaseId";
+
+/** The content key of a route under CONTENT; 404 for ids that cannot be one. */
+function contentParam(c: Context): ProjectKey {
+  const key = contentKey({
+    sourceId: c.req.param("sourceId") ?? "",
+    databaseId: notionId(c.req.param("databaseId") ?? "") ?? "",
+  });
+  if (!parseContentKey(key)) throw new SiteError("datasource.not_found", 404);
+  return key;
+}
+
+/** A tool call id, as the model provider made it; 404 for one no proposal can have. */
+function callParam(c: Context): string {
+  const id = c.req.param("callId") ?? "";
+  if (id.length === 0 || id.length > 256) throw new SiteError("content.proposal_not_found", 404);
+  return id;
+}
 
 /** AI sessions (plan 9.1); what they do arrives on the event stream. */
 export function sessionRoutes(api: Hono<AppEnv>, agent: AgentService) {
+  api.get(`${CONTENT}/sessions`, (c) => handle(c, () => c.json(agent.listInfo(contentParam(c)))));
+  api.post(`${CONTENT}/sessions`, (c) =>
+    handle(c, () => {
+      const record = agent.create(contentParam(c));
+      return c.json(agent.info(record.id), 201);
+    }),
+  );
+
   for (const prefix of PROJECT_PREFIXES)
     api.get(`${prefix}/sessions`, (c) => handle(c, () => c.json(agent.listInfo(projectParam(c)))));
 
@@ -50,7 +88,11 @@ export function sessionRoutes(api: Hono<AppEnv>, agent: AgentService) {
       const req = await body(c, SendMessageRequest);
       if (!req) return apiError(c, 400, "request.invalid_body");
       const id = c.req.param("sessionId");
-      await agent.send(id, req.text, { followUp: req.mode === "followUp", images: req.images });
+      await agent.send(id, req.text, {
+        followUp: req.mode === "followUp",
+        images: req.images,
+        ...(req.entryId !== undefined ? { entryId: req.entryId } : {}),
+      });
       return c.json(agent.info(id), 202);
     }),
   );
@@ -61,6 +103,17 @@ export function sessionRoutes(api: Hono<AppEnv>, agent: AgentService) {
       await agent.stop(id);
       return c.json(agent.info(id));
     }),
+  );
+
+  // Proposals of a content conversation (content editor and AI design, A2): written only on the user's word.
+  api.get("/sessions/:sessionId/proposals", (c) =>
+    handle(c, async () => c.json(await agent.proposals(c.req.param("sessionId")))),
+  );
+  api.post("/sessions/:sessionId/proposals/:callId/apply", (c) =>
+    handle(c, async () => c.json(await agent.applyProposal(c.req.param("sessionId"), callParam(c)))),
+  );
+  api.post("/sessions/:sessionId/proposals/:callId/reject", (c) =>
+    handle(c, async () => c.json(await agent.rejectProposal(c.req.param("sessionId"), callParam(c)))),
   );
 
   api.post("/sessions/:sessionId/fork", (c) =>

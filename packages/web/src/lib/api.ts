@@ -16,6 +16,7 @@ import {
   type ContentPage,
   type ContentPageCreate,
   type ContentPageUpdate,
+  type ContentProposalState,
   type ContentSortDirection,
   type CreateSiteRequest,
   type CreateThemeRequest,
@@ -254,6 +255,9 @@ export const api = {
     post<SessionInfo>(`/sessions/${id}/messages`, req),
   abortSession: (id: string) => post<SessionInfo>(`/sessions/${id}/abort`),
   forkSession: (id: string, entryId: string) => post<SessionInfo>(`/sessions/${id}/fork`, { entryId }),
+  proposals: (id: string) => request<ContentProposalState[]>(`/sessions/${id}/proposals`),
+  decideProposal: (id: string, callId: string, decision: "apply" | "reject") =>
+    post<ContentProposalState>(`/sessions/${id}/proposals/${encodeURIComponent(callId)}/${decision}`),
 
   contentDatabase: (sourceId: string, databaseId: string) =>
     request<ContentDatabase>(contentPath(sourceId, databaseId)),
@@ -376,6 +380,7 @@ export const keys = {
     ["versionDiff", project, commit, ...(path === undefined ? [] : [path])] as const,
   sessions: (project: ProjectKey) => ["sessions", project] as const,
   session: (id: string) => ["session", id] as const,
+  proposals: (id: string) => ["proposals", id] as const,
   bukit: ["bukit"] as const,
   models: ["models"] as const,
   rg: ["rg"] as const,

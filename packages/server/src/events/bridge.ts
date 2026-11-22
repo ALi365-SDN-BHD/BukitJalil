@@ -1,4 +1,4 @@
-import type { ChatMessage, ProjectKey, ServerEventInput } from "@bukitjalil/shared";
+import { type ChatMessage, isContentKey, type ProjectKey, type ServerEventInput } from "@bukitjalil/shared";
 import type { AgentEvent, AgentService } from "../agent/service.ts";
 import type { BuildService } from "../builds/service.ts";
 import type { ChangeService } from "../changes/service.ts";
@@ -21,8 +21,8 @@ export function connectEvents(hub: EventHub, { agent, builds, changes, deploys, 
   const refresh = changeRefresher(hub, agent, changes, logger);
   const stopAgent = agent.subscribe((event) => {
     for (const e of translate(event)) hub.publish(e);
-    // Whether the change set can be reviewed depends on the site's sessions.
-    if (event.type === "status") refresh(event.project);
+    // Whether the change set can be reviewed depends on the site's sessions; content conversations have none.
+    if (event.type === "status" && !isContentKey(event.project)) refresh(event.project);
   });
   const stopBuilds = builds.onEvent(({ type, build }) =>
     hub.publish({ type, project: build.project, data: { build } }),

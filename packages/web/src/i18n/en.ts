@@ -66,6 +66,36 @@ const en: Messages = {
     bodyPlaceholder: "Type here, or / to pick a block type",
     bodyHint:
       "Type / for headings, lists, to-dos, quotes, code, dividers or images (by URL); select text to make it bold, italic, struck through, inline code or a link; Tab makes a list item part of the one above (one level only).",
+    /** The AI conversation at the bottom of the middle column (content editor and AI design, part 2). */
+    ai: {
+      title: "AI assistant",
+      show: "Show the AI assistant",
+      hide: "Hide the AI assistant",
+      notice:
+        "The conversation, including the entries the AI reads, is sent to the model provider. The AI never writes to Notion itself: you confirm every change.",
+      noticeShort: "Sent to the model provider. Changes reach Notion only when you confirm them.",
+      newChat: "New conversation",
+      sessions: "Choose a conversation",
+      empty:
+        "Let the AI help you write and edit this database's entries. It can read the open entry, the fields and other entries of this database, and shows you any change first.",
+      chatEmpty: "Say what you want to write or change. With an entry open, you can just say “this entry”.",
+      proposal: {
+        update: "Change “{title}”",
+        create: "New entry “{title}”",
+        untitled: "Untitled",
+        properties: "Properties",
+        body: "Body",
+        empty: "(empty)",
+        apply: "Write to Notion",
+        reject: "No",
+        applying: "Writing…",
+        applied: "Written to Notion.",
+        rejected: "Not written.",
+        failed: "Not written: {reason}",
+        open: "Open entry",
+        draft: "This entry has unsaved changes. Save or discard them before writing this change.",
+      },
+    },
     bodyProblems: {
       nesting:
         "Only list items can hold items under them, one level deep. Move the indented content back to the top level.",
@@ -1478,6 +1508,12 @@ const en: Messages = {
     "datasource.notion_source_missing": "This source has no Notion databaseId on the main version",
     "content.bad_id": "Not a Notion database or page ID",
     "content.not_in_database": "This page is not in this database, or it was moved to the trash",
+    "content.proposal_busy": "This change is being written. Please wait",
+    "content.proposal_decided": "This change was already decided",
+    "content.proposal_invalid": "This change is not valid and was not written. Ask the AI to propose it again",
+    "content.proposal_not_found": "This change is not in this conversation",
+    "content.proposal_partial":
+      "The body was written but the properties were not. Reopen the entry to check, then ask the AI to propose the property changes again",
     "content.conflict": "This page was changed after you opened it. Reload it and make your change again",
     "content.notion_write_forbidden":
       "This integration cannot write: turn on Update content and Insert content in its Notion settings",

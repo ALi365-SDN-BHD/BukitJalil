@@ -82,6 +82,13 @@ export class DataSourceService {
     this.tokenListeners.add(listener);
   }
 
+  private readonly removeListeners = new Set<(id: string) => void>();
+
+  /** Called with the source's id after it was removed (its content conversations went with it). */
+  onRemoved(listener: (id: string) => void): void {
+    this.removeListeners.add(listener);
+  }
+
   update(id: string, req: DataSourceRequest): SavedDataSource {
     const row = this.row(id);
     this.assertName(req.name, id);
@@ -105,6 +112,7 @@ export class DataSourceService {
       .get(id) as { count: number };
     if (used.count > 0) throw new SiteError("datasource.in_use", 409, { count: String(used.count) });
     this.opts.db.prepare("DELETE FROM data_sources WHERE id = ?").run(id);
+    for (const listener of this.removeListeners) listener(id);
   }
 
   /** The Notion token for a data source, or null. */
