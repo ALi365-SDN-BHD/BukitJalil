@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -119,6 +120,15 @@ test("a theme is applied to a site as its change set and exported as a zip", asy
     return (await res.json()) as { id: string };
   }, parent);
 
+  // A design lint warning on the theme's default branch shows in the dialog and does not block applying.
+  const project = path.join(parent, "apply-me");
+  fs.writeFileSync(
+    path.join(project, "themes", "apply-me", "assets", "extra.css"),
+    ".nav { backdrop-filter: blur(4px); }\n",
+  );
+  execFileSync("git", ["-C", project, "add", "-A"]);
+  execFileSync("git", ["-C", project, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "glass"]);
+
   await page.goto(`/themes/${theme.id}`);
   await expect(page.getByTestId("theme-home")).toBeVisible();
   await page.getByTestId("apply-theme").click();
@@ -126,6 +136,11 @@ test("a theme is applied to a site as its change set and exported as a zip", asy
   await expect(dialog).toBeVisible();
   await expect(dialog.getByTestId("apply-theme-site")).toHaveValue(siteId);
   await expect(dialog).toContainText("starter");
+  const lint = dialog.getByTestId("apply-theme-lint");
+  await expect(lint).toContainText(/(Design check warnings \(1\)|设计检查：1 条提醒)/);
+  await lint.locator("summary").click();
+  await expect(lint).toContainText(/(Frosted glass|毛玻璃效果)/);
+  await expect(lint).toContainText("assets/extra.css:1");
   await dialog.getByTestId("apply-theme-confirm").click();
   await expect(dialog).toContainText("Review and apply it on the site");
 

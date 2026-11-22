@@ -260,6 +260,21 @@ const ms: Messages = {
       setConfigNone: "Konfigurasi laman tiada theme.name.",
       rootLayouts:
         "Fail dalam layouts/ di pangkal laman mengatasi templat tema. Fail itu tidak diubah di sini dan masih diutamakan selepas digunakan.",
+      lint: "Amaran semakan reka bentuk ({count})",
+      lintHint:
+        "Amaran sahaja; tema masih boleh digunakan. Anda boleh minta AI dalam projek tema membetulkannya dengan semakan kendiri theme-design.",
+      lintRules: {
+        tokens_missing: "tokens.yaml tiada kunci kontrak",
+        contrast: "Kontras warna terlalu rendah",
+        literal_color: "Warna literal dalam CSS",
+        external_resource: "Memuatkan sumber dari laman lain",
+        focus_visible: "Tiada gaya :focus-visible",
+        reduced_motion: "Gerakan tidak ikut tetapan kurangkan gerakan",
+        transition_all: "Menggunakan transition: all",
+        gradient_text: "Teks kecerunan",
+        frosted_glass: "Kaca kabur",
+        emoji: "Emoji sebagai ikon",
+      },
       apply: "Guna",
       applying: "Menggunakan…",
       done: "Sudah digunakan",

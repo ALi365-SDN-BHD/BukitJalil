@@ -1,4 +1,4 @@
-import type { Theme, ThemeApplyResult } from "@bukitjalil/shared";
+import type { Theme, ThemeApplyResult, ThemeLintIssue } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Palette } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -123,6 +123,7 @@ export function ApplyThemeDialog({ theme, onClose }: { theme: Theme; onClose: ()
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">{n.rootLayouts}</p>
+                <LintWarnings issues={plan.data.lint} />
               </>
             )}
             {apply.error && (
@@ -146,6 +147,37 @@ export function ApplyThemeDialog({ theme, onClose }: { theme: Theme; onClose: ()
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The design lint's warnings (theme design spec D2, Q7): shown, never blocking. */
+function LintWarnings({ issues }: { issues: ThemeLintIssue[] }) {
+  const { m, t } = useI18n();
+  const n = m.themes.apply;
+  if (issues.length === 0) return null;
+  return (
+    <details
+      className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs"
+      data-testid="apply-theme-lint"
+    >
+      <summary className="cursor-pointer">{t(n.lint, { count: issues.length })}</summary>
+      <p className="mt-1 text-muted-foreground">{n.lintHint}</p>
+      <ul className="mt-1 flex max-h-48 flex-col gap-1 overflow-auto">
+        {issues.map((issue, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: the list is fixed for one plan
+          <li key={i}>
+            <span className="font-medium">{n.lintRules[issue.rule]}</span>
+            {issue.file && (
+              <span className="ml-1 font-mono text-muted-foreground">
+                {issue.file}
+                {issue.line !== null && `:${issue.line}`}
+              </span>
+            )}
+            <span className="block break-words font-mono text-muted-foreground">{issue.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

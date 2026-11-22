@@ -143,6 +143,29 @@ export const ThemeApplyRequest = z
   .strict();
 export type ThemeApplyRequest = z.infer<typeof ThemeApplyRequest>;
 
+/** The checks of the theme design lint (plan 14, theme design spec D2). */
+export const THEME_LINT_RULES = [
+  "tokens_missing",
+  "contrast",
+  "literal_color",
+  "external_resource",
+  "focus_visible",
+  "reduced_motion",
+  "transition_all",
+  "gradient_text",
+  "frosted_glass",
+  "emoji",
+] as const;
+export type ThemeLintRule = (typeof THEME_LINT_RULES)[number];
+
+/** One warning of the theme design lint; `file` is relative to the theme directory, null for the whole theme. */
+export interface ThemeLintIssue {
+  rule: ThemeLintRule;
+  file: string | null;
+  line: number | null;
+  detail: string;
+}
+
 /** What applying a theme would change on a site, shown before the user confirms (design 7). */
 export interface ThemeApplyPlan {
   site: { id: string; name: string };
@@ -154,6 +177,8 @@ export interface ThemeApplyPlan {
   removed: string[];
   /** The `theme.name` in the site's config on its default branch; null when it has none or it cannot be read. */
   configTheme: string | null;
+  /** The design lint of the theme as it would be applied: warnings, applying is not blocked (spec D2, Q7). */
+  lint: ThemeLintIssue[];
 }
 
 /** The change set applying a theme made on the site; null when the site already had exactly this theme. */

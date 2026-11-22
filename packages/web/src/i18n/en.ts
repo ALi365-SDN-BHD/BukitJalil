@@ -259,6 +259,21 @@ const en: Messages = {
       setConfigNone: "The site's config has no theme.name.",
       rootLayouts:
         "Files in the site's root layouts/ override theme templates. They are not changed here and still win after applying.",
+      lint: "Design check warnings ({count})",
+      lintHint:
+        "Warnings only; applying is not blocked. You can ask the AI in the theme project to fix them with the theme-design self-check.",
+      lintRules: {
+        tokens_missing: "tokens.yaml lacks contract keys",
+        contrast: "Color contrast too low",
+        literal_color: "Literal colors in the CSS",
+        external_resource: "Loads resources from other sites",
+        focus_visible: "No :focus-visible style",
+        reduced_motion: "Motion ignores the reduced-motion setting",
+        transition_all: "Uses transition: all",
+        gradient_text: "Gradient text",
+        frosted_glass: "Frosted glass",
+        emoji: "Emoji used as icons",
+      },
       apply: "Apply",
       applying: "Applying…",
       done: "Applied",

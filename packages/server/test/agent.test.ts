@@ -176,6 +176,11 @@ describe("Skills settings and API", () => {
       enabled: true,
     });
     expect(before.skills.find((s) => s.name === "theme-development")).toMatchObject({ required: true, enabled: true });
+    expect(before.skills.find((s) => s.name === "theme-design")).toMatchObject({
+      source: "bukitjalil",
+      required: true,
+      enabled: true,
+    });
     expect(before.skills.find((s) => s.name === "bukit-config")).toMatchObject({
       source: "bukit",
       required: false,
@@ -354,7 +359,7 @@ describe("AgentService", () => {
 
   it("hides a disabled optional skill but keeps the required one", async () => {
     const s = await site();
-    const { agent, settled } = service({ disabledSkills: () => ["content-writing"] });
+    const { agent, settled } = service({ disabledSkills: () => ["content-writing", "theme-design"] });
     const session = agent.create(s.id);
     let seen: unknown;
     faux.setResponses([
@@ -370,6 +375,9 @@ describe("AgentService", () => {
     const skills = [...systemSections(seen).skills.matchAll(/<name>([^<]+)<\/name>/g)].map((m) => m[1]);
     expect(skills).not.toContain("content-writing");
     expect(skills).toContain("site-editing");
+    // Sites load the design rules too, for changes to their theme, and they cannot be turned off.
+    expect(skills).toContain("theme-design");
+    expect(systemSections(seen).preamble).toContain("read the\n  theme-design skill");
     expect(skills).toHaveLength(skillNames("site").length - 1);
   });
 
@@ -513,6 +521,7 @@ describe("AgentService", () => {
             call("write", { path: "_reference/note.md", content: "x" }),
             call("write", { path: "static/404.html", content: "x" }),
             call("theme_coverage", {}),
+            call("theme_lint", {}),
           ],
           { stopReason: "toolUse" },
         );
@@ -527,6 +536,8 @@ describe("AgentService", () => {
     expect(system.preamble).toContain("BukitJalil theme assistant");
     expect(system.preamble).toContain("themes/aurora/");
     expect(system.skills).toContain("theme-development");
+    expect(system.skills).toContain("<name>theme-design</name>");
+    expect(system.preamble).toContain("theme-development and theme-design skills");
     expect(system.skills).not.toContain("<name>publishing</name>");
     const ends = events.flatMap((e) => (e.type === "pi" && e.event.type === "tool_execution_end" ? [e.event] : []));
     // Tool results end in any order: two writes inside the scope, four outside it.
@@ -547,6 +558,9 @@ describe("AgentService", () => {
       searchPage: true,
       notFoundPage: false,
     });
+    const lint = ends.find((e) => e.toolName === "theme_lint");
+    expect(lint?.isError).toBe(false);
+    expect((lint?.result as { details: { issues: unknown } } | undefined)?.details.issues).toBeInstanceOf(Array);
     const ai = path.join(ctx.paths.worktrees, "themes", t.id, "ai");
     expect(fs.existsSync(path.join(ai, "themes", "aurora", "tokens.yaml"))).toBe(true);
     expect(fs.existsSync(path.join(ai, "layouts"))).toBe(false);

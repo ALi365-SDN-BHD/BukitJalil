@@ -1,6 +1,6 @@
 ---
 name: theme-development
-description: How to design and write a Bukit theme in a BukitJalil theme project - the project layout, what you may write, the page types to cover, tokens before templates, escaping, plain CSS, and checking with theme_coverage, bukit_check and bukit_build. Read it before changing a theme.
+description: How to write a Bukit theme in a BukitJalil theme project - the project layout, what you may write, the page types to cover, the order of work, escaping, plain CSS, and checking with theme_coverage, theme_lint, bukit_check and bukit_build. Read it, with theme-design, before changing a theme.
 ---
 
 # Theme development in BukitJalil
@@ -8,8 +8,10 @@ description: How to design and write a Bukit theme in a BukitJalil theme project
 A theme project is a Bukit theme plus a small sample site that exists only to
 preview it. The user reviews your changes before they reach the project. Read
 `site-editing` for the tools and the general rules; this skill adds what is
-different in a theme project. Read `bukit-theme` and `bukit-templating` for
-Bukit's own rules on themes and templates.
+different in a theme project. Read `theme-design` for the design rules: the
+design direction, the token contract, the components, the design self-check
+and the rule against an AI-generated look. Read `bukit-theme` and
+`bukit-templating` for Bukit's own rules on themes and templates.
 
 ## The project
 
@@ -56,28 +58,37 @@ Also:
 `theme_coverage` lists the declared templates and whether their files exist,
 the page types with no template, includes that point at missing files, and
 whether `tokens.yaml`, the search page and `static/404.html` exist.
+`theme_lint` runs the design self-check items a program can test (see
+`theme-design`).
 
 ## Order of work
 
 1. Start with `site_info` and `theme_coverage`. Look at the reference images in
    `_reference/` when there are any.
-2. Tokens first: colors, fonts, radius, spacing and layout widths in
-   `themes/<name>/tokens.yaml` (groups `colors`, `font`, `radius`, `spacing`,
-   `layout`). Bukit writes them to `/assets/css/theme-tokens.css`; link it in
-   the base layout and use the CSS variables everywhere instead of literal
-   values.
-3. Then the base layout, the partials (header, navigation, footer) and the
+2. **Agree the design direction** for a new look (see `theme-design`): write
+   it, ask the user to confirm it, and wait.
+3. Tokens: the theme starts with the default design system's
+   `themes/<name>/tokens.yaml` (see `theme-design`); change its values to fit
+   the direction and keep every key of the token contract. Bukit writes them to
+   `/assets/css/theme-tokens.css`, which the base layout already links; use the
+   CSS variables everywhere instead of literal values.
+4. Then the base layout, the partials (header, navigation, footer) and the
    home page.
-4. **Confirm the style first.** Run `bukit_check` and `bukit_build`, then stop:
-   call `summarize_changes`, tell the user the home page is ready in the
-   preview, and ask them to confirm the look or say what to change. Do not
-   build the other page types yet. Repeat this step until they confirm. Skip
-   it only when the user said to finish the whole theme in one go.
-5. After they confirm, do each remaining page type: post, page, list,
+5. **Confirm the style.** Run `bukit_check`, `bukit_build` and `theme_lint`,
+   go through the design self-check in `theme-design`, then stop: call
+   `summarize_changes`, tell the user the home page is ready in the preview,
+   and ask them to confirm the look or say what to change. Do not build the
+   other page types yet. Repeat this step until they confirm.
+6. After they confirm, do each remaining page type: post, page, list,
    pagination, archive, taxonomy index and term, search, 404.
-6. After each step run `bukit_check` (its doctor part checks the manifest,
+7. After each step run `bukit_check` (its doctor part checks the manifest,
    templates and includes), then `bukit_build`, and fix what they report.
-7. Finish with `theme_coverage`: nothing missing. Then `summarize_changes`.
+8. Finish with `theme_coverage`: nothing missing. Run `theme_lint` and go
+   through the design self-check again for every page type. Then
+   `summarize_changes`.
+
+Steps 2 and 5 wait for the user. Skip the waiting only when the user said to
+finish the whole theme in one go.
 
 ## Rules for templates and styles
 
@@ -93,8 +104,11 @@ whether `tokens.yaml`, the search page and `static/404.html` exist.
   theme works under a sub-path.
 - Make pages work without JavaScript; use it only for small enhancements.
 - Write accessible markup: landmarks (`header`, `nav`, `main`, `footer`), a
-  skip link, visible focus styles, enough color contrast, and `alt` text from
-  the content.
+  skip link, visible focus styles, enough color contrast (see the design
+  self-check in `theme-design`), and `alt` text from the content.
 - Change `content/` only when a page type has no example; keep the sample
   content generic.
 - Keep `theme.yaml` `name` equal to the directory name.
+- **No AI look.** The theme must not look AI-generated. Group 5 of the design
+  self-check in `theme-design` lists what that means. It is a hard rule, not a
+  preference.

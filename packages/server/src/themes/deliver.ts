@@ -5,6 +5,7 @@ import {
   type ThemeApplyPlan,
   type ThemeApplyRequest,
   type ThemeApplyResult,
+  type ThemeLintIssue,
   ThemeName,
 } from "@bukitjalil/shared";
 import { zipSync } from "fflate";
@@ -17,6 +18,8 @@ import type { AppPaths } from "../paths.ts";
 import type { Project, ProjectService } from "../projects/service.ts";
 import { SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
+import { MAX_COVERAGE_FILE_BYTES } from "./coverage.ts";
+import { LINT_FILE, lintTheme } from "./lint.ts";
 import { themeKey } from "./service.ts";
 
 /**
@@ -72,7 +75,26 @@ export class ThemeDeliverService {
       modified: modified.sort(),
       removed: removed.sort(),
       configTheme: await this.configTheme(site.path, targetHead, site.configFile),
+      lint: await this.lint(theme, source),
     };
+  }
+
+  /** The design lint of the theme files about to be applied (spec D2): warnings for the dialog. */
+  private async lint(theme: Project, source: Map<string, TreeEntry>): Promise<ThemeLintIssue[]> {
+    const picked = [...source].filter(([rel, e]) => LINT_FILE.test(rel) && (e.size ?? 0) <= MAX_COVERAGE_FILE_BYTES);
+    // source() already capped the whole theme at MAX_THEME_BYTES.
+    const blobs = await readBlobs(
+      this.opts.git,
+      theme.path,
+      picked.map(([, e]) => e.oid),
+      MAX_THEME_BYTES,
+    );
+    const files = new Map<string, string>();
+    for (const [rel, e] of picked) {
+      const data = blobs.get(e.oid);
+      if (data) files.set(rel, data.toString("utf8"));
+    }
+    return lintTheme(files);
   }
 
   /**

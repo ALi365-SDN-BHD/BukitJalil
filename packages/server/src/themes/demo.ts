@@ -22,7 +22,36 @@ export function makeThemeProject(target: string, theme: { name: string; displayN
     description: `${theme.displayName}, a Bukit theme`,
   });
   setYaml(path.join(target, "site.yaml"), { "theme.name": theme.name });
+  applyDesignSystem(path.join(themes, theme.name), demoDir);
   replaceSampleContent(target, demoDir);
+}
+
+/** The starter's stylesheet link in its base layout; the token stylesheet goes right before it. */
+const STARTER_STYLESHEET = /^([ \t]*)<link rel="stylesheet" href="\{\{ asset_base_url \}\}\/assets\/style\.css" \/>$/m;
+
+/**
+ * Put BukitJalil's default design system (plan 14, theme design spec D1) into a starter theme: its
+ * tokens.yaml, its style.css in place of the starter's, and a link to the generated token stylesheet in
+ * the base layout. The CSS is written for the starter's markup, so the templates stay as Bukit wrote them.
+ * Throws when the base layout no longer has the starter's stylesheet link, so a changed starter fails the
+ * creation instead of making an unstyled theme.
+ */
+export function applyDesignSystem(themeRoot: string, demoDir: string): void {
+  const source = path.join(demoDir, "design-system");
+  const base = path.join(themeRoot, "layouts", "layouts", "base.html");
+  const layout = fs.readFileSync(base, "utf8");
+  if (!STARTER_STYLESHEET.test(layout)) {
+    throw new Error("The starter theme's base layout has no stylesheet link to put the design tokens before");
+  }
+  fs.writeFileSync(
+    base,
+    layout.replace(
+      STARTER_STYLESHEET,
+      '$1<link rel="stylesheet" href="{{ asset_base_url }}/assets/css/theme-tokens.css" />\n$&',
+    ),
+  );
+  fs.copyFileSync(path.join(source, "tokens.yaml"), path.join(themeRoot, "tokens.yaml"));
+  fs.copyFileSync(path.join(source, "style.css"), path.join(themeRoot, "assets", "style.css"));
 }
 
 /** Remove Bukit's starter theme before an imported theme (and its parents) is written in its place. */

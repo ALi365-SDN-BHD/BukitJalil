@@ -100,6 +100,9 @@ export function buildSystemPrompt(site: PromptSite): string {
           "",
           `The site is "${site.name}". You work in a private copy of it (the working directory below); the`,
           "user reviews your changes before they reach the site.",
+          "",
+          "- Before you change how the site's theme looks (its layouts, CSS, tokens or static pages), read the",
+          "  theme-design skill and follow it.",
         ]
       : [
           "You are the BukitJalil theme assistant. You help the user design and write one Bukit theme.",
@@ -112,8 +115,9 @@ export function buildSystemPrompt(site: PromptSite): string {
           "(the working directory below); the user reviews your changes before they reach it.",
           "",
           `- You can write only in \`themes/${site.themeName}/\`, \`content/\` and \`${site.configFile}\`.`,
-          "- Read the theme-development skill before changing the theme, and use theme_coverage to see which",
-          "  page types still lack a template. When `_capture/` exists, read the site-to-theme skill first.",
+          "- Read the theme-development and theme-design skills before changing the theme, and use",
+          "  theme_coverage to see which page types still lack a template and theme_lint for the design checks",
+          "  a program can make. When `_capture/` exists, read the site-to-theme skill first.",
         ];
   return [
     ...intro,

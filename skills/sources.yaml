@@ -13,4 +13,7 @@ bukit:
   changes:
     - a note after the front matter of each skill mapping commands to BukitJalil's tools
     - using-bukit - Labs skill wording removed, checks and schema mapped to BukitJalil's tools
-bukitjalil: [site-editing, content-writing, multilingual, publishing, theme-development]
+bukitjalil: [site-editing, content-writing, multilingual, publishing, theme-development, site-to-theme, theme-design]
+# Written by BukitJalil. The design self-check in theme-design (plan 14, 主题设计规范) took ideas, not text,
+# from two MIT-licensed skills: https://github.com/educlopez/ui-craft and
+# https://github.com/DonkeyKing01/tasteful-ui-skill

@@ -10,6 +10,7 @@ import { summarizeConfig } from "../panels/service.ts";
 import { parseFrontMatter, parseYaml } from "../panels/yaml.ts";
 import { SiteError } from "../sites/location.ts";
 import { MAX_COVERAGE_FILE_BYTES, type ThemeFiles, themeCoverage } from "../themes/coverage.ts";
+import { lintThemeFiles } from "../themes/lint.ts";
 import { type AiBukit, type BuildResult, type CheckResult, type NotionNote, notionNoteText } from "./ai-bukit.ts";
 import { GateError, type PathGate, segmentKey } from "./gate.ts";
 
@@ -27,7 +28,7 @@ export const SITE_TOOLS = [
 ] as const;
 
 /** Tools only theme projects get (theme development design 4.1). */
-export const THEME_TOOLS = ["theme_coverage"] as const;
+export const THEME_TOOLS = ["theme_coverage", "theme_lint"] as const;
 
 const MAX_CONFIG_BYTES = 256 * 1024;
 const MARKDOWN_FILE = /\.(md|markdown)$/i;
@@ -40,7 +41,7 @@ export interface SiteToolOptions {
   project: ProjectKey;
   /** The site config's file name in the working copy (found by content when the site was imported). */
   configFile: string;
-  /** A theme project's theme (adds theme_coverage); null for a site. */
+  /** A theme project's theme (adds theme_coverage and theme_lint); null for a site. */
   themeName: string | null;
   /** The working copy (the session's cwd). */
   cwd: string;
@@ -162,6 +163,17 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
         const { config, error } = readConfig();
         if (!config) return json({ error });
         return json(await themeCoverage(config, themeName, workingCopyFiles(cwd, gate)));
+      },
+    });
+    tools.push({
+      name: "theme_lint",
+      label: "Theme lint",
+      description:
+        "The design self-check items a program can test in the theme (see the theme-design skill): token contract keys, contrast of the token colors in the light and dark schemes, literal colors in the CSS, resources from other sites, :focus-visible, reduced motion, transition: all, and gradient text, frosted glass and emoji. File paths are relative to themes/<name>/. The rest of the self-check is still yours.",
+      parameters: object({}),
+      async execute() {
+        const issues = await lintThemeFiles(`themes/${themeName}`, workingCopyFiles(cwd, gate));
+        return json({ issues, ...(issues.length === 0 ? { note: "No issues found by the lint." } : {}) });
       },
     });
   }
