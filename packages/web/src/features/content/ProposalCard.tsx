@@ -1,4 +1,10 @@
-import type { ContentProposal, ContentProposalState, ContentValue, ErrorCode } from "@bukitjalil/shared";
+import {
+  type ContentProposal,
+  type ContentProposalState,
+  type ContentValue,
+  type ErrorCode,
+  proposalOpen,
+} from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { useMemo } from "react";
@@ -86,8 +92,7 @@ export function ProposalCard({
     },
   });
   const title = proposal.title || m.content.ai.proposal.untitled;
-  const undecided =
-    state.status === "pending" || (state.status === "failed" && state.error !== "content.proposal_partial");
+  const undecided = proposalOpen(state);
   const failure = state.error ? (state.error in m.errors ? errorText(state.error as ErrorCode) : state.error) : null;
 
   return (

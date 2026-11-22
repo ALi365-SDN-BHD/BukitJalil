@@ -7,6 +7,7 @@ import {
   type ContentRef,
   type ContentValue,
   ContentValue as ContentValueSchema,
+  proposalOpen,
 } from "@bukitjalil/shared";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { contentToItems, contentToMarkdown, markdownToContent } from "../data-sources/notion-blocks.ts";
@@ -399,8 +400,7 @@ export class ContentProposals {
   /** Refuses a proposal already written, declined, or written in part (writing it again would conflict). */
   private assertOpen(ref: ContentRef, callId: string): void {
     const [state] = this.states(ref, [callId]);
-    if (state && state.status !== "pending" && (state.status !== "failed" || state.error === PARTIAL))
-      throw new SiteError("content.proposal_decided", 409);
+    if (state && !proposalOpen(state)) throw new SiteError("content.proposal_decided", 409);
   }
 
   private record(ref: ContentRef, sessionId: string, state: ContentProposalState): ContentProposalState {

@@ -376,6 +376,16 @@ export interface ContentProposal {
   blocks: ContentBlock[] | null;
 }
 
+/**
+ * Failures after part of a proposal was written (its body but not its properties, or part of a body or of a
+ * new page): trying again would conflict or make a second page, so the user checks the entry in Notion.
+ */
+export const FINAL_PROPOSAL_ERRORS: readonly string[] = ["content.proposal_partial", "content.body_partial"];
+
+/** Whether a proposal in this state can still be written (or declined). */
+export const proposalOpen = (state: { status: ContentProposalStatus; error: string | null }): boolean =>
+  state.status === "pending" || (state.status === "failed" && !FINAL_PROPOSAL_ERRORS.includes(state.error ?? ""));
+
 export type ContentProposalStatus = "pending" | "applied" | "rejected" | "failed";
 
 /** What became of a proposal, by the propose tool call's id. */

@@ -267,6 +267,19 @@ describe("proposal decisions", () => {
     await expect(partial.apply(ref(sourceId), "s1", "c1", update())).rejects.toMatchObject({
       code: "content.proposal_decided",
     });
+    // Part of a new page was left in Notion: creating it again would make a second page.
+    const half = new ContentProposals(
+      ctx.db,
+      stub({ calls, fail: { create: new SiteError("content.body_partial", 503) } }),
+    );
+    const created = update({ kind: "create", entryId: null, base: null, body: null, blocks: null });
+    expect(await half.apply(ref(sourceId), "s1", "c5", created)).toMatchObject({
+      status: "failed",
+      error: "content.body_partial",
+    });
+    await expect(half.apply(ref(sourceId), "s1", "c5", created)).rejects.toMatchObject({
+      code: "content.proposal_decided",
+    });
     // A new entry, written whole.
     const ok = new ContentProposals(ctx.db, stub({ calls }));
     expect(
