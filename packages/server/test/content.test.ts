@@ -647,6 +647,17 @@ describe("/api/content page body", () => {
     ).toMatchObject({
       code: "content.body_partial",
     });
+
+    // Notion fails the create itself: the page may be there, so the user is told to look first.
+    notion.state.fail = { status: 500, when: (s) => s.method === "POST" && s.path === "/pages" };
+    expect(await (await call(ctx, "POST", `${db}/pages`, { properties: {} })).json()).toMatchObject({
+      code: "content.create_unknown",
+    });
+    // A refusal says nothing was made.
+    notion.state.fail = { status: 429, when: (s) => s.method === "POST" && s.path === "/pages" };
+    expect(await (await call(ctx, "POST", `${db}/pages`, { properties: {} })).json()).toMatchObject({
+      code: "datasource.notion_rate_limited",
+    });
     ctx.db.close();
   });
 });

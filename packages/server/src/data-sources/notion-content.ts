@@ -178,17 +178,24 @@ export class NotionContentService {
     const items = contentToItems(req.blocks ?? []);
     if (items.some((item) => item.kind === "keep")) throw new SiteError("content.body_images", 400);
     const [first = [], ...rest] = batches(items.flatMap((item) => (item.kind === "block" ? [item.block] : [])));
-    const json = await this.call(
-      sourceId,
-      "POST",
-      "/pages",
-      {
-        parent: { database_id: idOf(databaseId) },
-        properties: payloadOf(req.properties),
-        ...(first.length > 0 ? { children: first } : {}),
-      },
-      true,
-    );
+    let json: Record<string, unknown>;
+    try {
+      json = await this.call(
+        sourceId,
+        "POST",
+        "/pages",
+        {
+          parent: { database_id: idOf(databaseId) },
+          properties: payloadOf(req.properties),
+          ...(first.length > 0 ? { children: first } : {}),
+        },
+        true,
+      );
+    } catch (err) {
+      // No answer, or Notion's own error: the page may have been made, and creating again would make another.
+      if (err instanceof SiteError && UNANSWERED.has(err.code)) throw new SiteError("content.create_unknown", 503);
+      throw err;
+    }
     const pageId = idOf(str(json.id, 100));
     try {
       for (const batch of rest) {
@@ -384,6 +391,9 @@ export class NotionContentService {
     return this.dataSources.notionCall(sourceId, method, path, body, write);
   }
 }
+
+/** Failures of a write that do not say whether Notion acted on it. */
+const UNANSWERED = new Set<string>(["datasource.notion_failed", "datasource.notion_offline"]);
 
 /** A database or page id as Notion's 32 hex digits; anything else never reaches a URL. */
 function idOf(value: string): string {

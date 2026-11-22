@@ -90,6 +90,8 @@ export function ProposalCard({
       for (const kind of ["content-entries", "content-page", "content-body"])
         void queryClient.invalidateQueries({ queryKey: [kind, sourceId] });
     },
+    // The server may have recorded a decision before failing the request (a create Notion did not answer).
+    onError: () => void queryClient.invalidateQueries({ queryKey: keys.proposals(sessionId) }),
   });
   const title = proposal.title || m.content.ai.proposal.untitled;
   const undecided = proposalOpen(state);

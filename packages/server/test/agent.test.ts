@@ -1190,10 +1190,14 @@ describe("content management conversations", () => {
         [
           pi.ai.fauxToolCall(
             "propose_update",
-            { lastEditedTime: "t1", properties: { Name: "Hello again" } },
+            { entryId: ENTRY, lastEditedTime: "t1", properties: { Name: "Hello again" } },
             { id: "p1" },
           ),
-          pi.ai.fauxToolCall("propose_update", { lastEditedTime: "t1", properties: { Name: "Other" } }, { id: "p2" }),
+          pi.ai.fauxToolCall(
+            "propose_update",
+            { entryId: ENTRY, lastEditedTime: "t1", properties: { Name: "Other" } },
+            { id: "p2" },
+          ),
         ],
         { stopReason: "toolUse" },
       ),
@@ -1282,6 +1286,66 @@ describe("content management conversations", () => {
     await vi.waitFor(() => expect(read).toEqual([A, B]));
   });
 
+  it("switch the open entry with a steer only once Pi takes it, and forget it when the session leaves memory", async () => {
+    const ds = source();
+    const key = contentKey({ sourceId: ds.id, databaseId: DB });
+    const A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const read: string[] = [];
+    const content = {
+      page: async (_s: string, _d: string, id: string) => {
+        read.push(id);
+        return { id, databaseId: DB, title: id.slice(0, 1), url: null, lastEditedTime: "t", properties: [] };
+      },
+      body: async () => ({ blocks: [], editable: true, unsupported: [], lastEditedTime: "t" }),
+    } as unknown as NotionContentService;
+    const { agent, settled } = service({ content, idleMs: 20 });
+    const internals = agent as unknown as {
+      live: Map<string, { session: { steer: (...args: unknown[]) => Promise<void> } }>;
+      opts: { content: { current: Map<string, string | null> } };
+    };
+    const session = agent.create(key);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let started!: () => void;
+    const running = new Promise<void>((r) => {
+      started = r;
+    });
+    faux.setResponses([
+      async () => {
+        started();
+        await gate;
+        return pi.ai.fauxAssistantMessage([pi.ai.fauxToolCall("read_entry", {})], { stopReason: "toolUse" });
+      },
+      pi.ai.fauxAssistantMessage("A done"),
+    ]);
+    const done = settled(session.id);
+    await agent.send(session.id, "about A", { entryId: A });
+    await running;
+    // Pi refuses the steer: the turn keeps the entry it was about.
+    const live = internals.live.get(session.id);
+    if (!live) throw new Error("no live session");
+    live.session.steer = async () => {
+      throw new Error("refused");
+    };
+    await expect(agent.send(session.id, "now B", { entryId: B })).rejects.toThrow("refused");
+    release();
+    await done;
+    await vi.waitFor(() => expect(read).toEqual([A]));
+    // Disposed when idle: its open entry goes too, and the next message sets it again.
+    await vi.waitFor(() => expect(internals.live.has(session.id)).toBe(false));
+    expect(internals.opts.content.current.has(session.id)).toBe(false);
+
+    // A decision needs the data source and an open server, like writing.
+    ctx.dataSources.remove(ds.id);
+    await expect(agent.rejectProposal(session.id, "p1")).rejects.toMatchObject({ code: "session.not_found" });
+    const other = agent.create(contentKey({ sourceId: source().id, databaseId: DB }));
+    await agent.shutdown();
+    await expect(agent.rejectProposal(other.id, "p1")).rejects.toMatchObject({ code: "server.shutting_down" });
+  });
+
   it("tell a follow-up what the user decided while the turn before it ran", async () => {
     const ds = source();
     const key = contentKey({ sourceId: ds.id, databaseId: DB });
@@ -1311,7 +1375,13 @@ describe("content management conversations", () => {
     let seen = "";
     faux.setResponses([
       pi.ai.fauxAssistantMessage(
-        [pi.ai.fauxToolCall("propose_update", { lastEditedTime: "t", properties: { Name: "D" } }, { id: "q1" })],
+        [
+          pi.ai.fauxToolCall(
+            "propose_update",
+            { entryId: ENTRY, lastEditedTime: "t", properties: { Name: "D" } },
+            { id: "q1" },
+          ),
+        ],
         { stopReason: "toolUse" },
       ),
       async () => {

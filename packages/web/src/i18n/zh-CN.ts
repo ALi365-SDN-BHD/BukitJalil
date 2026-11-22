@@ -1425,6 +1425,8 @@ const zhCN = {
     "content.proposal_invalid": "这项改动的内容无效，没有写入。请让 AI 重新提议",
     "content.proposal_not_found": "在这个对话里找不到这项改动",
     "content.proposal_partial": "正文已写入，但属性没有写入。请重新打开条目检查，再让 AI 重新提议属性的改动",
+    "content.proposal_unknown":
+      "Notion 没有回应，新条目可能已经建好，也可能没有。请先在 Notion 里查看这个数据库，再决定要不要重新提议",
     "content.conflict": "这个页面在你打开之后被修改过。请重新读取，再改一次",
     "content.notion_write_forbidden":
       "这个 integration 没有写入权限：请在 Notion 的 integration 设置里打开 Update content 和 Insert content",
@@ -1435,6 +1437,8 @@ const zhCN = {
       "正文里有写不进 Notion 的内容：图片网址要以 http:// 或 https:// 开头，代码块的语言要是 Notion 认得的，一段文字里的格式不能超过 100 处",
     "content.body_images":
       "Notion 上传的图片只能保留或删掉：不能新加、调换顺序，也不能在排在最前面的这种图片之前加内容",
+    "content.create_unknown":
+      "Notion 没有回应，新条目可能已经建好，也可能没有。请先在 Notion 里查看，再决定要不要重新新建",
     "content.body_partial": "正文只写了一部分，页面里可能新旧内容混在一起，或者少了一部分。请在 Notion 中检查这个页面",
     "site.notion_unbound": "这个网站还没有绑定 Notion 数据源，请先在上方绑定",
     "rg.install_running": "ripgrep 正在安装中",
