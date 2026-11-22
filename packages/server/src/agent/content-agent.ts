@@ -23,6 +23,8 @@ export interface ContentAgent {
   tools(ref: ContentRef, ctx: { sessionId: string }): ToolDefinition[];
   /** The entry the user has open as they send a message to the session (null: none). */
   setCurrent(sessionId: string, entryId: string | null): void;
+  /** Drop what is kept for a session no longer in memory. */
+  forget(sessionId: string): void;
   /** The user's decisions on the proposals of these conversations. */
   readonly proposals: ContentProposals;
 }
@@ -47,6 +49,10 @@ export class NotionContentAgent implements ContentAgent {
 
   setCurrent(sessionId: string, entryId: string | null): void {
     this.current.set(sessionId, entryId);
+  }
+
+  forget(sessionId: string): void {
+    this.current.delete(sessionId);
   }
 
   check(ref: ContentRef): void {

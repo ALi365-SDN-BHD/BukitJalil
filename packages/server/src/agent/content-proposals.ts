@@ -12,6 +12,7 @@ import {
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { contentToItems, contentToMarkdown, markdownToContent } from "../data-sources/notion-blocks.ts";
 import { displayOfValue, type NotionContentService } from "../data-sources/notion-content.ts";
+import { notionId } from "../data-sources/service.ts";
 import { asSiteError, SiteError } from "../sites/location.ts";
 import type { Db } from "../store/db.ts";
 
@@ -24,6 +25,8 @@ export const CONTENT_PROPOSE_TOOLS = ["propose_update", "propose_create"] as con
 
 /** The error of a proposal whose body was written but not its properties: it is not tried again. */
 export const PARTIAL = "content.proposal_partial";
+/** The error of a new entry Notion did not answer for: it may have been made, so it is not tried again. */
+export const UNKNOWN = "content.proposal_unknown";
 
 const isProposeTool = (name: unknown) => (CONTENT_PROPOSE_TOOLS as readonly unknown[]).includes(name);
 
@@ -143,20 +146,29 @@ export function createProposeTools({ content, ref, current }: ProposeToolOptions
       name: "propose_update",
       label: "Propose a change",
       description:
-        "Propose changes to the entry the user has open: properties to change and/or the whole new body. Read it with read_entry first and pass its lastEditedTime: if the entry changed since, the proposal is refused and you read it again. Nothing is written until the user confirms.",
+        "Propose changes to the entry the user has open: properties to change and/or the whole new body. Read it with read_entry first and pass its id and lastEditedTime: if it is not the open entry, or it changed since, the proposal is refused. Nothing is written until the user confirms.",
       parameters: {
         type: "object",
         properties: {
+          entryId: { type: "string", description: "The open entry's id, from read_entry.", maxLength: 40 },
           lastEditedTime: { type: "string", description: "lastEditedTime from read_entry.", maxLength: 40 },
           properties,
           body,
         },
-        required: ["lastEditedTime"],
+        required: ["entryId", "lastEditedTime"],
         additionalProperties: false,
       } as never,
-      async execute(toolCallId, params: { lastEditedTime?: string; properties?: Raw; body?: string }) {
+      async execute(
+        toolCallId,
+        params: { entryId?: string; lastEditedTime?: string; properties?: Raw; body?: string },
+      ) {
         const entryId = current();
         if (!entryId) throw new Error("The user has no entry open: an update is only for the open entry.");
+        // Named, not assumed: Notion's edit times are by the minute, so two entries can share one.
+        if (notionId(params.entryId ?? "") !== entryId)
+          throw new Error(
+            `The open entry is ${entryId}, not ${params.entryId ?? "none"}: an update is only for the open entry. Ask the user to open the entry, or propose a new one.`,
+          );
         const [db, page, current_body] = await Promise.all([
           content.database(sourceId, databaseId),
           content.page(sourceId, databaseId, entryId),
@@ -348,11 +360,14 @@ export class ContentProposals {
       }
       return this.record(ref, sessionId, { callId, status: "applied", entryId, error: null });
     } catch (err) {
-      // The body went in but the properties did not: trying again would only conflict with that write.
-      const error = wrote ? PARTIAL : (asSiteError(err)?.code ?? "server.internal");
+      // The body went in but the properties did not: trying again would only conflict with that write. A new
+      // page Notion may have made without saying so would be made twice.
+      const site = asSiteError(err);
+      const unclear = proposal.kind === "create" && (!site || site.code === "content.create_unknown");
+      const error = wrote ? PARTIAL : unclear ? UNKNOWN : (site?.code ?? "server.internal");
       const state = this.record(ref, sessionId, { callId, status: "failed", entryId, error });
       // Not a failure Notion or the checks reported: the request fails too, so it is logged.
-      if (!wrote && !asSiteError(err)) throw err;
+      if (!wrote && !site) throw err;
       return state;
     } finally {
       this.writing.delete(key);
@@ -373,25 +388,38 @@ export class ContentProposals {
   notes(sessionId: string): { text: string; ack: () => void } | null {
     const rows = this.db
       .prepare(
-        "SELECT data_source_id, database_id, call_id, status, entry_id, error FROM content_proposals WHERE session_id = ? AND noted = 0 ORDER BY decided_at",
+        "SELECT data_source_id, database_id, call_id, status, entry_id, error, decided_at FROM content_proposals WHERE session_id = ? AND noted = 0 ORDER BY decided_at",
       )
-      .all(sessionId) as (DecisionRow & { data_source_id: string; database_id: string })[];
+      .all(sessionId) as (DecisionRow & { data_source_id: string; database_id: string; decided_at: string })[];
     if (rows.length === 0) return null;
     const lines = rows.map((r) =>
       r.status === "applied"
         ? `- ${r.call_id}: written to Notion (entry ${r.entry_id}).`
         : r.status === "rejected"
           ? `- ${r.call_id}: declined by the user; it was not written.`
-          : `- ${r.call_id}: writing failed (${r.error}); nothing more was written.`,
+          : r.error === UNKNOWN
+            ? `- ${r.call_id}: Notion did not answer, so the new entry may have been made; the user checks Notion. Do not propose it again unless asked.`
+            : `- ${r.call_id}: writing failed (${r.error}); nothing more was written.`,
     );
     return {
       text: ["The user's decisions on your proposals since your last turn:", ...lines].join("\n"),
       ack: () => {
+        // Only the decisions as they were told: one made again while the note was sent is told next time.
         const mark = this.db.prepare(
-          "UPDATE content_proposals SET noted = 1 WHERE data_source_id = ? AND database_id = ? AND call_id = ? AND session_id = ?",
+          "UPDATE content_proposals SET noted = 1 WHERE data_source_id = ? AND database_id = ? AND call_id = ? AND session_id = ? AND decided_at = ? AND status = ? AND error IS ? AND entry_id IS ?",
         );
         this.db.transaction(() => {
-          for (const r of rows) mark.run(r.data_source_id, r.database_id, r.call_id, sessionId);
+          for (const r of rows)
+            mark.run(
+              r.data_source_id,
+              r.database_id,
+              r.call_id,
+              sessionId,
+              r.decided_at,
+              r.status,
+              r.error,
+              r.entry_id,
+            );
         })();
       },
     };

@@ -1514,6 +1514,8 @@ const en: Messages = {
     "content.proposal_not_found": "This change is not in this conversation",
     "content.proposal_partial":
       "The body was written but the properties were not. Reopen the entry to check, then ask the AI to propose the property changes again",
+    "content.proposal_unknown":
+      "Notion did not answer, so the new entry may or may not have been made. Check the database in Notion before asking for it again",
     "content.conflict": "This page was changed after you opened it. Reload it and make your change again",
     "content.notion_write_forbidden":
       "This integration cannot write: turn on Update content and Insert content in its Notion settings",
@@ -1527,6 +1529,8 @@ const en: Messages = {
       "The body has something Notion will not take: image URLs must start with http:// or https://, code languages must be ones Notion knows, and one block can have at most 100 styled pieces",
     "content.body_images":
       "Images uploaded to Notion can only be kept or removed: not added, reordered, or preceded by new content when one comes first",
+    "content.create_unknown":
+      "Notion did not answer, so the new entry may or may not have been made. Check in Notion before creating it again",
     "content.body_partial":
       "The body was only partly saved: the page may now mix new and old content, or miss part of it. Check the page in Notion",
     "site.notion_unbound": "No Notion data source is bound to this site; bind one above first",

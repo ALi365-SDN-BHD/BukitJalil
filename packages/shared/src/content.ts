@@ -378,9 +378,14 @@ export interface ContentProposal {
 
 /**
  * Failures after part of a proposal was written (its body but not its properties, or part of a body or of a
- * new page): trying again would conflict or make a second page, so the user checks the entry in Notion.
+ * new page), or after a new page may have been made: trying again would conflict or make a second page, so
+ * the user checks the entry in Notion.
  */
-export const FINAL_PROPOSAL_ERRORS: readonly string[] = ["content.proposal_partial", "content.body_partial"];
+export const FINAL_PROPOSAL_ERRORS: readonly string[] = [
+  "content.proposal_partial",
+  "content.proposal_unknown",
+  "content.body_partial",
+];
 
 /** Whether a proposal in this state can still be written (or declined). */
 export const proposalOpen = (state: { status: ContentProposalStatus; error: string | null }): boolean =>
