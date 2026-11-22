@@ -282,6 +282,13 @@ describe("proposal decisions", () => {
     told?.ack();
     expect(failing.notes("s1")?.text).toContain("c1: written to Notion");
     failing.notes("s1")?.ack();
+    // Decided again at the same moment with the same status but another error: told next time too.
+    const atOnce = new ContentProposals(ctx.db, stub({ calls, fail: { saveBody: conflict } }));
+    expect(await atOnce.apply(ref(sourceId), "s1", "c9", update())).toMatchObject({ error: "content.conflict" });
+    const first = atOnce.notes("s1");
+    ctx.db.prepare("UPDATE content_proposals SET error = 'datasource.notion_failed' WHERE call_id = 'c9'").run();
+    first?.ack();
+    expect(atOnce.notes("s1")?.text).toContain("c9: writing failed (datasource.notion_failed)");
     ctx.db.prepare("DELETE FROM content_proposals").run();
     const partial = new ContentProposals(ctx.db, stub({ calls, fail: { update: conflict } }));
     expect(await partial.apply(ref(sourceId), "s1", "c1", update())).toMatchObject({
@@ -305,20 +312,26 @@ describe("proposal decisions", () => {
     await expect(half.apply(ref(sourceId), "s1", "c5", created)).rejects.toMatchObject({
       code: "content.proposal_decided",
     });
-    // Notion did not answer the new page: it may be there, so it is not made again.
-    for (const [i, err] of [
-      new SiteError("datasource.notion_offline", 503),
-      new SiteError("datasource.notion_failed", 503),
-    ].entries()) {
+    // Notion did not answer the new page, or failed unexpectedly: it may be there, so it is not made again.
+    for (const [i, err] of [new SiteError("content.create_unknown", 503), new TypeError("boom")].entries()) {
       const unclear = new ContentProposals(ctx.db, stub({ calls, fail: { create: err } }));
-      expect(await unclear.apply(ref(sourceId), "s1", `u${i}`, created)).toMatchObject({
-        status: "failed",
-        error: "content.proposal_unknown",
-      });
+      const tried = unclear.apply(ref(sourceId), "s1", `u${i}`, created);
+      if (err instanceof SiteError)
+        expect(await tried).toMatchObject({ status: "failed", error: "content.proposal_unknown" });
+      else await expect(tried).rejects.toBe(err);
+      expect(unclear.states(ref(sourceId), [`u${i}`])[0]).toMatchObject({ error: "content.proposal_unknown" });
       await expect(unclear.apply(ref(sourceId), "s1", `u${i}`, created)).rejects.toMatchObject({
         code: "content.proposal_decided",
       });
     }
+    // A half-written page Notion moved to the trash: creating again makes no duplicate.
+    const trashed = new ContentProposals(
+      ctx.db,
+      stub({ calls, fail: { create: new SiteError("datasource.notion_failed", 503) } }),
+    );
+    expect(await trashed.apply(ref(sourceId), "s1", "u3", created)).toMatchObject({
+      error: "datasource.notion_failed",
+    });
     expect(half.notes("s1")?.text).toContain("u0: Notion did not answer");
     // Refused by Notion: nothing was made, so it may be tried again.
     const refusedCreate = new ContentProposals(

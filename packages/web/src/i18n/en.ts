@@ -1514,6 +1514,8 @@ const en: Messages = {
       "The body has something Notion will not take: image URLs must start with http:// or https://, code languages must be ones Notion knows, and one block can have at most 100 styled pieces",
     "content.body_images":
       "Images uploaded to Notion can only be kept or removed: not added, reordered, or preceded by new content when one comes first",
+    "content.create_unknown":
+      "Notion did not answer, so the new entry may or may not have been made. Check in Notion before creating it again",
     "content.body_partial":
       "The body was only partly saved: the page may now mix new and old content, or miss part of it. Check the page in Notion",
     "site.notion_unbound": "No Notion data source is bound to this site; bind one above first",

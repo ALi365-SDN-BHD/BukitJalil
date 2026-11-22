@@ -27,8 +27,6 @@ export const CONTENT_PROPOSE_TOOLS = ["propose_update", "propose_create"] as con
 export const PARTIAL = "content.proposal_partial";
 /** The error of a new entry Notion did not answer for: it may have been made, so it is not tried again. */
 export const UNKNOWN = "content.proposal_unknown";
-/** Failures that do not say whether Notion acted on the request (no answer, or its own error). */
-const UNCLEAR = new Set(["datasource.notion_failed", "datasource.notion_offline"]);
 
 const isProposeTool = (name: unknown) => (CONTENT_PROPOSE_TOOLS as readonly unknown[]).includes(name);
 
@@ -365,7 +363,7 @@ export class ContentProposals {
       // The body went in but the properties did not: trying again would only conflict with that write. A new
       // page Notion may have made without saying so would be made twice.
       const site = asSiteError(err);
-      const unclear = proposal.kind === "create" && (!site || UNCLEAR.has(site.code));
+      const unclear = proposal.kind === "create" && (!site || site.code === "content.create_unknown");
       const error = wrote ? PARTIAL : unclear ? UNKNOWN : (site?.code ?? "server.internal");
       const state = this.record(ref, sessionId, { callId, status: "failed", entryId, error });
       // Not a failure Notion or the checks reported: the request fails too, so it is logged.
@@ -408,10 +406,20 @@ export class ContentProposals {
       ack: () => {
         // Only the decisions as they were told: one made again while the note was sent is told next time.
         const mark = this.db.prepare(
-          "UPDATE content_proposals SET noted = 1 WHERE data_source_id = ? AND database_id = ? AND call_id = ? AND session_id = ? AND decided_at = ? AND status = ?",
+          "UPDATE content_proposals SET noted = 1 WHERE data_source_id = ? AND database_id = ? AND call_id = ? AND session_id = ? AND decided_at = ? AND status = ? AND error IS ? AND entry_id IS ?",
         );
         this.db.transaction(() => {
-          for (const r of rows) mark.run(r.data_source_id, r.database_id, r.call_id, sessionId, r.decided_at, r.status);
+          for (const r of rows)
+            mark.run(
+              r.data_source_id,
+              r.database_id,
+              r.call_id,
+              sessionId,
+              r.decided_at,
+              r.status,
+              r.error,
+              r.entry_id,
+            );
         })();
       },
     };

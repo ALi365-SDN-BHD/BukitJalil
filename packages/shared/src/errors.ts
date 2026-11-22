@@ -155,6 +155,7 @@ export const errorCodes = [
   "content.body_invalid",
   "content.body_images",
   "content.body_partial",
+  "content.create_unknown",
   "deploy.not_found",
   "deploy.not_running",
   "deploy.no_target",

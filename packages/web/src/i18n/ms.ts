@@ -1537,6 +1537,8 @@ const ms: Messages = {
       "Kandungan ada sesuatu yang Notion tidak terima: URL imej mesti bermula dengan http:// atau https://, bahasa kod mesti yang dikenali Notion, dan satu blok paling banyak 100 bahagian bergaya",
     "content.body_images":
       "Imej yang dimuat naik ke Notion hanya boleh dikekalkan atau dibuang: tidak boleh ditambah, disusun semula, atau didahului kandungan baharu jika ia di atas sekali",
+    "content.create_unknown":
+      "Notion tidak menjawab, jadi entri baharu mungkin telah dibuat atau tidak. Semak dalam Notion sebelum membuatnya semula",
     "content.body_partial":
       "Kandungan hanya sebahagian disimpan: halaman mungkin bercampur kandungan baharu dan lama, atau kehilangan sebahagiannya. Semak halaman dalam Notion",
     "site.notion_unbound": "Tiada sumber data Notion yang terikat pada laman ini; ikat satu di atas dahulu",
