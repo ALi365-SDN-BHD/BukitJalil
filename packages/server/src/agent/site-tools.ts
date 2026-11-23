@@ -11,6 +11,8 @@ import { parseFrontMatter, parseYaml } from "../panels/yaml.ts";
 import { SiteError } from "../sites/location.ts";
 import { MAX_COVERAGE_FILE_BYTES, type ThemeFiles, themeCoverage } from "../themes/coverage.ts";
 import { lintThemeFiles } from "../themes/lint.ts";
+import { pickPalettes, type Scheme, TRADES, type Trade } from "../themes/palettes.ts";
+import type { RenderChecker } from "../themes/render-check.ts";
 import { type AiBukit, type BuildResult, type CheckResult, type NotionNote, notionNoteText } from "./ai-bukit.ts";
 import { GateError, type PathGate, segmentKey } from "./gate.ts";
 
@@ -28,7 +30,9 @@ export const SITE_TOOLS = [
 ] as const;
 
 /** Tools only theme projects get (theme development design 4.1). */
-export const THEME_TOOLS = ["theme_coverage", "theme_lint"] as const;
+export const THEME_TOOLS = ["theme_coverage", "theme_lint", "theme_palettes"] as const;
+/** The render check: theme projects in the desktop app only, which can render pages (taste skill D3). */
+export const RENDER_TOOL = "theme_render_check";
 
 const MAX_CONFIG_BYTES = 256 * 1024;
 const MARKDOWN_FILE = /\.(md|markdown)$/i;
@@ -41,12 +45,14 @@ export interface SiteToolOptions {
   project: ProjectKey;
   /** The site config's file name in the working copy (found by content when the site was imported). */
   configFile: string;
-  /** A theme project's theme (adds theme_coverage and theme_lint); null for a site. */
+  /** A theme project's theme (adds theme_coverage, theme_lint and theme_palettes); null for a site. */
   themeName: string | null;
   /** The working copy (the session's cwd). */
   cwd: string;
   gate: PathGate;
   bukit: AiBukit;
+  /** Renders and checks preview pages: set in the desktop app, null elsewhere (no theme_render_check). */
+  renderCheck?: RenderChecker | null;
   /** summarize_changes: the summary for the user's review (stored with the change set in M4). */
   onSummary: (summary: string) => void;
 }
@@ -169,16 +175,73 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       name: "theme_lint",
       label: "Theme lint",
       description:
-        "The design self-check items a program can test in the theme (see the theme-design skill): token contract keys, contrast of the token colors in the light and dark schemes, literal colors in the CSS, resources from other sites, :focus-visible, reduced motion, transition: all, and gradient text, frosted glass and emoji. File paths are relative to themes/<name>/. The rest of the self-check is still yours.",
+        "The design self-check items a program can test in the theme (see the theme-design skill): token contract keys, contrast of the token colors in the light and dark schemes, literal colors in the CSS, resources from other sites, :focus-visible, reduced motion, transition: all, and gradient text, frosted glass, emoji, violet theme colors, content revealed on scroll and tilt. File paths are relative to themes/<name>/. The rest of the self-check is still yours.",
       parameters: object({}),
       async execute() {
         const issues = await lintThemeFiles(`themes/${themeName}`, workingCopyFiles(cwd, gate));
         return json({ issues, ...(issues.length === 0 ? { note: "No issues found by the lint." } : {}) });
       },
     });
+    tools.push({
+      name: "theme_palettes",
+      label: "Theme palettes",
+      description:
+        "Three color palettes to offer in the design direction when the user has given no colors, reference images or site to clone (see the theme-design skill). Each is filled in to the token contract's colors with every contrast pair of the self-check met; a light palette also has a darkScheme. Pass exclude to get others.",
+      parameters: object({
+        trade: { type: "string", enum: [...TRADES], description: "The kind of business the site is for, if one fits" },
+        scheme: { type: "string", enum: ["light", "dark"], description: "Only light or only dark grounds" },
+        exclude: { type: "array", items: { type: "string" }, maxItems: 64, description: "Palette ids already offered" },
+      }),
+      async execute(_id, params: { trade?: Trade; scheme?: Scheme; exclude?: string[] }) {
+        const palettes = pickPalettes({ ...params, count: 3 });
+        return json({ palettes, howToUse: PALETTE_USE });
+      },
+    });
+    const { renderCheck } = opts;
+    if (renderCheck) {
+      tools.push({
+        name: RENDER_TOOL,
+        label: "Theme render check",
+        description:
+          "Build the working copy and render pages of the preview at 320, 390, 768 and 1280px wide, then report what only shows when rendered: the page scrolling sideways, tap targets under 44px close to others, headings (one h1, no skipped level), links and buttons with no visible focus ring, and blocks lying on one another. Checks the home page, a post, a list page and the style guide unless you name pages (paths in the build, such as blog/a-post/). Headings in the page body come from the content's Markdown (they carry an id, such as h3#monday) and the style guide shows every level on purpose; fix only the headings your templates write. It takes a while; run it when a round of changes is done.",
+        parameters: object({
+          pages: {
+            type: "array",
+            items: { type: "string", maxLength: 300 },
+            maxItems: 6,
+            description: "Pages to check instead, as paths in the build",
+          },
+        }),
+        async execute(_id, params: { pages?: string[] }, signal) {
+          const { result, used } = await opts.bukit.buildThen(opts.project, cwd, signal, (root, basePath) =>
+            renderCheck({ project: opts.project, root, basePath, pages: params.pages, signal }),
+          );
+          if (!used) return json({ checked: false, build: formatBuild(result) });
+          if (!used.ok) return json({ checked: false, error: used.error });
+          const { pages, issues, notes } = used;
+          return json({
+            checked: true,
+            pages,
+            issues,
+            ...(notes.length > 0 ? { notes } : {}),
+            ...(issues.length === 0
+              ? { note: "The render check found nothing. It does not replace the self-check." }
+              : {}),
+          });
+        },
+      });
+    }
   }
   return tools;
 }
+
+const PALETTE_USE = [
+  "Offer the palettes in the design direction by name, each with one line from its note, and let the user choose.",
+  "Write the chosen palette's colors into tokens.yaml `colors`. For a light palette, set the `--color-*` variables of the",
+  "`@media (prefers-color-scheme: dark)` block in the CSS to its darkScheme. A dark palette has one scheme: remove that",
+  "block, set `color-scheme: dark` on :root, and use the dark colors of the content palettes (Notion) outside their media",
+  "query. The code block keeps a dark background in both schemes. Then run theme_lint.",
+].join(" ");
 
 /** The AI's working copy as theme_coverage reads it: through the gate, without symlinks (design 4.1). */
 export function workingCopyFiles(cwd: string, gate: PathGate): ThemeFiles {

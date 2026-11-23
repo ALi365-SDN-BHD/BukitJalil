@@ -47,3 +47,16 @@ describe("skill read roots", () => {
     ]);
   });
 });
+
+describe("references between BukitJalil's skills", () => {
+  const skill = (name: string) =>
+    fs.readFileSync(path.join(import.meta.dirname, "../../../skills/bukitjalil", name, "SKILL.md"), "utf8");
+
+  it("points theme-design's interface text at the copy tells in content-writing", () => {
+    expect(skill("content-writing")).toMatch(/^## Read like a person wrote it$/m);
+    expect(skill("content-writing")).toContain("adapted from taste-skill's copy tells, MIT");
+    expect(skill("theme-design").replace(/\s+/g, " ")).toContain(
+      'follows "Read like a person wrote it" in `content-writing`',
+    );
+  });
+});

@@ -52,6 +52,55 @@ categories: [shop]
   invent contact details, prices, awards or customer quotes; leave a clear
   placeholder like `[phone number]` and tell the user.
 
+## Read like a person wrote it
+
+Generated copy reaches for the phrase that would fit any business. Each vague
+word stands in for a fact: "seamless" for the setup steps, "robust" for what
+happens when something fails, "powerful" for a figure. Replace it with the fact
+the user gave you; without one, write a plainer line, never an invented detail.
+One of the signs below proves little; several together, or one repeated, read
+as machine-written. A word that is literal for the trade stays (a climbing
+harness, bespoke tailoring), and so does the user's own wording.
+
+In English (adapted from taste-skill's copy tells, MIT):
+
+- Empty words: seamless, effortless, robust, powerful, cutting-edge,
+  world-class, elevate, unlock, empower, leverage, delve, tapestry, realm,
+  testament to, nestled, meticulous, game-changing, state-of-the-art.
+- Stock lines: "In today's fast-paced world", "Unlock the power of", "Look no
+  further", "Whether you're A or B", "It's not just X, it's Y", "Ready to
+  transform your X?", "Join thousands of".
+- Shapes: an "-ing" tail on a fact (", ensuring a smooth start"); the question
+  answered at once ("The result? …"); "serves as" where "is" would do; "not X
+  but Y" and its stand-ins "rather than", "instead of"; runs of "No X, no Y";
+  two-fragment headings ("Twelve rooms. Three ways to stay.").
+- Virtue words about yourself: honest, genuine, thoughtful, intentional,
+  carefully, simply. Show it with a fact instead.
+- Invented specifics and neat proof: "Room 9 at 6:12 a.m.", "3x faster",
+  "10,000+ teams", a row of three figures under the heading, three polished
+  testimonials, an origin story the user never told.
+- The page talking about itself: "Below you'll find", "Here are 3 reasons".
+- Punctuation: em dashes everywhere, exclamation marks in body text, emoji as
+  bullets.
+
+In Chinese:
+
+- 空泛词：赋能、助力、打造、极致、匠心、一站式、全方位、无缝、颠覆、引领、
+  深耕、生态、闭环、抓手、高端、品质生活。
+- 套话：“在当今快速发展的时代”“随着……的不断发展”“不仅……更是……”
+  “让我们一起……”“值得一提的是”“总而言之”“话不多说”“开启……新篇章”。
+- 句式：每段都是“首先、其次、最后”；四字词排比三连；每个标题都是对仗的
+  两句；“不是……而是……”反复出现；“没有……没有……只有……”。
+- 夸自己的形容词：用心、真诚、专业、贴心、精心。换成一个能核实的事实。
+- 编造的细节和数字：没出处的“服务超过 10000 位客户”“效率提升 3 倍”、
+  标题下一排三四个数字、三条工整的好评。
+- 标点：一句一个感叹号，大量破折号，emoji 当项目符号。
+
+Don't over-correct: a ban breeds its substitute (no em dashes becomes comma
+splices, no hype words becomes "quietly" and "steady", no threes becomes
+everything in pairs). Plain "is" and "has", a list of three when there are
+three things, and persuasion on a sales page that stands on facts are fine.
+
 ## SEO and GEO basics
 
 - One `#` heading per page that matches the title.

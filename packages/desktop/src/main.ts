@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, Menu, session, shell } from "electron";
 import { CaptureService } from "./capture.ts";
+import { runRenderCheck } from "./render-check.ts";
 import { ServerProcess, type StartResult } from "./server.ts";
 import { replaceAppImage } from "./update.ts";
 
@@ -104,6 +105,7 @@ const server = new ServerProcess({
   firstPort: Number(process.env.BUKITJALIL_DESKTOP_PORT) || DEFAULT_PORT,
   onReset: () => void resetApp(),
   openUpdate,
+  renderCheck: runRenderCheck,
 });
 
 let win: BrowserWindow | null = null;

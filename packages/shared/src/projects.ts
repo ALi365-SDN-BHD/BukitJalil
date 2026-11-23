@@ -155,6 +155,9 @@ export const THEME_LINT_RULES = [
   "gradient_text",
   "frosted_glass",
   "emoji",
+  "violet",
+  "scroll_reveal",
+  "tilt",
 ] as const;
 export type ThemeLintRule = (typeof THEME_LINT_RULES)[number];
 

@@ -20,7 +20,7 @@ import { ChangeService } from "./changes/service.ts";
 import { NotionContentService } from "./data-sources/notion-content.ts";
 import { DataSourceService } from "./data-sources/service.ts";
 import { DeployService } from "./deploys/service.ts";
-import { type DesktopChannel, desktopChannel, requestOpenInstaller } from "./desktop.ts";
+import { type DesktopChannel, desktopChannel, requestOpenInstaller, requestRenderCheck } from "./desktop.ts";
 import { connectEvents } from "./events/bridge.ts";
 import { EventHub } from "./events/hub.ts";
 import { readGlobalIdentity } from "./git/identity.ts";
@@ -48,6 +48,7 @@ import { bukitNewSite } from "./sites/template.ts";
 import { type Db, openDatabase } from "./store/db.ts";
 import { SettingsStore } from "./store/settings.ts";
 import { ThemeDeliverService } from "./themes/deliver.ts";
+import { createRenderChecker } from "./themes/render-check.ts";
 import { ThemeService } from "./themes/service.ts";
 import { UpdateService } from "./updates/service.ts";
 
@@ -309,6 +310,13 @@ function startServices(db: Db): Runtime {
     },
     rgReady: () => rg.ready(),
     bukit: aiBukit,
+    // Only the desktop app can render pages (taste skill D3).
+    renderCheck: desktop
+      ? createRenderChecker({
+          previews,
+          request: (urls, widths) => requestRenderCheck(desktop as DesktopChannel, urls, widths),
+        })
+      : null,
     skillsDir,
     disabledSkills: () => settingsStore.get().disabledSkills,
     content: new NotionContentAgent({ dataSources, content, db, tmp: paths.tmp }),

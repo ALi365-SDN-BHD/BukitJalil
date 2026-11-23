@@ -1,6 +1,6 @@
 ---
 name: theme-development
-description: How to write a Bukit theme in a BukitJalil theme project - the project layout, what you may write, the page types to cover, the order of work, escaping, plain CSS, and checking with theme_coverage, theme_lint, bukit_check and bukit_build. Read it, with theme-design, before changing a theme.
+description: How to write a Bukit theme in a BukitJalil theme project - the project layout, what you may write, the page types to cover, the order of work, escaping, plain CSS, and checking with theme_coverage, theme_lint, theme_render_check, bukit_check and bukit_build. Read it, with theme-design, before changing a theme.
 ---
 
 # Theme development in BukitJalil
@@ -59,14 +59,19 @@ Also:
 the page types with no template, includes that point at missing files, and
 whether `tokens.yaml`, the search page and `static/404.html` exist.
 `theme_lint` runs the design self-check items a program can test (see
-`theme-design`).
+`theme-design`). `theme_palettes` gives palettes to offer in the design
+direction (see `theme-design`). `theme_render_check`, only in the desktop app
+(the web app and `pnpm dev` don't have it), renders pages of the preview at
+four widths and reports what only shows when rendered: sideways scrolling,
+small tap targets, headings, focus rings and overlapping blocks.
 
 ## Order of work
 
 1. Start with `site_info` and `theme_coverage`. Look at the reference images in
    `_reference/` when there are any.
 2. **Agree the design direction** for a new look (see `theme-design`): write
-   it, ask the user to confirm it, and wait.
+   it, with palettes from `theme_palettes` when the user gave no colors or
+   references, ask the user to confirm it, and wait.
 3. Tokens: the theme starts with the default design system's
    `themes/<name>/tokens.yaml` (see `theme-design`); change its values to fit
    the direction and keep every key of the token contract. Bukit writes them to
@@ -75,17 +80,18 @@ whether `tokens.yaml`, the search page and `static/404.html` exist.
 4. Then the base layout, the partials (header, navigation, footer) and the
    home page.
 5. **Confirm the style.** Run `bukit_check`, `bukit_build` and `theme_lint`,
-   go through the design self-check in `theme-design`, then stop: call
-   `summarize_changes`, tell the user the home page is ready in the preview,
+   and `theme_render_check` when you have it; go through the design
+   self-check in `theme-design`, then stop: call `summarize_changes`, tell
+   the user the home page is ready in the preview,
    and ask them to confirm the look or say what to change. Do not build the
    other page types yet. Repeat this step until they confirm.
 6. After they confirm, do each remaining page type: post, page, list,
    pagination, archive, taxonomy index and term, search, 404.
 7. After each step run `bukit_check` (its doctor part checks the manifest,
    templates and includes), then `bukit_build`, and fix what they report.
-8. Finish with `theme_coverage`: nothing missing. Run `theme_lint` and go
-   through the design self-check again for every page type. Then
-   `summarize_changes`.
+8. Finish with `theme_coverage`: nothing missing. Run `theme_lint`, and
+   `theme_render_check` when you have it, and go through the design
+   self-check again for every page type. Then `summarize_changes`.
 
 Steps 2 and 5 wait for the user. Skip the waiting only when the user said to
 finish the whole theme in one go.

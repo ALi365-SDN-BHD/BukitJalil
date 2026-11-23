@@ -166,6 +166,19 @@ export class AiBukit {
 
   /** Build into a fresh .bukitjalil-build/ai-<id>/ and report, with its SEO / GEO summary; the output is deleted. */
   build(project: ProjectKey, cwd: string, signal?: AbortSignal): Promise<BuildResult> {
+    return this.buildThen(project, cwd, signal, null).then(({ result }) => result);
+  }
+
+  /**
+   * Build as `build` does and, when the build succeeds, run `use` on the output directory and its base path
+   * while the site lock is still held, before the output is deleted.
+   */
+  buildThen<T>(
+    project: ProjectKey,
+    cwd: string,
+    signal: AbortSignal | undefined,
+    use: ((out: string, basePath: string) => Promise<T>) | null,
+  ): Promise<{ result: BuildResult; used?: T }> {
     return this.guarded(project, cwd, undefined, async (runner, { commit, removed }, offline) => {
       // Built under the site's own baseUrl, as the preview of the change will be (plan 16 #8).
       const { configFile } = this.opts.projects.get(project);
@@ -173,14 +186,16 @@ export class AiBukit {
       if (!base.ok) {
         const msg = `${base.detail}; the preview cannot be served, fix site.baseUrl`;
         return {
-          outcome: "base_url",
-          commit,
-          removed,
-          exitCode: -1,
-          pages: 0,
-          messages: [{ level: "error", msg }],
-          output: "",
-          audit: null,
+          result: {
+            outcome: "base_url",
+            commit,
+            removed,
+            exitCode: -1,
+            pages: 0,
+            messages: [{ level: "error", msg }],
+            output: "",
+            audit: null,
+          },
         };
       }
       const name = `ai-${crypto.randomBytes(6).toString("hex")}`;
@@ -190,7 +205,7 @@ export class AiBukit {
         const result = await runner.run("build", args, { cwd, signal, redact: this.redact });
         const report = buildReport(result);
         const outcome = buildOutcome(result);
-        return {
+        const built: BuildResult = {
           ...(offline ? { notion: notionNote(offline, [result], outcome === "ok") } : {}),
           outcome,
           commit,
@@ -201,6 +216,8 @@ export class AiBukit {
           output: tail(report.output, MAX_STEP_OUTPUT),
           audit: outcome === "ok" ? readAuditQuietly(out) : null,
         };
+        if (outcome !== "ok" || !use) return { result: built };
+        return { result: built, used: await use(out, base.basePath) };
       } finally {
         fs.rmSync(out, { recursive: true, force: true });
       }

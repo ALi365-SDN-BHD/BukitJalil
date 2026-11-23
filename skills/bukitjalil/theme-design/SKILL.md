@@ -34,6 +34,15 @@ user, five or six lines:
 - layout: how the home page and articles are arranged
 - what the design will not do
 
+In a theme project, when the user has given no colors, reference images or
+site to clone, call `theme_palettes` (with the kind of business as `trade`
+when one fits) and offer its three palettes in the color line: each name with
+one line from its note. The user picks one, or asks for others (`exclude` the
+ids already offered), or describes their own; when the user said to finish in
+one go, take the first. Its colors already meet every
+contrast pair of group 2 in both schemes; the tool says where they go. You may
+still adjust a color, as long as `theme_lint` stays clean.
+
 Ask the user to confirm it or say what to change, and wait. Skip this when the
 user said to finish in one go, when the change keeps the current look (fixing
 a page, adding a template), or when the user asked for one specific change
@@ -108,8 +117,12 @@ and why in `summarize_changes`.
 In a theme project, run `theme_lint` first. It tests what a program can: the
 token contract, the contrast of hex token colors in both schemes, literal
 colors, resources from other sites, `:focus-visible`, reduced motion,
-`transition: all`, gradient text, frosted glass and emoji. Fix what it reports,
+`transition: all`, gradient text, frosted glass, emoji, violet theme colors,
+content revealed on scroll and tilt. Fix what it reports,
 then check the rest yourself; an empty result does not mean the check passed.
+In the desktop app, `theme_render_check` then renders the pages at 320, 390,
+768 and 1280px and reports sideways scrolling, tap targets, headings, focus
+rings and overlapping blocks (groups 2 and 3); fix what the templates cause.
 The user sees the same warnings when they apply the theme to a site.
 
 Go through the groups in order, and don't polish a later group while an
@@ -123,7 +136,9 @@ their own site does, keep their choice and name the failing check in
    Templates don't hard-code page copy such as headlines and paragraphs
    (interface labels and the text of the search and 404 pages are fine), and
    nothing invents numbers, testimonials, client logos or contact details (see
-   `content-writing`). One `h1` per page, and headings go down one level at a
+   `content-writing`). The interface text a template does carry (the search
+   and 404 pages, empty states, button labels) follows "Read like a person
+   wrote it" in `content-writing`. One `h1` per page, and headings go down one level at a
    time. Structure says something true about the content: numbered markers
    (01, 02, 03), small labels and dividers only where the content really is a
    sequence or has those groups, never as decoration.
@@ -171,8 +186,12 @@ their own site does, keep their choice and name the failing check in
    AI-generated. Never use any of the following on your own, and don't carry
    them over from reference images or a captured site:
    - rows of identical icon-heading-text cards that fill space
-   - purple-to-blue or neon gradients, gradient text, glowing blobs, frosted
+   - violet or lavender as the accent, background or in gradients
+     (purple-to-blue), neon gradients, gradient text, glowing blobs, frosted
      glass, dark backgrounds with neon accents
+   - cards or sections that fade or slide in as the page scrolls (without
+     JavaScript, or with reduced motion, they may never appear), cards that
+     tilt on hover
    - emoji as icons, headings and navigation in capitals
    - a small pill badge above the hero headline, a tiny label above every
      section heading

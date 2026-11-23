@@ -522,6 +522,7 @@ describe("AgentService", () => {
             call("write", { path: "static/404.html", content: "x" }),
             call("theme_coverage", {}),
             call("theme_lint", {}),
+            call("theme_palettes", { trade: "cafe", scheme: "light" }),
           ],
           { stopReason: "toolUse" },
         );
@@ -561,6 +562,14 @@ describe("AgentService", () => {
     const lint = ends.find((e) => e.toolName === "theme_lint");
     expect(lint?.isError).toBe(false);
     expect((lint?.result as { details: { issues: unknown } } | undefined)?.details.issues).toBeInstanceOf(Array);
+    const palettes = ends.find((e) => e.toolName === "theme_palettes");
+    expect(palettes?.isError).toBe(false);
+    const picked = (
+      palettes?.result as { details: { palettes: { scheme: string; darkScheme?: unknown }[] } } | undefined
+    )?.details.palettes;
+    expect(picked).toHaveLength(3);
+    expect(picked?.every((p) => p.scheme === "light" && p.darkScheme)).toBe(true);
+    expect(system.preamble).toContain("theme_palettes for palettes to offer");
     const ai = path.join(ctx.paths.worktrees, "themes", t.id, "ai");
     expect(fs.existsSync(path.join(ai, "themes", "aurora", "tokens.yaml"))).toBe(true);
     expect(fs.existsSync(path.join(ai, "layouts"))).toBe(false);

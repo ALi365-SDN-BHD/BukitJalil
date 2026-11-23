@@ -6,6 +6,7 @@ type Outbound =
   | { type: "login"; url: string }
   | { type: "reset" }
   | { type: "open-update"; id: number; path: string }
+  | { type: "render-check"; id: number; urls: string[]; widths: number[] }
   | { type: "error"; code: string; message: string };
 
 export type StartResult = { ok: true; port: number } | { ok: false; code: string; message: string };
@@ -22,6 +23,8 @@ export interface ServerOptions {
   onReset: () => void;
   /** Open a downloaded installer; resolves to a `shell.openPath` error, or null on success. */
   openUpdate: (file: string) => Promise<string | null>;
+  /** Render a theme project's preview pages and check them (plan 14, borrowing from taste skill, D3). */
+  renderCheck: (urls: string[], widths: number[]) => Promise<unknown>;
 }
 
 const ATTEMPTS = 10;
@@ -146,6 +149,22 @@ export class ServerProcess {
               },
             );
           }
+          return;
+        }
+        if (message.type === "render-check") {
+          const { id, urls, widths } = message;
+          if (typeof id !== "number" || !Array.isArray(urls) || !Array.isArray(widths)) return;
+          const reply = (pages: unknown, error: string | null) => {
+            try {
+              child.postMessage({ type: "render-check-result", id, pages, error });
+            } catch {
+              // The server is gone; the app is shutting down anyway.
+            }
+          };
+          void this.opts.renderCheck(urls.map(String), widths.map(Number)).then(
+            (pages) => reply(pages, null),
+            (err: unknown) => reply(null, err instanceof Error ? err.message : String(err)),
+          );
           return;
         }
         if (settled) return;

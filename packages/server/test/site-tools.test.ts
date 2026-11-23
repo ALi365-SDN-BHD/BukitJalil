@@ -5,8 +5,9 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AiBukit, AiBukitError } from "../src/agent/ai-bukit.ts";
 import { PathGate } from "../src/agent/gate.ts";
-import { createSiteTools, type SITE_TOOLS, schemaText } from "../src/agent/site-tools.ts";
+import { createSiteTools, RENDER_TOOL, type SITE_TOOLS, schemaText } from "../src/agent/site-tools.ts";
 import { BukitService } from "../src/bukit/locate.ts";
+import type { RenderChecker } from "../src/themes/render-check.ts";
 import { writeStarter } from "./fixtures/starter.ts";
 import { commitAllAs, installAppBukit, makeApp, rawGit, testBukitDir } from "./helpers.ts";
 
@@ -72,7 +73,9 @@ let n = 0;
  * An imported starter site with a session and its change set (so the ai/ checkout), an AiBukit on the
  * fake Bukit, and the site tools. The tools run outside an AI run here, so nothing holds the site lock.
  */
-async function setup(opts: { bin?: string | null; files?: Record<string, string> } = {}) {
+async function setup(
+  opts: { bin?: string | null; files?: Record<string, string>; themeName?: string; renderCheck?: RenderChecker } = {},
+) {
   const home = path.join(base, `bk-${++n}`);
   installAppBukit(home, opts.bin === undefined ? fakeBin : opts.bin);
   const bukit = new BukitService({
@@ -100,13 +103,14 @@ async function setup(opts: { bin?: string | null; files?: Record<string, string>
     createSiteTools({
       project: site.id,
       configFile: site.configFile,
-      themeName: null,
+      themeName: opts.themeName ?? null,
       cwd,
       gate: new PathGate(cwd, [SKILLS]),
       bukit: ai,
       onSummary: (s) => summaries.push(s),
+      renderCheck: opts.renderCheck ?? null,
     }).map((t) => [t.name, t]),
-  ) as Record<(typeof SITE_TOOLS)[number], ToolDefinition>;
+  ) as Record<(typeof SITE_TOOLS)[number] | typeof RENDER_TOOL, ToolDefinition>;
   fs.rmSync(calls, { force: true });
   const git = (...args: string[]) => rawGit(base, cwd, ...args).trim();
   return { ctx, site, cwd, ai, tools, summaries, git, snapshot };
@@ -179,6 +183,56 @@ describe("snapshot", () => {
     expect(git("show", "--name-only", "--format=", commit)).toBe(".gitignore");
     for (const d of ["dist", ".bukit", ".cache"]) expect(fs.existsSync(path.join(cwd, d, "f"))).toBe(true);
   });
+});
+
+describe("theme_render_check", () => {
+  it("is only there for a theme project in the desktop app", async () => {
+    expect((await setup()).tools[RENDER_TOOL]).toBeUndefined();
+    expect((await setup({ themeName: "starter" })).tools[RENDER_TOOL]).toBeUndefined();
+    const renderCheck: RenderChecker = async () => ({ ok: true, pages: [], issues: [], notes: [] });
+    expect((await setup({ renderCheck })).tools[RENDER_TOOL]).toBeUndefined();
+    expect((await setup({ themeName: "starter", renderCheck })).tools[RENDER_TOOL]).toBeDefined();
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "checks the build before its output is removed, and reports a failed build or check",
+    async () => {
+      const seen: { files: string[]; basePath: string; pages?: string[] }[] = [];
+      let answer: Awaited<ReturnType<RenderChecker>> = {
+        ok: true,
+        pages: [{ page: "/", widths: [320] }],
+        issues: [{ page: "/", rule: "overflow", element: "div", detail: "Ends at 600px.", widths: [320] }],
+        notes: [],
+      };
+      const renderCheck: RenderChecker = async ({ root, basePath, pages }) => {
+        seen.push({ files: fs.readdirSync(root).sort(), basePath, pages });
+        return answer;
+      };
+      const { tools, cwd } = await setup({ themeName: "starter", renderCheck });
+      const r = await call(tools[RENDER_TOOL], { pages: ["blog/"] });
+      expect(r.value).toEqual({
+        checked: true,
+        pages: [{ page: "/", widths: [320] }],
+        issues: [{ page: "/", rule: "overflow", element: "div", detail: "Ends at 600px.", widths: [320] }],
+      });
+      expect(seen).toEqual([{ files: ["blog", "index.html"], basePath: "/", pages: ["blog/"] }]);
+      expect(fs.readdirSync(path.join(cwd, ".bukitjalil-build"))).toEqual([]);
+
+      answer = { ok: true, pages: [{ page: "/", widths: [320] }], issues: [], notes: ["a note"] };
+      expect((await call(tools[RENDER_TOOL])).value).toMatchObject({
+        checked: true,
+        notes: ["a note"],
+        note: expect.any(String),
+      });
+      answer = { ok: false, error: "No free preview port for the check." };
+      expect((await call(tools[RENDER_TOOL])).value).toEqual({ checked: false, error: answer.error });
+
+      fs.writeFileSync(path.join(cwd, "fake-build"), "fail");
+      const failed = await call(tools[RENDER_TOOL]);
+      expect(failed.value).toMatchObject({ checked: false, build: { succeeded: false } });
+      expect(seen).toHaveLength(3);
+    },
+  );
 });
 
 describe("bukit_check and bukit_build", () => {
