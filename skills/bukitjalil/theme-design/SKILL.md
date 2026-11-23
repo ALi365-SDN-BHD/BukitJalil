@@ -34,6 +34,15 @@ user, five or six lines:
 - layout: how the home page and articles are arranged
 - what the design will not do
 
+In a theme project, when the user has given no colors, reference images or
+site to clone, call `theme_palettes` (with the kind of business as `trade`
+when one fits) and offer its three palettes in the color line: each name with
+one line from its note. The user picks one, or asks for others (`exclude` the
+ids already offered), or describes their own; when the user said to finish in
+one go, take the first. Its colors already meet every
+contrast pair of group 2 in both schemes; the tool says where they go. You may
+still adjust a color, as long as `theme_lint` stays clean.
+
 Ask the user to confirm it or say what to change, and wait. Skip this when the
 user said to finish in one go, when the change keeps the current look (fixing
 a page, adding a template), or when the user asked for one specific change

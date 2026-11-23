@@ -67,6 +67,12 @@ export function contrastRatio(a: string, b: string): number | null {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/** WCAG 2 relative luminance of a hex color, or null when it is not one. */
+export function relativeLuminance(value: string): number | null {
+  const rgb = parseHex(value);
+  return rgb ? luminance(rgb) : null;
+}
+
 function luminance(rgb: [number, number, number]): number {
   const [r, g, b] = rgb.map((v) => {
     const c = v / 255;

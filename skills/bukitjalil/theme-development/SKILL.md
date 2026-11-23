@@ -59,14 +59,16 @@ Also:
 the page types with no template, includes that point at missing files, and
 whether `tokens.yaml`, the search page and `static/404.html` exist.
 `theme_lint` runs the design self-check items a program can test (see
-`theme-design`).
+`theme-design`). `theme_palettes` gives palettes to offer in the design
+direction (see `theme-design`).
 
 ## Order of work
 
 1. Start with `site_info` and `theme_coverage`. Look at the reference images in
    `_reference/` when there are any.
 2. **Agree the design direction** for a new look (see `theme-design`): write
-   it, ask the user to confirm it, and wait.
+   it, with palettes from `theme_palettes` when the user gave no colors or
+   references, ask the user to confirm it, and wait.
 3. Tokens: the theme starts with the default design system's
    `themes/<name>/tokens.yaml` (see `theme-design`); change its values to fit
    the direction and keep every key of the token contract. Bukit writes them to

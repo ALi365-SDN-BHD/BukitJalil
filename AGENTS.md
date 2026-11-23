@@ -173,6 +173,6 @@ M0–M7 已完成。下面是还没排期的任务，按建议顺序排列。每
 
 主题开发现在没有设计系统：token 键名随意，新主题从没有 `tokens.yaml` 的 starter 开始，设计规则只有"设计质量自查"和"严格拒绝 AI 味设计"（`theme-development` 技能），全靠 AI 自觉。方案：固定 token 约定，加一个 `theme-design` 技能（方向说明、组件清单、中文排版，并入自查和 AI 味规则），BukitJalil 自带一套符合规范的**默认设计系统**作为新主题的起点，再加 `theme_lint` 工具自动检查。现状、缺口、分层 D0–D3 和问题 Q1–Q9 见开发方案 14 的"主题设计规范和默认设计系统"。Q1–Q9 已按建议定下（2026-11-22），D0 → D1 → D2 已全部实现（2026-11-22）：`theme-design` 必需技能、新建和克隆的主题从默认设计系统开始、`theme_lint` 工具和应用到网站时的设计检查提醒（只提示不阻断）；D2 补充借鉴了 Claude 的设计指引和 Material 3（AI 味清单补四种、结构要表达信息、`border-strong`、`tabular-nums`）；D3（预览截图给 AI）不做。实现说明在开发方案各层后面。评审提出的线性扫描问题已修复，PR #21 已合并到 `main`（2026-11-22，`18c60c3`）。
 
-### 18. 借鉴 taste skill：配色库和文案清单（2026-11-23 方案，待定）
+### 18. 借鉴 taste skill：配色库和文案清单（2026-11-23 定，实施中）
 
-taste skill（Leonxlnx/taste-skill，MIT）不能整套给 Pi agent 用：它离不开 `node` 脚本和无头 Chrome，做的是公司官网和落地页，字体走 Google Fonts。只借两样：一是配色库，做成主题项目的 `theme_palettes` 工具（D4）：筛掉 AI 味配色后约 42 套，补齐 token 约定的颜色键并推导暗色，对比度保证达标，在"设计方向"里给用户选；二是文案"AI 味"清单，写进 `content-writing` 技能（D5），中文部分我们自己写。分层和问题 Q10–Q16 见开发方案 14 的"借鉴 taste skill：配色库和文案清单"。
+taste skill（Leonxlnx/taste-skill，MIT）不能整套给 Pi agent 用：它离不开 `node` 脚本和无头 Chrome，做的是公司官网和落地页，字体走 Google Fonts。只借两样：一是配色库，做成主题项目的 `theme_palettes` 工具（D4）：筛掉 AI 味配色后约 42 套，补齐 token 约定的颜色键并推导暗色，对比度保证达标，在"设计方向"里给用户选；二是文案"AI 味"清单，写进 `content-writing` 技能（D5），中文部分我们自己写。问题 Q10–Q16 已按建议定下（2026-11-23）。分层和问题见开发方案 14 的"借鉴 taste skill：配色库和文案清单"。
