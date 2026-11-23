@@ -132,7 +132,9 @@ their own site does, keep their choice and name the failing check in
    Templates don't hard-code page copy such as headlines and paragraphs
    (interface labels and the text of the search and 404 pages are fine), and
    nothing invents numbers, testimonials, client logos or contact details (see
-   `content-writing`). One `h1` per page, and headings go down one level at a
+   `content-writing`). The interface text a template does carry (the search
+   and 404 pages, empty states, button labels) follows "Read like a person
+   wrote it" in `content-writing`. One `h1` per page, and headings go down one level at a
    time. Structure says something true about the content: numbered markers
    (01, 02, 03), small labels and dividers only where the content really is a
    sequence or has those groups, never as decoration.
