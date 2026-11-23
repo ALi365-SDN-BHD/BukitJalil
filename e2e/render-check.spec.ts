@@ -43,6 +43,25 @@ test("reports small tap targets close together, not links in running text", asyn
   expect(rules(result.issues, "tap_target").map((i) => i.element)).toEqual(['a "A"', 'a "B"']);
 });
 
+test("reports small links side by side in a navigation, also with separators between them", async ({ page }) => {
+  const result = await check(
+    page,
+    1280,
+    // Plain inline links, not the base style's padded ones; the two navigations far apart.
+    `<style>nav.plain a, nav.split a { display: inline; padding: 0; min-height: 0; }
+nav { font-size: 12px; margin-bottom: 60px; }</style>
+<main><h1>T</h1><nav class="plain"><a href="/">Home</a> <a href="/about/">About</a></nav>
+<nav class="split"><a href="/x">X</a>|<a href="/y">Y</a>·<a href="/z">Z</a></nav></main>`,
+  );
+  expect(rules(result.issues, "tap_target").map((i) => i.element)).toEqual([
+    'a "Home"',
+    'a "About"',
+    'a "X"',
+    'a "Y"',
+    'a "Z"',
+  ]);
+});
+
 test("leaves a visually hidden skip link out of the tap targets", async ({ page }) => {
   const result = await check(
     page,
