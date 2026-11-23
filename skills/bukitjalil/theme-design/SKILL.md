@@ -117,7 +117,8 @@ and why in `summarize_changes`.
 In a theme project, run `theme_lint` first. It tests what a program can: the
 token contract, the contrast of hex token colors in both schemes, literal
 colors, resources from other sites, `:focus-visible`, reduced motion,
-`transition: all`, gradient text, frosted glass and emoji. Fix what it reports,
+`transition: all`, gradient text, frosted glass, emoji, violet theme colors,
+content revealed on scroll and tilt. Fix what it reports,
 then check the rest yourself; an empty result does not mean the check passed.
 The user sees the same warnings when they apply the theme to a site.
 
@@ -182,8 +183,12 @@ their own site does, keep their choice and name the failing check in
    AI-generated. Never use any of the following on your own, and don't carry
    them over from reference images or a captured site:
    - rows of identical icon-heading-text cards that fill space
-   - purple-to-blue or neon gradients, gradient text, glowing blobs, frosted
+   - violet or lavender as the accent, background or in gradients
+     (purple-to-blue), neon gradients, gradient text, glowing blobs, frosted
      glass, dark backgrounds with neon accents
+   - cards or sections that fade or slide in as the page scrolls (without
+     JavaScript, or with reduced motion, they may never appear), cards that
+     tilt on hover
    - emoji as icons, headings and navigation in capitals
    - a small pill badge above the hero headline, a tiny label above every
      section heading

@@ -219,6 +219,66 @@ describe("the theme design lint (theme design spec D2)", () => {
     ).toEqual([]);
   });
 
+  it("reports violet or lavender theme colors in either scheme, not in content palettes (D6)", () => {
+    const files = clean();
+    files.set("tokens.yaml", tokensText.replace(/^ {2}accent: .*$/m, '  accent: "#6d28d9"'));
+    const light = lintTheme(files).find((i) => i.rule === "violet");
+    expect(light).toMatchObject({ file: "tokens.yaml", detail: "light scheme: accent #6d28d9 is violet or lavender." });
+    files.set("tokens.yaml", tokensText);
+    files.set("assets/style.css", `${css}\n@media (prefers-color-scheme: dark) { :root { --color-link: #c4b5fd; } }\n`);
+    expect(lintTheme(files).find((i) => i.rule === "violet")?.detail).toBe(
+      "dark scheme: link #c4b5fd is violet or lavender.",
+    );
+    // Blue, pink and grey are not violet; the default code highlighting (with a lavender) is content.
+    files.set("assets/style.css", css);
+    for (const color of ["#1d5a8c", "#db2777", "#8b8b9a"]) {
+      files.set("tokens.yaml", tokensText.replace(/^ {2}accent: .*$/m, `  accent: "${color}"`));
+      expect(rules(files), color).not.toContain("violet");
+    }
+  });
+
+  it("reports content revealed on scroll, and not an IntersectionObserver that only lazy-loads (D6)", () => {
+    const at = (path: string, text: string) => {
+      const files = clean();
+      files.set(path, text);
+      return lintTheme(files).filter((i) => i.rule === "scroll_reveal");
+    };
+    expect(at("assets/x.css", ".card {\n  animation-timeline: view();\n}")).toEqual([
+      expect.objectContaining({ file: "assets/x.css", line: 2 }),
+    ]);
+    const reveal =
+      "const io = new IntersectionObserver((es) => es.forEach((e) => e.target.classList.add('is-visible')));";
+    expect(at("assets/reveal.js", `// cards\n${reveal}`)).toEqual([
+      expect.objectContaining({ file: "assets/reveal.js", line: 2 }),
+    ]);
+    expect(at("layouts/pages/index.html", `<main class="fade">\n</main>\n<script>\n${reveal}\n</script>`)).toEqual([
+      expect.objectContaining({ line: 4 }),
+    ]);
+    const lazy = "new IntersectionObserver((es) => es.forEach((e) => { e.target.src = e.target.dataset.src; }));";
+    expect(at("assets/lazy.js", lazy)).toEqual([]);
+    // The class names outside a script do not make a lazy-loading script a reveal.
+    expect(at("layouts/pages/index.html", `<main class="fade"></main><script>${lazy}</script>`)).toEqual([]);
+  });
+
+  it("reports tilt, and not a turn by a multiple of 90 degrees or one outside hover and focus (D6)", () => {
+    const tilt = (text: string, path = "assets/x.css") => {
+      const files = clean();
+      files.set(path, text);
+      return lintTheme(files)
+        .filter((i) => i.rule === "tilt")
+        .map((i) => i.line);
+    };
+    expect(tilt(".card:hover {\n  transform: rotateY(8deg);\n}")).toEqual([2]);
+    expect(tilt(".grid {\n  perspective: 800px;\n}")).toEqual([2]);
+    expect(tilt(".card:hover {\n  transform: rotate(-2deg) scale(1.02);\n}")).toEqual([2]);
+    expect(tilt(".card:focus-visible { rotate: 0.01turn; }")).toEqual([1]);
+    expect(tilt(".tag:hover { transform: skewX(4deg); }")).toEqual([1]);
+    expect(tilt(".chevron:hover { transform: rotate(180deg); }\n.x:hover { transform: rotate(0.5turn); }")).toEqual([]);
+    expect(tilt(".spinner { transform: rotate(12deg); }\n.grid { perspective: none; }")).toEqual([]);
+    expect(tilt('<div class="card" data-tilt></div>', "layouts/pages/index.html")).toEqual([1]);
+    expect(tilt("import VanillaTilt from './vanilla-tilt.js';", "assets/cards.js")).toEqual([1]);
+  });
+
   it("scans pathological stylesheets and templates in linear time", () => {
     const big = 200 * 1024;
     const cases: [string, string][] = [
@@ -229,6 +289,10 @@ describe("the theme design lint (theme design spec D2)", () => {
       ["assets/a.css", "@media ".repeat(big / 7)],
       ["assets/a.css", "{".repeat(big)],
       ["layouts/x.html", "<script ".repeat(big / 8)],
+      ["layouts/x.html", "<script>".repeat(big / 8)],
+      ["assets/a.css", `a:hover { ${"rotate(1".repeat(big / 8)} }`],
+      ["assets/a.css", `perspective${" ".repeat(big)}`],
+      ["assets/a.js", "IntersectionObserver".repeat(big / 20)],
     ];
     for (const [file, text] of cases) {
       const started = performance.now();

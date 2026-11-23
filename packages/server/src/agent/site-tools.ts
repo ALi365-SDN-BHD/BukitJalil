@@ -170,7 +170,7 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
       name: "theme_lint",
       label: "Theme lint",
       description:
-        "The design self-check items a program can test in the theme (see the theme-design skill): token contract keys, contrast of the token colors in the light and dark schemes, literal colors in the CSS, resources from other sites, :focus-visible, reduced motion, transition: all, and gradient text, frosted glass and emoji. File paths are relative to themes/<name>/. The rest of the self-check is still yours.",
+        "The design self-check items a program can test in the theme (see the theme-design skill): token contract keys, contrast of the token colors in the light and dark schemes, literal colors in the CSS, resources from other sites, :focus-visible, reduced motion, transition: all, and gradient text, frosted glass, emoji, violet theme colors, content revealed on scroll and tilt. File paths are relative to themes/<name>/. The rest of the self-check is still yours.",
       parameters: object({}),
       async execute() {
         const issues = await lintThemeFiles(`themes/${themeName}`, workingCopyFiles(cwd, gate));
