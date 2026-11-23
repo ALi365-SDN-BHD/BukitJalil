@@ -142,7 +142,8 @@ function summarize(raw: unknown, urls: string[], pages: string[]): RenderCheckOu
         const rule = text(issue?.rule);
         if (!RULES.has(rule)) continue;
         const finding = { page, rule, element: text(issue?.element), detail: text(issue?.detail) };
-        const key = JSON.stringify(finding);
+        // Sizes and the window width differ from width to width; the first width's wording is kept.
+        const key = JSON.stringify({ ...finding, detail: finding.detail.replace(/\d+(\.\d+)?px/g, "px") });
         const seen = issues.get(key);
         if (seen) seen.widths.push(width);
         else issues.set(key, { ...finding, widths: [width] });

@@ -71,7 +71,8 @@ export function renderCheckPage(opts: { maxPerRule: number }): RenderPageResult 
     if (named === 0) report("overflow", document.body, `The page is ${doc.scrollWidth}px wide in a ${width}px window.`);
   }
 
-  // Tap targets outside running text: at least 44px, unless nothing else is within 8px.
+  // Tap targets outside running text: at least 44px, unless nothing else is within 8px. Visually hidden
+  // ones (the 1px skip link) are left out of this, not out of the focus check.
   const targets = [
     ...document.querySelectorAll(
       'a[href], button, input:not([type="hidden"]), select, textarea, summary, [role="button"]',
@@ -85,12 +86,16 @@ export function renderCheckPage(opts: { maxPerRule: number }): RenderPageResult 
     const own = (el.textContent ?? "").trim().length;
     return (parent.textContent ?? "").trim().length > own;
   };
-  const rects = targets.map((el) => el.getBoundingClientRect());
-  targets.forEach((el, i) => {
+  const tappable = targets.filter((el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1;
+  });
+  const rects = tappable.map((el) => el.getBoundingClientRect());
+  tappable.forEach((el, i) => {
     const r = rects[i] as DOMRect;
     if (Math.min(r.width, r.height) >= 44 || inText(el)) return;
     const near = rects.some((o, j) => {
-      if (j === i || targets[j]?.contains(el) || el.contains(targets[j] as Element)) return false;
+      if (j === i || tappable[j]?.contains(el) || el.contains(tappable[j] as Element)) return false;
       const dx = Math.max(0, o.left - r.right, r.left - o.right);
       const dy = Math.max(0, o.top - r.bottom, r.top - o.bottom);
       return Math.hypot(dx, dy) < 8;

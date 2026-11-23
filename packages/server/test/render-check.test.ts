@@ -141,14 +141,22 @@ describe("createRenderChecker", () => {
   });
 
   it("lists each finding once with its widths, drops unknown rules and notes a width that differs", async () => {
-    const overflow = { rule: "overflow", element: "div.wide", detail: "Ends at 600px." };
+    const overflow = { rule: "overflow", element: "div.wide", detail: "Ends at 600px in a 320px window." };
     const desktop = fakeDesktop((urls) => ({
       pages: [
         {
           url: urls[0],
           results: [
-            { width: 320, issues: [overflow, { rule: "made_up", element: "x", detail: "y" }] },
-            { width: 390, issues: [overflow] },
+            {
+              width: 320,
+              issues: [
+                overflow,
+                { rule: "made_up", element: "x", detail: "y" },
+                { rule: "overlap", element: "h1", detail: "Lies on p.a (10px × 5px)." },
+                { rule: "overlap", element: "h1", detail: "Lies on p.b (10px × 5px)." },
+              ],
+            },
+            { width: 390, issues: [{ ...overflow, detail: "Ends at 600.5px in a 390px window." }] },
             { width: 768, issues: [] },
             { width: 1200, issues: [{ rule: "headings", element: "body", detail: "No h1." }] },
           ],
@@ -163,6 +171,8 @@ describe("createRenderChecker", () => {
       pages: [{ page: "/", widths: [320, 390, 768, 1200] }],
       issues: [
         { page: "/", ...overflow, widths: [320, 390] },
+        { page: "/", rule: "overlap", element: "h1", detail: "Lies on p.a (10px × 5px).", widths: [320] },
+        { page: "/", rule: "overlap", element: "h1", detail: "Lies on p.b (10px × 5px).", widths: [320] },
         { page: "/", rule: "headings", element: "body", detail: "No h1.", widths: [1200] },
       ],
       notes: ["/ was checked 1200px wide instead of 1280px (the window could not be that size)."],

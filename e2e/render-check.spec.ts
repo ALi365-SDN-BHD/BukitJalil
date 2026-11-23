@@ -43,6 +43,17 @@ test("reports small tap targets close together, not links in running text", asyn
   expect(rules(result.issues, "tap_target").map((i) => i.element)).toEqual(['a "A"', 'a "B"']);
 });
 
+test("leaves a visually hidden skip link out of the tap targets", async ({ page }) => {
+  const result = await check(
+    page,
+    1280,
+    `<style>.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }</style>
+<a class="visually-hidden" href="#main">Skip</a><header><a href="/" style="display:inline-block;padding:10px">Logo</a></header>
+<main id="main"><h1>T</h1></main>`,
+  );
+  expect(rules(result.issues, "tap_target")).toEqual([]);
+});
+
 test("reports a page without one h1 and a skipped heading level", async ({ page }) => {
   const result = await check(page, 1280, `<main><h1>A</h1><h1>B</h1><h4>Deep</h4></main>`);
   expect(rules(result.issues, "headings").map((i) => i.detail)).toEqual([
