@@ -120,6 +120,9 @@ colors, resources from other sites, `:focus-visible`, reduced motion,
 `transition: all`, gradient text, frosted glass, emoji, violet theme colors,
 content revealed on scroll and tilt. Fix what it reports,
 then check the rest yourself; an empty result does not mean the check passed.
+In the desktop app, `theme_render_check` then renders the pages at 320, 390,
+768 and 1280px and reports sideways scrolling, tap targets, headings, focus
+rings and overlapping blocks (groups 2 and 3); fix what the templates cause.
 The user sees the same warnings when they apply the theme to a site.
 
 Go through the groups in order, and don't polish a later group while an

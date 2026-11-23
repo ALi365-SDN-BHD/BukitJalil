@@ -14,6 +14,7 @@ import type { PiModules } from "./pi.ts";
  * - "#media": reads site_info's uploaded media list and puts the first file's URL into the site header
  * - "#plugin": adds a plugin that is not built in to site.yaml, runs bukit_build, then takes the plugin out
  *   again so later builds are not refused
+ * - "#render": runs theme_render_check (a theme project in the desktop app)
  * - "#fail-key", "#fail-limit", "#fail-network": fails like a provider would (a refused key, a rate limit,
  *   no network), so the chat's error messages can be tried
  * - anything else: looks at the site with site_info
@@ -155,6 +156,9 @@ function nextCall(request: string, results: readonly Message[]): Call | null {
       },
     ];
     return steps[step] ?? null;
+  }
+  if (/#render\b/i.test(request)) {
+    return step === 0 ? { tool: "theme_render_check", args: {}, note: "Rendering the pages to check them." } : null;
   }
   return step === 0 ? { tool: "site_info", args: {}, note: "Let me look at the site first." } : null;
 }

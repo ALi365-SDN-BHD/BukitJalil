@@ -12,6 +12,7 @@ import { SiteError } from "../sites/location.ts";
 import { MAX_COVERAGE_FILE_BYTES, type ThemeFiles, themeCoverage } from "../themes/coverage.ts";
 import { lintThemeFiles } from "../themes/lint.ts";
 import { pickPalettes, type Scheme, TRADES, type Trade } from "../themes/palettes.ts";
+import type { RenderChecker } from "../themes/render-check.ts";
 import { type AiBukit, type BuildResult, type CheckResult, type NotionNote, notionNoteText } from "./ai-bukit.ts";
 import { GateError, type PathGate, segmentKey } from "./gate.ts";
 
@@ -30,6 +31,8 @@ export const SITE_TOOLS = [
 
 /** Tools only theme projects get (theme development design 4.1). */
 export const THEME_TOOLS = ["theme_coverage", "theme_lint", "theme_palettes"] as const;
+/** The render check: theme projects in the desktop app only, which can render pages (taste skill D3). */
+export const RENDER_TOOL = "theme_render_check";
 
 const MAX_CONFIG_BYTES = 256 * 1024;
 const MARKDOWN_FILE = /\.(md|markdown)$/i;
@@ -48,6 +51,8 @@ export interface SiteToolOptions {
   cwd: string;
   gate: PathGate;
   bukit: AiBukit;
+  /** Renders and checks preview pages: set in the desktop app, null elsewhere (no theme_render_check). */
+  renderCheck?: RenderChecker | null;
   /** summarize_changes: the summary for the user's review (stored with the change set in M4). */
   onSummary: (summary: string) => void;
 }
@@ -192,6 +197,40 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
         return json({ palettes, howToUse: PALETTE_USE });
       },
     });
+    const { renderCheck } = opts;
+    if (renderCheck) {
+      tools.push({
+        name: RENDER_TOOL,
+        label: "Theme render check",
+        description:
+          "Build the working copy and render pages of the preview at 320, 390, 768 and 1280px wide, then report what only shows when rendered: the page scrolling sideways, tap targets under 44px close to others, headings (one h1, no skipped level), links and buttons with no visible focus ring, and blocks lying on one another. Checks the home page, a post, a list page and the style guide unless you name pages (paths in the build, such as blog/a-post/). Headings in the page body come from the content's Markdown (they carry an id, such as h3#monday) and the style guide shows every level on purpose; fix only the headings your templates write. It takes a while; run it when a round of changes is done.",
+        parameters: object({
+          pages: {
+            type: "array",
+            items: { type: "string", maxLength: 300 },
+            maxItems: 6,
+            description: "Pages to check instead, as paths in the build",
+          },
+        }),
+        async execute(_id, params: { pages?: string[] }, signal) {
+          const { result, used } = await opts.bukit.buildThen(opts.project, cwd, signal, (root, basePath) =>
+            renderCheck({ project: opts.project, root, basePath, pages: params.pages, signal }),
+          );
+          if (!used) return json({ checked: false, build: formatBuild(result) });
+          if (!used.ok) return json({ checked: false, error: used.error });
+          const { pages, issues, notes } = used;
+          return json({
+            checked: true,
+            pages,
+            issues,
+            ...(notes.length > 0 ? { notes } : {}),
+            ...(issues.length === 0
+              ? { note: "The render check found nothing. It does not replace the self-check." }
+              : {}),
+          });
+        },
+      });
+    }
   }
   return tools;
 }

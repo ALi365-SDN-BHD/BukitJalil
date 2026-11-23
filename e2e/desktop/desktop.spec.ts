@@ -439,3 +439,63 @@ test("clones the user's site into a theme through a locked-down capture", async 
     await app.close();
   }
 });
+
+test("checks a theme project's pages in a hidden window when the AI asks", async () => {
+  test.setTimeout(180_000);
+  const { app, page } = await launch(undefined, { BUKITJALIL_FAKE_MODEL: "1" });
+  try {
+    await enterPin(page);
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), "bj-render-"));
+    const ids = await page.evaluate(async (root) => {
+      const headers = { "content-type": "application/json", "x-bukitjalil": "1" };
+      const put = await fetch("/api/settings", {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          commitName: "E2E Tester",
+          commitEmail: "e2e@example.com",
+          locale: "en",
+          model: { provider: "bukitjalil-fake", id: "fake-1" },
+        }),
+      });
+      if (!put.ok) throw new Error(`settings: ${put.status}`);
+      const res = await fetch("/api/themes", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "Render Me",
+          themeName: "render-me",
+          path: `${root}/render-me`,
+          language: "en-US",
+        }),
+      });
+      if (!res.ok) throw new Error(`theme: ${res.status} ${await res.text()}`);
+      const { id } = (await res.json()) as { id: string };
+      const session = await fetch(`/api/themes/${id}/sessions`, { method: "POST", headers });
+      if (!session.ok) throw new Error(`session: ${session.status}`);
+      return { theme: id, session: ((await session.json()) as { id: string }).id };
+    }, parent);
+    await page.goto(new URL(`/themes/${ids.theme}/sessions/${ids.session}`, page.url()).toString());
+    const input = page.getByTestId("composer-input");
+    await input.fill("#render check the pages");
+    await input.press("Enter");
+    await expect(page.getByTestId("message-assistant").last()).toContainText("You asked", { timeout: 150_000 });
+    const card = page.locator("[data-testid=tool-card][data-tool=theme_render_check]");
+    await expect(card).toHaveAttribute("data-state", "ok");
+    await card.locator("summary").click();
+    const result = JSON.parse((await card.locator("pre").last().textContent()) ?? "null") as {
+      checked: boolean;
+      pages: { page: string; widths: number[] }[];
+      issues: { rule: string }[];
+    };
+    expect(result.checked, JSON.stringify(result)).toBe(true);
+    expect(result.pages.map((p) => p.page)).toContain("/");
+    expect(result.pages.map((p) => p.page)).toContain("/pages/style-guide/");
+    for (const p of result.pages) expect(p.widths).toEqual([320, 390, 768, 1280]);
+    // The default design system passes; what is left are the sample content's own headings (a post that
+    // jumps from h1 to h3, the style guide showing every level).
+    expect(result.issues.map((i) => i.rule)).toEqual(result.issues.map(() => "headings"));
+  } finally {
+    await app.close();
+  }
+});

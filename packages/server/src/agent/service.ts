@@ -28,6 +28,7 @@ import { asSiteError, SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import { storageErrorCode } from "../storage-errors.ts";
 import type { Db } from "../store/db.ts";
+import type { RenderChecker } from "../themes/render-check.ts";
 import type { AiBukit } from "./ai-bukit.ts";
 import type { ContentAgent } from "./content-agent.ts";
 import { proposalIds, proposalIn } from "./content-proposals.ts";
@@ -36,7 +37,7 @@ import { hasAuth } from "./models.ts";
 import { loadPi, type PiModules } from "./pi.ts";
 import { buildSystemPrompt, createModelRuntime, createResourceLoader, createSettings } from "./runtime.ts";
 import type { SecretCredentialStore } from "./secret-credentials.ts";
-import { createSiteTools, SITE_TOOLS, THEME_TOOLS } from "./site-tools.ts";
+import { createSiteTools, RENDER_TOOL, SITE_TOOLS, THEME_TOOLS } from "./site-tools.ts";
 import { listSkills, skillReadRoots } from "./skills.ts";
 import { isSessionId, newSessionId, type SessionRecord, SessionStore } from "./store.ts";
 import { autoTitle } from "./title.ts";
@@ -83,6 +84,8 @@ export interface AgentServiceOptions {
   rgReady: () => boolean;
   /** Bukit for the site tools: lock, snapshot and guard before each check or build. */
   bukit: AiBukit;
+  /** The desktop app's render check for theme projects (taste skill D3); unset elsewhere. */
+  renderCheck?: RenderChecker | null;
   /** BukitJalil's skills (plan 6.4): listed in the system prompt, readable but never writable by the AI. */
   skillsDir: string;
   /** Optional skills turned off in Settings; read before every session opens. */
@@ -813,7 +816,12 @@ export class AgentService {
       model,
       thinkingLevel: this.opts.thinkingLevel?.(),
       // An allowlist that the custom tools must be in too (plan 6.3).
-      tools: [...BUILTIN_TOOLS, ...SITE_TOOLS, ...(site.themeName === null ? [] : THEME_TOOLS)],
+      tools: [
+        ...BUILTIN_TOOLS,
+        ...SITE_TOOLS,
+        ...(site.themeName === null ? [] : THEME_TOOLS),
+        ...(site.themeName !== null && this.opts.renderCheck ? [RENDER_TOOL] : []),
+      ],
       customTools: [
         ...createGatedTools(pi, { cwd, gate, rgReady: this.opts.rgReady }),
         ...createSiteTools({
@@ -823,6 +831,7 @@ export class AgentService {
           cwd,
           gate,
           bukit: this.opts.bukit,
+          renderCheck: site.themeName === null ? null : (this.opts.renderCheck ?? null),
           onSummary: (summary) => {
             this.opts.changes.setSummary(site.key, summary);
             this.emit({ project: site.key, sessionId: id, type: "summary", summary });
