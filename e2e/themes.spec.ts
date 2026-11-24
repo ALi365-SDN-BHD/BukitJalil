@@ -57,6 +57,9 @@ test("a theme is made from a description and image, and the theme mode shows its
     .getByTestId("new-theme-images-input")
     .setInputFiles({ name: "mood.png", mimeType: "image/png", buffer: tinyPng() });
   await expect(page.getByTestId("new-theme-image")).toHaveCount(1);
+  // The neutral design system is chosen unless the user picks Material.
+  await expect(page.getByTestId("design-system-default")).toBeChecked();
+  await page.getByTestId("design-system-material").check();
   const folder = page.getByRole("dialog").getByTestId("dir-current");
   await expect(folder).not.toHaveValue("");
   await folder.fill(parent);
@@ -72,6 +75,9 @@ test("a theme is made from a description and image, and the theme mode shows its
   const dir = path.join(parent, "paper-notes");
   expect(fs.existsSync(path.join(dir, "themes", "paper-notes", "theme.yaml"))).toBe(true);
   expect(fs.readdirSync(path.join(dir, "_reference"))).toHaveLength(1);
+  expect(fs.readFileSync(path.join(dir, "themes", "paper-notes", "tokens.yaml"), "utf8")).toContain(
+    "BukitJalil's Material design system",
+  );
 
   // Theme mode's tabs: no config, data or SEO; sample content and reference images instead.
   for (const tab of ["config", "data", "seo"]) await expect(page.getByTestId(`tab-${tab}`)).toHaveCount(0);

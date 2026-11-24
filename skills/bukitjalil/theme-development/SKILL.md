@@ -72,8 +72,8 @@ small tap targets, headings, focus rings and overlapping blocks.
 2. **Agree the design direction** for a new look (see `theme-design`): write
    it, with palettes from `theme_palettes` when the user gave no colors or
    references, ask the user to confirm it, and wait.
-3. Tokens: the theme starts with the default design system's
-   `themes/<name>/tokens.yaml` (see `theme-design`); change its values to fit
+3. Tokens: the theme starts with its design system's `themes/<name>/tokens.yaml`
+   (the default or the Material one, see `theme-design`); change its values to fit
    the direction and keep every key of the token contract. Bukit writes them to
    `/assets/css/theme-tokens.css`, which the base layout already links; use the
    CSS variables everywhere instead of literal values.

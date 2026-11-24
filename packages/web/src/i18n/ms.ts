@@ -183,6 +183,14 @@ const ms: Messages = {
         "Tangkapan skrin atau reka bentuk, PNG, JPEG atau WebP, paling banyak 5, setiap satu hingga 5 MiB; disimpan dalam _reference/.",
       languageHint: "Bahasa laman contoh",
       draftImages: "Imej rujukan ada dalam _reference/; lihat dahulu.",
+      designSystem: "Sistem reka bentuk",
+      designSystems: {
+        default: { name: "Neutral", hint: "Ringkas dan tenang: asas yang sesuai untuk kebanyakan laman." },
+        material: {
+          name: "Gaya Material",
+          hint: "Mengikut Material Design 3: sudut bulat, butang pil, kad bertona dan warna keadaan yang lembut.",
+        },
+      },
       create: "创建",
       creating: "正在创建…",
     },

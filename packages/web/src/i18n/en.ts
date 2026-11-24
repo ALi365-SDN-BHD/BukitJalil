@@ -182,6 +182,14 @@ const en: Messages = {
       imagesHint: "Screenshots or designs, PNG, JPEG or WebP, at most 5, up to 5 MiB each; kept in _reference/.",
       languageHint: "The sample site's language",
       draftImages: "The reference images are in _reference/; look at them first.",
+      designSystem: "Design system",
+      designSystems: {
+        default: { name: "Neutral", hint: "Quiet and plain: a calm base that suits most sites." },
+        material: {
+          name: "Material style",
+          hint: "After Material Design 3: rounded corners, pill buttons, tonal cards and soft state colors.",
+        },
+      },
       create: "Create",
       creating: "Creating…",
     },

@@ -108,7 +108,12 @@ export class ThemeService {
     // Checked before anything is created: a bad image fails the request, not a half-made project.
     const images = (req.images ?? []).map(cleanReferenceImage);
     return this.makeProject(real, req, "new", INITIAL_MESSAGE, (target) => {
-      makeThemeProject(target, { name: req.themeName, displayName: req.name }, this.opts.themeDemo);
+      makeThemeProject(
+        target,
+        { name: req.themeName, displayName: req.name },
+        this.opts.themeDemo,
+        req.designSystem ?? "default",
+      );
       writeReferenceImages(target, images);
     });
   }

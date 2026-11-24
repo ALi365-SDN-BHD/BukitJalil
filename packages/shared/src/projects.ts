@@ -103,6 +103,12 @@ export const ThemeName = z
   .refine((s) => !/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(s), "must not be a Windows device name");
 
 /**
+ * The design system a new theme starts from (plan 14): the neutral default (D1) or the Material one (D7).
+ */
+export const DesignSystem = z.enum(["default", "material"]);
+export type DesignSystem = z.infer<typeof DesignSystem>;
+
+/**
  * A new theme project from a description (design 4): Bukit's starter with the theme renamed and the bundled
  * sample content. The description goes into the first conversation (prefilled), not this request.
  */
@@ -116,6 +122,8 @@ export const CreateThemeRequest = z
     language: SiteLanguage,
     /** Reference images (design 4.2), written into _reference/ with the first commit. */
     images: ReferenceImages.optional(),
+    /** The design system to start from (plan 14 D8); omitted is the default. A clone always starts from the default. */
+    designSystem: DesignSystem.optional(),
     /** `clone` makes the project from a desktop capture (design 6.2); omitted means a new theme. */
     origin: z.enum(["new", "clone"]).optional(),
     /** The capture directory under the app data folder, from the desktop capture. */
