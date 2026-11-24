@@ -32,6 +32,16 @@ started from Material, keep those traits when you change the look, unless the
 user asks for something else. A user can choose Material only for a new theme
 made from a description; cloned themes start from the default one.
 
+Material fits sites that should feel like an app: large rounded corners, pill
+buttons, tonal cards, clear state colors. The default one fits sites that are
+mostly text and should feel quiet or editorial, such as a classic blog. In a
+new theme made from a description, the design direction says which system
+fits (see below). `theme_design_system` switches the theme to the other one:
+it writes that system's `tokens.yaml` and `assets/style.css` in place of the
+theme's, and only while both are still the bundled originals. Once the look
+has been changed it refuses; tell the user that switching would lose those
+changes, and keep the current one unless they want to start over.
+
 ## Design direction
 
 Before you write tokens for a new look, write a short design direction for the
@@ -42,6 +52,15 @@ user, five or six lines:
 - fonts: body and headings (system font stacks or font files in the theme)
 - layout: how the home page and articles are arranged
 - what the design will not do
+- design system, in a new theme made from a description only: which one the
+  theme started from, and which fits the description and reference images
+  better and why. When both fit, keep the current one. Not for cloned themes
+  (their project has `_capture/`) or imported ones.
+
+When the user agrees to the other design system, call `theme_design_system`
+before writing tokens, then build on its files. When the user said to finish
+in one go, pick the system yourself, switch if needed, and say which one and
+why in `summarize_changes`.
 
 In a theme project, when the user has given no colors, reference images or
 site to clone, call `theme_palettes` (with the kind of business as `trade`

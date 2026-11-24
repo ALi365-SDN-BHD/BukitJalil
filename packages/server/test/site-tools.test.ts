@@ -5,11 +5,18 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AiBukit, AiBukitError } from "../src/agent/ai-bukit.ts";
 import { PathGate } from "../src/agent/gate.ts";
-import { createSiteTools, RENDER_TOOL, type SITE_TOOLS, schemaText } from "../src/agent/site-tools.ts";
+import {
+  createSiteTools,
+  RENDER_TOOL,
+  type SITE_TOOLS,
+  schemaText,
+  type THEME_TOOLS,
+} from "../src/agent/site-tools.ts";
 import { BukitService } from "../src/bukit/locate.ts";
+import { designSystemFiles } from "../src/themes/demo.ts";
 import type { RenderChecker } from "../src/themes/render-check.ts";
 import { writeStarter } from "./fixtures/starter.ts";
-import { commitAllAs, installAppBukit, makeApp, rawGit, testBukitDir } from "./helpers.ts";
+import { commitAllAs, installAppBukit, makeApp, rawGit, THEME_DEMO, testBukitDir } from "./helpers.ts";
 
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
 const PNG = Buffer.from(
@@ -104,13 +111,14 @@ async function setup(
       project: site.id,
       configFile: site.configFile,
       themeName: opts.themeName ?? null,
+      themeDemo: THEME_DEMO,
       cwd,
       gate: new PathGate(cwd, [SKILLS]),
       bukit: ai,
       onSummary: (s) => summaries.push(s),
       renderCheck: opts.renderCheck ?? null,
     }).map((t) => [t.name, t]),
-  ) as Record<(typeof SITE_TOOLS)[number] | typeof RENDER_TOOL, ToolDefinition>;
+  ) as Record<(typeof SITE_TOOLS)[number] | (typeof THEME_TOOLS)[number] | typeof RENDER_TOOL, ToolDefinition>;
   fs.rmSync(calls, { force: true });
   const git = (...args: string[]) => rawGit(base, cwd, ...args).trim();
   return { ctx, site, cwd, ai, tools, summaries, git, snapshot };
@@ -182,6 +190,75 @@ describe("snapshot", () => {
     expect(removed).toEqual([]);
     expect(git("show", "--name-only", "--format=", commit)).toBe(".gitignore");
     for (const d of ["dist", ".bukit", ".cache"]) expect(fs.existsSync(path.join(cwd, d, "f"))).toBe(true);
+  });
+});
+
+describe("theme_design_system", () => {
+  const TOKENS = "themes/starter/tokens.yaml";
+  const STYLE = "themes/starter/assets/style.css";
+  const neutral = designSystemFiles(THEME_DEMO, "default");
+  const material = designSystemFiles(THEME_DEMO, "material");
+  const startingFrom = (files: { tokens: string; style: string }) => ({
+    themeName: "starter",
+    files: { [TOKENS]: files.tokens, [STYLE]: files.style },
+  });
+  const read = (cwd: string) => ({
+    tokens: fs.readFileSync(path.join(cwd, TOKENS), "utf8"),
+    style: fs.readFileSync(path.join(cwd, STYLE), "utf8"),
+  });
+
+  it("is only there for a theme project and runs on its own", async () => {
+    expect((await setup()).tools.theme_design_system).toBeUndefined();
+    // It writes the working copy, so it never runs alongside an edit, write or build.
+    expect((await setup({ themeName: "starter" })).tools.theme_design_system?.executionMode).toBe("sequential");
+  });
+
+  it("switches between the bundled systems, and the switch reaches the change set", async () => {
+    const { tools, cwd, git, snapshot } = await setup(startingFrom(neutral));
+    const before = git("rev-parse", "HEAD");
+    expect((await call(tools.theme_design_system, { system: "material" })).value).toEqual({
+      switched: true,
+      from: "default",
+      to: "material",
+      files: [TOKENS, STYLE],
+    });
+    expect(read(cwd)).toEqual(material);
+    const { commit } = await snapshot();
+    expect(commit).not.toBe(before);
+    expect(git("diff", "--name-only", before, commit).split("\n").sort()).toEqual([STYLE, TOKENS]);
+    expect((await call(tools.theme_design_system, { system: "default" })).value).toMatchObject({ switched: true });
+    expect(read(cwd)).toEqual(neutral);
+  });
+
+  it("changes nothing when the theme already uses that system", async () => {
+    const { tools, cwd } = await setup(startingFrom(material));
+    const { value } = await call(tools.theme_design_system, { system: "material" });
+    expect(value).toEqual({ switched: false, note: "The theme already uses material." });
+    expect(read(cwd)).toEqual(material);
+  });
+
+  it("refuses once either file has been changed or one is missing, and writes nothing", async () => {
+    const changedStyle = { ...neutral, style: `${neutral.style}\n.hero { padding: 0; }\n` };
+    const changedTokens = { ...neutral, tokens: neutral.tokens.replace("BukitJalil", "My") };
+    const mixed = { tokens: material.tokens, style: neutral.style };
+    for (const files of [changedStyle, changedTokens, mixed]) {
+      const { tools, cwd } = await setup(startingFrom(files));
+      const { value } = await call(tools.theme_design_system, { system: "material" });
+      expect(value).toMatchObject({ switched: false });
+      expect(String(value?.error)).toContain("would lose those changes");
+      expect(read(cwd)).toEqual(files);
+    }
+    const { tools, cwd } = await setup(startingFrom(neutral));
+    fs.rmSync(path.join(cwd, TOKENS));
+    expect((await call(tools.theme_design_system, { system: "material" })).value).toMatchObject({ switched: false });
+    expect(fs.readFileSync(path.join(cwd, STYLE), "utf8")).toBe(neutral.style);
+  });
+
+  it("refuses a system that is not one of the two", async () => {
+    const { tools, cwd } = await setup(startingFrom(neutral));
+    const { value } = await call(tools.theme_design_system, { system: "apple" });
+    expect(value).toEqual({ switched: false, error: "system must be default or material" });
+    expect(read(cwd)).toEqual(neutral);
   });
 });
 

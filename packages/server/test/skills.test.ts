@@ -59,4 +59,11 @@ describe("references between BukitJalil's skills", () => {
       'follows "Read like a person wrote it" in `content-writing`',
     );
   });
+
+  it("has theme-design suggest a design system and switch it with theme_design_system (plan 14 D9)", () => {
+    const text = skill("theme-design").replace(/\s+/g, " ");
+    expect(text).toContain("- design system, in a new theme made from a description only");
+    expect(text).toContain("When the user agrees to the other design system, call `theme_design_system`");
+    expect(text).toContain("say which one and why in `summarize_changes`");
+  });
 });

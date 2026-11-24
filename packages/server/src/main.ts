@@ -310,6 +310,7 @@ function startServices(db: Db): Runtime {
     },
     rgReady: () => rg.ready(),
     bukit: aiBukit,
+    themeDemo: resources.themeDemo,
     // Only the desktop app can render pages (taste skill D3).
     renderCheck: desktop
       ? createRenderChecker({

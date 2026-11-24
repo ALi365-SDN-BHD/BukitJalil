@@ -183,6 +183,7 @@ const en: Messages = {
       languageHint: "The sample site's language",
       draftImages: "The reference images are in _reference/; look at them first.",
       designSystem: "Design system",
+      designSystemHint: "Not sure? The AI suggests one in its design direction.",
       designSystems: {
         default: { name: "Neutral", hint: "Quiet and plain: a calm base that suits most sites." },
         material: {

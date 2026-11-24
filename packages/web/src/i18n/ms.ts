@@ -184,6 +184,7 @@ const ms: Messages = {
       languageHint: "Bahasa laman contoh",
       draftImages: "Imej rujukan ada dalam _reference/; lihat dahulu.",
       designSystem: "Sistem reka bentuk",
+      designSystemHint: "Tidak pasti? AI akan mencadangkan satu dalam hala tuju reka bentuknya.",
       designSystems: {
         default: { name: "Neutral", hint: "Ringkas dan tenang: asas yang sesuai untuk kebanyakan laman." },
         material: {

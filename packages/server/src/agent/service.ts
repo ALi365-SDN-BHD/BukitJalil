@@ -84,6 +84,8 @@ export interface AgentServiceOptions {
   rgReady: () => boolean;
   /** Bukit for the site tools: lock, snapshot and guard before each check or build. */
   bukit: AiBukit;
+  /** BukitJalil's theme sample directory (resources.themeDemo): the design systems theme_design_system uses. */
+  themeDemo: string;
   /** The desktop app's render check for theme projects (taste skill D3); unset elsewhere. */
   renderCheck?: RenderChecker | null;
   /** BukitJalil's skills (plan 6.4): listed in the system prompt, readable but never writable by the AI. */
@@ -828,6 +830,7 @@ export class AgentService {
           project: site.key,
           configFile: site.configFile,
           themeName: site.themeName,
+          themeDemo: this.opts.themeDemo,
           cwd,
           gate,
           bukit: this.opts.bukit,

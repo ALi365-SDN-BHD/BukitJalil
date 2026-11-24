@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ProjectKey } from "@bukitjalil/shared";
+import { DesignSystem, type ProjectKey } from "@bukitjalil/shared";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { auditText } from "../builds/audit.ts";
 import { isRecord, pathProblem } from "../bukit/guard.ts";
@@ -10,11 +10,12 @@ import { summarizeConfig } from "../panels/service.ts";
 import { parseFrontMatter, parseYaml } from "../panels/yaml.ts";
 import { SiteError } from "../sites/location.ts";
 import { MAX_COVERAGE_FILE_BYTES, type ThemeFiles, themeCoverage } from "../themes/coverage.ts";
+import { designSystemFiles, unchangedDesignSystem } from "../themes/demo.ts";
 import { lintThemeFiles } from "../themes/lint.ts";
 import { pickPalettes, type Scheme, TRADES, type Trade } from "../themes/palettes.ts";
 import type { RenderChecker } from "../themes/render-check.ts";
 import { type AiBukit, type BuildResult, type CheckResult, type NotionNote, notionNoteText } from "./ai-bukit.ts";
-import { GateError, type PathGate, segmentKey } from "./gate.ts";
+import { GateError, type PathGate, segmentKey, writeChecked } from "./gate.ts";
 
 /**
  * The site tools (plan 6.3). Their parameters are names and small values, never paths: whatever they
@@ -30,7 +31,7 @@ export const SITE_TOOLS = [
 ] as const;
 
 /** Tools only theme projects get (theme development design 4.1). */
-export const THEME_TOOLS = ["theme_coverage", "theme_lint", "theme_palettes"] as const;
+export const THEME_TOOLS = ["theme_coverage", "theme_lint", "theme_palettes", "theme_design_system"] as const;
 /** The render check: theme projects in the desktop app only, which can render pages (taste skill D3). */
 export const RENDER_TOOL = "theme_render_check";
 
@@ -45,8 +46,10 @@ export interface SiteToolOptions {
   project: ProjectKey;
   /** The site config's file name in the working copy (found by content when the site was imported). */
   configFile: string;
-  /** A theme project's theme (adds theme_coverage, theme_lint and theme_palettes); null for a site. */
+  /** A theme project's theme (adds the THEME_TOOLS); null for a site. */
   themeName: string | null;
+  /** BukitJalil's theme sample directory, which holds the design systems theme_design_system switches to. */
+  themeDemo: string;
   /** The working copy (the session's cwd). */
   cwd: string;
   gate: PathGate;
@@ -197,6 +200,7 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
         return json({ palettes, howToUse: PALETTE_USE });
       },
     });
+    tools.push(designSystemTool(themeName, opts.themeDemo, cwd, gate));
     const { renderCheck } = opts;
     if (renderCheck) {
       tools.push({
@@ -235,6 +239,54 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
     }
   }
   return tools;
+}
+
+/**
+ * theme_design_system (plan 14 D9): put the other design system's tokens.yaml and style.css in the theme,
+ * only while both files are still one system's bundled originals (Q31), so a switch never loses the
+ * user's changes. The write lands in the change set like any other.
+ */
+function designSystemTool(themeName: string, themeDemo: string, cwd: string, gate: PathGate): ToolDefinition {
+  const tokensPath = `themes/${themeName}/tokens.yaml`;
+  const stylePath = `themes/${themeName}/assets/style.css`;
+  return {
+    name: "theme_design_system",
+    label: "Theme design system",
+    description:
+      "Switch the theme to the other design system (see the theme-design skill): writes its tokens.yaml and assets/style.css in place of the theme's. Only while both files are still the bundled originals of a design system; once the look has been changed it refuses, since switching would lose those changes. Call it only after the user has agreed to the switch, or when they asked you to finish without asking.",
+    parameters: object(
+      {
+        system: {
+          type: "string",
+          enum: [...DesignSystem.options],
+          description: "default (the neutral one) or material",
+        },
+      },
+      ["system"],
+    ),
+    // It writes the working copy: never alongside an edit, write or build.
+    executionMode: "sequential",
+    async execute(_id, params: { system: DesignSystem }) {
+      const target = DesignSystem.safeParse(params.system);
+      if (!target.success) return json({ switched: false, error: "system must be default or material" });
+      const read = await workingCopyFiles(cwd, gate).read([tokensPath, stylePath]);
+      const current = unchangedDesignSystem(themeDemo, { tokens: read.get(tokensPath), style: read.get(stylePath) });
+      if (current === null) {
+        return json({
+          switched: false,
+          error: `${tokensPath} or ${stylePath} has been changed (or is missing), so switching would lose those changes. Tell the user, and keep the current look unless they want to start over.`,
+        });
+      }
+      if (current === target.data) return json({ switched: false, note: `The theme already uses ${current}.` });
+      const files = designSystemFiles(themeDemo, target.data);
+      // Both paths pass the gate before either is written, so a refusal never leaves half a switch.
+      const tokensReal = gate.check(path.join(cwd, tokensPath), "write");
+      const styleReal = gate.check(path.join(cwd, stylePath), "write");
+      await writeChecked(tokensReal, files.tokens);
+      await writeChecked(styleReal, files.style);
+      return json({ switched: true, from: current, to: target.data, files: [tokensPath, stylePath] });
+    },
+  };
 }
 
 const PALETTE_USE = [

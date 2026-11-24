@@ -49,6 +49,7 @@ export const TOKEN = "test-token-abcdefghijklmnopqrstuvwxyz";
 export const SESSION = "test-session-0123456789abcdefghijklmn";
 export const COOKIE = `bj_session_${PORT}`;
 export const SKILLS_DIR = path.resolve(import.meta.dirname, "../../../skills");
+export const THEME_DEMO = path.join(import.meta.dirname, "..", "assets", "theme-demo");
 
 /** Where tests put "the Bukit that ships with the app" (plan 8.1): the directory BukitService reads. */
 export const testBukitDir = (home: string) => path.join(home, "bundled-bukit");
@@ -166,7 +167,7 @@ export function makeApp(
     repos,
     otherProjects: () => sites.list(),
     newSite: async (target, values) => writeStarter(target, values),
-    themeDemo: path.join(import.meta.dirname, "..", "assets", "theme-demo"),
+    themeDemo: THEME_DEMO,
   });
   const projects = new ProjectService(sites, themes, repos);
   const previews = new PreviewPool(overrides.previewBase ?? 49500, new Set([PORT]), logger);
@@ -206,6 +207,7 @@ export function makeApp(
     resolveModel: () => undefined,
     rgReady: () => false,
     bukit: aiBukit,
+    themeDemo: THEME_DEMO,
     skillsDir: SKILLS_DIR,
     disabledSkills: () => settings.get().disabledSkills,
     content: new NotionContentAgent({
