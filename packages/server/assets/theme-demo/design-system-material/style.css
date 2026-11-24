@@ -1,0 +1,910 @@
+/*
+ * BukitJalil's Material design system (plan 14, borrowing from Material 3, D7), written for the markup of
+ * Bukit's starter theme. Every value comes from the tokens in tokens.yaml (/assets/css/theme-tokens.css,
+ * linked before this file). Exceptions: the dark color scheme below (Material 3's dark roles for the same
+ * seed), and the content palettes at the end (Notion's colors and code highlighting), which belong to the
+ * content, not to the theme.
+ *
+ * Material 3's traits: large corners from the shape scale and pills (999px) for buttons, navigation and
+ * chips; tonal cards on the surface color instead of borders and shadows; state layers, a wash of the
+ * content color over the surface: 8% on hover, 10% on focus and press.
+ */
+
+:root {
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0f1417;
+    --color-surface: #171c1f;
+    --color-text: #dfe3e7;
+    --color-muted: #c0c8cd;
+    --color-border: #40484c;
+    --color-border-strong: #8a9297;
+    --color-accent: #8bd0ef;
+    --color-accent-text: #003546;
+    --color-link: #8bd0ef;
+    --color-focus: #8bd0ef;
+    --color-code-bg: #0d0e10;
+    --color-code-text: #e6e8ea;
+  }
+}
+
+/* Base */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  line-height: var(--font-leading-body);
+}
+
+:lang(zh) body,
+body:lang(zh) {
+  line-height: 1.8;
+}
+
+:lang(zh) em {
+  font-style: normal;
+  font-weight: 600;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+  line-height: var(--font-leading-heading);
+  text-wrap: balance;
+}
+
+a {
+  color: var(--color-link);
+  text-underline-offset: 0.2em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+hr {
+  margin: var(--spacing-6) 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--spacing-3);
+  top: calc(-1 * var(--spacing-7));
+  z-index: 10;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.skip-link:focus {
+  top: var(--spacing-3);
+}
+
+/* Header and navigation */
+
+.site-header {
+  background: var(--color-surface);
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2) var(--spacing-4);
+  max-width: calc(var(--layout-content) + 2 * var(--spacing-4));
+  margin: 0 auto;
+  padding: var(--spacing-2) var(--spacing-4);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--color-text);
+  font-family: var(--font-heading);
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.nav-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--spacing-3);
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+/* Material 3's active indicator: a pill tinted with the accent. */
+.nav-links a[aria-current="page"] {
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.nav-links a:focus-visible,
+.nav-links a:active {
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+}
+
+.nav-toggle {
+  display: none;
+}
+
+.nav-toggle[hidden] {
+  display: none;
+}
+
+/* Layout */
+
+.container {
+  max-width: var(--layout-wide);
+  margin: 0 auto;
+  padding: var(--spacing-6) var(--spacing-4) var(--spacing-7);
+}
+
+.hero,
+.page-header,
+.article,
+.home-section,
+.card-list,
+.term-grid,
+.pagination,
+.search-form {
+  max-width: var(--layout-content);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hero {
+  padding-bottom: var(--spacing-5);
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: var(--font-size-3xl);
+  font-weight: 400;
+}
+
+.page-header h1,
+.article-header h1 {
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: 400;
+}
+
+.hero p,
+.page-header p,
+.article-summary {
+  margin: var(--spacing-3) 0 0;
+  color: var(--color-muted);
+  font-size: var(--font-size-lg);
+}
+
+.page-header,
+.article-header {
+  margin-bottom: var(--spacing-5);
+}
+
+.eyebrow {
+  margin: 0 0 var(--spacing-1);
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+.home-section {
+  margin-top: var(--spacing-6);
+}
+
+.section-heading {
+  margin: 0 0 var(--spacing-3);
+  font-size: var(--font-size-xl);
+  font-weight: 400;
+}
+
+/* Lists and cards */
+
+.card-list {
+  display: grid;
+  gap: var(--spacing-3);
+  margin-top: 0;
+  margin-bottom: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Material 3's filled card: the surface tone, no border or shadow. */
+.card {
+  padding: var(--spacing-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.card-title {
+  margin: 0 0 var(--spacing-1);
+  font-size: var(--font-size-lg);
+  font-weight: 400;
+}
+
+.card-title a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.card-media {
+  display: block;
+  margin-bottom: var(--spacing-3);
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.card-cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  margin: 0 0 var(--spacing-2);
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  margin: var(--spacing-2) 0 0;
+}
+
+/* Material 3's assist chip. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.term-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: var(--spacing-3);
+  padding: 0;
+  list-style: none;
+}
+
+.term-card {
+  padding: var(--spacing-3);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.term-card a {
+  font-weight: 600;
+}
+
+.term-card .meta {
+  margin: var(--spacing-1) 0 0;
+}
+
+.term-card .desc {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-muted);
+}
+
+.breadcrumb {
+  margin-top: var(--spacing-2);
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-5);
+  color: var(--color-muted);
+}
+
+/* Material 3's outlined button. */
+.pagination a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--spacing-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.pagination a:focus-visible,
+.pagination a:active {
+  background: color-mix(in srgb, var(--color-link) 10%, transparent);
+}
+
+/* Article text */
+
+.content {
+  overflow-wrap: break-word;
+}
+
+.content > :first-child {
+  margin-top: 0;
+}
+
+.content h1,
+.content h2,
+.content h3,
+.content h4 {
+  margin: var(--spacing-5) 0 var(--spacing-2);
+  font-weight: 500;
+}
+
+/* Below the page title (2xl): h1 rarely appears in content, h2 is the usual section heading. */
+.content h1 {
+  font-size: var(--font-size-xl);
+}
+
+.content h2 {
+  font-size: var(--font-size-lg);
+}
+
+.content h3,
+.content h4 {
+  font-size: var(--font-size-base);
+}
+
+.content h4 {
+  color: var(--color-muted);
+}
+
+.content p,
+.content ul,
+.content ol {
+  margin: var(--spacing-3) 0;
+}
+
+.content li + li {
+  margin-top: var(--spacing-1);
+}
+
+.content img {
+  border-radius: var(--radius-md);
+}
+
+blockquote {
+  margin: var(--spacing-4) 0;
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-muted);
+}
+
+table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  margin: var(--spacing-4) 0;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+th,
+td {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border);
+  text-align: start;
+}
+
+th {
+  background: var(--color-surface);
+}
+
+figure {
+  margin: var(--spacing-4) 0;
+}
+
+figcaption {
+  margin-top: var(--spacing-2);
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+details {
+  margin: var(--spacing-3) 0;
+  padding: var(--spacing-2) var(--spacing-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.content .task-list-item {
+  list-style: none;
+}
+
+.content .task-list-item input {
+  margin: 0 var(--spacing-2) 0 calc(-1 * var(--spacing-4));
+}
+
+.footnotes {
+  margin-top: var(--spacing-6);
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+code,
+pre code {
+  font-family: var(--font-mono);
+}
+
+:not(pre) > code {
+  padding: 0.1em 0.3em;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 0.9em;
+}
+
+pre {
+  overflow-x: auto;
+  margin: var(--spacing-4) 0;
+  padding: var(--spacing-3);
+  border-radius: var(--radius-md);
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+pre code {
+  display: block;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  white-space: pre;
+  tab-size: 2;
+}
+
+pre code[class*="language-"]::before {
+  content: "code";
+  float: right;
+  margin-left: var(--spacing-3);
+  color: var(--color-code-text);
+  font-size: var(--font-size-sm);
+  opacity: 0.75;
+}
+
+pre code.language-csharp::before,
+pre code.language-cs::before { content: "csharp"; }
+pre code.language-javascript::before,
+pre code.language-js::before { content: "javascript"; }
+pre code.language-typescript::before,
+pre code.language-ts::before { content: "typescript"; }
+pre code.language-css::before { content: "css"; }
+pre code.language-html::before { content: "html"; }
+pre code.language-bash::before { content: "bash"; }
+pre code.language-sh::before { content: "shell"; }
+pre code.language-json::before { content: "json"; }
+pre code.language-yaml::before,
+pre code.language-yml::before { content: "yaml"; }
+
+/* Notion blocks */
+
+.callout {
+  display: flex;
+  gap: var(--spacing-3);
+  margin: var(--spacing-4) 0;
+  padding: var(--spacing-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.callout-icon {
+  flex: 0 0 auto;
+}
+
+.callout-content,
+.notion-column,
+.callout-children,
+.to-do-children {
+  min-width: 0;
+}
+
+.to-do {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) 0;
+}
+
+.to-do input[type="checkbox"] {
+  margin-top: 0.45em;
+}
+
+a.bookmark {
+  display: block;
+  margin: var(--spacing-3) 0;
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: inherit;
+}
+
+.video-embed {
+  position: relative;
+  height: 0;
+  margin: var(--spacing-4) 0;
+  overflow: hidden;
+  padding-bottom: 56.25%;
+}
+
+.video-embed iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.math-block {
+  overflow-x: auto;
+  padding: var(--spacing-3) 0;
+}
+
+.notion-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--spacing-4);
+  margin: var(--spacing-4) 0;
+}
+
+/* Forms and buttons */
+
+.search-form {
+  display: flex;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-4);
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* Material 3's search bar: a pill on the surface tone, with the strong border so its edge shows. */
+.search-form input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 var(--spacing-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 var(--spacing-4);
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* State layer: the content color over the button, 10% on focus and press. */
+button:focus-visible:not(:disabled),
+button:active:not(:disabled),
+.button:focus-visible,
+.button:active {
+  background: color-mix(in srgb, var(--color-accent-text) 10%, var(--color-accent));
+}
+
+/* The menu button is transparent: its state layers are of the text color, as for navigation. */
+button.nav-toggle:focus-visible:not(:disabled),
+button.nav-toggle:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+}
+
+button:disabled,
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.search-empty {
+  color: var(--color-muted);
+}
+
+/* Footer */
+
+.site-footer {
+  margin-top: var(--spacing-6);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--spacing-2) var(--spacing-3);
+  max-width: calc(var(--layout-content) + 2 * var(--spacing-4));
+  margin: 0 auto;
+  padding: var(--spacing-4);
+}
+
+.footer-inner a {
+  color: var(--color-muted);
+}
+
+/* Hover, only where there is a pointer that hovers */
+
+@media (hover: hover) {
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  /* State layers: 8% of the content color on hover. */
+  .nav-links a:hover {
+    background: color-mix(in srgb, var(--color-text) 8%, transparent);
+    color: var(--color-text);
+  }
+
+  .nav-links a[aria-current="page"]:hover {
+    background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  }
+
+  .card-title a:hover {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+
+  .card:hover,
+  .term-card:hover {
+    background: color-mix(in srgb, var(--color-text) 8%, var(--color-surface));
+  }
+
+  .pagination a:hover {
+    background: color-mix(in srgb, var(--color-link) 8%, transparent);
+  }
+
+  button:hover:not(:disabled),
+  .button:hover {
+    background: color-mix(in srgb, var(--color-accent-text) 8%, var(--color-accent));
+  }
+
+  button.nav-toggle:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  }
+}
+
+/* Narrow screens: the navigation folds behind the menu button when JavaScript runs */
+
+@media (max-width: 42rem) {
+  .container {
+    padding: var(--spacing-5) var(--spacing-3) var(--spacing-6);
+  }
+
+  .nav {
+    padding: var(--spacing-1) var(--spacing-3);
+  }
+
+  .hero h1 {
+    font-size: var(--font-size-2xl);
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    border-color: var(--color-border-strong);
+    background: transparent;
+    color: var(--color-text);
+    font-weight: 500;
+  }
+
+  .js-nav .nav-links {
+    display: none;
+    flex-basis: 100%;
+    flex-direction: column;
+  }
+
+  .js-nav.nav-open .nav-links {
+    display: flex;
+  }
+
+  .pagination {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  :root {
+    color-scheme: light;
+    --color-bg: #ffffff;
+    --color-text: #000000;
+    --color-muted: #444444;
+  }
+
+  .site-header,
+  .site-footer,
+  .pagination {
+    display: none;
+  }
+}
+
+/* Content palettes: code highlighting (on the dark code background in both schemes) and Notion's colors */
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata,
+.hljs-comment,
+.hljs-quote {
+  color: #a0a8b4;
+}
+
+.token.keyword,
+.token.operator,
+.token.tag,
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #93c5fd;
+}
+
+.token.string,
+.token.attr-value,
+.hljs-string,
+.hljs-doctag {
+  color: #86efac;
+}
+
+.token.number,
+.token.boolean,
+.token.constant,
+.hljs-number,
+.hljs-literal {
+  color: #fbbf24;
+}
+
+.token.function,
+.token.class-name,
+.hljs-title,
+.hljs-section {
+  color: #d8c8fd;
+}
+
+.token.property,
+.token.attr-name,
+.token.variable,
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable {
+  color: #f9a8d4;
+}
+
+.token.punctuation,
+.hljs-punctuation {
+  color: #cbd5e1;
+}
+
+.notion-gray { color: #6f6e69; }
+.notion-brown { color: #64473a; }
+.notion-orange { color: #a8560a; }
+.notion-yellow { color: #8a6800; }
+.notion-green { color: #0f7b6c; }
+.notion-blue { color: #0b6e99; }
+.notion-purple { color: #6940a5; }
+.notion-pink { color: #ad1a72; }
+.notion-red { color: #c4281c; }
+.notion-gray_background { background-color: #f1f1ef; }
+.notion-brown_background { background-color: #f4eeee; }
+.notion-orange_background { background-color: #fbecdd; }
+.notion-yellow_background { background-color: #fbf3db; }
+.notion-green_background { background-color: #edf3ec; }
+.notion-blue_background { background-color: #e7f3f8; }
+.notion-purple_background { background-color: #f6f3f9; }
+.notion-pink_background { background-color: #f9f0f5; }
+.notion-red_background { background-color: #fdebec; }
+
+@media (prefers-color-scheme: dark) {
+  .notion-gray { color: #9b9b9b; }
+  .notion-brown { color: #ba856f; }
+  .notion-orange { color: #e5884a; }
+  .notion-yellow { color: #d4a72c; }
+  .notion-green { color: #4dab9a; }
+  .notion-blue { color: #529cca; }
+  .notion-purple { color: #a982e0; }
+  .notion-pink { color: #e255a1; }
+  .notion-red { color: #ff7369; }
+  .notion-gray_background { background-color: #2f3134; }
+  .notion-brown_background { background-color: #3a2e2a; }
+  .notion-orange_background { background-color: #3d2e22; }
+  .notion-yellow_background { background-color: #3a3424; }
+  .notion-green_background { background-color: #243530; }
+  .notion-blue_background { background-color: #22303c; }
+  .notion-purple_background { background-color: #302a3c; }
+  .notion-pink_background { background-color: #3a2833; }
+  .notion-red_background { background-color: #3c2626; }
+}
