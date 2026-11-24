@@ -10,11 +10,15 @@ import { writeStarter } from "./fixtures/starter.ts";
 
 const DEMO = path.join(import.meta.dirname, "..", "assets", "theme-demo");
 const SYSTEM = path.join(DEMO, "design-system");
+const MATERIAL = path.join(DEMO, "design-system-material");
 
-const tokens = parseYaml(fs.readFileSync(path.join(SYSTEM, "tokens.yaml"), "utf8")).value as {
-  colors: Record<string, string>;
-};
-const css = fs.readFileSync(path.join(SYSTEM, "style.css"), "utf8");
+const read = (dir: string) => ({
+  tokens: parseYaml(fs.readFileSync(path.join(dir, "tokens.yaml"), "utf8")).value as {
+    colors: Record<string, string>;
+  },
+  css: fs.readFileSync(path.join(dir, "style.css"), "utf8"),
+});
+const { css } = read(SYSTEM);
 
 /** Text and background pairs of the design self-check (group 2), with the ratio each needs. */
 const PAIRS: [string, string, number][] = [
@@ -31,7 +35,12 @@ const PAIRS: [string, string, number][] = [
   ["border-strong", "surface", 3],
 ];
 
-describe("the default design system (theme design spec D1)", () => {
+describe.each([
+  ["the default design system (theme design spec D1)", SYSTEM],
+  ["the Material design system (borrowing from Material 3, D7)", MATERIAL],
+])("%s", (_name, dir) => {
+  const { tokens, css } = read(dir);
+
   it("defines every key of the token contract", () => {
     expect(missingTokens(tokens)).toEqual([]);
     expect(missingTokens({ colors: { bg: "#fff" } })).toContain("colors.surface");
@@ -63,6 +72,28 @@ describe("the default design system (theme design spec D1)", () => {
     expect(css).not.toMatch(/https?:\/\//);
   });
 
+  it("gives theme_lint nothing to report in a new theme made from it", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bj-lint-"));
+    const site = path.join(tmp, "site");
+    writeStarter(site, { title: "Aurora", language: "en-US" });
+    makeThemeProject(site, { name: "aurora", displayName: "Aurora" }, DEMO);
+    const theme = path.join(site, "themes", "aurora");
+    fs.copyFileSync(path.join(dir, "tokens.yaml"), path.join(theme, "tokens.yaml"));
+    fs.copyFileSync(path.join(dir, "style.css"), path.join(theme, "assets", "style.css"));
+    const files = {
+      list: async (sub: string) =>
+        (fs.readdirSync(path.join(site, sub), { recursive: true, withFileTypes: true }) as fs.Dirent[])
+          .filter((d) => d.isFile())
+          .map((d) => path.relative(site, path.join(d.parentPath, d.name)).split(path.sep).join("/")),
+      read: async (paths: readonly string[]) =>
+        new Map(paths.map((p) => [p, fs.readFileSync(path.join(site, p), "utf8")] as const)),
+    };
+    expect(await lintThemeFiles("themes/aurora", files)).toEqual([]);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+});
+
+describe("making a theme from the default design system (theme design spec D1)", () => {
   it("goes into a new theme: tokens, stylesheet and the token link before the theme's own", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bj-design-"));
     const site = path.join(dir, "site");

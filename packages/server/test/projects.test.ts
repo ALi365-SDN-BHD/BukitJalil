@@ -207,6 +207,35 @@ describe("new theme projects (T1)", () => {
     expect(ctx.themes.get(t.id).readOnly).toBeNull();
   });
 
+  it("starts a new theme from the design system asked for, and refuses one it does not know", async () => {
+    const demo = path.join(import.meta.dirname, "..", "assets", "theme-demo");
+    const made = async (designSystem?: string) => {
+      const dir = path.join(base, "home", `new-theme-${++count}`);
+      const res = await create({ name: "Look", themeName: "look", path: dir, language: "en-US", designSystem });
+      return { res, dir };
+    };
+    for (const [asked, folder] of [
+      [undefined, "design-system"],
+      ["default", "design-system"],
+      ["material", "design-system-material"],
+    ] as const) {
+      const { res, dir } = await made(asked);
+      expect(res.status, String(asked)).toBe(201);
+      await ctx.builds.settled();
+      for (const [file, copy] of [
+        ["tokens.yaml", "tokens.yaml"],
+        ["style.css", "assets/style.css"],
+      ] as const) {
+        expect(fs.readFileSync(path.join(dir, "themes", "look", copy), "utf8"), `${asked} ${file}`).toBe(
+          fs.readFileSync(path.join(demo, folder, file), "utf8"),
+        );
+      }
+    }
+    const { res, dir } = await made("apple");
+    expect(res.status).toBe(400);
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
   it("puts reference images, cleaned, into _reference/ with the first commit, and refuses a bad one first", async () => {
     const dir = path.join(base, "home", `new-theme-${++count}`);
     const withText = tinyPng([pngChunk("tEXt", Buffer.from("Location\0Home"))]);

@@ -1,17 +1,29 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { DesignSystem } from "@bukitjalil/shared";
 import { parseDocument } from "yaml";
 
 /** The theme `bukit new` writes. */
 const STARTER_THEME = "starter";
 
+/** Each design system's folder in the sample content directory (plan 14 D1, D7). */
+const DESIGN_SYSTEM_DIRS: Record<DesignSystem, string> = {
+  default: "design-system",
+  material: "design-system-material",
+};
+
 /**
  * Turn the site `bukit new` wrote at `target` into a theme project (theme development design 3.1, 3.4, 4):
  * the starter theme becomes `themes/<themeName>/` (directory, theme.yaml `name` and site.yaml `theme.name`)
  * shown as `displayName`, and `content/` is replaced with the bundled sample content from `demoDir`, which
- * covers every page type.
+ * covers every page type. The theme's look starts from `designSystem`.
  */
-export function makeThemeProject(target: string, theme: { name: string; displayName: string }, demoDir: string): void {
+export function makeThemeProject(
+  target: string,
+  theme: { name: string; displayName: string },
+  demoDir: string,
+  designSystem: DesignSystem = "default",
+): void {
   const themes = path.join(target, "themes");
   if (theme.name !== STARTER_THEME) {
     fs.renameSync(path.join(themes, STARTER_THEME), path.join(themes, theme.name));
@@ -22,7 +34,7 @@ export function makeThemeProject(target: string, theme: { name: string; displayN
     description: `${theme.displayName}, a Bukit theme`,
   });
   setYaml(path.join(target, "site.yaml"), { "theme.name": theme.name });
-  applyDesignSystem(path.join(themes, theme.name), demoDir);
+  applyDesignSystem(path.join(themes, theme.name), demoDir, designSystem);
   replaceSampleContent(target, demoDir);
 }
 
@@ -30,14 +42,14 @@ export function makeThemeProject(target: string, theme: { name: string; displayN
 const STARTER_STYLESHEET = /^([ \t]*)<link rel="stylesheet" href="\{\{ asset_base_url \}\}\/assets\/style\.css" \/>$/m;
 
 /**
- * Put BukitJalil's default design system (plan 14, theme design spec D1) into a starter theme: its
+ * Put one of BukitJalil's design systems (plan 14, theme design spec D1, D7) into a starter theme: its
  * tokens.yaml, its style.css in place of the starter's, and a link to the generated token stylesheet in
  * the base layout. The CSS is written for the starter's markup, so the templates stay as Bukit wrote them.
  * Throws when the base layout no longer has the starter's stylesheet link, so a changed starter fails the
  * creation instead of making an unstyled theme.
  */
-export function applyDesignSystem(themeRoot: string, demoDir: string): void {
-  const source = path.join(demoDir, "design-system");
+export function applyDesignSystem(themeRoot: string, demoDir: string, designSystem: DesignSystem = "default"): void {
+  const source = path.join(demoDir, DESIGN_SYSTEM_DIRS[designSystem]);
   const base = path.join(themeRoot, "layouts", "layouts", "base.html");
   const layout = fs.readFileSync(base, "utf8");
   if (!STARTER_STYLESHEET.test(layout)) {

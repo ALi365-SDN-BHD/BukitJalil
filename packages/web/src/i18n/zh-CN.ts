@@ -176,6 +176,11 @@ const zhCN = {
       imagesHint: "截图或设计稿，PNG、JPEG、WebP，最多 5 张，每张不超过 5 MiB；存进 _reference/。",
       languageHint: "样例网站的语言",
       draftImages: "参考图在 _reference/ 里，请先看一看。",
+      designSystem: "设计系统",
+      designSystems: {
+        default: { name: "中性", hint: "朴素安静，适合大多数网站的底子。" },
+        material: { name: "Material 风格", hint: "参照 Material Design 3：大圆角、胶囊按钮、色阶卡片、柔和的状态色。" },
+      },
       create: "创建",
       creating: "正在创建…",
     },

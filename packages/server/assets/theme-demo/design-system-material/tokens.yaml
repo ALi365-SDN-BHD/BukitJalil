@@ -1,0 +1,50 @@
+# BukitJalil's Material design system (plan 14, borrowing from Material 3, D7): the token contract in the
+# theme-design skill, filled in the Material 3 way. Bukit writes these to /assets/css/theme-tokens.css as
+# --<group>-<key>. The colors are Material 3's color roles for the seed #1f6f8b (scripts/material-colors.mts,
+# @material/material-color-utilities 0.4.0, Apache-2.0); the dark color scheme redefines the --color-*
+# variables in assets/style.css. Keep its traits when changing the look: large rounded corners, pill buttons,
+# tonal cards instead of borders and shadows, and state layers on hover, focus and press.
+colors:
+  bg: "#f6fafd"
+  surface: "#f0f4f8"
+  text: "#171c1f"
+  muted: "#40484c"
+  border: "#c0c8cd"
+  border-strong: "#70787d"
+  accent: "#116682"
+  accent-text: "#ffffff"
+  link: "#116682"
+  focus: "#116682"
+  code-bg: "#1f2226"
+  code-text: "#eceef0"
+font:
+  body: 'Roboto, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", sans-serif'
+  heading: 'Roboto, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", sans-serif'
+  mono: '"Roboto Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace'
+  # Material 3's type scale in six steps: label/body medium, body large, title large, headline small,
+  # headline medium, display small.
+  size-sm: "0.875rem"
+  size-base: "1rem"
+  size-lg: "1.375rem"
+  size-xl: "1.5rem"
+  size-2xl: "1.75rem"
+  size-3xl: "2.25rem"
+  leading-body: "1.5"
+  leading-heading: "1.25"
+spacing:
+  "1": "0.25rem"
+  "2": "0.5rem"
+  "3": "1rem"
+  "4": "1.5rem"
+  "5": "2rem"
+  "6": "3rem"
+  "7": "4rem"
+  "8": "6rem"
+# Material 3's shape scale: small, medium and large corners; pills use 999px in style.css.
+radius:
+  sm: "8px"
+  md: "12px"
+  lg: "16px"
+layout:
+  content: "38rem"
+  wide: "72rem"

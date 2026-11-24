@@ -1,4 +1,4 @@
-import { MAX_REFERENCE_IMAGES, type Theme } from "@bukitjalil/shared";
+import { type DesignSystem, MAX_REFERENCE_IMAGES, type Theme } from "@bukitjalil/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImagePlus, X } from "lucide-react";
 import { useRef, useState } from "react";
@@ -50,6 +50,7 @@ export function NewThemeDialog({
   const [parent, setParent] = useState<string | null>(null);
   const [folder, setFolder] = useState<string | null>(null);
   const [description, setDescription] = useState("");
+  const [designSystem, setDesignSystem] = useState<DesignSystem>("default");
   const [images, setImages] = useState<Attachment[]>([]);
   const [problem, setProblem] = useState<AttachProblem | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -70,6 +71,7 @@ export function NewThemeDialog({
         themeName: target.directory,
         path: target.target,
         language,
+        designSystem,
         ...(images.length > 0 && { images: images.map(({ mimeType, data }) => ({ mimeType, data })) }),
       });
       const draft = [description.trim(), images.length > 0 ? n.draftImages : ""].filter(Boolean).join("\n\n");
@@ -114,6 +116,25 @@ export function NewThemeDialog({
             lastParentDir={settings.data?.lastParentDir}
             identity={identity}
           >
+            <fieldset className="flex flex-col gap-1" data-testid="new-theme-design-system">
+              <legend className="text-sm font-medium">{n.designSystem}</legend>
+              {(["default", "material"] as const).map((value) => (
+                <label key={value} className="flex items-start gap-2 rounded-md border p-2 text-sm">
+                  <input
+                    type="radio"
+                    name="theme-design-system"
+                    className="mt-1"
+                    checked={designSystem === value}
+                    data-testid={`design-system-${value}`}
+                    onChange={() => setDesignSystem(value)}
+                  />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="font-medium">{n.designSystems[value].name}</span>
+                    <span className="text-xs text-muted-foreground">{n.designSystems[value].hint}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
             <Field label={n.brief} htmlFor="theme-brief" hint={n.briefHint}>
               <textarea
                 id="theme-brief"

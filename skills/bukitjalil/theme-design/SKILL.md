@@ -13,15 +13,24 @@ page types, order of work); this skill covers the design.
 You cannot see the preview. Check your work in the source: `tokens.yaml`, the
 CSS and the templates.
 
-## The default design system
+## The design systems
 
-New and cloned theme projects start from BukitJalil's default design system:
+New and cloned theme projects start from one of BukitJalil's design systems:
 `themes/<name>/tokens.yaml` filled in by the token contract below, and
 `themes/<name>/assets/style.css` written for the starter's markup with only
 token variables, a dark scheme and every component state. It passes the
 design self-check as it is. Build on it: change token values and the rules
 the design direction needs, keep what already works. An imported theme keeps
 its own files.
+
+There are two, and the comment at the top of `tokens.yaml` says which one the
+theme started from. The default one is neutral. The Material one follows
+Material Design 3: large rounded corners, pill buttons and navigation, tonal
+cards on the surface color instead of borders and shadows, and state layers
+(8% of the content color on hover, 10% on focus and press). In a theme that
+started from Material, keep those traits when you change the look, unless the
+user asks for something else. A user can choose Material only for a new theme
+made from a description; cloned themes start from the default one.
 
 ## Design direction
 
