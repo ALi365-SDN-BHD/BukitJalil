@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { BrowserWindow, session } from "electron";
+import { withDeadline } from "./deadline.ts";
 import { type RenderPageResult, renderCheckPage } from "./render-check-page.ts";
 
 /**
@@ -13,6 +14,11 @@ export interface RenderCheckPage {
 }
 
 const PAGE_TIMEOUT_MS = 30_000;
+/**
+ * The whole check, under the server's 3 minutes: a page script that hangs the renderer must not keep the
+ * window, and `running`, forever.
+ */
+const CHECK_TIMEOUT_MS = 170_000;
 const SETTLE_MS = 300;
 const MAX_PER_RULE = 5;
 export const MAX_RENDER_URLS = 6;
@@ -42,9 +48,13 @@ export async function runRenderCheck(urls: string[], widths: number[]): Promise<
   running = true;
   let win: BrowserWindow | null = null;
   try {
-    return await check(urls, sizes, origin, (w) => {
-      win = w;
-    });
+    return await withDeadline(
+      check(urls, sizes, origin, (w) => {
+        win = w;
+      }),
+      CHECK_TIMEOUT_MS,
+      "the pages took longer than the check allows",
+    );
   } finally {
     running = false;
     (win as BrowserWindow | null)?.destroy();
@@ -97,10 +107,7 @@ async function check(
   try {
     const pages: RenderCheckPage[] = [];
     for (const url of urls) {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`${url} took longer than 30 seconds`)), PAGE_TIMEOUT_MS).unref(),
-      );
-      await Promise.race([win.loadURL(url), timeout]);
+      await withDeadline(win.loadURL(url), PAGE_TIMEOUT_MS, `${url} took longer than 30 seconds`);
       const results: RenderPageResult[] = [];
       for (const width of sizes) {
         win.setContentSize(width, 900);

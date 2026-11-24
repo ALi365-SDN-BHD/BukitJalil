@@ -80,11 +80,17 @@ export function renderCheckPage(opts: { maxPerRule: number }): RenderPageResult 
   ]
     .filter((el) => visible(el))
     .slice(0, 300);
+  // In running text: inline, with words around it that are not themselves targets (links side by side in a
+  // navigation, with or without separators between them, are not running text).
   const inText = (el: Element) => {
     const parent = el.parentElement;
     if (!parent || getComputedStyle(el).display !== "inline") return false;
-    const own = (el.textContent ?? "").trim().length;
-    return (parent.textContent ?? "").trim().length > own;
+    const walker = document.createTreeWalker(parent, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (targets.some((t) => t.contains(node))) continue;
+      if (/[\p{L}\p{N}]/u.test(node.textContent ?? "")) return true;
+    }
+    return false;
   };
   const tappable = targets.filter((el) => {
     const r = el.getBoundingClientRect();

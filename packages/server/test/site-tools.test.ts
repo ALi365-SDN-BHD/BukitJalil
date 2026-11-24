@@ -191,7 +191,8 @@ describe("theme_render_check", () => {
     expect((await setup({ themeName: "starter" })).tools[RENDER_TOOL]).toBeUndefined();
     const renderCheck: RenderChecker = async () => ({ ok: true, pages: [], issues: [], notes: [] });
     expect((await setup({ renderCheck })).tools[RENDER_TOOL]).toBeUndefined();
-    expect((await setup({ themeName: "starter", renderCheck })).tools[RENDER_TOOL]).toBeDefined();
+    // It builds the working copy, so it never runs alongside an edit or write.
+    expect((await setup({ themeName: "starter", renderCheck })).tools[RENDER_TOOL]?.executionMode).toBe("sequential");
   });
 
   it.skipIf(process.platform === "win32")(

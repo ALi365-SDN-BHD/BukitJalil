@@ -212,6 +212,8 @@ export function createSiteTools(opts: SiteToolOptions): ToolDefinition[] {
             description: "Pages to check instead, as paths in the build",
           },
         }),
+        // It builds the working copy, as bukit_build does: never alongside an edit or write.
+        executionMode: "sequential",
         async execute(_id, params: { pages?: string[] }, signal) {
           const { result, used } = await opts.bukit.buildThen(opts.project, cwd, signal, (root, basePath) =>
             renderCheck({ project: opts.project, root, basePath, pages: params.pages, signal }),
