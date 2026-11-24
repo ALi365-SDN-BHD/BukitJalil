@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DesignSystem } from "@bukitjalil/shared";
+import { DesignSystem } from "@bukitjalil/shared";
 import { parseDocument } from "yaml";
 
 /** The theme `bukit new` writes. */
@@ -64,6 +64,36 @@ export function applyDesignSystem(themeRoot: string, demoDir: string, designSyst
   );
   fs.copyFileSync(path.join(source, "tokens.yaml"), path.join(themeRoot, "tokens.yaml"));
   fs.copyFileSync(path.join(source, "style.css"), path.join(themeRoot, "assets", "style.css"));
+}
+
+/** A design system's two files as they are bundled: tokens.yaml and the theme's assets/style.css. */
+export interface DesignSystemFiles {
+  tokens: string;
+  style: string;
+}
+
+/** The bundled files of a design system in `demoDir`. */
+export function designSystemFiles(demoDir: string, designSystem: DesignSystem): DesignSystemFiles {
+  const source = path.join(demoDir, DESIGN_SYSTEM_DIRS[designSystem]);
+  return {
+    tokens: fs.readFileSync(path.join(source, "tokens.yaml"), "utf8"),
+    style: fs.readFileSync(path.join(source, "style.css"), "utf8"),
+  };
+}
+
+/**
+ * The design system a theme's tokens.yaml and style.css are still the bundled originals of (plan 14 D9,
+ * Q31), or null when either file is missing, changed or from the other system.
+ */
+export function unchangedDesignSystem(
+  demoDir: string,
+  files: { tokens: string | undefined; style: string | undefined },
+): DesignSystem | null {
+  for (const system of DesignSystem.options) {
+    const original = designSystemFiles(demoDir, system);
+    if (files.tokens === original.tokens && files.style === original.style) return system;
+  }
+  return null;
 }
 
 /** Remove Bukit's starter theme before an imported theme (and its parents) is written in its place. */

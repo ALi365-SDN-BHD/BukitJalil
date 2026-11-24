@@ -16,7 +16,7 @@ import { SiteError } from "../src/sites/location.ts";
 import { themeKey } from "../src/themes/service.ts";
 import { tinyPng } from "./fixtures/images.ts";
 import { writeStarter } from "./fixtures/starter.ts";
-import { commitAllAs, expectMode, jsonPut, makeApp, rawGit, req } from "./helpers.ts";
+import { commitAllAs, expectMode, jsonPut, makeApp, rawGit, req, THEME_DEMO } from "./helpers.ts";
 
 const SKILLS = path.resolve(import.meta.dirname, "../../../skills");
 const PNG = tinyPng().toString("base64");
@@ -103,6 +103,7 @@ function service(
     setupRuntime: (runtime) => runtime.registerNativeProvider(faux.provider),
     rgReady: opts.rgReady ?? (() => false),
     bukit: aiBukit,
+    themeDemo: THEME_DEMO,
     skillsDir: SKILLS,
     disabledSkills: opts.disabledSkills,
     idleMs: opts.idleMs,
@@ -523,6 +524,7 @@ describe("AgentService", () => {
             call("theme_coverage", {}),
             call("theme_lint", {}),
             call("theme_palettes", { trade: "cafe", scheme: "light" }),
+            call("theme_design_system", { system: "material" }),
           ],
           { stopReason: "toolUse" },
         );
@@ -569,7 +571,12 @@ describe("AgentService", () => {
     )?.details.palettes;
     expect(picked).toHaveLength(3);
     expect(picked?.every((p) => p.scheme === "light" && p.darkScheme)).toBe(true);
+    // The theme's tokens.yaml is not a bundled original, so the switch is refused (plan 14 D9).
+    const switched = ends.find((e) => e.toolName === "theme_design_system");
+    expect(switched?.isError).toBe(false);
+    expect((switched?.result as { details: unknown } | undefined)?.details).toMatchObject({ switched: false });
     expect(system.preamble).toContain("theme_palettes for palettes to offer");
+    expect(system.preamble).toContain("theme_design_system to switch a theme");
     const ai = path.join(ctx.paths.worktrees, "themes", t.id, "ai");
     expect(fs.existsSync(path.join(ai, "themes", "aurora", "tokens.yaml"))).toBe(true);
     expect(fs.existsSync(path.join(ai, "layouts"))).toBe(false);

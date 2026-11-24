@@ -59,6 +59,8 @@ test("a theme is made from a description and image, and the theme mode shows its
   await expect(page.getByTestId("new-theme-image")).toHaveCount(1);
   // The neutral design system is chosen unless the user picks Material.
   await expect(page.getByTestId("design-system-default")).toBeChecked();
+  // The AI suggests a system in its design direction (plan 14 D9); the dialog only says so.
+  await expect(page.getByTestId("new-theme-design-system-hint")).toHaveText(/\S/);
   await page.getByTestId("design-system-material").check();
   const folder = page.getByRole("dialog").getByTestId("dir-current");
   await expect(folder).not.toHaveValue("");

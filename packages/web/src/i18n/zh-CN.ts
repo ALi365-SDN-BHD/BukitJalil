@@ -177,6 +177,7 @@ const zhCN = {
       languageHint: "样例网站的语言",
       draftImages: "参考图在 _reference/ 里，请先看一看。",
       designSystem: "设计系统",
+      designSystemHint: "不确定的话，AI 会在设计方向里建议。",
       designSystems: {
         default: { name: "中性", hint: "朴素安静，适合大多数网站的底子。" },
         material: { name: "Material 风格", hint: "参照 Material Design 3：大圆角、胶囊按钮、色阶卡片、柔和的状态色。" },

@@ -134,6 +134,9 @@ export function NewThemeDialog({
                   </span>
                 </label>
               ))}
+              <p className="text-xs text-muted-foreground" data-testid="new-theme-design-system-hint">
+                {n.designSystemHint}
+              </p>
             </fieldset>
             <Field label={n.brief} htmlFor="theme-brief" hint={n.briefHint}>
               <textarea
