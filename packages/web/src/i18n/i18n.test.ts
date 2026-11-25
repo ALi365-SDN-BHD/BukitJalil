@@ -29,4 +29,14 @@ describe("i18n (plan 10.1)", () => {
       for (const code of errorCodes) expect(catalog.errors[code], code).toBeTruthy();
     }
   });
+
+  it("has no Chinese text in the English and Malay catalogs", () => {
+    const texts = (o: object, prefix = ""): [string, string][] =>
+      Object.entries(o).flatMap(([k, v]): [string, string][] =>
+        typeof v === "object" ? texts(v, `${prefix}${k}.`) : [[`${prefix}${k}`, String(v)]],
+      );
+    for (const catalog of [en, ms]) {
+      expect(texts(catalog).filter(([, text]) => /\p{Script=Han}/u.test(text))).toEqual([]);
+    }
+  });
 });
