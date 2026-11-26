@@ -10,7 +10,7 @@ import type {
   Site,
 } from "@bukitjalil/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { KEEP_OUTPUTS } from "../src/builds/service.ts";
+import { KEEP_OUTPUTS, snapshotSaved } from "../src/builds/service.ts";
 import { BuildStore } from "../src/builds/store.ts";
 import { BukitService } from "../src/bukit/locate.ts";
 import { resolveGitPath } from "../src/git/run.ts";
@@ -61,7 +61,7 @@ case "$1" in
     printf '%s' "$*" > "\${0}.args"
     env > "\${0}.env"
     mode=$(cat fake-mode 2>/dev/null)
-    echo '{"ts":"t","level":"info","msg":"event=build.start"}'
+    [ "$mode" = "quiet" ] || echo '{"ts":"t","level":"info","msg":"event=build.start"}' >&2
     # The Notion offline snapshot (plan 5.5), like Bukit 2.1.0: a formal build with the token records it
     # and downloads images into .cache/media; an offline build reads only the snapshot and --cache-dir.
     if [ -n "$offline" ]; then
@@ -100,8 +100,11 @@ JSON
       # An unreadable media folder makes copying the cache fail.
       if [ "$mode" = "lockmedia" ]; then mkdir -p .cache/media/locked; chmod 000 .cache/media/locked; fi
       mkdir -p "$out"; echo "<h1>formal</h1>" > "$out/index.html"
-      echo '{"ts":"t","level":"Info","msg":"event=content.source.loaded source=posts count=3"}'
-      echo '{"ts":"t","level":"Info","msg":"event=notion.snapshot.saved"}'
+      # Like Bukit 2.2.7: the JSON log on stderr; "quiet" is logging.level warn, with no Info lines at all.
+      if [ "$mode" != "quiet" ]; then
+        echo '{"ts":"t","level":"Info","msg":"event=content.source.loaded source=posts count=3"}' >&2
+        echo '{"ts":"t","level":"Info","msg":"event=notion.snapshot.saved"}' >&2
+      fi
       [ "$mode" = "savedfail" ] && { echo "stopped after saving" >&2; exit 3; }
       exit 0
     fi
@@ -220,6 +223,15 @@ async function setup(name: string, opts: { mode?: string; bin?: string | null } 
 }
 
 const fetchPreview = (port: number) => httpGet(port);
+
+it("records a stopped build only for the actual saved event on either log stream", () => {
+  const run = { stdout: "", stderr: "", exitCode: 130, stopped: "aborted", durationMs: 1 } as const;
+  const saved = JSON.stringify({ level: "Info", msg: "event=notion.snapshot.saved" });
+  expect(snapshotSaved("stopped", { ...run, stderr: saved })).toBe(true);
+  expect(snapshotSaved("stopped", { ...run, stdout: saved })).toBe(true);
+  expect(snapshotSaved("stopped", run)).toBe(false);
+  expect(snapshotSaved("stopped", { ...run, stderr: saved.replace("event=", "missing event=") })).toBe(false);
+});
 
 it.skipIf(process.platform === "win32")(
   "passes the Notion token of the site's data source to a main build but never to a change build",
@@ -358,6 +370,15 @@ it.skipIf(process.platform === "win32")(
     await ctx.builds.settled();
     expect(ctx.builds.list(site.id)[0]).toMatchObject({ ref: "main", status: "failed" });
     expect(ctx.sites.notionSnapshots.get(site.id)?.commit).toBe(savedCommit);
+
+    // A successful formal build saved the snapshot even when its log level hides the Info line.
+    fs.writeFileSync(path.join(dir, "fake-mode"), "quiet");
+    commitAll(dir, "quiet log");
+    const quietCommit = raw(dir, "rev-parse", "HEAD").trim();
+    await ctx.builds.start(site.id, "main");
+    await ctx.builds.settled();
+    expect(ctx.builds.list(site.id)[0]).toMatchObject({ ref: "main", status: "succeeded" });
+    expect(ctx.sites.notionSnapshots.get(site.id)?.commit).toBe(quietCommit);
 
     // Copying the media cache fails: the record goes, so nothing names a build the data does not come from.
     const mainDir = path.join(ctx.paths.worktrees, site.id, "main");
