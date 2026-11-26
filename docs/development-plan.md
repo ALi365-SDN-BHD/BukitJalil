@@ -196,7 +196,8 @@ BukitJalil/
 ```text
 ~/.bukitjalil/                      # 应用数据目录（可用 BUKITJALIL_HOME 覆盖）
 ├── app.db                          # SQLite：网站、会话和会话记录、改动集、构建记录、设置、四类密钥；桌面版整库用 PIN 加密（SQLCipher，见 6.9），开发和测试时不加密
-├── server.lock                     # 同一数据目录只允许一个 server 运行
+├── server.lock                     # 当前持有者的 PID
+├── server.lock.guard               # SQLite 单写者锁；文件保留，进程退出自动解锁
 ├── logs/server.log                 # 服务端日志（不含密钥）
 ├── tmp/                            # 临时文件；tmp/bukit/ 是 Bukit 子进程的 TMPDIR
 ├── bin/                           # 应用装的 git 等；以前版本装的 bukit-<版本>/ 在启动时删除（Bukit 现在在应用的 Resources/app/bukit/，开发时在仓库 vendor/bukit-<版本>/，见 8.1）
@@ -1881,7 +1882,7 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 - **server 进程**：主进程用 `utilityProcess.fork` 启动 server（Electron 自带的 Node），不在主进程里运行，server 崩溃不会带走窗口。开发时经 tsx 的加载器运行 `packages/server/src/main.ts`；安装包里运行 esbuild 打包的 `server.mjs`。前提是 Electron 45 的 Node 有 `node:sqlite`（第 1 层先核对）
 - **桌面模式 `--desktop`**：server 不打印登录链接、不读标准输入、不打开浏览器。监听成功后经 `process.parentPort` 发 `{type: "ready", port}`；收到 `{type: "login"}` 回一个新的一次性登录链接；收到 `{type: "shutdown"}` 走现有的关闭流程。端口被占用时回 `{type: "error", code: "port_in_use"}`，主进程换下一个端口重试（最多 10 次，预览端口段跟着移）
 - **资源目录**：server 现在按仓库目录找 `skills/`、`templates/starter`（2026-11-16 删除，新网站由 `bukit new` 生成）、`packages/web/dist`；加 `BUKITJALIL_RESOURCES` 指向安装包里的同名目录，没有时保持现状
-- **一个数据目录只能有一个 server**：桌面版和 `pnpm start` 默认都用 `~/.bukitjalil`，同时运行会争用 `app.db` 和工作副本。server 启动时在数据目录建 `server.lock`（写入 pid，用 `wx` 创建），已有锁且那个 pid 还活着就拒绝启动并说明；锁的 pid 已不存在时接管。桌面版把这个错误显示在窗口里
+- **一个数据目录只能有一个 server**：源码版和桌面版若显式使用同一数据目录，只允许一个进程初始化和使用它。启动时先在 `server.lock.guard` 上取得 SQLite 单写者锁，再检查和写 `server.lock` PID，直到退出才释放。进程崩溃会由系统释放写锁，下一次启动可接管死 PID；已有旧版进程持有的 PID 文件仍受保护。
 - **窗口安全**：`contextIsolation`、`sandbox` 打开，`nodeIntegration` 关闭；只允许在管理端口的地址内导航；`window.open` 和外部链接只把 http(s) 地址交给系统浏览器（预览的"在新标签页打开"也是）；拒绝所有权限请求（摄像头、通知等）；不开 `webview`
 - **预加载桥**：只暴露 `window.bukitjalil = { desktop: true, pickFolder() }`。`pickFolder` 打开系统文件夹选择框，返回路径或 null；新建网站和导入网站在桌面版用它代替网页里的目录选择器（10.1 原定）。路径照旧交给 server，位置规则仍由 server 检查
 - **单实例和退出**：`requestSingleInstanceLock`，第二次打开只把已有窗口调到前面。退出时发 `shutdown`，最多等 10 秒，超时结束 server 进程。关闭最后一个窗口时 macOS 上不退出（Dock 点图标重新打开窗口），其他平台退出
@@ -2941,6 +2942,10 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 **#15 缓存安装包完整性**：复用和打开之前都对实际普通文件流式计算 SHA-256，与本次 Release 清单比较。仅大小和旧 `.sha256` 文件吻合不能通过。用无执行内容的同尺寸测试数据验证：旧实现误复用、误调用打开回调；修复后丢弃损坏文件并能重新下载，正常缓存不产生额外下载。打开回调失败仍可直接重试打开。
 
 **#15 验收**：检查和 Web、桌面构建通过；Vitest 888 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
+
+**#14 失效锁的并发接管**：用现有 SQLite 驱动在独立、常驻的 guard 文件上持有 `BEGIN IMMEDIATE`，拿到写锁后才处理 PID 标记并初始化数据目录。守卫文件不保存业务数据，PIN 重置不删除它。定向测试拒绝重复获取；两个真实 server 竞争死 PID 时只有一个就绪，失败方不能删除其标记，强制结束持有者后可立即重启。复查发现 `BEGIN EXCLUSIVE` 在两个连接同时启动时可能双双失败；改为只争用写者名额后连续 12 轮进程测试通过。
+
+**#14 验收**：检查和 Web、桌面构建通过；Vitest 890 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
 
 ## 15. 风险与对策
 

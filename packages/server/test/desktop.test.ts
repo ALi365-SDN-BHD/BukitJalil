@@ -21,6 +21,17 @@ function deadPid(): number {
 }
 
 describe("data directory lock (plan M7)", () => {
+  it("cannot take over twice in the same process after a stale marker", () => {
+    const file = path.join(tmp(), "server.lock");
+    fs.writeFileSync(file, `${deadPid()}\n`);
+    const release = acquireHomeLock(file);
+    try {
+      expect(() => acquireHomeLock(file)).toThrow(HomeInUseError);
+      expect(fs.readFileSync(file, "utf8")).toBe(`${process.pid}\n`);
+    } finally {
+      release();
+    }
+  });
   it("is taken, refused to a second live process and released", () => {
     const file = path.join(tmp(), "server.lock");
     const sleeper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
@@ -103,7 +114,7 @@ afterEach(() => {
 
 /**
  * main.ts started as the desktop app starts it, with an IPC channel in place of Electron's parentPort.
- * Tests here use ports 46700-46769, apart from the preview pools of the other test files (48810+, 49500+),
+ * Tests here use ports 46700-46789, apart from the preview pools of the other test files (48810+, 49500+),
  * which run in parallel.
  */
 function startDesktop(home: string, port: number, extra: string[] = []) {
@@ -151,6 +162,25 @@ async function setupPin(port: number, cookie: string): Promise<Response> {
 }
 
 describe("desktop mode (plan M7)", () => {
+  it("elects one server over a stale marker and releases ownership on process death", async () => {
+    const home = tmp();
+    const file = path.join(home, "server.lock");
+    fs.writeFileSync(file, `${deadPid()}\n`);
+    const contenders = [startDesktop(home, 46770), startDesktop(home, 46780)] as const;
+    const results = await Promise.all(contenders.map((s) => s.next("ready")));
+    expect(results.map((r) => r.type).sort(), JSON.stringify(results)).toEqual(["error", "ready"]);
+    const loser = results[0]?.type === "error" ? 0 : 1;
+    expect(results[loser]).toMatchObject({ code: "home_in_use" });
+    const winner = contenders[loser === 0 ? 1 : 0];
+    expect(await contenders[loser].exited).toBe(1);
+    expect(fs.readFileSync(file, "utf8")).toBe(`${winner.child.pid}\n`);
+    winner.child.kill("SIGKILL");
+    await winner.exited;
+    const next = startDesktop(home, 46770);
+    expect(await next.next("ready")).toMatchObject({ type: "ready" });
+    next.child.send({ type: "shutdown" });
+    expect(await next.exited).toBe(0);
+  }, 30_000);
   it("reports ready, hands out login links on request and shuts down when asked", async () => {
     const home = tmp();
     const s = startDesktop(home, 46700);

@@ -80,8 +80,6 @@ export interface AppPaths {
   tmp: string;
   /** Site captures handed from the desktop app to the server (design 6.2), captures/<id>/. */
   captures: string;
-  /** Pid of the server using this directory (plan M7). */
-  lock: string;
 }
 
 export function ensureAppHome(home: string): AppPaths {
@@ -99,7 +97,6 @@ export function ensureAppHome(home: string): AppPaths {
     piBin: path.join(home, "pi", "bin"),
     tmp: path.join(home, "tmp"),
     captures: path.join(home, "captures"),
-    lock: path.join(home, "server.lock"),
   };
   // mkdir's mode only applies to new directories, so existing ones are tightened as well. The database
   // is created empty with 0600 before SQLite opens it; SQLite gives -wal / -shm the same mode.

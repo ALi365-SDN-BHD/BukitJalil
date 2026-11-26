@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import Database from "better-sqlite3-multiple-ciphers";
+import { assertNotLink } from "./safe-open.ts";
 
 /** Another server is using the data directory. */
 export class HomeInUseError extends Error {
@@ -51,24 +53,47 @@ const holder = (file: string): number | null => read(file).pid;
 const LOCK_WRITE_GRACE_MS = 2_000;
 
 /**
- * Take the data directory for this process (plan M7): the desktop app and `pnpm start` share
- * ~/.bukitjalil, and two servers on it would fight over app.db and the working copies. A lock left by a
- * process that no longer runs is taken over. Returns a function that releases it.
+ * SQLite holds the OS lock on a stable file for the server's lifetime, including PID-marker takeover.
+ * Never unlink the guard: another process must lock the same file even after an unclean exit.
  */
 export function acquireHomeLock(file: string, pid = process.pid): () => void {
+  const guard = `${file}.guard`;
+  assertNotLink(guard);
+  let db: Database.Database | undefined;
+  try {
+    db = new Database(guard, { timeout: 0 });
+    // Reserve the single writer slot without blocking a contender opening its read connection.
+    db.exec("BEGIN IMMEDIATE");
+    const release = acquirePidFile(file, pid);
+    const owner = db;
+    return () => {
+      if (!owner.open) return;
+      try {
+        release();
+      } finally {
+        owner.close();
+      }
+    };
+  } catch (err) {
+    db?.close();
+    if ((err as { code?: string }).code === "SQLITE_BUSY") throw new HomeInUseError(file, holder(file) ?? 0);
+    throw err;
+  }
+}
+
+/** Keep the PID marker and respect a live server from before the OS lock was introduced. */
+function acquirePidFile(file: string, pid: number): () => void {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       fs.writeFileSync(file, `${pid}\n`, { flag: "wx", mode: 0o600 });
-      let held = true;
       return () => {
-        if (!held) return;
-        held = false;
         // Only our own lock; a takeover after we were thought dead is not ours to remove.
         if (holder(file) === pid) fs.rmSync(file, { force: true });
       };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
       const { pid: other, complete } = read(file);
+      if (attempt !== 0) throw new HomeInUseError(file, other ?? 0);
       if (other !== null && other !== pid && alive(other)) throw new HomeInUseError(file, other);
       // A lock written just now may still be mid-write: without its closing newline even a readable PID can
       // be partial. Wait for the grace period before taking such a lock over. A complete line naming a dead

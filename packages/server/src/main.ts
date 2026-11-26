@@ -113,16 +113,18 @@ if (values["dev-origin"] !== undefined) {
   openOrigin = values["dev-origin"];
 }
 
-const paths = ensureAppHome(resolveAppHome(desktop !== null));
-// Before the database opens: one server per data directory (plan M7).
+const home = resolveAppHome(desktop !== null);
+fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+// Only the owner may initialize or reset files in this home.
 let releaseLock: () => void;
 try {
-  releaseLock = acquireHomeLock(paths.lock);
+  releaseLock = acquireHomeLock(path.join(home, "server.lock"));
 } catch (err) {
   if (err instanceof HomeInUseError) fail(err.message, "home_in_use");
   throw err;
 }
 process.on("exit", () => releaseLock());
+const paths = ensureAppHome(home);
 // A forgotten PIN (plan 6.9): the desktop app stopped the old server and started this one to delete the data,
 // before anything opens the database. The emptied directory is set up again as on a first start.
 if (values.reset) {
