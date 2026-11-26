@@ -348,6 +348,8 @@ export interface ContentPage {
  * `code_language`, `image_url`, `unwritable`, `too_long`.
  */
 export interface ContentBody {
+  /** Fingerprint of the editable blocks, independent of temporary image addresses. */
+  revision: string;
   blocks: ContentBlock[];
   editable: boolean;
   unsupported: string[];
@@ -359,7 +361,9 @@ export interface ContentBodySaved extends ContentBody {
 }
 
 /** PUT …/body: replaces the whole body. */
-export const ContentBodyUpdate = z.object({ lastEditedTime: z.string().min(1).max(40), blocks: Blocks }).strict();
+export const ContentBodyUpdate = z
+  .object({ lastEditedTime: z.string().min(1).max(40), revision: z.string().regex(/^[a-f0-9]{64}$/), blocks: Blocks })
+  .strict();
 export type ContentBodyUpdate = z.infer<typeof ContentBodyUpdate>;
 
 /**
@@ -378,7 +382,7 @@ export interface ContentProposal {
   /** Changed properties: how each reads now (null for a new entry) and its new value. */
   properties: { name: string; type: string; before: string | null; after: ContentValue; revision?: string }[];
   /** The body as Markdown before (null for a new entry) and after; null when the body is not changed. */
-  body: { before: string | null; after: string } | null;
+  body: { before: string | null; after: string; revision?: string } | null;
   /** The body to write, as blocks; null when it is not changed. */
   blocks: ContentBlock[] | null;
 }

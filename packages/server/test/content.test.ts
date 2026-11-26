@@ -80,6 +80,7 @@ function notionPage(overrides: Record<string, unknown> = {}) {
 /** A fake Notion API: records requests, answers from `page`, and lets a test force a status. */
 function fakeNotion() {
   const sent: Sent[] = [];
+  let blockId = 1000;
   const state = {
     page: notionPage() as Record<string, unknown>,
     fail: null as null | { status: number; body?: unknown; when?: (s: Sent) => boolean },
@@ -140,10 +141,16 @@ function fakeNotion() {
       });
     }
     if (children && s.method === "PATCH") {
+      if (children[1] === PAGE && Array.isArray(s.body?.children)) {
+        const at =
+          s.body.after === undefined ? state.blocks.length : state.blocks.findIndex((b) => b.id === s.body?.after) + 1;
+        state.blocks.splice(at, 0, ...s.body.children.map((b) => ({ ...b, id: ID(blockId++) })));
+      }
       touch();
       return json({ results: [] });
     }
     if (/^\/blocks\/[0-9a-f]{32}$/.test(s.path) && (s.method === "DELETE" || s.method === "PATCH")) {
+      if (s.method === "DELETE") state.blocks = state.blocks.filter((b) => `/blocks/${b.id}` !== s.path);
       touch();
       return json({});
     }
@@ -430,8 +437,31 @@ const hostedImage = (id: string, caption: string) => ({
   image: { type: "file", file: { url: "https://s3.example/signed" }, caption: rich(caption) },
 });
 const ID = (n: number) => String(n).padStart(32, "a");
+const bodyRevision = async (ctx: Ctx, page: string) =>
+  ((await (await call(ctx, "GET", `${page}/body`)).json()) as ContentBody).revision;
 
 describe("/api/content page body", () => {
+  it("two sources saving one page in the same minute leave exactly the successful body", async () => {
+    const { ctx, notion, page, source } = await setup("same-page-saves");
+    const other = ctx.dataSources.create({ platform: "notion", name: "Also Work", token: `${TOKEN}2` });
+    const alias = page.replace(source.id, other.id).replace(PAGE, "01234567-89AB-CDEF-0123-456789ABCDEF");
+    notion.state.page.last_edited_time = "2026-11-21T09:00:00.000Z"; // All writes in the fake occur at this time.
+    const original = (await (await call(ctx, "GET", `${page}/body`)).json()) as ContentBody;
+    const save = (path: string, text: string) =>
+      call(ctx, "PUT", `${path}/body`, {
+        lastEditedTime: original.lastEditedTime,
+        revision: original.revision,
+        blocks: md(text),
+      });
+    const results = await Promise.all([save(page, "A"), save(alias, "B")]);
+    const final = (await (await call(ctx, "GET", `${page}/body`)).json()) as ContentBody;
+    expect(final.blocks).toEqual(md(results[0]?.ok ? "A" : "B"));
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(await (await save(page, "Stale retry")).json()).toMatchObject({ code: "content.conflict" });
+    expect(notion.sent.filter((s) => s.method === "PATCH" && s.path.endsWith("/children"))).toHaveLength(1);
+    ctx.db.close();
+  });
+
   it("reads the body as blocks, list children included, or says why it cannot", async () => {
     const { ctx, notion, page } = await setup("body-read");
     notion.state.blocks = [
@@ -444,6 +474,7 @@ describe("/api/content page body", () => {
     const body = (await (await call(ctx, "GET", `${page}/body`)).json()) as ContentBody;
     expect(body).toEqual({
       blocks: md("Intro\n\n- parent\n    - [x] child"),
+      revision: expect.stringMatching(/^[0-9a-f]{64}$/),
       editable: true,
       unsupported: [],
       lastEditedTime: "2026-11-21T08:00:00.000Z",
@@ -464,6 +495,7 @@ describe("/api/content page body", () => {
     const markdown = Array.from({ length: 250 }, (_, i) => `Paragraph ${i}`).join("\n\n");
 
     const stale = await call(ctx, "PUT", `${page}/body`, {
+      revision: await bodyRevision(ctx, page),
       lastEditedTime: "2026-11-21T07:00:00.000Z",
       blocks: md(markdown),
     });
@@ -471,12 +503,14 @@ describe("/api/content page body", () => {
     expect(notion.sent.some((s) => s.method !== "GET")).toBe(false);
 
     const res = await call(ctx, "PUT", `${page}/body`, {
+      revision: await bodyRevision(ctx, page),
       lastEditedTime: "2026-11-21T08:00:00.000Z",
       blocks: md(markdown),
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       blocks: md(markdown),
+      revision: await bodyRevision(ctx, page),
       editable: true,
       unsupported: [],
       lastEditedTime: "2026-11-21T09:00:00.000Z",
@@ -511,6 +545,7 @@ describe("/api/content page body", () => {
     const saved = (await (
       await call(ctx, "PUT", `${page}/body`, {
         lastEditedTime: initial.lastEditedTime,
+        revision: await bodyRevision(ctx, page),
         blocks: md("Edited body"),
       })
     ).json()) as ContentBodySaved;
@@ -538,6 +573,7 @@ describe("/api/content page body", () => {
     const res = await call(ctx, "PUT", `${page}/body`, {
       lastEditedTime: "2026-11-21T08:00:00.000Z",
       blocks: md(`New before\n\n![New caption](notion-image:${ID(2)})\n\nNew after`),
+      revision: await bodyRevision(ctx, page),
     });
     expect(res.status).toBe(200);
     const writes = notion.sent.filter((s) => s.method !== "GET");
@@ -555,6 +591,7 @@ describe("/api/content page body", () => {
       notion.state.blocks = blocks;
       notion.state.page = notionPage();
       const r = await call(ctx, "PUT", `${page}/body`, {
+        revision: await bodyRevision(ctx, page),
         lastEditedTime: "2026-11-21T08:00:00.000Z",
         blocks: md(markdown),
       });
@@ -579,18 +616,29 @@ describe("/api/content page body", () => {
       url: "https://s3.example/signed",
       caption: [{ text: "Cover" }],
     });
+    const refreshed = hostedImage(ID(1), "Cover");
+    refreshed.image.file.url = "https://s3.example/new-signature";
+    notion.state.blocks[0] = refreshed;
     const res = await call(ctx, "PUT", `${page}/body`, {
       lastEditedTime: "2026-11-21T08:00:00.000Z",
       blocks: [{ type: "notion_image", id: ID(1), caption: [{ text: "Cover" }] }, ...md("New")],
+      revision: read.revision,
     });
-    expect(((await res.json()) as ContentBody).blocks).toEqual([read.blocks[0], ...md("New")]);
+    expect(((await res.json()) as ContentBody).blocks).toEqual([
+      { ...read.blocks[0], url: refreshed.image.file.url },
+      ...md("New"),
+    ]);
     ctx.db.close();
   });
 
   it("refuses blocks this does not edit before reading Notion", async () => {
     const { ctx, notion, page } = await setup("body-shape");
     const put = (blocks: unknown) =>
-      call(ctx, "PUT", `${page}/body`, { lastEditedTime: "2026-11-21T08:00:00.000Z", blocks });
+      call(ctx, "PUT", `${page}/body`, {
+        lastEditedTime: "2026-11-21T08:00:00.000Z",
+        revision: "a".repeat(64),
+        blocks,
+      });
     const item = (children?: unknown) => ({ type: "bulleted_list_item", text: [{ text: "x" }], children });
     const before = notion.sent.length;
     for (const blocks of [
@@ -623,8 +671,12 @@ describe("/api/content page body", () => {
 
   it("refuses to save over blocks it cannot write, and says when a save stopped half way", async () => {
     const { ctx, notion, page } = await setup("body-refuse");
-    const save = () =>
-      call(ctx, "PUT", `${page}/body`, { lastEditedTime: "2026-11-21T08:00:00.000Z", blocks: md("New") });
+    const save = async () =>
+      call(ctx, "PUT", `${page}/body`, {
+        lastEditedTime: "2026-11-21T08:00:00.000Z",
+        revision: await bodyRevision(ctx, page),
+        blocks: md("New"),
+      });
     notion.state.blocks = [
       p(ID(1), "x"),
       { id: ID(2), type: "child_database", has_children: false, child_database: {} },
@@ -643,6 +695,7 @@ describe("/api/content page body", () => {
     const invalid = await call(ctx, "PUT", `${page}/body`, {
       lastEditedTime: "2026-11-21T08:00:00.000Z",
       blocks: md("![x](ftp://example.com/x.png)"),
+      revision: await bodyRevision(ctx, page),
     });
     expect(await invalid.json()).toMatchObject({ code: "content.body_invalid" });
     ctx.db.close();

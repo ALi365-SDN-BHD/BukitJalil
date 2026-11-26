@@ -211,6 +211,7 @@ function BodyField({
     );
   }
   const base = body.data?.lastEditedTime ?? "";
+  const revision = body.data?.revision ?? "";
   const initial = withShownImages(draft.body ?? saved, saved);
   return (
     <div className="flex flex-col gap-1.5">
@@ -226,9 +227,9 @@ function BodyField({
             shownUrls.current = imageUrls(initial);
           }}
           onChange={(change) => {
-            if ("problem" in change) return draft.setProblem(change.problem, change.unsaved, base);
+            if ("problem" in change) return draft.setProblem(change.problem, change.unsaved, base, revision);
             shown.current = change.blocks;
-            draft.setBody(change.blocks, saved, base);
+            draft.setBody(change.blocks, saved, base, revision);
           }}
         />
       </Suspense>
@@ -294,12 +295,13 @@ function useSavePage(
         const checked = edited;
         const { page: latest, ...saved } = await api.saveContentBody(sourceId, databaseId, pageId, {
           lastEditedTime: checked,
+          revision: draft.bodyRevision,
           blocks: [...sentBody],
         });
         edited = saved.lastEditedTime;
         queryClient.setQueryData(bodyKey, saved);
         queryClient.setQueryData(pageKey, latest);
-        draft.bodySaved(sentBody, edited);
+        draft.bodySaved(sentBody, edited, saved.revision);
       }
       if (Object.keys(sentChanges).length > 0) {
         const saved = await api.updateContentPage(sourceId, databaseId, pageId, {

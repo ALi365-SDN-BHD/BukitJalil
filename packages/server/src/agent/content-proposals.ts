@@ -205,7 +205,7 @@ export function createProposeTools({ content, ref, current }: ProposeToolOptions
           const before = contentToMarkdown(current_body.blocks);
           const after = contentToMarkdown(next);
           if (after !== before) {
-            bodyChange = { before, after };
+            bodyChange = { before, after, revision: current_body.revision };
             blocks = next;
           }
         }
@@ -371,9 +371,21 @@ export class ContentProposals {
           expected.set(p.name, field.revision);
         }
         if (blocks) {
+          let revision = proposal.body?.revision;
+          if (!revision) {
+            const original = await this.content.body(ref.sourceId, ref.databaseId, entryId as string);
+            if (
+              !original.editable ||
+              original.lastEditedTime !== base ||
+              contentToMarkdown(original.blocks) !== proposal.body?.before
+            )
+              throw new SiteError("content.conflict", 409);
+            revision = original.revision;
+          }
           base = (
             await this.content.saveBody(ref.sourceId, ref.databaseId, entryId as string, {
               lastEditedTime: base,
+              revision,
               blocks,
             })
           ).lastEditedTime;

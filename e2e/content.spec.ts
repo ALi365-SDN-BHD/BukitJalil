@@ -193,13 +193,16 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
     const found = state.pages.find((p) => p.id === pageId);
     if (!found) return route.fulfill({ status: 404, json: { code: "content.not_in_database" } });
     if (parts[9] === "body") {
+      const revision = () => createHash("sha256").update(JSON.stringify(found.body)).digest("hex");
       if (req.method() === "PUT") {
+        if (body?.revision !== revision()) return route.fulfill({ status: 409, json: { code: "content.conflict" } });
         found.body = (body?.blocks as unknown[] | undefined) ?? [];
         found.edited = new Date(Date.parse(found.edited) + 60_000).toISOString();
       }
       return route.fulfill({
         json: {
           blocks: found.readOnly ? [] : found.body,
+          revision: revision(),
           editable: !found.readOnly,
           unsupported: found.readOnly ? ["breadcrumb_v2", "color", "table"] : [],
           lastEditedTime: found.edited,

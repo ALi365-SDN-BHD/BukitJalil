@@ -79,6 +79,7 @@ function stub(s: Stub) {
       editable: true,
       unsupported: [],
       lastEditedTime: BASE,
+      revision: "c".repeat(64),
       ...s.body,
     }),
     saveBody: async (_s: string, _d: string, id: string, req: { lastEditedTime: string; blocks: unknown[] }) => {
@@ -244,7 +245,7 @@ describe("proposal decisions", () => {
     title: "Hello",
     base: BASE,
     properties: [{ name: "Stage", type: "status", before: "Draft", after: { type: "status", option: "Done" } }],
-    body: { before: "Old", after: "New" },
+    body: { before: "Old", after: "New", revision: "c".repeat(64) },
     blocks: [{ type: "paragraph", text: [{ text: "New" }] }],
     ...over,
   });

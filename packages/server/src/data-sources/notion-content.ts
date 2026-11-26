@@ -4,6 +4,7 @@ import {
   CONTENT_BODY_MAX,
   CONTENT_PAGE_SIZE,
   CONTENT_PROPERTY_NAME_MAX,
+  type ContentBlock,
   type ContentBody,
   type ContentBodySaved,
   type ContentBodyUpdate,
@@ -96,7 +97,20 @@ export interface EntryQuery {
  * Every call comes from a user action; nothing here is logged, cached or handed to the AI.
  */
 export class NotionContentService {
+  private readonly writes = new Map<string, Promise<unknown>>();
   constructor(private readonly dataSources: DataSourceService) {}
+
+  /** Tokens and source IDs can differ for the same page. Recheck the caller's version inside the queue. */
+  private async mutate<T>(pageId: string, write: () => Promise<T>): Promise<T> {
+    const key = idOf(pageId);
+    const result = (this.writes.get(key) ?? Promise.resolve()).then(write, write);
+    this.writes.set(key, result);
+    try {
+      return await result;
+    } finally {
+      if (this.writes.get(key) === result) this.writes.delete(key);
+    }
+  }
 
   async database(sourceId: string, databaseId: string): Promise<ContentDatabase> {
     const json = await this.call(sourceId, "GET", `/databases/${idOf(databaseId)}`);
@@ -162,22 +176,24 @@ export class NotionContentService {
    * read is a 409 rather than overwritten. Two requests apart, a change in between can still slip through.
    */
   async update(sourceId: string, databaseId: string, pageId: string, req: ContentPageUpdate): Promise<ContentPage> {
-    const current = await this.read(sourceId, databaseId, pageId);
-    if (str(current.last_edited_time, 40) !== req.lastEditedTime) throw new SiteError("content.conflict", 409);
-    const raw = isRecord(current.properties) ? current.properties : {};
-    for (const name of Object.keys(req.properties)) {
-      if (!Object.hasOwn(raw, name) || revision(raw[name]) !== req.expected[name])
-        throw new SiteError("content.conflict", 409);
-    }
-    if (Object.keys(req.properties).length === 0) return viewOf(current);
-    const json = await this.call(
-      sourceId,
-      "PATCH",
-      `/pages/${idOf(pageId)}`,
-      { properties: payloadOf(req.properties) },
-      true,
-    );
-    return viewOf(json);
+    return this.mutate(pageId, async () => {
+      const current = await this.read(sourceId, databaseId, pageId);
+      if (str(current.last_edited_time, 40) !== req.lastEditedTime) throw new SiteError("content.conflict", 409);
+      const raw = isRecord(current.properties) ? current.properties : {};
+      for (const name of Object.keys(req.properties)) {
+        if (!Object.hasOwn(raw, name) || revision(raw[name]) !== req.expected[name])
+          throw new SiteError("content.conflict", 409);
+      }
+      if (Object.keys(req.properties).length === 0) return viewOf(current);
+      const json = await this.call(
+        sourceId,
+        "PATCH",
+        `/pages/${idOf(pageId)}`,
+        { properties: payloadOf(req.properties) },
+        true,
+      );
+      return viewOf(json);
+    });
   }
 
   /** A new page with the given properties and, optionally, a body. */
@@ -204,21 +220,24 @@ export class NotionContentService {
       throw err;
     }
     const pageId = idOf(str(json.id, 100));
-    try {
-      for (const batch of rest) {
-        await this.call(sourceId, "PATCH", `/blocks/${pageId}/children`, { children: batch }, true);
-      }
-    } catch (err) {
-      // The client never learns the half-written page, so it goes to the trash: creating again then makes no
-      // duplicate. Only if that fails too is the page left for the user to find.
+    if (rest.length === 0) return viewOf(json);
+    return this.mutate(pageId, async () => {
       try {
-        await this.call(sourceId, "PATCH", `/pages/${pageId}`, { archived: true }, true);
-      } catch {
-        throw new SiteError("content.body_partial", 503);
+        for (const batch of rest) {
+          await this.call(sourceId, "PATCH", `/blocks/${pageId}/children`, { children: batch }, true);
+        }
+      } catch (err) {
+        // The client never learns the half-written page, so it goes to the trash: creating again then makes no
+        // duplicate. Only if that fails too is the page left for the user to find.
+        try {
+          await this.call(sourceId, "PATCH", `/pages/${pageId}`, { archived: true }, true);
+        } catch {
+          throw new SiteError("content.body_partial", 503);
+        }
+        throw err;
       }
-      throw err;
-    }
-    return viewOf(json);
+      return viewOf(json);
+    });
   }
 
   /** The body as blocks, or what keeps it from being edited here. */
@@ -233,6 +252,7 @@ export class NotionContentService {
         : read;
     return {
       blocks,
+      revision: bodyRevision(blocks),
       editable: unsupported.length === 0,
       unsupported,
       lastEditedTime: str(page.last_edited_time, 40),
@@ -250,32 +270,37 @@ export class NotionContentService {
     pageId: string,
     req: ContentBodyUpdate,
   ): Promise<ContentBodySaved> {
-    const page = await this.read(sourceId, databaseId, pageId);
-    if (str(page.last_edited_time, 40) !== req.lastEditedTime) throw new SiteError("content.conflict", 409);
-    const items = contentToItems(req.blocks);
-    const id = idOf(pageId);
-    const tree = await this.tree(sourceId, id);
-    const current = tree.tooLong ? null : readBody(tree.blocks);
-    if (!current || current.unsupported.length > 0) throw new SiteError("content.body_unsupported", 409);
-    await this.replaceBody(
-      sourceId,
-      id,
-      tree.blocks.map((b) => b.block),
-      items,
-    );
-    const after = viewOf(await this.read(sourceId, databaseId, pageId));
-    // Kept images are where they were: they keep the address they were shown with.
-    const shown = new Map(current.blocks.flatMap((b) => (b.type === "notion_image" && b.url ? [[b.id, b.url]] : [])));
-    return {
-      blocks: readBody(storedOf(items)).blocks.map((b) => {
+    return this.mutate(pageId, async () => {
+      const page = await this.read(sourceId, databaseId, pageId);
+      if (str(page.last_edited_time, 40) !== req.lastEditedTime) throw new SiteError("content.conflict", 409);
+      const items = contentToItems(req.blocks);
+      const id = idOf(pageId);
+      const tree = await this.tree(sourceId, id);
+      const current = tree.tooLong ? null : readBody(tree.blocks);
+      if (!current || current.unsupported.length > 0) throw new SiteError("content.body_unsupported", 409);
+      if (bodyRevision(current.blocks) !== req.revision) throw new SiteError("content.conflict", 409);
+      await this.replaceBody(
+        sourceId,
+        id,
+        tree.blocks.map((b) => b.block),
+        items,
+      );
+      const after = viewOf(await this.read(sourceId, databaseId, pageId));
+      // Kept images are where they were: they keep the address they were shown with.
+      const shown = new Map(current.blocks.flatMap((b) => (b.type === "notion_image" && b.url ? [[b.id, b.url]] : [])));
+      const blocks = readBody(storedOf(items)).blocks.map((b) => {
         const url = b.type === "notion_image" ? shown.get(b.id) : undefined;
         return url ? { ...b, url } : b;
-      }),
-      editable: true,
-      unsupported: [],
-      lastEditedTime: after.lastEditedTime,
-      page: after,
-    };
+      });
+      return {
+        blocks,
+        revision: bodyRevision(blocks),
+        editable: true,
+        unsupported: [],
+        lastEditedTime: after.lastEditedTime,
+        page: after,
+      };
+    });
   }
 
   /**
@@ -385,8 +410,10 @@ export class NotionContentService {
 
   /** Move the page to Notion's trash; it is not deleted for good (plan 5.6). */
   async trash(sourceId: string, databaseId: string, pageId: string): Promise<void> {
-    await this.read(sourceId, databaseId, pageId);
-    await this.call(sourceId, "PATCH", `/pages/${idOf(pageId)}`, { archived: true }, true);
+    return this.mutate(pageId, async () => {
+      await this.read(sourceId, databaseId, pageId);
+      await this.call(sourceId, "PATCH", `/pages/${idOf(pageId)}`, { archived: true }, true);
+    });
   }
 
   /** A page of this database, not in the trash. */
@@ -445,6 +472,10 @@ function revision(value: unknown): string {
       ),
     )
     .digest("hex");
+}
+
+function bodyRevision(blocks: ContentBlock[]): string {
+  return revision(blocks.map((b) => (b.type === "notion_image" ? { ...b, url: undefined } : b)));
 }
 
 function titleOf(properties: ContentProperty[]): string {

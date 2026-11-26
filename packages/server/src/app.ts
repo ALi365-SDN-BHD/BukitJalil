@@ -86,7 +86,7 @@ export interface AdminAppOptions {
   changes: ChangeService;
   customModels: CustomModelStore;
   dataSources: DataSourceService;
-  /** Notion pages of content management; one instance, so its per-source request queue is shared with the AI. */
+  /** Shared with the AI so all local mutations of a Notion page use the same queue. */
   content?: NotionContentService;
   publishAccounts: PublishAccountService;
   deploys: DeployService;

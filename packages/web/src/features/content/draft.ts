@@ -15,6 +15,7 @@ interface Draft {
   revisions: Readonly<Record<string, string>>;
   /** The edited body; null while it is unchanged. */
   body: readonly ContentBlock[] | null;
+  bodyRevision: string;
   /** Why the body as it is in the editor cannot be saved; `body` is then its last version that can. */
   problem: BlocksProblem | null;
   /** With a problem: the editor's document, to load again if the editor remounts. */
@@ -32,6 +33,7 @@ const empty = (key: string): Draft => ({
   changes: NONE,
   revisions: {},
   body: null,
+  bodyRevision: "",
   problem: null,
   unsaved: null,
   base: "",
@@ -101,6 +103,7 @@ export function draftOf(key: string) {
     changes: mine.changes,
     revisions: mine.revisions,
     body: mine.body,
+    bodyRevision: mine.bodyRevision,
     problem: mine.problem,
     unsaved: mine.unsaved,
     base: mine.base,
@@ -125,27 +128,29 @@ export function draftOf(key: string) {
         ),
       );
     },
-    setBody(value: readonly ContentBlock[], saved: readonly ContentBlock[], base: string) {
+    setBody(value: readonly ContentBlock[], saved: readonly ContentBlock[], base: string, revision: string) {
       const before = current(key);
+      const body = sameBlocks(value, saved) ? null : value;
       replace(
         changed(
           before,
-          { ...before, body: sameBlocks(value, saved) ? null : value, problem: null, unsaved: null },
+          { ...before, body, bodyRevision: body ? before.bodyRevision || revision : "", problem: null, unsaved: null },
           base,
         ),
       );
     },
     /** The body in the editor cannot be saved as it is: `unsaved` is what it holds. */
-    setProblem(problem: BlocksProblem, unsaved: Unsaved, base: string) {
+    setProblem(problem: BlocksProblem, unsaved: Unsaved, base: string, revision: string) {
       const before = current(key);
-      replace(changed(before, { ...before, problem, unsaved }, base));
+      replace(changed(before, { ...before, problem, unsaved, bodyRevision: before.bodyRevision || revision }, base));
     },
     /**
      * The body `sent` is in Notion as of `edited`. Typing since the save began stays, now based on `edited`.
      */
-    bodySaved(sent: readonly ContentBlock[], edited: string) {
+    bodySaved(sent: readonly ContentBlock[], edited: string, revision: string) {
       if (draft.key !== key) return;
-      const next = { ...draft, body: draft.body && sameBlocks(draft.body, sent) ? null : draft.body };
+      const body = draft.body && sameBlocks(draft.body, sent) ? null : draft.body;
+      const next = { ...draft, body, bodyRevision: body || draft.problem ? revision : "" };
       replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });
     },
     /** The property values `sent` are in Notion as of `edited`; changes made since the save began stay. */
