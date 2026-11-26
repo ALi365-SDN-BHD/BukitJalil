@@ -154,7 +154,6 @@ describe("UpdateService", () => {
     });
     const file = path.join(dir, "0.1.0-beta.5", DMG);
     expect(fs.readFileSync(file)).toEqual(BYTES);
-    expect(fs.readFileSync(`${file}.sha256`, "utf8").trim()).toBe(HASH);
     expect(fs.existsSync(path.join(dir, "0.1.0-beta.2"))).toBe(false);
     await updates.open();
     expect(opened).toEqual([file]);
@@ -167,6 +166,33 @@ describe("UpdateService", () => {
     await updates.waitForDownload();
     const status = await updates.open();
     expect(status.state).toMatchObject({ phase: "error", operation: "open", code: "update.open_failed" });
+  });
+
+  it("discards a same-size damaged installer before opening and can download a fresh one", async () => {
+    const opened: string[] = [];
+    const { dir, updates } = service({
+      openInstaller: async (file) => {
+        opened.push(file);
+        return null;
+      },
+    });
+    await updates.check(true);
+    updates.startDownload();
+    await updates.waitForDownload();
+    const file = path.join(dir, "0.1.0-beta.5", DMG);
+    fs.writeFileSync(file, Buffer.alloc(BYTES.length));
+    expect((await updates.open()).state).toMatchObject({
+      phase: "error",
+      operation: "download",
+      code: "update.checksum_mismatch",
+    });
+    expect(opened).toEqual([]);
+    expect(fs.existsSync(file)).toBe(false);
+    updates.startDownload();
+    await updates.waitForDownload();
+    await updates.open();
+    expect(opened).toEqual([file]);
+    expect(fs.readFileSync(file)).toEqual(BYTES);
   });
 
   it("removes interrupted .part files at startup", async () => {
@@ -215,11 +241,14 @@ describe("UpdateService", () => {
     expect(fs.readFileSync(path.join(dir, "0.1.0-beta.5", DMG))).toEqual(BYTES);
   });
 
-  it("reuses a verified installer through its sidecar without downloading again", async () => {
+  it.each([false, true])("verifies cached bytes before reuse (damaged: %s)", async (damaged) => {
     const first = service({});
     await first.updates.check(true);
     first.updates.startDownload();
     await first.updates.waitForDownload();
+    const file = path.join(first.dir, "0.1.0-beta.5", DMG);
+    fs.writeFileSync(`${file}.sha256`, `${HASH}\n`); // Legacy cache metadata.
+    if (damaged) fs.writeFileSync(file, Buffer.alloc(BYTES.length));
 
     let downloads = 0;
     const fetchImpl = (async (input: string | URL | Request) => {
@@ -245,7 +274,8 @@ describe("UpdateService", () => {
     second.startDownload();
     await second.waitForDownload();
     expect(second.status().state.phase).toBe("downloaded");
-    expect(downloads).toBe(0);
+    expect(downloads).toBe(damaged ? 1 : 0);
+    expect(fs.readFileSync(file)).toEqual(BYTES);
   });
 
   it("deletes a file whose checksum does not match", async () => {

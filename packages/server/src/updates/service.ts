@@ -14,6 +14,7 @@ import type {
 } from "@bukitjalil/shared";
 import semver from "semver";
 import type { Logger } from "../log.ts";
+import { O_NOFOLLOW } from "../safe-open.ts";
 
 const RELEASES_URL = "https://api.github.com/repos/ALi365-SDN-BHD/BukitJalil/releases?per_page=20";
 /** A successful or failed lookup is reused for this long; manual checks bypass it. */
@@ -171,25 +172,16 @@ export class UpdateService {
       return this.status();
     }
     const file = path.join(this.opts.dir, release.version, release.asset.name);
-    const stat = fs.lstatSync(file, { throwIfNoEntry: false });
-    if (!stat?.isFile() || stat.size !== release.asset.size) {
-      this.fail("open", "update.open_failed", release);
-      return this.status();
-    }
-    try {
-      if (fs.readFileSync(`${file}.sha256`, "utf8").trim() !== release.asset.sha256) {
-        this.fail("open", "update.open_failed", release);
-        return this.status();
-      }
-    } catch {
-      this.fail("open", "update.open_failed", release);
-      return this.status();
-    }
     if (!this.opts.openInstaller) {
       this.fail("open", "update.desktop_only", release);
       return this.status();
     }
     try {
+      if (!(await this.validExisting(file, release.asset))) {
+        await fsp.rm(file, { force: true });
+        this.fail("download", "update.checksum_mismatch", release);
+        return this.status();
+      }
       const error = await this.opts.openInstaller(file);
       if (error) {
         this.opts.logger.log("warn", "update.open_failed", { error });
@@ -313,6 +305,7 @@ export class UpdateService {
     const dir = path.join(this.opts.dir, release.version);
     const file = path.join(dir, release.asset.name);
     const part = `${file}.part`;
+    let writingPart = false;
     try {
       await this.startup;
       await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
@@ -324,6 +317,8 @@ export class UpdateService {
         );
         return;
       }
+      // A bad cached installer must not survive a failed network retry.
+      await fsp.rm(file, { force: true });
       await fsp.rm(part, { force: true });
       const res = await this.opts.fetchImpl?.(release.asset.url, {
         headers: { "User-Agent": `BukitJalil/${this.opts.currentVersion}` },
@@ -348,24 +343,21 @@ export class UpdateService {
           callback(null, chunk);
         },
       });
-      await pipeline(Readable.fromWeb(res.body), meter, fs.createWriteStream(part, { mode: 0o600 }));
+      writingPart = true;
+      await pipeline(Readable.fromWeb(res.body), meter, fs.createWriteStream(part, { mode: 0o600, flags: "wx" }));
       this.setState({ phase: "verifying", release });
       const actual = hash.digest("hex");
-      if (actual !== release.asset.sha256) {
-        await fsp.rm(part, { force: true });
+      if (received !== release.asset.size || actual !== release.asset.sha256) {
         throw new UpdateProblem("update.checksum_mismatch");
       }
-      // Windows rename does not replace an existing file; the old installer and its sidecar are obsolete.
-      await fsp.rm(file, { force: true });
-      await fsp.rm(`${file}.sha256`, { force: true });
       await fsp.rename(part, file);
+      writingPart = false;
       if (file.endsWith(".AppImage")) await fsp.chmod(file, 0o755);
-      await fsp.writeFile(`${file}.sha256`, `${release.asset.sha256}\n`, { mode: 0o600 });
       this.setState({ phase: "downloaded", release, fileName: release.asset.name });
       this.opts.logger.log("info", "update.downloaded", { version: release.version, file: release.asset.name });
       await this.prune(this.opts.dir, release.version);
     } catch (err) {
-      await fsp.rm(part, { force: true }).catch(() => {});
+      if (writingPart) await fsp.rm(part, { force: true }).catch(() => {});
       if (signal.aborted) {
         this.setState({ phase: "available", release });
         return;
@@ -411,14 +403,32 @@ export class UpdateService {
 
   private async validExisting(file: string, asset: AppUpdateAsset): Promise<boolean> {
     try {
-      const stat = await fsp.lstat(file);
-      if (!stat.isFile() || stat.size !== asset.size) return false;
-      const recorded = (await fsp.readFile(`${file}.sha256`, "utf8")).trim();
-      if (recorded !== asset.sha256) return false;
-      if (asset.format === "appimage") await fsp.chmod(file, 0o755);
-      return true;
-    } catch {
-      return false;
+      if (!(await fsp.lstat(path.dirname(file))).isDirectory()) throw new Error("Invalid update cache directory");
+      const before = await fsp.lstat(file, { bigint: true });
+      if (!before.isFile() || before.size !== BigInt(asset.size)) return false;
+      const handle = await fsp.open(file, fs.constants.O_RDONLY | O_NOFOLLOW);
+      try {
+        const stat = await handle.stat({ bigint: true });
+        if (stat.dev !== before.dev || stat.ino !== before.ino || stat.size !== before.size) return false;
+        const hash = createHash("sha256");
+        for await (const chunk of handle.createReadStream({ autoClose: false })) hash.update(chunk);
+        if (hash.digest("hex") !== asset.sha256) return false;
+        const after = await fsp.lstat(file, { bigint: true });
+        if (
+          after.dev !== stat.dev ||
+          after.ino !== stat.ino ||
+          after.mtimeNs !== stat.mtimeNs ||
+          after.size !== stat.size
+        )
+          return false;
+        if (asset.format === "appimage") await handle.chmod(0o755);
+        return true;
+      } finally {
+        await handle.close();
+      }
+    } catch (err) {
+      if (["ENOENT", "ELOOP"].includes((err as NodeJS.ErrnoException).code ?? "")) return false;
+      throw err;
     }
   }
 
