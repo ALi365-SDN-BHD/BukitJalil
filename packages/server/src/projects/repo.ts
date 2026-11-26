@@ -146,20 +146,23 @@ export class ProjectRepos {
     return cwd;
   }
 
-  /** Inspect without repairing: a failed or interrupted snapshot can leave work only in this checkout. */
-  async aiCheckoutIsClean(key: ProjectKey, repoPath: string, commit: string): Promise<boolean> {
+  /**
+   * Inspect without repairing: a failed or interrupted snapshot can leave work only in this checkout.
+   * "dirty" can be snapshotted like the end of a run; "damaged" is no longer a checkout of the project.
+   */
+  async aiCheckoutState(key: ProjectKey, repoPath: string, commit: string): Promise<"clean" | "dirty" | "damaged"> {
     const cwd = this.dir(key, "ai");
     const stat = fs.lstatSync(cwd, { throwIfNoEntry: false });
-    if (!stat) return true;
-    if (!stat.isDirectory() || !(await this.isCheckoutOf(cwd, repoPath))) return false;
+    if (!stat) return "clean";
+    if (!stat.isDirectory() || !(await this.isCheckoutOf(cwd, repoPath))) return "damaged";
     const { git } = this.opts;
-    if ((await git.text(["rev-parse", "--verify", "HEAD"], { cwd })).trim() !== commit) return false;
+    if ((await git.text(["rev-parse", "--verify", "HEAD"], { cwd })).trim() !== commit) return "dirty";
     const status = await git.text(
       ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=matching", "--ignore-submodules=none"],
       { cwd },
     );
     const disposable = new Set([...BUILD_DIRS, "node_modules"].map((dir) => `!! ${dir}/`));
-    return status.split("\0").every((entry) => entry === "" || disposable.has(entry));
+    return status.split("\0").every((entry) => entry === "" || disposable.has(entry)) ? "clean" : "dirty";
   }
 
   /** Commit at the head of the project's default branch, with API errors for the ways that fails. */
@@ -272,13 +275,17 @@ export class ProjectRepos {
       });
       for (const ref of refs) await git.run(["update-ref", "-d", ref], { cwd: project.path });
       const registered = await git.text(["worktree", "list", "--porcelain", "-z"], { cwd: project.path });
-      const root = path.join(realPathOf(this.opts.paths.worktrees), key);
-      const owned = new Set([path.join(root, "main"), path.join(root, "ai")]);
+      // Git keeps the path as it was given at `worktree add`, which may go through a symlinked data directory.
+      const owned = new Set(
+        [this.opts.paths.worktrees, realPathOf(this.opts.paths.worktrees)].flatMap((root) =>
+          ["main", "ai"].map((kind) => path.join(path.resolve(root), key, kind)),
+        ),
+      );
       for (const record of registered.split("\0\0")) {
         const [field, ...attributes] = record.split("\0");
         if (!field?.startsWith("worktree ")) continue;
         const dir = path.normalize(field.slice("worktree ".length));
-        if (!owned.has(dir)) continue;
+        if (!owned.has(dir) && !owned.has(realPathOf(dir))) continue;
         if (attributes.some((attr) => attr === "locked" || attr.startsWith("locked "))) {
           if (!leftovers.includes("worktree_registrations")) leftovers.push("worktree_registrations");
         } else await git.run(["worktree", "remove", "--", dir], { cwd: project.path });

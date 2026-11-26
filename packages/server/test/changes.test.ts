@@ -1443,36 +1443,41 @@ describe("history and restore", () => {
   );
 
   it.skipIf(process.platform === "win32")(
-    "refuses restore when an apparently empty change has unsnapshotted work",
+    "puts unsnapshotted work into the open change set before a restore or reject",
     async () => {
       const { s, session, init } = await withHistory();
       const { cwd, change } = await ctx.changes.begin(s.id, session.id);
-      const refuse = async () => {
-        await expect(ctx.changes.restore(s.id, init)).rejects.toMatchObject({ code: "change.open_exists" });
-        expect(ctx.changes.store.open(s.id)).toMatchObject({ id: change.id, snapshotCommit: change.snapshotCommit });
-      };
+      const stale = await ctx.changes.current(s.id, false);
+      if (!stale) throw new Error("no change set");
       const tracked = path.join(cwd, "site.yaml");
-      const original = fs.readFileSync(tracked, "utf8");
-      fs.appendFileSync(tracked, "# not snapshotted\n");
-      await refuse();
-      expect(fs.readFileSync(tracked, "utf8")).toBe(`${original}# not snapshotted\n`);
-      rawGit(base, cwd, "add", "site.yaml");
-      fs.writeFileSync(tracked, original);
-      await refuse();
-      expect(rawGit(base, cwd, "show", ":site.yaml")).toContain("# not snapshotted");
-      rawGit(base, cwd, "restore", "--staged", "site.yaml");
-
       const draft = path.join(cwd, "draft.txt");
+      fs.appendFileSync(tracked, "# not snapshotted\n");
       fs.writeFileSync(draft, "unfinished");
-      await refuse();
+
+      // A damaged checkout must not be "repaired" by deleting the only surviving copy: nothing is touched.
+      const dotGit = path.join(cwd, ".git");
+      const link = fs.readFileSync(dotGit, "utf8");
+      fs.unlinkSync(dotGit);
+      await expect(ctx.changes.restore(s.id, init)).rejects.toMatchObject({ code: "change.open_exists" });
+      await expect(ctx.changes.reject(change.id, stale)).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+      expect(ctx.changes.store.open(s.id)).toMatchObject({ id: change.id, snapshotCommit: change.snapshotCommit });
       expect(fs.readFileSync(draft, "utf8")).toBe("unfinished");
-      fs.appendFileSync(path.join(s.dir, ".git", "info", "exclude"), "\n/draft.txt\n");
-      await refuse();
-      expect(fs.readFileSync(draft, "utf8")).toBe("unfinished");
-      // A damaged checkout must not be "repaired" by deleting the only surviving copy.
-      fs.unlinkSync(path.join(cwd, ".git"));
-      await refuse();
-      expect(fs.readFileSync(draft, "utf8")).toBe("unfinished");
+      fs.writeFileSync(dotGit, link);
+
+      // An intact checkout is snapshotted as the end of the run would have done: the work is kept for review.
+      await expect(ctx.changes.restore(s.id, init)).rejects.toMatchObject({ code: "change.open_exists" });
+      const open = ctx.changes.store.open(s.id);
+      expect(open?.id).toBe(change.id);
+      expect(open?.snapshotCommit).not.toBe(change.snapshotCommit);
+      expect(rawGit(base, cwd, "show", "HEAD:site.yaml")).toContain("# not snapshotted");
+      expect(rawGit(base, cwd, "show", "HEAD:draft.txt")).toBe("unfinished");
+
+      // The review shown before cannot discard it; the fresh one can.
+      await expect(ctx.changes.reject(change.id, stale)).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      expect(view.files.map((f) => f.path).sort()).toEqual(["draft.txt", "site.yaml"]);
+      expect((await ctx.changes.reject(view.id, view)).status).toBe("rejected");
     },
   );
 

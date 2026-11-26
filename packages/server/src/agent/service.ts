@@ -112,6 +112,8 @@ interface Live {
   /** Entries in the database, header included (plan 6.9). */
   saved: number;
   unsaved: boolean;
+  /** The session as last read, so a save failure can be announced even when the read itself fails. */
+  record: SessionRecord | null;
 }
 
 /** A message from the user: its text and its checked reference images (theme development design 4.2). */
@@ -762,9 +764,20 @@ export class AgentService {
     } finally {
       if (live && this.live.get(id) === live) {
         this.save(id, live);
-        if (!this.closing) {
+        // A session deleted during its run goes now. When storage cannot even be read, keep it to try again.
+        let exists = true;
+        try {
+          exists = this.store.get(id) !== null;
+        } catch {
+          live.unsaved = true;
+        }
+        if (!this.closing && exists) {
           this.scheduleIdle(id, live);
-          this.store.touch(id);
+          try {
+            this.store.touch(id);
+          } catch {
+            // The idle retry saves and announces it.
+          }
         } else {
           this.dispose(id);
         }
@@ -898,14 +911,15 @@ export class AgentService {
   /** Keep a new AgentSession in memory, saving and announcing its events; null if the run ended meanwhile. */
   private keep(run: Run, project: ProjectKey, session: AgentSession, saved: number): Live | null {
     const id = run.sessionId;
-    const live: Live = { project, session, unsubscribe: () => {}, idleTimer: null, saved, unsaved: false };
+    const record = this.store.get(id);
+    const live: Live = { project, session, unsubscribe: () => {}, idleTimer: null, saved, unsaved: false, record };
     live.unsubscribe = session.subscribe((event) => {
       // Saved as Pi adds entries (plan 6.9), before anyone hears of them.
       this.save(id, live);
       this.emit({ project, sessionId: id, type: "pi", event });
     });
     this.live.set(id, live);
-    if (run.cancelled || this.closing || !this.store.get(id)) {
+    if (run.cancelled || this.closing || !record) {
       this.dispose(id);
       return null;
     }
@@ -918,12 +932,12 @@ export class AgentService {
    */
   private save(id: string, live: Live): void {
     const wasUnsaved = live.unsaved;
-    let record: SessionRecord | null = null;
     try {
       const manager = live.session.sessionManager;
       const count = manager.getEntryCount();
       if (count === 0 || count + 1 === live.saved) return;
-      record = this.store.get(id);
+      const record = this.store.get(id);
+      live.record = record;
       if (!record) {
         live.unsaved = false; // The session was deleted.
         return;
@@ -935,8 +949,9 @@ export class AgentService {
       if (!wasUnsaved)
         this.opts.logger.log("error", "agent.session_save_failed", { sessionId: id, error: String(err) });
     }
-    if (record && wasUnsaved !== live.unsaved)
-      this.emit({ type: "session", project: live.project, sessionId: id, session: this.toInfo(record) });
+    // The record last read is enough to say so: the failure may be that read itself.
+    if (live.record && wasUnsaved !== live.unsaved)
+      this.emit({ type: "session", project: live.project, sessionId: id, session: this.toInfo(live.record) });
   }
 
   private scheduleIdle(id: string, live: Live): void {

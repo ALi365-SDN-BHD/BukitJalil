@@ -315,7 +315,7 @@ function useSavePage(
         queryClient.setQueryData<ContentBody>(bodyKey, (old) =>
           old && old.lastEditedTime >= edited ? { ...old, lastEditedTime: saved.lastEditedTime } : old,
         );
-        draft.propertiesSaved(sentChanges, saved.lastEditedTime);
+        draft.propertiesSaved(sentChanges, saved.lastEditedTime, saved);
       }
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.contentEntries(sourceId, databaseId) }),

@@ -77,6 +77,36 @@ function notionPage(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const DEFAULT_ANNOTATIONS = {
+  bold: false,
+  italic: false,
+  strikethrough: false,
+  underline: false,
+  code: false,
+  color: "default",
+};
+
+/** A block as Notion stores and returns it: every rich text part gets type, plain_text and full annotations. */
+function asStored(block: Record<string, unknown>): Record<string, unknown> {
+  const type = String(block.type);
+  const data = { ...(block[type] as Record<string, unknown>) };
+  for (const key of ["rich_text", "caption"]) {
+    if (!Array.isArray(data[key])) continue;
+    data[key] = (data[key] as Record<string, unknown>[]).map((part) => {
+      const text = part.text as { content: string; link?: { url: string } | null };
+      return {
+        type: "text",
+        text: { content: text.content, link: text.link ?? null },
+        plain_text: text.content,
+        href: text.link?.url ?? null,
+        ...part,
+        annotations: { ...DEFAULT_ANNOTATIONS, ...(part.annotations as object | undefined) },
+      };
+    });
+  }
+  return { object: "block", has_children: false, archived: false, ...block, [type]: data };
+}
+
 /** A fake Notion API: records requests, answers from `page`, and lets a test force a status. */
 function fakeNotion() {
   const sent: Sent[] = [];
@@ -144,7 +174,7 @@ function fakeNotion() {
       if (children[1] === PAGE && Array.isArray(s.body?.children)) {
         const at =
           s.body.after === undefined ? state.blocks.length : state.blocks.findIndex((b) => b.id === s.body?.after) + 1;
-        state.blocks.splice(at, 0, ...s.body.children.map((b) => ({ ...b, id: ID(blockId++) })));
+        state.blocks.splice(at, 0, ...s.body.children.map((b) => ({ ...asStored(b), id: ID(blockId++) })));
       }
       touch();
       return json({ results: [] });
@@ -459,6 +489,22 @@ describe("/api/content page body", () => {
     expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
     expect(await (await save(page, "Stale retry")).json()).toMatchObject({ code: "content.conflict" });
     expect(notion.sent.filter((s) => s.method === "PATCH" && s.path.endsWith("/children"))).toHaveLength(1);
+    ctx.db.close();
+  });
+
+  it("saves the body again from what the last save returned, as Notion stored it", async () => {
+    const { ctx, page } = await setup("save-twice");
+    let read = (await (await call(ctx, "GET", `${page}/body`)).json()) as ContentBody;
+    for (const text of ["**First** [link](https://example.com)", "Second *save*"]) {
+      const res = await call(ctx, "PUT", `${page}/body`, {
+        lastEditedTime: read.lastEditedTime,
+        revision: read.revision,
+        blocks: md(text),
+      });
+      expect(res.status).toBe(200);
+      read = (await res.json()) as ContentBody;
+      expect(read.revision).toBe(await bodyRevision(ctx, page));
+    }
     ctx.db.close();
   });
 

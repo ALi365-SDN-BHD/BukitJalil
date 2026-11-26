@@ -186,6 +186,28 @@ describe("create a site (plan 5.2)", () => {
     expect(fs.readdirSync(target)).toEqual(["site.yaml"]);
   });
 
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "creates in an empty directory whose parent it cannot write, like an external drive's root",
+    async () => {
+      const { sites, identity } = setup();
+      await identity();
+      const parent = path.join(userHome, "volume");
+      const target = path.join(parent, "Drive");
+      fs.mkdirSync(target, { recursive: true });
+      fs.chmodSync(parent, 0o555);
+      try {
+        const site = await sites.create({ name: "Example", language: "en", path: target });
+        expect(site.path).toBe(target);
+        expect(fs.readdirSync(target).sort()).toContain("site.yaml");
+        expect(fs.readdirSync(target).some((name) => name.startsWith(".bukitjalil-new-"))).toBe(false);
+        expect(raw(target, "status", "--porcelain")).toBe("");
+        expect(fs.readdirSync(parent)).toEqual(["Drive"]);
+      } finally {
+        fs.chmodSync(parent, 0o755);
+      }
+    },
+  );
+
   it("needs the commit identity first", async () => {
     const { call } = setup();
     const res = await call("POST", "/api/sites", { name: "x", path: path.join(userHome, "noid"), language: "en" });
@@ -554,6 +576,20 @@ describe("manage a site", () => {
     expect(fs.existsSync(path.join(dir, "site.yaml"))).toBe(true);
     expect((await call<Site[]>("GET", "/api/sites")).json).toEqual([]);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "removes its checkout registration made through a symlinked data directory",
+    async () => {
+      const { call, paths } = setup();
+      const dir = starterRepo("rm-linked-home");
+      const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
+      const linked = path.join(base, "linked-worktrees");
+      fs.symlinkSync(paths.worktrees, linked);
+      raw(dir, "worktree", "add", "-q", "--detach", path.join(linked, site.id, "ai"));
+      expect((await call("DELETE", `/api/sites/${site.id}`)).json).toEqual({ leftovers: [] });
+      expect(raw(dir, "worktree", "list").trim().split("\n")).toHaveLength(1);
+    },
+  );
 
   it.each(["recheck", "remove"])("%s preserves a temporarily unavailable user's worktree registration", async (op) => {
     const { call, paths } = setup();

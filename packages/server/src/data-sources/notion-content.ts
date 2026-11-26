@@ -285,6 +285,10 @@ export class NotionContentService {
         tree.blocks.map((b) => b.block),
         items,
       );
+      // The next save is checked against what Notion stored, which may be spelled differently from what was
+      // sent (default annotations, split text): fingerprint the body read back, never the local copy.
+      const stored = await this.tree(sourceId, id);
+      const readBack = stored.tooLong ? null : readBody(stored.blocks);
       const after = viewOf(await this.read(sourceId, databaseId, pageId));
       // Kept images are where they were: they keep the address they were shown with.
       const shown = new Map(current.blocks.flatMap((b) => (b.type === "notion_image" && b.url ? [[b.id, b.url]] : [])));
@@ -294,7 +298,8 @@ export class NotionContentService {
       });
       return {
         blocks,
-        revision: bodyRevision(blocks),
+        // A body that does not read back as editable is refused on its next save before the revision matters.
+        revision: bodyRevision(readBack?.blocks ?? blocks),
         editable: true,
         unsupported: [],
         lastEditedTime: after.lastEditedTime,

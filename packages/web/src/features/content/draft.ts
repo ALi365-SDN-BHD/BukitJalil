@@ -1,4 +1,4 @@
-import type { ContentBlock, ContentValue } from "@bukitjalil/shared";
+import type { ContentBlock, ContentPage, ContentValue } from "@bukitjalil/shared";
 import { useSyncExternalStore } from "react";
 import { canonicalNotionId } from "@/lib/project";
 import { type BlocksProblem, sameBlocks, type Unsaved } from "./blocks";
@@ -153,14 +153,22 @@ export function draftOf(key: string) {
       const next = { ...draft, body, bodyRevision: body || draft.problem ? revision : "" };
       replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });
     },
-    /** The property values `sent` are in Notion as of `edited`; changes made since the save began stay. */
-    propertiesSaved(sent: Changes, edited: string) {
+    /**
+     * The property values `sent` are in Notion as of `edited`, as `page` shows; changes made since the save
+     * began stay, now checked against the value just saved rather than the one before it.
+     */
+    propertiesSaved(sent: Changes, edited: string, page: ContentPage) {
       if (draft.key !== key) return;
       const changes = Object.fromEntries(
         Object.entries(draft.changes).filter(([name, value]) => !same(value, changeOf(sent, name) ?? null)),
       );
       const revisions = Object.fromEntries(
-        Object.entries(draft.revisions).filter(([name]) => Object.hasOwn(changes, name)),
+        Object.keys(changes).flatMap((name) => {
+          const revision = Object.hasOwn(sent, name)
+            ? page.properties.find((p) => p.name === name)?.revision
+            : draft.revisions[name];
+          return revision ? [[name, revision]] : [];
+        }),
       );
       const next = { ...draft, changes, revisions };
       replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });

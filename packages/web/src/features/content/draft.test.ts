@@ -1,4 +1,4 @@
-import type { ContentBlock } from "@bukitjalil/shared";
+import type { ContentBlock, ContentPage } from "@bukitjalil/shared";
 import { describe, expect, it } from "vitest";
 import { changeOf, draftOf } from "./draft";
 
@@ -48,10 +48,17 @@ describe("content draft", () => {
     expect(draftOf(key)).toMatchObject({ body: null, base: T3, propertiesDirty: true });
 
     const sent = { Done: { type: "checkbox", checked: true } } as const;
-    draftOf(key).set("Done", { type: "checkbox", checked: false }, null, T3);
-    draftOf(key).propertiesSaved(sent, T3);
+    const page = (revision: string) =>
+      ({
+        properties: [{ name: "Done", type: "checkbox", value: sent.Done, display: "", revision }],
+      }) as unknown as ContentPage;
+    draftOf(key).set("Done", { type: "checkbox", checked: false }, null, T3, "before");
+    expect(draftOf(key).revisions).toEqual({ Done: "before" });
+    draftOf(key).propertiesSaved(sent, T3, page("saved"));
     expect(draftOf(key).changes).toEqual({ Done: { type: "checkbox", checked: false } });
-    draftOf(key).propertiesSaved({ Done: { type: "checkbox", checked: false } }, T3);
+    // What was typed meanwhile is checked against the value this save wrote, not the one before it.
+    expect(draftOf(key).revisions).toEqual({ Done: "saved" });
+    draftOf(key).propertiesSaved({ Done: { type: "checkbox", checked: false } }, T3, page("latest"));
     expect(draftOf(key)).toMatchObject({ dirty: false, base: "" });
   });
 
