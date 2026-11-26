@@ -137,8 +137,13 @@ export class ProjectRepos {
   async aiWorktree(key: ProjectKey, project: RepoProject, commit: string, opts: { reset: boolean }): Promise<string> {
     if (project.readOnly) throw new SiteError("site.read_only", 409);
     const dir = this.dir(key, "ai");
-    if (!opts.reset && fs.existsSync(dir) && (await this.isCheckoutOf(dir, project.path))) return dir;
-    return this.checkout(key, project.path, "ai", commit);
+    const cwd =
+      !opts.reset && fs.existsSync(dir) && (await this.isCheckoutOf(dir, project.path))
+        ? dir
+        : await this.checkout(key, project.path, "ai", commit);
+    // A project registered before the rule change need not have been rechecked before its next snapshot.
+    writeExcludeBlock(await this.commonDir(cwd));
+    return cwd;
   }
 
   /** Inspect without repairing: a failed or interrupted snapshot can leave work only in this checkout. */

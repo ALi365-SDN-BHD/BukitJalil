@@ -152,6 +152,27 @@ describe("opening and joining a change set", () => {
     expect(ctx.changes.store.sessions(change.id)).toEqual([one.id, two.id]);
   });
 
+  it("upgrades the managed exclude block before resuming a checkout and snapshotting nested assets", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    const exclude = path.join(s.dir, ".git", "info", "exclude");
+    fs.writeFileSync(
+      exclude,
+      "*.mine\n# BukitJalil begin\n.bukitjalil-build/\n.env*\nnode_modules/\n# BukitJalil end\n",
+    );
+    const file = "themes/starter/.bukitjalil-build/style.css";
+    fs.mkdirSync(path.dirname(path.join(cwd, file)), { recursive: true });
+    fs.writeFileSync(path.join(cwd, file), "body{}");
+    await ctx.changes.begin(s.id, session.id);
+    const snap = await ctx.changes.snapshot(s.id, cwd);
+    expect(snap.removed).toEqual([]);
+    expect(s.git("show", `${snap.commit}:${file}`)).toBe("body{}");
+    const rules = fs.readFileSync(exclude, "utf8").split("\n");
+    expect(rules).toEqual(expect.arrayContaining(["*.mine", "/.bukitjalil-build/", ".env*", "node_modules/"]));
+    expect(rules).not.toContain(".bukitjalil-build/");
+  });
+
   it("brings a missing checkout back at the latest snapshot", async () => {
     const s = await site();
     const session = ctx.agent.create(s.id);

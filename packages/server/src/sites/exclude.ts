@@ -9,7 +9,7 @@ const BEGIN = "# BukitJalil begin";
 const END = "# BukitJalil end";
 /** Build output and caches at the top of a checkout: ignored by git, never written by the AI (plan 6.3). */
 export const BUILD_DIRS = ["dist", ".bukit", ".cache", ".bukitjalil-build", ".bukitjalil-deploy"] as const;
-export const EXCLUDE_PATTERNS = BUILD_DIRS.map((dir) => `${dir}/`);
+export const EXCLUDE_PATTERNS = BUILD_DIRS.map((dir) => `/${dir}/`);
 /** Extra patterns for a directory that was not a git repository before import (plan 5.1). */
 export const IMPORT_INIT_PATTERNS = [".env*", "node_modules/"];
 
@@ -52,7 +52,8 @@ export function writeExcludeBlock(commonDir: string, patterns: string[] = EXCLUD
   const file = path.join(commonDir, "info", "exclude");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-  const kept = blockPatterns(current).filter((p) => !patterns.includes(p));
+  // Old releases wrote these same build rules without the leading slash. Do not retain both spellings.
+  const kept = blockPatterns(current).filter((p) => !patterns.includes(p) && !EXCLUDE_PATTERNS.includes(`/${p}`));
   const next = withBlock(current, [...patterns, ...kept]);
   if (next !== current) fs.writeFileSync(file, next);
 }

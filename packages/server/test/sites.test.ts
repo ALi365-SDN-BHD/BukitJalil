@@ -174,7 +174,7 @@ describe("create a site (plan 5.2)", () => {
     );
     expect(raw(target, "status", "--porcelain")).toBe("");
     expect(fs.readFileSync(path.join(target, ".git/info/exclude"), "utf8")).toContain(
-      "# BukitJalil begin\ndist/\n.bukit/\n.cache/\n.bukitjalil-build/\n.bukitjalil-deploy/\n# BukitJalil end",
+      "# BukitJalil begin\n/dist/\n/.bukit/\n/.cache/\n/.bukitjalil-build/\n/.bukitjalil-deploy/\n# BukitJalil end",
     );
     const checkout = path.join(paths.worktrees, site.id, "main");
     expect(fs.existsSync(path.join(checkout, "site.yaml"))).toBe(true);
@@ -391,6 +391,10 @@ describe("import a site (plan 5.1)", () => {
     const { call, identity } = setup();
     const dir = path.join(userHome, "imp-plain");
     writeStarter(dir, { title: "Plain", language: "en" });
+    // Isolate the app's exclusions from the starter's own dist/ rule.
+    fs.writeFileSync(path.join(dir, ".gitignore"), "*.mine\n");
+    fs.mkdirSync(path.join(dir, "themes", "example", "dist"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "themes", "example", "dist", "style.css"), "body{}");
     fs.writeFileSync(path.join(dir, ".env"), "SECRET=1\n");
     fs.mkdirSync(path.join(dir, "dist"));
     fs.writeFileSync(path.join(dir, "dist", "index.html"), "old build");
@@ -402,6 +406,7 @@ describe("import a site (plan 5.1)", () => {
     const files = inspect.json.files;
     expect(files).toContain("site.yaml");
     expect(files).toContain("content/posts/welcome.md");
+    expect(files).toContain("themes/example/dist/style.css");
     expect(files.filter((f) => /^(\.env|dist\/|node_modules\/)/.test(f))).toEqual([]);
     expect(fs.existsSync(path.join(dir, ".git"))).toBe(false);
 
@@ -423,6 +428,7 @@ describe("import a site (plan 5.1)", () => {
     expect(res.status).toBe(201);
     expect(res.json).toMatchObject({ name: "Plain", defaultBranch: "main", readOnly: null });
     const tracked = raw(dir, "ls-files").trim().split("\n");
+    expect(tracked).toContain("themes/example/dist/style.css");
     expect(tracked).not.toContain(".env");
     expect(tracked.some((f) => f.startsWith("dist/"))).toBe(false);
     expect(fs.readFileSync(path.join(dir, ".env"), "utf8")).toBe("SECRET=1\n");
