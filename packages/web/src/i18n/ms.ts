@@ -455,6 +455,7 @@ const ms: Messages = {
       details: "Butiran",
     },
     runFailed: "Larian ini gagal: {reason}",
+    unsaved: "Mesej terbaharu belum disimpan. Biarkan aplikasi terbuka sementara simpanan dicuba semula.",
     aborted: "Dihentikan",
     thinking: "Berfikir",
     summary: "Ringkasan AI tentang perubahannya",

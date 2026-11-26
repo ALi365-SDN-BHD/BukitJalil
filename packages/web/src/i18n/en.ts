@@ -448,6 +448,7 @@ const en: Messages = {
       details: "Details",
     },
     runFailed: "This run failed: {reason}",
+    unsaved: "Recent messages haven’t been saved. Keep the app open while it retries.",
     aborted: "Stopped",
     thinking: "Thinking",
     summary: "The AI's summary of its changes",

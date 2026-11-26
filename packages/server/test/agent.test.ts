@@ -693,6 +693,32 @@ describe("AgentService", () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
+  it("keeps an unsaved transcript through idle expiry and retries it after storage recovers", async () => {
+    const s = await site();
+    const { agent, settled, events } = service({ idleMs: 25 });
+    const { id } = agent.create(s.id);
+    ctx.db.exec(`CREATE TEMP TRIGGER fail_transcript BEFORE INSERT ON session_entries
+      BEGIN SELECT RAISE(ABORT, 'transcript storage unavailable'); END`);
+    try {
+      faux.setResponses([pi.ai.fauxAssistantMessage("ONLY-IN-MEMORY")]);
+      const done = settled(id);
+      await agent.send(id, "Keep this turn");
+      await done;
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(JSON.stringify(await agent.messages(id))).toContain("ONLY-IN-MEMORY");
+      expect(agent.info(id).unsaved).toBe(true);
+      expect(agent.store.entries(id)).toEqual([]);
+    } finally {
+      ctx.db.exec("DROP TRIGGER fail_transcript");
+    }
+    await vi.waitFor(() => expect(JSON.stringify(agent.store.entries(id))).toContain("ONLY-IN-MEMORY"));
+    expect(agent.info(id).unsaved).toBeUndefined();
+    const updates = events.filter((e) => e.type === "session" && e.sessionId === id);
+    expect(updates.some((e) => e.type === "session" && e.session.unsaved)).toBe(true);
+    expect(updates.at(-1)).not.toMatchObject({ session: { unsaved: true } });
+    expect(await service().agent.messages(id)).toEqual(await agent.messages(id));
+  });
+
   it("reopens a session from the database with the earlier messages", async () => {
     const s = await site();
     const first = service({ idleMs: 10 });

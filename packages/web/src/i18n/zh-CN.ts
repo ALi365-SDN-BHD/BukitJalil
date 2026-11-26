@@ -426,6 +426,7 @@ const zhCN = {
       details: "详情",
     },
     runFailed: "这次运行出错了：{reason}",
+    unsaved: "最近的消息还没保存。请保持应用打开，系统会自动重试。",
     aborted: "已停止",
     thinking: "思考过程",
     summary: "AI 的改动说明",
