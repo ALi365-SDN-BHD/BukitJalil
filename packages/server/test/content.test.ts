@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ContentBody, ContentDatabase, ContentEntryList, ContentPage, SavedDataSource } from "@bukitjalil/shared";
+import type {
+  ContentBody,
+  ContentBodySaved,
+  ContentDatabase,
+  ContentEntryList,
+  ContentPage,
+  SavedDataSource,
+} from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { markdownToContent as md } from "../src/data-sources/notion-blocks.ts";
 import { segments } from "../src/data-sources/notion-content.ts";
@@ -225,6 +232,7 @@ describe("/api/content", () => {
       type: "title",
       value: { type: "title", text: "Hello" },
       display: "Hello",
+      revision: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(body.properties.find((p) => p.name === "Related")).toEqual({
       name: "Related",
@@ -264,8 +272,11 @@ describe("/api/content", () => {
 
   it("saves only the changed properties, refusing to overwrite a newer edit", async () => {
     const { ctx, notion, page } = await setup("update");
+    const original = (await (await call(ctx, "GET", page)).json()) as ContentPage;
+    const expected = Object.fromEntries(original.properties.filter((p) => p.value).map((p) => [p.name, p.revision]));
     const stale = await call(ctx, "PATCH", page, {
       lastEditedTime: "2026-11-21T07:00:00.000Z",
+      expected,
       properties: { Views: { type: "number", number: 8 } },
     });
     expect(stale.status).toBe(409);
@@ -275,6 +286,7 @@ describe("/api/content", () => {
     const long = `${"a".repeat(1999)}😀${"b".repeat(10)}`;
     const res = await call(ctx, "PATCH", page, {
       lastEditedTime: "2026-11-21T08:00:00.000Z",
+      expected,
       properties: {
         Summary: { type: "rich_text", text: long },
         Tags: { type: "multi_select", options: ["a", "a", "c"] },
@@ -306,7 +318,7 @@ describe("/api/content", () => {
   it("accepts only the editable property types and Notion's limits", async () => {
     const { ctx, page, db } = await setup("validate");
     const send = (properties: unknown) =>
-      call(ctx, "PATCH", page, { lastEditedTime: "2026-11-21T08:00:00.000Z", properties });
+      call(ctx, "PATCH", page, { lastEditedTime: "2026-11-21T08:00:00.000Z", expected: {}, properties });
     expect((await send({ Related: { type: "relation", ids: ["x"] } })).status).toBe(400);
     expect((await send({ Name: { type: "title", text: "x".repeat(200_001) } })).status).toBe(400);
     expect((await send({ Tags: { type: "multi_select", options: ["a,b"] } })).status).toBe(400);
@@ -341,6 +353,7 @@ describe("/api/content", () => {
 
   it("explains Notion's failures, telling a missing write permission apart", async () => {
     const { ctx, notion, db, page } = await setup("errors");
+    const original = (await (await call(ctx, "GET", page)).json()) as ContentPage;
     const codeOf = async (res: Promise<Response> | Response) => {
       const r = await res;
       return [r.status, ((await r.json()) as { code: string }).code];
@@ -349,6 +362,7 @@ describe("/api/content", () => {
       call(ctx, "PATCH", page, {
         lastEditedTime: "2026-11-21T08:00:00.000Z",
         properties: { Views: { type: "number", number: 1 } },
+        expected: { Views: original.properties.find((p) => p.name === "Views")?.revision },
       });
 
     notion.state.fail = { status: 401 };
@@ -466,6 +480,7 @@ describe("/api/content page body", () => {
       editable: true,
       unsupported: [],
       lastEditedTime: "2026-11-21T09:00:00.000Z",
+      page: expect.objectContaining({ id: expect.any(String) }),
     });
     const writes = notion.sent.filter((s) => s.method !== "GET");
     expect(writes.map((s) => [s.method, s.path, (s.body?.children as unknown[] | undefined)?.length])).toEqual([
@@ -476,6 +491,44 @@ describe("/api/content page body", () => {
       ["DELETE", `/blocks/${ID(2)}`, undefined],
     ]);
     expect(writes[0]?.body?.after).toBeUndefined();
+    ctx.db.close();
+  });
+
+  it("a body save cannot authorize overwriting a property changed during that save", async () => {
+    const { ctx, notion, page } = await setup("body-property-race");
+    const initial = (await (await call(ctx, "GET", page)).json()) as ContentPage;
+    const original = initial.properties.find((p) => p.name === "Stage")?.revision;
+    notion.state.fail = {
+      status: 500,
+      when(s) {
+        if (s.method === "PATCH" && s.path.endsWith("/children")) {
+          const props = notion.state.page.properties as Record<string, unknown>;
+          props.Stage = { type: "status", status: { name: "In review" } };
+        }
+        return false;
+      },
+    };
+    const saved = (await (
+      await call(ctx, "PUT", `${page}/body`, {
+        lastEditedTime: initial.lastEditedTime,
+        blocks: md("Edited body"),
+      })
+    ).json()) as ContentBodySaved;
+    expect(saved.page?.properties).toContainEqual(expect.objectContaining({ name: "Stage", display: "In review" }));
+    const stale = await call(ctx, "PATCH", page, {
+      lastEditedTime: saved.lastEditedTime,
+      properties: { Stage: { type: "status", option: "Done" } },
+      expected: { Stage: original },
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: "content.conflict" });
+    expect(notion.sent.some((s) => s.method === "PATCH" && s.path === `/pages/${PAGE}`)).toBe(false);
+    const independent = await call(ctx, "PATCH", page, {
+      lastEditedTime: saved.lastEditedTime,
+      properties: { Name: { type: "title", text: "My title" } },
+      expected: { Name: initial.properties.find((p) => p.name === "Name")?.revision },
+    });
+    expect(independent.status).toBe(200);
     ctx.db.close();
   });
 

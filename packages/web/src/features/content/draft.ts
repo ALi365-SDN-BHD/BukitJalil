@@ -12,6 +12,7 @@ type Changes = Readonly<Record<string, ContentValue>>;
 interface Draft {
   key: string;
   changes: Changes;
+  revisions: Readonly<Record<string, string>>;
   /** The edited body; null while it is unchanged. */
   body: readonly ContentBlock[] | null;
   /** Why the body as it is in the editor cannot be saved; `body` is then its last version that can. */
@@ -26,7 +27,15 @@ interface Draft {
 }
 
 const NONE: Changes = {};
-const empty = (key: string): Draft => ({ key, changes: NONE, body: null, problem: null, unsaved: null, base: "" });
+const empty = (key: string): Draft => ({
+  key,
+  changes: NONE,
+  revisions: {},
+  body: null,
+  problem: null,
+  unsaved: null,
+  base: "",
+});
 let draft: Draft = empty("");
 const listeners = new Set<() => void>();
 
@@ -90,6 +99,7 @@ export function draftOf(key: string) {
   const mine = current(key);
   return {
     changes: mine.changes,
+    revisions: mine.revisions,
     body: mine.body,
     problem: mine.problem,
     unsaved: mine.unsaved,
@@ -97,10 +107,23 @@ export function draftOf(key: string) {
     propertiesDirty: Object.keys(mine.changes).length > 0,
     dirty: !isEmpty(mine),
     /** A value equal to the saved one drops the change again. `base` is the edit time `saved` was read at. */
-    set(name: string, value: ContentValue, saved: ContentValue | null, base: string) {
+    set(name: string, value: ContentValue, saved: ContentValue | null, base: string, revision?: string) {
       const before = current(key);
       const { [name]: _, ...rest } = before.changes;
-      replace(changed(before, { ...before, changes: same(value, saved) ? rest : { ...rest, [name]: value } }, base));
+      const { [name]: original, ...other } = before.revisions;
+      const undo = same(value, saved);
+      const first = Object.hasOwn(before.revisions, name) ? original : revision;
+      replace(
+        changed(
+          before,
+          {
+            ...before,
+            changes: undo ? rest : { ...rest, [name]: value },
+            revisions: undo || !first ? other : { ...other, [name]: first },
+          },
+          base,
+        ),
+      );
     },
     setBody(value: readonly ContentBlock[], saved: readonly ContentBlock[], base: string) {
       const before = current(key);
@@ -131,7 +154,10 @@ export function draftOf(key: string) {
       const changes = Object.fromEntries(
         Object.entries(draft.changes).filter(([name, value]) => !same(value, changeOf(sent, name) ?? null)),
       );
-      const next = { ...draft, changes };
+      const revisions = Object.fromEntries(
+        Object.entries(draft.revisions).filter(([name]) => Object.hasOwn(changes, name)),
+      );
+      const next = { ...draft, changes, revisions };
       replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });
     },
     clear() {

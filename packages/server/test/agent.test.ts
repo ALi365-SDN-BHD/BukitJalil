@@ -1197,7 +1197,15 @@ describe("content management conversations", () => {
       title: "Hello",
       url: null,
       lastEditedTime: "t1",
-      properties: [{ name: "Name", type: "title", value: { type: "title", text: "Hello" }, display: "Hello" }],
+      properties: [
+        {
+          name: "Name",
+          type: "title",
+          value: { type: "title", text: "Hello" },
+          display: "Hello",
+          revision: "a".repeat(64),
+        },
+      ],
     };
     const content = {
       database: async () => ({

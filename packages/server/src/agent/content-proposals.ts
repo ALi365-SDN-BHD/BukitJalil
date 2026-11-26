@@ -1,6 +1,7 @@
 import {
   type ContentBlock,
   type ContentDatabase,
+  type ContentPage,
   ContentPageCreate,
   type ContentProposal,
   type ContentProposalState,
@@ -186,7 +187,13 @@ export function createProposeTools({ content, ref, current }: ProposeToolOptions
           if (!property.value) throw new Error(`Property "${name}" (${property.type}) cannot be edited here.`);
           const after = modelValue(name, property.type, raw, db);
           if (JSON.stringify(after) !== JSON.stringify(property.value))
-            changed.push({ name, type: property.type, before: displayOfValue(property.value), after });
+            changed.push({
+              name,
+              type: property.type,
+              before: displayOfValue(property.value),
+              revision: property.revision,
+              after,
+            });
         }
         let bodyChange: ContentProposal["body"] = null;
         let blocks: ContentBlock[] | null = null;
@@ -343,6 +350,26 @@ export class ContentProposals {
       } else {
         entryId = proposal.entryId;
         let base = proposal.base as string;
+        const expected = new Map<string, string>();
+        let original: ContentPage | undefined;
+        for (const p of proposal.properties) {
+          if (p.revision) {
+            expected.set(p.name, p.revision);
+            continue;
+          }
+          // Proposals saved before field fingerprints existed still carry their reviewed display values.
+          original ??= await this.content.page(ref.sourceId, ref.databaseId, entryId as string);
+          const field = original.properties.find((f) => f.name === p.name);
+          if (
+            original.lastEditedTime !== base ||
+            !field?.revision ||
+            !field.value ||
+            field.type !== p.type ||
+            displayOfValue(field.value) !== p.before
+          )
+            throw new SiteError("content.conflict", 409);
+          expected.set(p.name, field.revision);
+        }
         if (blocks) {
           base = (
             await this.content.saveBody(ref.sourceId, ref.databaseId, entryId as string, {
@@ -356,6 +383,7 @@ export class ContentProposals {
           await this.content.update(ref.sourceId, ref.databaseId, entryId as string, {
             lastEditedTime: base,
             properties,
+            expected: Object.fromEntries(expected),
           });
       }
       return this.record(ref, sessionId, { callId, status: "applied", entryId, error: null });

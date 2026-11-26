@@ -71,7 +71,7 @@ export function PropertyForm({
               property={p}
               schema={schema.get(p.name)}
               value={changeOf(draft.changes, p.name) ?? p.value}
-              onChange={(value) => draft.set(p.name, value, p.value, page.data?.lastEditedTime ?? "")}
+              onChange={(value) => draft.set(p.name, value, p.value, page.data?.lastEditedTime ?? "", p.revision)}
             />
           ))}
       </fieldset>

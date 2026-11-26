@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import {
   CONTENT_BLOCKS_MAX,
   CONTENT_BODY_MAX,
   CONTENT_PAGE_SIZE,
   CONTENT_PROPERTY_NAME_MAX,
   type ContentBody,
+  type ContentBodySaved,
   type ContentBodyUpdate,
   type ContentDatabase,
   type ContentEntryList,
@@ -162,6 +164,11 @@ export class NotionContentService {
   async update(sourceId: string, databaseId: string, pageId: string, req: ContentPageUpdate): Promise<ContentPage> {
     const current = await this.read(sourceId, databaseId, pageId);
     if (str(current.last_edited_time, 40) !== req.lastEditedTime) throw new SiteError("content.conflict", 409);
+    const raw = isRecord(current.properties) ? current.properties : {};
+    for (const name of Object.keys(req.properties)) {
+      if (!Object.hasOwn(raw, name) || revision(raw[name]) !== req.expected[name])
+        throw new SiteError("content.conflict", 409);
+    }
     if (Object.keys(req.properties).length === 0) return viewOf(current);
     const json = await this.call(
       sourceId,
@@ -237,7 +244,12 @@ export class NotionContentService {
    * is a 409, and a body that holds blocks this cannot write is refused rather than dropped. The new blocks
    * go in before the old ones are deleted, so a failure half way leaves both rather than neither.
    */
-  async saveBody(sourceId: string, databaseId: string, pageId: string, req: ContentBodyUpdate): Promise<ContentBody> {
+  async saveBody(
+    sourceId: string,
+    databaseId: string,
+    pageId: string,
+    req: ContentBodyUpdate,
+  ): Promise<ContentBodySaved> {
     const page = await this.read(sourceId, databaseId, pageId);
     if (str(page.last_edited_time, 40) !== req.lastEditedTime) throw new SiteError("content.conflict", 409);
     const items = contentToItems(req.blocks);
@@ -251,7 +263,7 @@ export class NotionContentService {
       tree.blocks.map((b) => b.block),
       items,
     );
-    const after = await this.call(sourceId, "GET", `/pages/${id}`);
+    const after = viewOf(await this.read(sourceId, databaseId, pageId));
     // Kept images are where they were: they keep the address they were shown with.
     const shown = new Map(current.blocks.flatMap((b) => (b.type === "notion_image" && b.url ? [[b.id, b.url]] : [])));
     return {
@@ -261,7 +273,8 @@ export class NotionContentService {
       }),
       editable: true,
       unsupported: [],
-      lastEditedTime: str(after.last_edited_time, 40),
+      lastEditedTime: after.lastEditedTime,
+      page: after,
     };
   }
 
@@ -404,6 +417,8 @@ function idOf(value: string): string {
 
 function viewOf(page: Record<string, unknown>): ContentPage {
   const properties = propertiesOf(page);
+  const raw = isRecord(page.properties) ? page.properties : {};
+  for (const p of properties) if (p.value) p.revision = revision(raw[p.name]);
   const parent = isRecord(page.parent) ? page.parent : {};
   return {
     id: str(page.id, 100),
@@ -413,6 +428,23 @@ function viewOf(page: Record<string, unknown>): ContentPage {
     lastEditedTime: str(page.last_edited_time, 40),
     properties,
   };
+}
+
+/** Preserve rich text, property identity and array order; JSON object key order is not an edit. */
+function revision(value: unknown): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify(value, (_, v: unknown) =>
+        isRecord(v)
+          ? Object.fromEntries(
+              Object.keys(v)
+                .sort()
+                .map((k) => [k, v[k]]),
+            )
+          : v,
+      ),
+    )
+    .digest("hex");
 }
 
 function titleOf(properties: ContentProperty[]): string {

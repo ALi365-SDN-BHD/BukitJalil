@@ -99,7 +99,13 @@ export function PageEditor({
           maxLength={2000}
           disabled={save.isPending}
           onChange={(e) =>
-            draft.set(titleName, { type: "title", text: e.target.value }, savedTitle, page.data?.lastEditedTime ?? "")
+            draft.set(
+              titleName,
+              { type: "title", text: e.target.value },
+              savedTitle,
+              page.data?.lastEditedTime ?? "",
+              titleProperty?.revision,
+            )
           }
           data-testid="content-title"
         />
@@ -286,23 +292,20 @@ function useSavePage(
       let edited = draft.base || page?.lastEditedTime || "";
       if (sentBody !== null) {
         const checked = edited;
-        const saved = await api.saveContentBody(sourceId, databaseId, pageId, {
+        const { page: latest, ...saved } = await api.saveContentBody(sourceId, databaseId, pageId, {
           lastEditedTime: checked,
           blocks: [...sentBody],
         });
         edited = saved.lastEditedTime;
         queryClient.setQueryData(bodyKey, saved);
-        // Properties read at or after the time the body save was checked against are still Notion's; older
-        // ones keep their time, so editing them is still a conflict.
-        queryClient.setQueryData<ContentPage>(pageKey, (old) =>
-          old && old.lastEditedTime >= checked ? { ...old, lastEditedTime: edited } : old,
-        );
+        queryClient.setQueryData(pageKey, latest);
         draft.bodySaved(sentBody, edited);
       }
       if (Object.keys(sentChanges).length > 0) {
         const saved = await api.updateContentPage(sourceId, databaseId, pageId, {
           lastEditedTime: edited,
           properties: sentChanges,
+          expected: draft.revisions,
         });
         queryClient.setQueryData(pageKey, saved);
         // The body read at or after the time this save was checked against is still Notion's body: only the

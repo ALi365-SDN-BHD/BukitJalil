@@ -10,6 +10,7 @@ import {
   type ChangeSet,
   type ConfigResponse,
   type ContentBody,
+  type ContentBodySaved,
   type ContentBodyUpdate,
   type ContentDatabase,
   type ContentEntryList,
@@ -283,7 +284,7 @@ export const api = {
   contentBody: (sourceId: string, databaseId: string, pageId: string) =>
     request<ContentBody>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}/body`),
   saveContentBody: (sourceId: string, databaseId: string, pageId: string, req: ContentBodyUpdate) =>
-    request<ContentBody>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}/body`, {
+    request<ContentBodySaved>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}/body`, {
       method: "PUT",
       body: JSON.stringify(req),
     }),
