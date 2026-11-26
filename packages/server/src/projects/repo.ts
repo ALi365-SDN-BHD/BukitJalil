@@ -8,7 +8,7 @@ import { resolveBranch } from "../git/objects.ts";
 import { clearIndexLock, GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
 import { BUILD_DIRS, removeExcludeBlock, writeExcludeBlock } from "../sites/exclude.ts";
-import { inside, SiteError } from "../sites/location.ts";
+import { inside, realPathOf, SiteError } from "../sites/location.ts";
 import type { Db } from "../store/db.ts";
 import { rowProject } from "./owner.ts";
 
@@ -197,8 +197,8 @@ export class ProjectRepos {
     try {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });
-        await git.run(["worktree", "prune"], { cwd: repoPath });
-        await git.run(["worktree", "add", "-q", "--detach", dir, commit], { cwd: repoPath });
+        // --force replaces the missing registration at this exact path; prune would affect every worktree.
+        await git.run(["worktree", "add", "-q", "--force", "--detach", dir, commit], { cwd: repoPath });
       } else {
         await git.run(["checkout", "-q", "--detach", "--force", commit], { cwd: dir });
         await git.run(["clean", "-q", "-fdx", "-e", ".bukit", "-e", ".cache"], { cwd: dir });
@@ -271,7 +271,18 @@ export class ProjectRepos {
         return !row || rowProject(row) === key;
       });
       for (const ref of refs) await git.run(["update-ref", "-d", ref], { cwd: project.path });
-      await git.run(["worktree", "prune"], { cwd: project.path });
+      const registered = await git.text(["worktree", "list", "--porcelain", "-z"], { cwd: project.path });
+      const root = path.join(realPathOf(this.opts.paths.worktrees), key);
+      const owned = new Set([path.join(root, "main"), path.join(root, "ai")]);
+      for (const record of registered.split("\0\0")) {
+        const [field, ...attributes] = record.split("\0");
+        if (!field?.startsWith("worktree ")) continue;
+        const dir = path.normalize(field.slice("worktree ".length));
+        if (!owned.has(dir)) continue;
+        if (attributes.some((attr) => attr === "locked" || attr.startsWith("locked "))) {
+          if (!leftovers.includes("worktree_registrations")) leftovers.push("worktree_registrations");
+        } else await git.run(["worktree", "remove", "--", dir], { cwd: project.path });
+      }
     } else {
       leftovers.push("worktree_registrations", "refs");
     }

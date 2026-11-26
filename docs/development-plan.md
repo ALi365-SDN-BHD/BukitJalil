@@ -226,7 +226,7 @@ BukitJalil/
 - 网站目录的**工作区**保持"纯 Bukit 项目"，不放 BukitJalil 私有文件，离开 BukitJalil 也能用 `bukit build` 构建
 - BukitJalil 在网站的 `.git` 里会留下三类记录：工作副本登记（`.git/worktrees/ai`、`.git/worktrees/main`）、改动集引用（`refs/bukitjalil/changes/<changeId>`，不在 `refs/heads/` 下，`git branch` 看不到，`git push --all` 也不会推送）和排除规则（`.git/info/exclude` 里一段带 `# BukitJalil begin/end` 标记的内容）。它们不会被提交；排除规则在共享的 git 目录里，也会让用户自己的检出忽略这几个构建目录，所以移除网站时会删掉这段内容
 - 模型密钥、自定义模型、GitHub / Notion token 和 Pi 会话记录都在 `app.db` 里（6.9），应用数据目录下没有单独的密钥或会话文件
-- 会话、工作副本、构建输出都放在应用数据目录，删除应用数据不会损坏网站内容；但网站 `.git` 里会留下失效的工作副本登记，执行 `git worktree prune` 即可清理。BukitJalil 提供"从 BukitJalil 移除网站"操作，会删除工作副本、`refs/bukitjalil/` 下的引用和排除规则里自己写的那段，再 `git worktree prune`
+- 会话、工作副本、构建输出都放在应用数据目录，直接删除应用数据可能留下失效的工作副本登记。用“从 BukitJalil 移除网站”会清理本项目的工作副本和对应登记、引用和排除规则；不清理仓库里的其他工作副本。
 
 ### 4.2 SQLite 表
 
@@ -770,7 +770,7 @@ BukitJalil/
 - **重置**（忘记 PIN）：
   - 锁屏上确认后，服务端让桌面壳带 `--reset` 参数重启服务端。新的服务端在创建任何服务之前删除：`app.db`、`-wal`、`-shm`，以及 `worktrees/`、`previews/`、`notion-snapshots/`、`captures/`、`tmp/`。旧服务端由桌面壳正常停止，正在跑的 AI 回合、构建、发布随之停止（确认框写明）；删除在新服务端打开任何东西之前进行，不会和它们抢文件。
   - 确认框列出会删掉什么，并写明不可恢复。
-  - 用户的网站和主题目录不动，重新添加即可。实现时核对导入流程遇到 `.git` 里残留的工作副本登记和 `refs/bukitjalil/` 引用时的行为，必要时先 `git worktree prune`。
+  - 用户的网站和主题目录不动，重新添加即可。重新导入不会清理旧项目的工作副本登记和引用。
 - **旧的明文库**：以前测试版本留下的 `app.db` 是明文。服务端读文件头（`SQLite format 3\0`）就能认出来；遇到时锁屏提示"这是旧版本的数据"，只能重置。
 - **桌面壳**：删除 `secrets.ts`、`safeStorage` 和 `secrets` 消息，增加带 `--reset` 重启服务端。
 - **界面**：
@@ -1126,7 +1126,7 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | POST | `/api/sites/:siteId/open` | 记录最近打开时间，返回 204 |
 | GET | `/api/sites/:siteId` | 网站详情（含配置摘要、状态） |
 | PATCH | `/api/sites/:siteId` | 改显示名、归档 |
-| DELETE | `/api/sites/:siteId` | 从 BukitJalil 移除网站：删除工作副本、`refs/bukitjalil/*` 引用和 `.git/info/exclude` 里的 BukitJalil 段落，`git worktree prune`，删除会话和构建记录；**不删除网站目录** |
+| DELETE | `/api/sites/:siteId` | 从 BukitJalil 移除网站：删除本项目的工作副本和对应登记、`refs/bukitjalil/*` 引用和 `.git/info/exclude` 里的 BukitJalil 段落，删除会话和构建记录；**不删除网站目录** |
 | GET | `/api/sites/:siteId/tree?ref=main\|change&path=` | 目录树，按目录懒加载（只返回 `path` 下一层），直接读 git 对象 |
 | GET | `/api/sites/:siteId/file?path=&ref=` | 文件内容：文本以 JSON 返回；安全的位图图片（PNG、JPEG、GIF、WebP）带 `X-Content-Type-Options: nosniff` 和 `Content-Security-Policy: sandbox` 返回；SVG、HTML、PDF 等能执行脚本的类型**不在管理端口直接打开**，只以 `Content-Disposition: attachment` 下载，或通过预览端口查看 |
 | POST | `/api/sites/:siteId/media` | 上传一个图片或 PDF（JSON/base64，单文件不超过 10 MiB，路由上限 14 MiB），写入 AI 工作副本并生成改动集；重名返回 409 `media.exists`（6.8） |
@@ -1461,7 +1461,7 @@ macOS 安装包没有 Developer ID，Squirrel.Mac 不能安装更新，所以第
 | starter 模板：从 Bukit 源码复制 StarterTheme，补 `theme.yaml`、最小 `site.yaml` 和示例内容，用真实 Bukit 构建通过 | `templates/starter/` |
 | 构建前安全检查 `bukit/guard.ts`（插件、路径字段、网络、环境变量，见 8.5）+ 单元测试 | 检查模块 |
 | 目录选择器（`/api/fs/dirs` + 界面组件，见 5.2）| 新建、导入时选择位置 |
-| 新建网站、导入网站（含不满足安全规则时的"只读"状态，见 5.1；先检查 git 对象再创建检出）、`git/run.ts`（`spawn` 流式读取 + 加固参数 + 参数校验 + 机器可读输出解析）与配置白名单检查（7.3）、`readGlobalIdentity()`、网站列表、归档、移除（删除引用和排除规则段落）、网站操作锁（同一网站已有操作时返回 409 `site.busy`）。服务端已实现（第 4 层），界面已在第 7 层实现；移除时仓库配置不安全就跳过删除引用和 `worktree prune`，在返回的 `leftovers` 里列出 | 侧栏网站列表 |
+| 新建网站、导入网站（含不满足安全规则时的"只读"状态，见 5.1；先检查 git 对象再创建检出）、`git/run.ts`（`spawn` 流式读取 + 加固参数 + 参数校验 + 机器可读输出解析）与配置白名单检查（7.3）、`readGlobalIdentity()`、网站列表、归档、移除（删除引用和排除规则段落）、网站操作锁（同一网站已有操作时返回 409 `site.busy`）。服务端已实现（第 4 层），界面已在第 7 层实现；移除时仓库配置不安全就跳过删除引用和工作副本登记，在返回的 `leftovers` 里列出 | 侧栏网站列表 |
 | 文件树（按目录懒加载，读 git 对象）和文件预览（Shiki、Markdown、位图；SVG / HTML / PDF 通过预览端口或下载，见 9.1） | 文件面板 |
 | 配置面板（结构化 + 原文）。目录树、文件、配置、主题、数据五个接口已在第 5 层实现（见 9.1 的说明），界面已在第 7 层实现 | 配置面板 |
 | 主题面板、数据面板（Markdown 集合、data 源、Notion 源只显示配置） | 主题、数据面板 |
@@ -2213,7 +2213,7 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 
 **P4 实现说明**（2026-11-21）：
 - **重置**：锁屏上"忘记 PIN"（等待 5 分钟期间也在）进入确认页，写明删掉什么、不可恢复，可以取消。确认后 `POST /api/security/reset` 返回 202，服务端通过桌面消息通道发 `{type:"reset"}`；桌面壳先正常停掉服务端（会停下正在跑的 Bukit、AI 回合和发布，确认文字写明这一点），再带 `--reset` 启动新的服务端，就绪后重新打开窗口。新服务端拿到数据目录锁之后、打开数据库之前执行 `resetAppData`：删除 `app.db`、`-wal`、`-shm`、`worktrees/`、`previews/`、`notion-snapshots/`、`captures/`、`tmp/`（`security/reset.ts`，只删数据目录下一级的这几项，符号链接只删链接本身），然后 `ensureAppHome` 重新建好目录和空的 `app.db`，等于第一次启动。`--reset` 只能和 `--desktop` 一起用；`pnpm dev` 和没有桌面壳时 `reset` 返回 409 `security.dev_mode`。`--reset` 标记在服务端就绪后才清除，换端口重试时照样带着。
-- **重置后重新导入网站**：核对了导入流程。网站 `.git` 里残留的 `worktrees/ai`、`worktrees/main` 登记，在建工作副本前的 `git worktree prune` 时清掉（检出目录已删，登记失效）；`.git/info/exclude` 里的 BukitJalil 段按已有内容合并，不会重复；`refs/bukitjalil/changes/<旧 id>` 会留下，不在 `refs/heads/` 下、不影响使用，新改动集的 id 是随机的，不会撞上。没有加额外的清理。
+- **重置后重新导入网站**：新项目 ID 使用自己的检出路径，不接管旧项目登记；`.git/info/exclude` 里的 BukitJalil 段按已有内容合并，不会重复；`refs/bukitjalil/changes/<旧 id>` 会留下，不在 `refs/heads/` 下、不影响使用。
 - **旧的明文库**：`SecurityService` 创建时读一次 `app.db` 的前 16 字节（运行中只有带 `--reset` 的新服务端会改变它），是 `SQLite format 3\0` 时状态带 `legacy: true`，解锁返回 409 `security.legacy_database`。锁屏只显示说明和重置按钮，没有取消。文件读不了时不算旧库，状态接口照常回答，解锁时报真实的错误，锁屏和重置仍可用。
 - **空闲自动锁定**：分钟数存在 `settings` 表的 `security.idleMinutes` 行，经 `SettingsStore.getValue` / `setValue` 读写（设置接口只认已知的键，读不到也改不了它），解锁后读出；锁定期间状态里的 `idleMinutes` 是 `null`，也不能修改（423）。服务端每 30 秒 `checkIdle`，超过分钟数没有 `touch` 就锁定，日志 `security.lock` 带 `reason: "idle"`。界面只在打开了空闲锁定时监听键盘、指针按下和移过、滚轮、触摸，以及焦点移进预览，最多每 15 秒 `touch` 一次；后台请求不算使用。设置页"安全"一节加了下拉框：关闭、1、5、10、15、30 分钟；接口和读出的值也只认这几个（`IdleMinutes`），手改成别的值按关闭处理，下拉框不会显示和实际不符的选项。
 - **审计修复**：第一版每分钟最多 `touch` 一次，空闲时间设 1 分钟时，两次 `touch` 之间的检查会把正在用的应用锁上，改为 15 秒。第二轮审计（2026-11-21）又修了：预览里的操作不算使用（加上焦点移进预览、指针移过）；重置会停掉正在跑的任务但没写（确认文字和 6.9 补上）；`app.db` 读不了时状态接口 500（不再算旧库）；接口接受下拉框没有的分钟数（只认五个选项）；文件头每次请求都读（改为启动时读一次）；空闲分钟数自己写 SQL（改用 `SettingsStore`）。
@@ -2925,6 +2925,10 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 **#1 创建失败时保留用户文件**：新建网站和主题共用私有暂存目录，首次提交成功后才移入目标。回归测试在生成期间写入用户文件，并在首次提交结束时模拟同步软件写入同名 `site.yaml`。旧实现三项都失败；修复后用户文件逐字节保留，目录冲突返回 409。复查补上清理前的临时目录身份核对。
 
 **#1 验收**：检查和 Web、桌面构建通过；Vitest 881 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
+
+**#19 工作副本登记**：重建缺失检出时只替换本项目该路径的登记；移除项目按 Git 的 NUL 分隔记录核对 `main` 和 `ai` 的完整路径，保留锁定登记并报告。真实 Git 回归用临时移走的同名用户检出分别验证重建、移除：旧实现两次均删除用户登记，修复后其 HEAD、索引和 reflog 原字节保留，移回目录即可读回暂存内容。
+
+**#19 验收**：检查和 Web、桌面构建通过；Vitest 884 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
 
 ## 15. 风险与对策
 

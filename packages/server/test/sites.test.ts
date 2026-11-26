@@ -543,6 +543,7 @@ describe("manage a site", () => {
     fs.writeFileSync(path.join(dir, ".git", "info", "exclude"), "*.mine\n");
     const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
     raw(dir, "update-ref", "refs/bukitjalil/changes/c1", "HEAD");
+    raw(dir, "worktree", "add", "-q", "--detach", path.join(paths.worktrees, site.id, "ai"));
 
     const res = await call<{ leftovers: string[] }>("DELETE", `/api/sites/${site.id}`);
     expect(res.json).toEqual({ leftovers: [] });
@@ -552,6 +553,38 @@ describe("manage a site", () => {
     expect(fs.readFileSync(path.join(dir, ".git", "info", "exclude"), "utf8")).toBe("*.mine\n");
     expect(fs.existsSync(path.join(dir, "site.yaml"))).toBe(true);
     expect((await call<Site[]>("GET", "/api/sites")).json).toEqual([]);
+  });
+
+  it.each(["recheck", "remove"])("%s preserves a temporarily unavailable user's worktree registration", async (op) => {
+    const { call, paths } = setup();
+    const dir = starterRepo(`external-worktree-${op}`);
+    const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
+    const external = path.join(base, op, "main");
+    raw(dir, "worktree", "add", "-q", "--detach", external);
+    fs.writeFileSync(path.join(external, "draft"), "staged work\n");
+    raw(external, "add", "draft");
+    const admin = raw(external, "rev-parse", "--absolute-git-dir").trim();
+    const state = () => ["HEAD", "index", "logs/HEAD"].map((name) => fs.readFileSync(path.join(admin, name)));
+    const original = state();
+    fs.renameSync(external, `${external}-offline`);
+    if (op === "recheck") {
+      const checkout = path.join(paths.worktrees, site.id, "main");
+      fs.rmSync(checkout, { recursive: true });
+      expect((await call("POST", `/api/sites/${site.id}/recheck`)).status).toBe(200);
+      expect(raw(checkout, "rev-parse", "HEAD").trim()).toBe(site.checkedCommit);
+    } else expect((await call("DELETE", `/api/sites/${site.id}`)).json).toEqual({ leftovers: [] });
+    expect(state()).toEqual(original);
+    fs.renameSync(`${external}-offline`, external);
+    expect(raw(external, "show", ":draft")).toBe("staged work\n");
+  });
+
+  it("reports an explicitly locked registration on removal", async () => {
+    const { call, paths } = setup();
+    const dir = starterRepo("rm-locked-checkout");
+    const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
+    raw(dir, "worktree", "lock", "--reason", "manually retained", path.join(paths.worktrees, site.id, "main"));
+    expect((await call("DELETE", `/api/sites/${site.id}`)).json).toEqual({ leftovers: ["worktree_registrations"] });
+    expect(raw(dir, "worktree", "list", "--porcelain")).toContain("locked manually retained");
   });
 
   it("reports what it could not clean in an unsafe repository", async () => {
