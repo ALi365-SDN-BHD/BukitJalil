@@ -16,10 +16,9 @@ export function readPackageVersion(file: string): string | null {
   }
 }
 
-/** Application data directory (plan 4.1); BUKITJALIL_HOME overrides ~/.bukitjalil. */
-export function resolveAppHome(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.BUKITJALIL_HOME;
-  return path.resolve(override && override.length > 0 ? override : path.join(os.homedir(), ".bukitjalil"));
+/** Keep the plain source database separate from the desktop PIN database unless explicitly overridden. */
+export function resolveAppHome(desktop: boolean, env: NodeJS.ProcessEnv = process.env): string {
+  return path.resolve(env.BUKITJALIL_HOME || path.join(os.homedir(), desktop ? ".bukitjalil" : ".bukitjalil-dev"));
 }
 
 /** Files the server ships with: the AI skills, the built web pages, Bukit and the theme sample content. */

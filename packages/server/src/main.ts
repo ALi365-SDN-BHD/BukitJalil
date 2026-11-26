@@ -113,7 +113,7 @@ if (values["dev-origin"] !== undefined) {
   openOrigin = values["dev-origin"];
 }
 
-const paths = ensureAppHome(resolveAppHome());
+const paths = ensureAppHome(resolveAppHome(desktop !== null));
 // Before the database opens: one server per data directory (plan M7).
 let releaseLock: () => void;
 try {

@@ -29,7 +29,7 @@ pnpm start
 启动后终端会打印一个登录地址，并自动在浏览器里打开。这个地址只能用一次：换了浏览器或提示"登录已失效"时，在运行 BukitJalil 的终端里按回车，会打印一个新地址。
 
 - 管理界面只监听本机 `127.0.0.1:47880`，网站预览用从 47881 开始的端口。端口被占用时用 `pnpm start --port 48000 --preview-port-base 48001` 换一组
-- 应用数据放在 `~/.bukitjalil/`（设置、对话记录、AI 工作副本、构建结果、应用安装的 ripgrep、API Key；Bukit 在应用自己的安装目录里，不在这里）。设置环境变量 `BUKITJALIL_HOME` 可以换位置
+- `pnpm start` 和 `pnpm dev` 的应用数据默认放在 `~/.bukitjalil-dev/`（设置、对话记录、AI 工作副本、构建结果和密钥）。设置环境变量 `BUKITJALIL_HOME` 可以换位置。升级不会搬动旧数据；要继续用以前的明文数据库，见下面“PIN 锁定”
 - 网站文件夹本身由你选择位置，不在应用目录里
 
 停止 BukitJalil：在终端按 Ctrl+C。正在运行的 AI 会话和构建会被停下，没完成的构建下次启动时标记为"服务重启时中断"；对话记录和 AI 已经做的修改都保留。
@@ -54,7 +54,7 @@ pnpm start
 - 网页链接（发布后的网站地址、"在新标签页打开"预览）在默认浏览器里打开
 - 关闭窗口不会退出（和其他 Mac 应用一样），点 Dock 图标重新打开；退出用 ⌘Q，BukitJalil 会先停下正在运行的会话和构建
 - 帮助菜单里可以打开日志目录和数据目录
-- 数据目录同样是 `~/.bukitjalil/`，所以桌面版和 `pnpm start` 看到的是同一批网站和设置。两者不能同时运行：后启动的那个会说明"另一个 BukitJalil 正在使用同一个数据目录"
+- 桌面版默认使用 `~/.bukitjalil/`，与源码版的网站列表、设置和对话分开。两者都尊重显式指定的 `BUKITJALIL_HOME`；同一数据目录同时只能由一个进程使用
 - 从"应用程序"打开时读不到终端里设置的环境变量，模型的 API Key、发布账号 token 和数据源 token 都在设置里填
 - 还是需要 git（macOS 第一次用 git 时会提示安装"命令行开发者工具"）；Bukit 已经包含在应用里
 - 要设置 PIN 才能使用，见下面"PIN 锁定"
@@ -68,7 +68,7 @@ pnpm start
 - **修改 PIN**：设置 → 安全，输入当前 PIN 和两次新 PIN
 - **输错**：连续输错 5 次要等 5 分钟才能再试
 - **忘记 PIN**：PIN 没有办法找回。锁屏上点"忘记 PIN"可以重置应用：删除 BukitJalil 的数据库（网站列表、对话记录、改动记录、设置、token 和模型密钥）和工作副本、预览、Notion 快照等数据，正在进行的 AI 对话、构建和发布会被停止，然后重新设置 PIN。你的网站和主题文件夹不会删除，重置后重新导入即可；尚未应用的 AI 改动会丢失。等待 5 分钟期间也能重置
-- 旧的测试版本留下的数据库没有加密，打开时锁屏会说明，只能重置后使用
+- **桌面版发现明文数据库**：要保留原数据，不要点“重置”。从“帮助 → 打开数据目录”确认位置，退出桌面版，然后在源码仓库里将 `BUKITJALIL_HOME` 指向原目录再运行 `pnpm start`。例如 macOS / Linux 使用旧默认目录：`BUKITJALIL_HOME="$HOME/.bukitjalil" pnpm start`。不需要搬动文件或重置 PIN
 
 PIN 主要防止你离开电脑时别人打开 BukitJalil。它挡不住能拷走 `app.db` 的程序：拷走后可以离线逐个试 PIN，8 位数字的 PIN 用一块高端显卡大约几小时能试完。建议同时开启全盘加密，不要把 `~/.bukitjalil` 放进共享目录或云同步。
 
@@ -195,7 +195,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 1. 在 GitHub 上建好仓库。仓库名是 `用户名.github.io` 时网站在 `https://用户名.github.io/`，其他仓库名在 `https://用户名.github.io/仓库名/`
 2. 建一个 token：GitHub 的 Settings → Developer settings → Personal access tokens。推荐 fine-grained token，只选这个仓库，权限 Contents 设为 Read and write
 3. 在 BukitJalil 的设置 → 发布 → 发布账号里添加一个 GitHub 账号：填名称和 token。token 加密保存在本机（见下面"token 和密钥怎么保存"），界面只显示末四位；可以保存多个账号，网站发布时选择使用哪一个
-   - **token 和密钥怎么保存**：GitHub token、Notion token、模型 API Key、登录凭据和自定义模型的密钥都存在 `~/.bukitjalil/app.db` 里，每个再单独加密一次。桌面版的整个数据库用你的 PIN 加密（见"PIN 锁定"），不用系统钥匙串，macOS 也不会弹钥匙串提示。删除只是普通删除，固态硬盘上不保证抹掉旧数据。
+   - **token 和密钥怎么保存**：GitHub token、Notion token、模型 API Key、登录凭据和自定义模型的密钥都存在当前应用数据目录的 `app.db` 里，每个再单独加密一次。桌面版默认是 `~/.bukitjalil/app.db`，整库用你的 PIN 加密（见“PIN 锁定”）；源码版默认是 `~/.bukitjalil-dev/app.db`，不做整库加密。不用系统钥匙串。删除只是普通删除，固态硬盘上不保证抹掉旧数据。
      - 构建和发布时，token 通过标准输入交给 Bukit，不放进环境变量。发布推送时 GitHub token 也不进 git 的环境变量，由 Bukit 只给自己用的凭据代理直接交给 git。推送时不读你电脑上全局的 git 设置，需要代理时请设置 `HTTPS_PROXY` 环境变量；公司自签证书要装进系统证书库（macOS 是钥匙串）。发布账号仍建议用只给这个仓库 Contents 权限、设了过期时间的 fine-grained token。不要把 `~/.bukitjalil` 放进共享目录或云同步，建议开启全盘加密。
      - 用 `pnpm dev` 或 `pnpm start` 从源码运行时没有 PIN，数据库不加密（权限 600），设置页的"安全"一节会说明。
 4. 在网站主页的"发布"区点"部署设置"：选择发布账号，填写仓库（`owner/name`，例如 `alice/my-blog`），分支默认 `gh-pages`，有自定义域名再填。保存时会检查这个 token 对仓库是否有 Contents 写权限，并把 `deploy` 段、`site.url` 和 `site.baseUrl` 写进 `site.yaml`。没有自定义域名的项目站点，`site.baseUrl` 是 `/<仓库名>/`：之后的预览也会打开在这个路径下，和发布后的网址一致，模板或正文里漏写这个前缀的链接在预览里就会坏掉。`site.baseUrl` 只能用字母、数字和 `. _ ~ -`，以 `/` 分隔，否则预览构建会失败（结果为"site.baseUrl 不是可以用来预览的路径"）
@@ -260,7 +260,7 @@ AI 每次构建也会拿到同样的摘要，但只会处理和这次修改有�
 
 **发布失败**：在"发布"一节点开发布记录。推送这一步失败多半是 token 的问题：没有这个仓库的 Contents 写权限、已过期，或者仓库名写错了；在设置 → 发布里更新账号 token，或在网站的"部署设置"里换账号、改仓库后重试。推送成功但网站没更新时，检查 GitHub 仓库的 Pages 设置是否从对应分支发布。
 
-**桌面版提示"另一个 BukitJalil 正在使用同一个数据目录"**：在终端里用 `pnpm start` 或 `pnpm dev` 启动的 BukitJalil 还在运行。先把它停下（终端里按 Ctrl+C），再点窗口里的"重新启动"。如果确定没有别的 BukitJalil 在运行，删除 `~/.bukitjalil/server.lock` 后重试。
+**桌面版提示"另一个 BukitJalil 正在使用同一个数据目录"**：退出占用该目录的另一个实例，再点窗口里的“重新启动”。源码版默认使用不同目录；若手动设置过 `BUKITJALIL_HOME`，请核对它指向的位置。
 
 **忘记了 PIN**：没有办法找回。锁屏上点"忘记 PIN"重置应用，再把网站文件夹重新导入，模型密钥和 token 要重新填，见第 2 节"PIN 锁定"。
 

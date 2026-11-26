@@ -153,7 +153,7 @@ test("locks with a PIN that encrypts the database, and opens again only with it"
   await again.app.close();
 });
 
-test("an old plain database can only be reset", async () => {
+test("a plain database shows how to reopen it from source before offering reset", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "bj-desk-home-"));
   fs.writeFileSync(
     path.join(home, "app.db"),
@@ -161,6 +161,8 @@ test("an old plain database can only be reset", async () => {
   );
   const { app, page } = await launch(home);
   await expect(page.getByTestId("lock-reset")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("lock-screen")).toContainText("BUKITJALIL_HOME");
+  await expect(page.getByTestId("lock-screen")).toContainText("pnpm start");
   await expect(page.getByTestId("pin")).toHaveCount(0);
   await expect(page.getByTestId("lock-reset-cancel")).toHaveCount(0);
   await page.getByTestId("lock-reset").click();

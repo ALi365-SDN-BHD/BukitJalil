@@ -1369,9 +1369,9 @@ const ms: Messages = {
     resetConfirm: "Padam dan tetapkan semula",
     resetCancel: "Batal",
     resetting: "Sedang menetapkan semula; aplikasi akan dibuka semula sebentar lagi…",
-    legacyTitle: "Ini data daripada versi lama",
+    legacyTitle: "Pangkalan data ini tidak disulitkan",
     legacyHint:
-      "Direktori data ini daripada versi ujian lama tanpa PIN. Datanya tidak disulitkan dan versi ini tidak dapat membukanya. Tetapkan semula untuk bermula semula; folder laman dan tema anda tidak dipadam.",
+      "Untuk menyimpan data ini, jangan tetapkan semula aplikasi. Cari folder data dalam menu Bantuan, keluar daripada aplikasi desktop, tetapkan BUKITJALIL_HOME kepada folder itu dan jalankan pnpm start dari repositori kod sumber.",
     idleTitle: "Kunci apabila tidak aktif",
     idleHint:
       "Kunci aplikasi selepas tidak digunakan seketika. AI, binaan dan penerbitan yang sedang berjalan diteruskan.",
@@ -1430,7 +1430,7 @@ const ms: Messages = {
     "security.pin_not_set": "PIN belum ditetapkan",
     "security.wrong_pin": "PIN salah",
     "security.retry_later": "Terlalu banyak PIN salah. Cuba lagi dalam {seconds} saat",
-    "security.legacy_database": "Ini data tidak disulitkan daripada versi lama; aplikasi hanya boleh ditetapkan semula",
+    "security.legacy_database": "Aplikasi desktop tidak boleh membuka pangkalan data yang tidak disulitkan",
     "build.not_found": "Binaan tidak ditemui",
     "site.read_only": "Baca sahaja kerana tidak memenuhi peraturan keselamatan",
     "site.create_failed": "Bukit tidak dapat mencipta laman: {detail}",

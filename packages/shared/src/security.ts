@@ -21,7 +21,7 @@ export const SecurityStatus = z.object({
   locked: z.boolean(),
   /** Seconds until PIN entry is allowed again after too many wrong PINs; 0 when it is allowed. */
   retryAfterSeconds: z.number().int().nonnegative(),
-  /** app.db is a plain database from an earlier test version: it cannot be unlocked, only reset. */
+  /** The desktop app cannot unlock this plain database; source mode can reopen it. */
   legacy: z.boolean(),
   /** Lock after this many minutes without use; null when idle locking is off (the default). */
   idleMinutes: IdleMinutes.nullable(),

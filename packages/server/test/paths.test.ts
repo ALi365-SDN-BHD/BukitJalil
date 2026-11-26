@@ -2,10 +2,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ensureAppHome, readPackageVersion } from "../src/paths.ts";
+import { ensureAppHome, readPackageVersion, resolveAppHome } from "../src/paths.ts";
 import { openDatabase } from "../src/store/db.ts";
 
 const mode = (p: string) => fs.statSync(p).mode & 0o777;
+
+it("separates source and desktop data unless the caller explicitly selects a home", () => {
+  expect(resolveAppHome(false, {})).toBe(path.join(os.homedir(), ".bukitjalil-dev"));
+  expect(resolveAppHome(true, {})).toBe(path.join(os.homedir(), ".bukitjalil"));
+  for (const desktop of [true, false]) {
+    expect(resolveAppHome(desktop, { BUKITJALIL_HOME: "chosen" })).toBe(path.resolve("chosen"));
+  }
+});
 
 describe("app version", () => {
   it("reads one explicit package.json named bukitjalil", () => {
