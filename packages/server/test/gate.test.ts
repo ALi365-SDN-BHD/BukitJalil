@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
 import { GateError, MAX_WRITE_BYTES, PathGate } from "../src/agent/gate.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
-import { BUILTIN_TOOLS, checkToolPath, createGatedTools, dropGitLines, MAX_WALK } from "../src/agent/tools.ts";
+import { BUILTIN_TOOLS, checkToolPath, createGatedTools, MAX_WALK } from "../src/agent/tools.ts";
 
 const SECRET = "TOP-SECRET-VALUE";
 
@@ -207,22 +207,6 @@ describe("checkToolPath", () => {
     }
     for (const p of [undefined, "index.md", "content/a b.md", "/abs/path"])
       expect(() => checkToolPath(p)).not.toThrow();
-  });
-});
-
-describe("dropGitLines", () => {
-  it("drops matches and context lines from .git and .env paths", () => {
-    const text = [
-      "index.md:2: find-me",
-      ".git:1: gitdir",
-      "content/.GIT/config-1- x",
-      ".env:1: TOP-SECRET-VALUE",
-      "content/.env.local-2- TOP-SECRET-VALUE",
-      "content/post.md:1: find-me",
-    ].join("\n");
-    expect(dropGitLines(text)).toBe("index.md:2: find-me\ncontent/post.md:1: find-me");
-    expect(dropGitLines(".git:1: gitdir")).toBe("No matches found");
-    expect(dropGitLines("No matches found")).toBe("No matches found");
   });
 });
 
@@ -440,6 +424,40 @@ describe("gated tools", () => {
   it("rg is on PATH under CI", () => {
     if (process.env.CI) expect(rg, "install ripgrep in CI").not.toBeNull();
   });
+  it.skipIf(!rg || process.platform === "win32")(
+    "applies the read policy to tool results and edits on the same fixture",
+    async () => {
+      const dirs = [".bukitjalil-build", "content/.env-example", "content/.bukitjalil-build"];
+      fs.copyFileSync(fs.realpathSync(rg as string), rgPath);
+      fs.chmodSync(rgPath, 0o755);
+      try {
+        for (const dir of dirs) {
+          fs.mkdirSync(path.join(worktree, dir), { recursive: true });
+          fs.writeFileSync(path.join(worktree, dir, "sample.txt"), "fixture line\n");
+        }
+        const allowed = `${dirs[2]}/sample.txt`;
+        expect((await run("find", { pattern: "sample.txt" })).text).toBe(allowed);
+        expect((await run("grep", { pattern: "fixture line", glob: "*.txt" })).text).toBe(`${allowed}:1: fixture line`);
+        expect((await run("ls", { path: "content" })).text.split("\n")).toContain(".bukitjalil-build/");
+        expect((await run("ls", { path: "content" })).text).not.toContain(".env-example");
+        for (const dir of dirs.slice(0, 2)) {
+          await expectRefused("read", { path: `${dir}/sample.txt` });
+          await expectRefused("edit", {
+            path: `${dir}/sample.txt`,
+            edits: [{ oldText: "fixture", newText: "edited" }],
+          });
+          expect(fs.readFileSync(path.join(worktree, dir, "sample.txt"), "utf8")).toBe("fixture line\n");
+        }
+        expect((await run("edit", { path: allowed, edits: [{ oldText: "fixture", newText: "edited" }] })).ok).toBe(
+          true,
+        );
+        expect((await run("read", { path: allowed })).text).toContain("edited line");
+      } finally {
+        for (const dir of dirs) fs.rmSync(path.join(worktree, dir), { recursive: true, force: true });
+        fs.rmSync(rgPath);
+      }
+    },
+  );
   it.skipIf(!rg || process.platform === "win32")("grep searches the working copy without .git files", async () => {
     fs.copyFileSync(fs.realpathSync(rg as string), rgPath);
     fs.chmodSync(rgPath, 0o755);
@@ -452,7 +470,7 @@ describe("gated tools", () => {
       expect(r.text).not.toContain(".env");
       expect(r.text).not.toContain(SECRET);
       expect((await run("grep", { pattern: SECRET })).text).toBe("No matches found");
-      // A model-provided glob cannot bring .env lines back: the output filter drops them too.
+      // A glob only selects candidate names; it does not grant access.
       const env = await run("grep", { pattern: SECRET, glob: "**/.env*" });
       expect(env.text).toBe("No matches found");
       // .git is left out of the search, so its lines do not take the place of real matches.

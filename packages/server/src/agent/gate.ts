@@ -42,7 +42,6 @@ export const segmentKey = (name: string) =>
   foldName(name)
     .split(":")[0]
     ?.replace(/[. ]+$/, "") ?? "";
-const isGitName = (name: string) => segmentKey(name) === ".git";
 
 /** Something exists at `p` itself (a dangling symlink, when realpath has just failed on it). */
 function isEntry(p: string): boolean {
@@ -84,6 +83,7 @@ function realPathOf(abs: string): string {
  */
 export class PathGate {
   readonly root: string;
+  private readonly shownRoot: string;
   private readonly readOnlyRoots: string[];
   private readonly writeOnly: { shown: string; keys: string[] }[] | null;
 
@@ -94,6 +94,7 @@ export class PathGate {
    */
   constructor(root: string, readOnlyRoots: readonly string[] = [], writeOnly?: readonly (readonly string[])[]) {
     this.root = fs.realpathSync.native(root);
+    this.shownRoot = path.resolve(root);
     this.readOnlyRoots = readOnlyRoots.map((r) => fs.realpathSync.native(r));
     this.writeOnly = writeOnly ? writeOnly.map((p) => ({ shown: p.join("/"), keys: p.map(segmentKey) })) : null;
   }
@@ -103,18 +104,23 @@ export class PathGate {
     if (typeof abs !== "string" || !path.isAbsolute(abs) || abs.includes("\0")) {
       throw new GateError(`Path not allowed: ${String(abs)}`);
     }
-    const real = realPathOf(path.resolve(abs));
+    const shown = path.resolve(abs);
+    const real = realPathOf(shown);
+    if (shown !== real && within(shown, this.shownRoot)) this.checkNames(path.relative(this.shownRoot, shown), mode);
     if (!within(real, this.root)) {
       if (mode === "read" && this.readOnlyRoots.some((r) => within(real, r))) return real;
       throw new GateError(`Path not allowed: ${abs} is outside the site's working copy`);
     }
-    const parts = path.relative(this.root, real).split(path.sep).filter(Boolean);
+    this.checkNames(path.relative(this.root, real), mode);
+    return real;
+  }
+
+  private checkNames(relative: string, mode: GateMode): void {
+    const parts = relative.split(path.sep).filter(Boolean);
     const keys = parts.map(segmentKey);
-    if (parts.some(isGitName)) throw new GateError(`Path not allowed: .git is off limits (${abs})`);
-    // A tracked .env (an imported Git repository can have one) holds secrets too: reading it would send the
-    // values to the model provider, and grep would return its lines. The write rule below already protects it.
-    if ((mode === "read" || mode === "list") && keys.some((key) => key.startsWith(".env"))) {
-      throw new GateError(`Path not allowed: ${parts.join("/")} is protected and cannot be read or listed`);
+    if (keys.includes(".git")) throw new GateError(`Path not allowed: .git is off limits (${relative})`);
+    if (keys.some((key) => key.startsWith(".env"))) {
+      throw new GateError(`Path not allowed: ${parts.join("/")} is protected`);
     }
     if ((mode === "read" || mode === "list") && keys[0] !== undefined && NO_READ_TOP.has(keys[0])) {
       throw new GateError(`Path not allowed: ${parts.join("/")} is build output and cannot be read or listed`);
@@ -122,12 +128,7 @@ export class PathGate {
     if (mode === "write") {
       const top = keys[0];
       const name = keys.at(-1) ?? "";
-      if (
-        (top !== undefined && NO_WRITE_TOP.has(top)) ||
-        keys.includes("node_modules") ||
-        NO_WRITE_NAMES.has(name) ||
-        name.startsWith(".env")
-      ) {
+      if ((top !== undefined && NO_WRITE_TOP.has(top)) || keys.includes("node_modules") || NO_WRITE_NAMES.has(name)) {
         throw new GateError(`Path not allowed: ${parts.join("/")} is protected and cannot be written`);
       }
       if (this.writeOnly && !this.writeOnly.some((p) => p.keys.every((key, i) => keys[i] === key))) {
@@ -135,7 +136,17 @@ export class PathGate {
         throw new GateError(`Path not allowed: ${parts.join("/")} cannot be written here; only ${allowed}`);
       }
     }
-    return real;
+  }
+
+  /** Directory tools omit inaccessible entries rather than returning their names. */
+  listable(abs: string): boolean {
+    try {
+      this.check(abs, "list");
+      return true;
+    } catch (err) {
+      if (err instanceof GateError) return false;
+      throw err;
+    }
   }
 
   /** Content the AI may write: at most 1 MB of text. */
