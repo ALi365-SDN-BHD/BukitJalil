@@ -229,6 +229,25 @@ describe("upload URL prefix check", () => {
       { page: "pages/index.html", url: "/blog/uploads/A.png" },
     ]);
   });
+
+  it("ignores documentation, text and attribute lookalikes but checks real unquoted attributes", () => {
+    const out = outputWith({
+      "uploads/a.png": "png",
+      "guide.html": `<pre>&lt;img src="/example/uploads/a.png"&gt;</pre>
+        <img data-src="/lazy/uploads/a.png" aria-label='href="/label/uploads/a.png"'>
+        <textarea><a href="/sample/uploads/a.png"></textarea>
+        <img srcset="data:text/plain,/embedded/uploads/a.png 1x, /blog/uploads/a.png 2x">
+        <script src=/script/uploads/a.png>const src="/string/uploads/a.png";</script>
+        <IMG alt="> src='/alt/uploads/a.png'" SRC=/old/uploads/a.png>
+        <a hrEf="&#47;other/uploads/a.png">download</a>`,
+    });
+    expect(findUploadUrlProblems(out, "/blog/")).toEqual(
+      ["/script/uploads/a.png", "/old/uploads/a.png", "/other/uploads/a.png"].map((url) => ({
+        page: "guide.html",
+        url,
+      })),
+    );
+  });
 });
 
 describe("upload directory rules", () => {
