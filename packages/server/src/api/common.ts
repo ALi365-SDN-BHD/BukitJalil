@@ -1,8 +1,7 @@
 import { isProjectId, type ProjectKey, projectKey } from "@bukitjalil/shared";
 import type { Context } from "hono";
 import type { z } from "zod";
-import { apiError } from "../security/guard.ts";
-import { asSiteError, SiteError } from "../sites/location.ts";
+import { SiteError } from "../sites/location.ts";
 
 /**
  * Route prefixes of the two kinds of project (theme development design 3.3): a route every project has is
@@ -42,15 +41,4 @@ export function attachment(name: string): string {
     (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
   );
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
-}
-
-/** Map an expected failure to its API error; anything else goes to the generic 500 handler. */
-export async function handle(c: Context, fn: () => Promise<Response> | Response): Promise<Response> {
-  try {
-    return await fn();
-  } catch (err) {
-    const known = asSiteError(err);
-    if (known) return apiError(c, known.status, known.code, known.params);
-    throw err;
-  }
 }

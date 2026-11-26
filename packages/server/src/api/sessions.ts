@@ -13,7 +13,7 @@ import type { AppEnv } from "../app.ts";
 import { notionId } from "../data-sources/service.ts";
 import { apiError } from "../security/guard.ts";
 import { SiteError } from "../sites/location.ts";
-import { body, handle, PROJECT_PREFIXES, projectParam } from "./common.ts";
+import { body, PROJECT_PREFIXES, projectParam } from "./common.ts";
 
 /** A Notion database's conversations in content management (content editor and AI design, part 2). */
 const CONTENT = "/content/sources/:sourceId/databases/:databaseId";
@@ -37,91 +37,72 @@ function callParam(c: Context): string {
 
 /** AI sessions (plan 9.1); what they do arrives on the event stream. */
 export function sessionRoutes(api: Hono<AppEnv>, agent: AgentService) {
-  api.get(`${CONTENT}/sessions`, (c) => handle(c, () => c.json(agent.listInfo(contentParam(c)))));
-  api.post(`${CONTENT}/sessions`, (c) =>
-    handle(c, () => {
-      const record = agent.create(contentParam(c));
+  api.get(`${CONTENT}/sessions`, (c) => c.json(agent.listInfo(contentParam(c))));
+  api.post(`${CONTENT}/sessions`, (c) => {
+    const record = agent.create(contentParam(c));
+    return c.json(agent.info(record.id), 201);
+  });
+
+  for (const prefix of PROJECT_PREFIXES) api.get(`${prefix}/sessions`, (c) => c.json(agent.listInfo(projectParam(c))));
+
+  for (const prefix of PROJECT_PREFIXES)
+    api.post(`${prefix}/sessions`, (c) => {
+      const record = agent.create(projectParam(c));
       return c.json(agent.info(record.id), 201);
-    }),
-  );
+    });
 
-  for (const prefix of PROJECT_PREFIXES)
-    api.get(`${prefix}/sessions`, (c) => handle(c, () => c.json(agent.listInfo(projectParam(c)))));
+  api.get("/sessions/:sessionId", async (c) => {
+    const id = c.req.param("sessionId");
+    const session = agent.info(id);
+    const res: SessionDetail = { session, messages: await agent.messages(id) };
+    return c.json(res);
+  });
 
-  for (const prefix of PROJECT_PREFIXES)
-    api.post(`${prefix}/sessions`, (c) =>
-      handle(c, () => {
-        const record = agent.create(projectParam(c));
-        return c.json(agent.info(record.id), 201);
-      }),
-    );
+  api.patch("/sessions/:sessionId", async (c) => {
+    const req = await body(c, SessionPatch);
+    if (!req) return apiError(c, 400, "request.invalid_body");
+    const id = c.req.param("sessionId");
+    agent.rename(id, req.title);
+    return c.json(agent.info(id));
+  });
 
-  api.get("/sessions/:sessionId", (c) =>
-    handle(c, async () => {
-      const id = c.req.param("sessionId");
-      const session = agent.info(id);
-      const res: SessionDetail = { session, messages: await agent.messages(id) };
-      return c.json(res);
-    }),
-  );
-
-  api.patch("/sessions/:sessionId", (c) =>
-    handle(c, async () => {
-      const req = await body(c, SessionPatch);
-      if (!req) return apiError(c, 400, "request.invalid_body");
-      const id = c.req.param("sessionId");
-      agent.rename(id, req.title);
-      return c.json(agent.info(id));
-    }),
-  );
-
-  api.delete("/sessions/:sessionId", (c) =>
-    handle(c, async () => {
-      await agent.delete(c.req.param("sessionId"));
-      return c.body(null, 204);
-    }),
-  );
+  api.delete("/sessions/:sessionId", async (c) => {
+    await agent.delete(c.req.param("sessionId"));
+    return c.body(null, 204);
+  });
 
   // 202: the message is accepted; the reply streams on /events.
-  api.post("/sessions/:sessionId/messages", (c) =>
-    handle(c, async () => {
-      const req = await body(c, SendMessageRequest);
-      if (!req) return apiError(c, 400, "request.invalid_body");
-      const id = c.req.param("sessionId");
-      await agent.send(id, req.text, {
-        followUp: req.mode === "followUp",
-        images: req.images,
-        ...(req.entryId !== undefined ? { entryId: req.entryId } : {}),
-      });
-      return c.json(agent.info(id), 202);
-    }),
-  );
+  api.post("/sessions/:sessionId/messages", async (c) => {
+    const req = await body(c, SendMessageRequest);
+    if (!req) return apiError(c, 400, "request.invalid_body");
+    const id = c.req.param("sessionId");
+    await agent.send(id, req.text, {
+      followUp: req.mode === "followUp",
+      images: req.images,
+      ...(req.entryId !== undefined ? { entryId: req.entryId } : {}),
+    });
+    return c.json(agent.info(id), 202);
+  });
 
-  api.post("/sessions/:sessionId/abort", (c) =>
-    handle(c, async () => {
-      const id = c.req.param("sessionId");
-      await agent.stop(id);
-      return c.json(agent.info(id));
-    }),
-  );
+  api.post("/sessions/:sessionId/abort", async (c) => {
+    const id = c.req.param("sessionId");
+    await agent.stop(id);
+    return c.json(agent.info(id));
+  });
 
   // Proposals of a content conversation (content editor and AI design, A2): written only on the user's word.
-  api.get("/sessions/:sessionId/proposals", (c) =>
-    handle(c, async () => c.json(await agent.proposals(c.req.param("sessionId")))),
+  api.get("/sessions/:sessionId/proposals", async (c) => c.json(await agent.proposals(c.req.param("sessionId"))));
+  api.post("/sessions/:sessionId/proposals/:callId/apply", async (c) =>
+    c.json(await agent.applyProposal(c.req.param("sessionId"), callParam(c))),
   );
-  api.post("/sessions/:sessionId/proposals/:callId/apply", (c) =>
-    handle(c, async () => c.json(await agent.applyProposal(c.req.param("sessionId"), callParam(c)))),
-  );
-  api.post("/sessions/:sessionId/proposals/:callId/reject", (c) =>
-    handle(c, async () => c.json(await agent.rejectProposal(c.req.param("sessionId"), callParam(c)))),
+  api.post("/sessions/:sessionId/proposals/:callId/reject", async (c) =>
+    c.json(await agent.rejectProposal(c.req.param("sessionId"), callParam(c))),
   );
 
-  api.post("/sessions/:sessionId/fork", (c) =>
-    handle(c, async () => {
-      const req = await body(c, ForkRequest);
-      if (!req) return apiError(c, 400, "request.invalid_body");
-      const record = await agent.fork(c.req.param("sessionId"), req.entryId);
-      return c.json(agent.info(record.id), 201);
-    }),
-  );
+  api.post("/sessions/:sessionId/fork", async (c) => {
+    const req = await body(c, ForkRequest);
+    if (!req) return apiError(c, 400, "request.invalid_body");
+    const record = await agent.fork(c.req.param("sessionId"), req.entryId);
+    return c.json(agent.info(record.id), 201);
+  });
 }

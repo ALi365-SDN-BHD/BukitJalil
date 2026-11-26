@@ -13,7 +13,7 @@ import type { BuildService } from "../builds/service.ts";
 import { apiError } from "../security/guard.ts";
 import type { ThemeDeliverService } from "../themes/deliver.ts";
 import { type ThemeService, themeKey } from "../themes/service.ts";
-import { attachment, body, handle } from "./common.ts";
+import { attachment, body } from "./common.ts";
 
 export interface ThemeRouteDeps {
   themes: ThemeService;
@@ -30,84 +30,64 @@ export interface ThemeRouteDeps {
 export function themeRoutes(api: Hono<AppEnv>, { themes, builds, deliver, agent }: ThemeRouteDeps) {
   api.get("/themes", (c) => c.json(themes.list()));
 
-  api.post("/themes", (c) =>
-    handle(c, async () => {
-      const req = await body(c, CreateThemeRequest);
-      if (!req) return apiError(c, 400, "request.invalid_body");
-      return c.json(await themes.create(req), 201);
-    }),
-  );
+  api.post("/themes", async (c) => {
+    const req = await body(c, CreateThemeRequest);
+    if (!req) return apiError(c, 400, "request.invalid_body");
+    return c.json(await themes.create(req), 201);
+  });
 
-  api.get("/themes/:themeId", (c) => handle(c, () => c.json(themes.get(c.req.param("themeId")))));
+  api.get("/themes/:themeId", (c) => c.json(themes.get(c.req.param("themeId"))));
 
-  api.post("/themes/import/inspect", (c) =>
-    handle(c, async () => {
-      const req = await body(c, InspectThemeRequest);
-      if (!req) return apiError(c, 400, "request.invalid_body");
-      return c.json(await themes.inspectImport(req.path));
-    }),
-  );
+  api.post("/themes/import/inspect", async (c) => {
+    const req = await body(c, InspectThemeRequest);
+    if (!req) return apiError(c, 400, "request.invalid_body");
+    return c.json(await themes.inspectImport(req.path));
+  });
 
-  api.post("/themes/import", (c) =>
-    handle(c, async () => {
-      const req = await body(c, ImportThemeRequest);
-      if (!req) return apiError(c, 400, "request.invalid_body");
-      return c.json(await themes.importTheme(req), 201);
-    }),
-  );
+  api.post("/themes/import", async (c) => {
+    const req = await body(c, ImportThemeRequest);
+    if (!req) return apiError(c, 400, "request.invalid_body");
+    return c.json(await themes.importTheme(req), 201);
+  });
 
-  api.patch("/themes/:themeId", (c) =>
-    handle(c, async () => {
-      const req = await body(c, SitePatch);
-      if (!req) return apiError(c, 400, "request.invalid_body");
-      return c.json(themes.patch(c.req.param("themeId"), req));
-    }),
-  );
+  api.patch("/themes/:themeId", async (c) => {
+    const req = await body(c, SitePatch);
+    if (!req) return apiError(c, 400, "request.invalid_body");
+    return c.json(themes.patch(c.req.param("themeId"), req));
+  });
 
-  api.post("/themes/:themeId/recheck", (c) =>
-    handle(c, async () => c.json(await themes.recheck(c.req.param("themeId")))),
-  );
+  api.post("/themes/:themeId/recheck", async (c) => c.json(await themes.recheck(c.req.param("themeId"))));
 
-  api.post("/themes/:themeId/open", (c) =>
-    handle(c, () => {
-      themes.touch(c.req.param("themeId"));
-      return c.body(null, 204);
-    }),
-  );
+  api.post("/themes/:themeId/open", (c) => {
+    themes.touch(c.req.param("themeId"));
+    return c.body(null, 204);
+  });
 
-  api.get("/themes/:themeId/apply", (c) =>
-    handle(c, async () => {
-      const siteId = c.req.query("siteId") ?? "";
-      if (!isProjectId(siteId)) return apiError(c, 400, "request.invalid_query");
-      return c.json(await deliver.plan(c.req.param("themeId"), siteId));
-    }),
-  );
+  api.get("/themes/:themeId/apply", async (c) => {
+    const siteId = c.req.query("siteId") ?? "";
+    if (!isProjectId(siteId)) return apiError(c, 400, "request.invalid_query");
+    return c.json(await deliver.plan(c.req.param("themeId"), siteId));
+  });
 
-  api.post("/themes/:themeId/apply", (c) =>
-    handle(c, async () => {
-      const req = await body(c, ThemeApplyRequest);
-      if (!req) return apiError(c, 400, "request.invalid_body");
-      return c.json(await deliver.apply(c.req.param("themeId"), req, () => agent.busy(req.siteId)), 201);
-    }),
-  );
+  api.post("/themes/:themeId/apply", async (c) => {
+    const req = await body(c, ThemeApplyRequest);
+    if (!req) return apiError(c, 400, "request.invalid_body");
+    return c.json(await deliver.apply(c.req.param("themeId"), req, () => agent.busy(req.siteId)), 201);
+  });
 
-  api.get("/themes/:themeId/export", (c) =>
-    handle(c, async () => {
-      const zip = await deliver.exportZip(c.req.param("themeId"));
-      c.set("cspSandbox", true);
-      return c.body(new Uint8Array(zip.data), 200, {
-        "Content-Type": "application/zip",
-        "Content-Disposition": attachment(zip.name),
-      });
-    }),
-  );
+  api.get("/themes/:themeId/export", async (c) => {
+    const zip = await deliver.exportZip(c.req.param("themeId"));
+    c.set("cspSandbox", true);
+    return c.body(new Uint8Array(zip.data), 200, {
+      "Content-Type": "application/zip",
+      "Content-Disposition": attachment(zip.name),
+    });
+  });
 
-  api.delete("/themes/:themeId", (c) =>
-    handle(c, async () => {
-      const id = c.req.param("themeId");
-      const result = await themes.remove(id);
-      await builds.forgetProject(themeKey(id));
-      return c.json(result);
-    }),
-  );
+  api.delete("/themes/:themeId", async (c) => {
+    const id = c.req.param("themeId");
+    const result = await themes.remove(id);
+    await builds.forgetProject(themeKey(id));
+    return c.json(result);
+  });
 }

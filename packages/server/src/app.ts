@@ -225,15 +225,17 @@ function baseApp(opts: LockedAppOptions | AdminAppOptions) {
 
   // Errors never leak details: /api answers with a code (plan 10.1), the log gets the stack (plan 13).
   app.onError((err, c) => {
-    const known = new URL(c.req.url).pathname.startsWith("/api/") ? asSiteError(err) : null;
+    const path = new URL(c.req.url).pathname;
+    const api = path.startsWith("/api/");
+    const known = api ? asSiteError(err) : null;
     if (known) return apiError(c, known.status, known.code, known.params);
     opts.logger.log("error", "request.failed", {
       method: c.req.method,
-      path: new URL(c.req.url).pathname,
+      path,
       error: err.message,
       stack: err.stack,
     });
-    if (new URL(c.req.url).pathname.startsWith("/api/")) {
+    if (api) {
       // A full or read-only disk is something the user can fix, so it gets its own message.
       const storage = storageErrorCode(err);
       if (storage) return apiError(c, storage === "fs.disk_full" ? 507 : 500, storage);
