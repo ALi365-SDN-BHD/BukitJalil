@@ -272,7 +272,7 @@ describe("new theme projects (T1)", () => {
       const applied = await ctx.changes.current(key, false);
       if (!applied) throw new Error("no change set");
       // No Bukit in this app: the check cannot pass, so both applies are forced.
-      await ctx.changes.apply(applied.id, { treeHash: applied.treeHash, force: true });
+      await ctx.changes.apply(applied.id, { ...applied, force: true });
       await ctx.builds.settled();
       const init = rawGit(base, dir, "rev-parse", "HEAD^").trim();
 
@@ -285,7 +285,7 @@ describe("new theme projects (T1)", () => {
       await ctx.changes.snapshot(key, cwd);
       const view = await ctx.changes.current(key, false);
       if (!view) throw new Error("no change set");
-      await ctx.changes.apply(view.id, { treeHash: view.treeHash, force: true });
+      await ctx.changes.apply(view.id, { ...view, force: true });
       const body = rawGit(base, dir, "log", "-1", "--format=%b");
       expect(body).toContain("AI changes: Add 1 file: content/pages/extra.md");
       expect(body).not.toContain("_reference");
@@ -417,7 +417,7 @@ describe("new theme projects (T1)", () => {
     // Apply through the normal review flow, then the site has the theme and names it.
     const view = change.change;
     if (!view) throw new Error("no change set");
-    await ctx.changes.apply(view.id, { treeHash: view.treeHash, force: true });
+    await ctx.changes.apply(view.id, { ...view, force: true });
     await ctx.builds.settled();
     expect(fs.existsSync(path.join(s.path, "themes", "deliver", "theme.yaml"))).toBe(true);
     expect(rawGit(base, s.path, "show", "main:site.yaml")).toMatch(/name: deliver/);
@@ -506,7 +506,7 @@ describe("new theme projects (T1)", () => {
     ).toBe(true);
     const switched = await ctx.changes.current(s.id, false);
     if (!switched) throw new Error("no change set");
-    await ctx.changes.apply(switched.id, { treeHash: switched.treeHash, force: true });
+    await ctx.changes.apply(switched.id, { ...switched, force: true });
     await ctx.builds.settled();
 
     // Replacing the site's copy of the same theme keeps them, and the plan does not list them as removed.

@@ -110,31 +110,28 @@ export const ApplySelection = z
   })
   .strict();
 export type ApplySelection = z.infer<typeof ApplySelection>;
+/** Both ends of the diff the user reviewed, also the complete body of a reject request. */
+export const ReviewVersion = z.object({ baseCommit: ObjectId, treeHash: ObjectId }).strict();
+export type ReviewVersion = z.infer<typeof ReviewVersion>;
+
 /** POST /api/changes/:changeId/apply. */
-export const ApplyRequest = z
-  .object({
-    /** The review fingerprint the user saw (ChangeSet.treeHash). */
-    treeHash: ObjectId,
-    /** Apply although the check failed. */
-    force: z.boolean().optional(),
-    /** The base the review showed (ChangeSet.baseCommit); required with `selection` (plan 7.5). */
-    baseCommit: ObjectId.optional(),
-    /**
-     * Apply only these files (plan 7.5); the rest stays in the change set. `hunks`: indexes of the file's
-     * diff hunks as the review shows them; without it, the whole file.
-     */
-    selection: z
-      .array(ApplySelection)
-      .min(1)
-      .max(MAX_SELECTION)
-      .refine((items) => new Set(items.map((i) => i.path)).size === items.length, { message: "paths must differ" })
-      .refine((items) => items.every((i) => !i.hunks || new Set(i.hunks).size === i.hunks.length), {
-        message: "hunks must differ",
-      })
-      .optional(),
-  })
-  .strict()
-  .refine((r) => !r.selection || r.baseCommit !== undefined, { message: "a selection needs baseCommit" });
+export const ApplyRequest = ReviewVersion.extend({
+  /** Apply although the check failed. */
+  force: z.boolean().optional(),
+  /**
+   * Apply only these files (plan 7.5); the rest stays in the change set. `hunks`: indexes of the file's
+   * diff hunks as the review shows them; without it, the whole file.
+   */
+  selection: z
+    .array(ApplySelection)
+    .min(1)
+    .max(MAX_SELECTION)
+    .refine((items) => new Set(items.map((i) => i.path)).size === items.length, { message: "paths must differ" })
+    .refine((items) => items.every((i) => !i.hunks || new Set(i.hunks).size === i.hunks.length), {
+      message: "hunks must differ",
+    })
+    .optional(),
+}).strict();
 export type ApplyRequest = z.infer<typeof ApplyRequest>;
 
 /** GET /api/changes/:changeId/diff?path= */

@@ -744,7 +744,7 @@ describe("AgentService", () => {
     // The change set this conversation worked in is rejected: the next run starts a new one.
     const open = ctx.changes.store.open(s.id);
     if (!open) throw new Error("no change set");
-    await ctx.changes.reject(open.id);
+    await ctx.changes.reject(open.id, await ctx.changes.toChangeSet(open));
     // A run that joined the new change set but ended before sending the note does not lose it.
     await ctx.changes.begin(s.id, session.id);
     faux.setResponses([answer("two")]);

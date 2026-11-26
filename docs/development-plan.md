@@ -900,7 +900,7 @@ AI 工作副本在第一次需要时创建（`git worktree add --detach ~/.bukit
 
 **规则**：
 
-- **路径和代码块都对着审核时看到的差异**：请求照旧带快照的树指纹 `treeHash`，带 `selection` 时还必须带审核时的 `baseCommit`（缺了是 400，对不上是 409 `change.fingerprint_mismatch`）。原因是部分应用之后，剩下的改动集树不变、base 变了，代码块序号对着的是新的差异；只核对树的话，旧页面发来的"第 1 块"会变成另一块。服务端核对两者，再从"base → 快照"的差异里按 `selection` 算出选中后的树 S，"审核时看到的 = 应用的"仍然成立。代码块序号超出范围也按指纹不符处理（409）。代码块的划分要稳定：差异固定用 `--unified=3 --diff-algorithm=myers --indent-heuristic`，不受仓库配置影响，审核视图和应用用同一个函数（`changes/diff.ts`）。
+- **路径和代码块都对着审核时看到的差异**：所有应用和拒绝请求都必须带审核时的 `baseCommit` 和 `treeHash`（缺了是 400，对不上是 409 `change.fingerprint_mismatch`）。部分应用后，剩下的改动集树不变、base 变了；只核对树，旧页面发来的“第 1 块”可能变成另一块。服务端核对两者，再从“base → 快照”的差异里按 `selection` 算出选中后的树 S。代码块序号超出范围也按指纹不符处理（409）。差异固定用 `--unified=3 --diff-algorithm=myers --indent-heuristic`，不受仓库配置影响；审核视图和应用用同一个函数（`changes/diff.ts`）。
 - **文件和同名文件夹互换**：`--no-renames` 把它列成"删除 a"和"新增 a/b"两条，索引写入其中一条时会自动带上另一条。所以建树后再比一次 base 和 S，只允许选中的路径不同，否则返回 400（`change.partial_unsupported`），这种改动要两条一起选。
 - **检查没通过时清掉缓存**：检查在 `main/` 检出里跑，那里的 `.bukit`、`.cache` 在重置时会保留，检查没通过、也没强制时把这两个目录删掉，没应用的内容不会留在下一次正式构建的缓存里。
 - **只能整文件选的情况**：二进制文件、差异太大不显示的文件、新增 / 删除 / 类型变化的文件、权限位变了的文件、子模块、超过 16 MB 的文件、"全部代码块"算不回快照文件的文件。对这些文件传 `hunks` 返回 400（`change.partial_unsupported`）。由服务端判断：改动集的单文件差异（`GET /api/changes/:id/diff`）多返回 `splittable`，界面只给它为真的文件显示代码块勾选框；恢复改动集一律为假。
@@ -1143,8 +1143,8 @@ runBukit(args: string[], opts: { cwd: string; env?: Record<string, string>; time
 | POST | `/api/sessions/:sessionId/fork` | 从某条消息分叉 |
 | GET | `/api/sites/:siteId/changes/current` | 当前改动集与文件列表（单个文件的差异另取） |
 | GET | `/api/changes/:changeId/diff` | 改动集里单个文件的差异 |
-| POST | `/api/changes/:changeId/apply` | 应用；请求体必须带审核指纹 `treeHash`，指纹不符、网站操作锁被占用（会话在运行、构建中等）时返回 409 |
-| POST | `/api/changes/:changeId/reject` | 拒绝 |
+| POST | `/api/changes/:changeId/apply` | 整体、部分及强制应用都必须带界面显示的 `baseCommit` 和 `treeHash`；缺少返回 400，不符或忙返回 409 |
+| POST | `/api/changes/:changeId/reject` | 拒绝同样必须带 `baseCommit` 和 `treeHash`；锁内核对审核版本并确认工作副本没有更新后才关闭 |
 | GET | `/api/sites/:siteId/history` | 版本历史 |
 | GET | `/api/sites/:siteId/history/:commit/diff` | 某个版本的差异；`:commit` 用 zod 校验为完整的十六进制 OID（40 或 64 位），见 7.3 |
 | POST | `/api/sites/:siteId/history/:commit/restore` | 恢复到某个版本：生成一个恢复改动集供审核（7.4）；`:commit` 校验同上 |
@@ -2901,6 +2901,10 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 **#18 长文件 diff**：文件只改一行、补丁很小，但 `hunkPlan` 检查能否按块应用时会重建整个文件。含 15 万行的回归修复前在 `applyHunks` 报 `RangeError: Maximum call stack size exceeded`。改为按块边界顺序扫描换行，拼接原始字节区间，不分配逐行 Buffer，也不把多行展开为函数参数。复查分别选择首块、尾块、全部块，逐字节验证中间的 CRLF 和没有换行的文件尾；既有越界和乱序校验仍通过。12 项分块及部分应用测试通过。
 
 **#18 验收**：检查和 Web、桌面构建通过；Vitest 873 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
+
+**#10 过期的应用和拒绝请求**：真实 Git 回归中，正式分支退回祖先后，第一次整体应用要求重新审核，但快照树没变；修复前第二次用旧页面的请求能直接提交。现在应用和拒绝都在项目锁内核对界面显示的基准提交和快照树；拒绝还检查未快照的工作副本。复查用旧版本分别应用和拒绝，均被挡住，改动集保持打开；另一个测试确认工作副本里新写的文件仍在。界面在点击时固定请求版本，审核内容更新后要重新确认拒绝。
+
+**#10 验收**：检查和 Web、桌面构建通过；Vitest 875 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
 
 ## 15. 风险与对策
 

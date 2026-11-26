@@ -4,6 +4,7 @@ import {
   type CurrentChange,
   HistoryQuery,
   ObjectId,
+  ReviewVersion,
   VersionDiffQuery,
 } from "@bukitjalil/shared";
 import type { Hono } from "hono";
@@ -63,7 +64,13 @@ export function changeRoutes(api: Hono<AppEnv>, { changes, agent, builds, logger
   );
 
   api.post("/changes/:changeId/reject", (c) =>
-    handle(c, async () => c.json(await changes.reject(c.req.param("changeId")))),
+    handle(c, async () => {
+      const req = await body(c, ReviewVersion);
+      if (!req) return apiError(c, 400, "request.invalid_body");
+      const id = c.req.param("changeId");
+      if (agent.busy(changes.get(id).project)) throw new SiteError("site.busy", 409);
+      return c.json(await changes.reject(id, req));
+    }),
   );
 
   for (const prefix of PROJECT_PREFIXES)

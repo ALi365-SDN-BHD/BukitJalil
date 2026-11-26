@@ -1,4 +1,4 @@
-import type { ApplyResult, ChangeView, ProjectKey } from "@bukitjalil/shared";
+import type { ApplyRequest, ApplyResult, ChangeView, ProjectKey, ReviewVersion } from "@bukitjalil/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { useState } from "react";
@@ -24,7 +24,8 @@ export function ReviewActions({
 }) {
   const { m, errorOf } = useI18n();
   const queryClient = useQueryClient();
-  const [confirmReject, setConfirmReject] = useState(false);
+  const [confirmReject, setConfirmReject] = useState<string | null>(null);
+  const version = { id: change.id, baseCommit: change.baseCommit, treeHash: change.treeHash };
   const [failed, setFailed] = useState<{ result: ApplyResult; picked: string } | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: keys.change(project) });
   // Only part of it, when the user left some files or hunks out (plan 7.5).
@@ -32,15 +33,10 @@ export function ReviewActions({
   const picked = selection.request();
 
   const apply = useMutation({
-    mutationFn: (force: boolean) =>
-      api.applyChange(change.id, {
-        treeHash: change.treeHash,
-        force,
-        ...(picked ? { baseCommit: change.baseCommit, selection: picked } : {}),
-      }),
+    mutationFn: ({ id, ...req }: ApplyRequest & { id: string }) => api.applyChange(id, req),
     onMutate: () => onNotice(null),
-    onSuccess: (result) => {
-      setFailed(result.outcome === "check_failed" ? { result, picked: JSON.stringify(picked ?? null) } : null);
+    onSuccess: (result, req) => {
+      setFailed(result.outcome === "check_failed" ? { result, picked: JSON.stringify(req.selection ?? null) } : null);
       if (result.outcome !== "check_failed") clearSelection();
       if (result.outcome === "check_failed") {
         const problem = result.check?.problemCode;
@@ -67,14 +63,18 @@ export function ReviewActions({
     },
   });
   const reject = useMutation({
-    mutationFn: () => api.rejectChange(change.id),
+    mutationFn: ({ id, ...req }: ReviewVersion & { id: string }) => api.rejectChange(id, req),
     onMutate: () => onNotice(null),
     onSuccess: () => {
-      setConfirmReject(false);
+      setConfirmReject(null);
       onNotice({ tone: "ok", text: m.changes.outcome.rejected });
       void refresh();
     },
-    onError: (err) => onNotice({ tone: "error", text: errorOf(err) }),
+    onError: (err) => {
+      setConfirmReject(null);
+      onNotice({ tone: "error", text: errorOf(err) });
+      void refresh();
+    },
   });
 
   const busy = apply.isPending || reject.isPending;
@@ -87,14 +87,14 @@ export function ReviewActions({
   // Everything left out: there is nothing to apply.
   const nothing = picked !== undefined && picked.length === 0;
 
-  if (confirmReject) {
+  if (confirmReject === reviewKey(change)) {
     return (
       <div className="flex flex-wrap items-center gap-2" data-testid="reject-confirm">
         <p className="w-full text-sm">{m.changes.rejectConfirm}</p>
-        <Button size="sm" variant="destructive" disabled={busy} onClick={() => reject.mutate()}>
+        <Button size="sm" variant="destructive" disabled={disabled} onClick={() => reject.mutate(version)}>
           {reject.isPending && <Loader2 className="animate-spin" />} {m.changes.rejectYes}
         </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmReject(false)}>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmReject(null)}>
           {m.changes.cancel}
         </Button>
       </div>
@@ -112,7 +112,12 @@ export function ReviewActions({
           {m.changes.selectionPartial}
         </p>
       )}
-      <Button size="sm" disabled={disabled || nothing} onClick={() => apply.mutate(false)} data-testid="change-apply">
+      <Button
+        size="sm"
+        disabled={disabled || nothing}
+        onClick={() => apply.mutate({ ...version, selection: picked })}
+        data-testid="change-apply"
+      >
         {apply.isPending ? <Loader2 className="animate-spin" /> : <Check />}
         {apply.isPending ? m.changes.applying : picked ? m.changes.applySelected : m.changes.apply}
       </Button>
@@ -121,7 +126,7 @@ export function ReviewActions({
           size="sm"
           variant="outline"
           disabled={disabled || nothing}
-          onClick={() => apply.mutate(true)}
+          onClick={() => apply.mutate({ ...version, selection: picked, force: true })}
           data-testid="change-apply-force"
         >
           {m.changes.applyAnyway}
@@ -131,7 +136,7 @@ export function ReviewActions({
         size="sm"
         variant="outline"
         disabled={disabled}
-        onClick={() => setConfirmReject(true)}
+        onClick={() => setConfirmReject(reviewKey(change))}
         data-testid="change-reject"
       >
         <X /> {m.changes.reject}
