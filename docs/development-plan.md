@@ -609,6 +609,8 @@ BukitJalil/
 
 - **OAuth 登录**（M7 之后）：支持 OAuth 的提供商（如 OpenAI Codex）即使还没有模型也会列出，设置页可以发起 OAuth 登录、回答提供商的提问、取消或登出（`/api/providers/:provider/oauth…`，见 9.1）；凭据由 Pi 通过上面的 `CredentialStore` 写进数据库
 - **自定义模型**（M7 之后）：用户可以添加兼容 OpenAI / Anthropic 接口的自定义模型，配置和密钥存在数据库的 `custom_models` 表（密钥加密），解锁后注册到 `ModelRuntime`
+- **审计 #3**：实际依赖为 Pi 1.6.0。内置供应商从 `CredentialStore` 取原文；自定义供应商的 `registerProvider` 会解析模板，因此只在注册时先把每个 `$` 转成 `$$`，再把开头的 `!` 转成 `$!`。数据库不迁移。回归测试拦截最终 HTTP 请求：修复前自定义模型未能发出请求，内置模型不受影响；修复后两条路径的 Authorization 头都逐字符匹配输入。复查了新建、编辑和启动加载，三者使用同一注册方法。
+- **#3 验收**：检查及 Web、桌面构建通过；全量 Vitest 867 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过（未打安装包）。
 
 **其他密钥（Notion token、GitHub token）**，现行设计（2026-11-12）：
 

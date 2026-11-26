@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CustomModelProvider, CustomModelsResponse, ModelsResponse } from "@bukitjalil/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
 import { ADMIN, makeApp, req } from "./helpers.ts";
 
@@ -41,6 +41,32 @@ const request = {
 };
 
 describe("/api/custom-models", () => {
+  it("sends built-in and custom API keys literally in the transport header", async () => {
+    vi.stubEnv("CEREBRAS_API_KEY", undefined);
+    const headers: (string | null)[] = [];
+    const transport = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      headers.push(new Request(input, init).headers.get("authorization"));
+      return new Response(null, { status: 401 });
+    });
+    try {
+      const apiKey = "!test-$$-${BJ_LITERAL_KEY}-$!-$";
+      expect((await call(ctx, "PUT", "/api/providers/cerebras/key", { apiKey })).status).toBe(200);
+      const created = (await (
+        await call(ctx, "POST", "/api/custom-models", { ...request, apiKey })
+      ).json()) as CustomModelProvider;
+      for (const id of ["cerebras", created.id]) {
+        headers.length = 0;
+        await call(ctx, "POST", `/api/providers/${id}/test`, {});
+        expect(headers, id).toEqual([`Bearer ${apiKey}`]);
+      }
+      await call(ctx, "DELETE", `/api/custom-models/${created.id}`);
+      await call(ctx, "DELETE", "/api/providers/cerebras/key");
+    } finally {
+      transport.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("creates, lists, updates and removes a local model", async () => {
     const createdRes = await call(ctx, "POST", "/api/custom-models", request);
     expect(createdRes.status).toBe(200);

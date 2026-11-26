@@ -115,7 +115,8 @@ export class CustomModelStore {
       name: provider.name,
       baseUrl: provider.baseUrl,
       api: provider.api,
-      apiKey: provider.apiKey ?? "local",
+      // Pi parses registerProvider keys as config templates. Escape only here; the stored value stays literal.
+      apiKey: (provider.apiKey ?? "local").replaceAll("$", () => "$$").replace(/^!/, "$!"),
       models: [
         {
           id: provider.model.id,
