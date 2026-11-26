@@ -121,16 +121,20 @@ export function parseHunks(patch: string): HunkRange[] {
   return hunks;
 }
 
-/** Lines of a file, each with its "\n" (the last one may have none). */
-function splitLines(data: Buffer): Buffer[] {
-  const lines: Buffer[] = [];
-  let start = 0;
-  for (let i = data.indexOf(10); i !== -1; i = data.indexOf(10, i + 1)) {
-    lines.push(data.subarray(start, i + 1));
-    start = i + 1;
-  }
-  if (start < data.length) lines.push(data.subarray(start));
-  return lines;
+/** Hunk boundaries arrive in order. Find their byte offsets without allocating a buffer per line. */
+function lineCursor(data: Buffer) {
+  let line = 0;
+  let offset = 0;
+  return (target: number): number => {
+    if (target < line) return -1;
+    while (line < target) {
+      if (offset === data.length) return -1;
+      const lf = data.indexOf(10, offset);
+      offset = lf === -1 ? data.length : lf + 1;
+      line++;
+    }
+    return offset;
+  };
 }
 
 /**
@@ -143,19 +147,21 @@ export function applyHunks(
   hunks: readonly HunkRange[],
   selected: ReadonlySet<number>,
 ): Buffer | null {
-  const oldLines = splitLines(before);
-  const newLines = splitLines(after);
+  const oldOffset = lineCursor(before);
+  const newOffset = lineCursor(after);
   const out: Buffer[] = [];
   let pos = 0;
   for (const [i, h] of hunks.entries()) {
-    if (h.oldStart < pos || h.oldStart + h.oldCount > oldLines.length || h.newStart + h.newCount > newLines.length) {
-      return null;
-    }
+    const oldStart = oldOffset(h.oldStart);
+    const oldEnd = oldOffset(h.oldStart + h.oldCount);
+    const newStart = newOffset(h.newStart);
+    const newEnd = newOffset(h.newStart + h.newCount);
+    if (oldStart < 0 || oldEnd < 0 || newStart < 0 || newEnd < 0) return null;
     if (!selected.has(i)) continue;
-    out.push(...oldLines.slice(pos, h.oldStart), ...newLines.slice(h.newStart, h.newStart + h.newCount));
-    pos = h.oldStart + h.oldCount;
+    out.push(before.subarray(pos, oldStart), after.subarray(newStart, newEnd));
+    pos = oldEnd;
   }
-  out.push(...oldLines.slice(pos));
+  out.push(before.subarray(pos));
   return Buffer.concat(out);
 }
 

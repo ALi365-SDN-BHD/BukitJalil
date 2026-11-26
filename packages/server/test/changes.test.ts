@@ -1764,6 +1764,19 @@ describe("hunks (plan 7.5)", () => {
     ).toBeNull();
     expect(applyHunks(before, after, [...hunks].reverse(), new Set([0]))).toBeNull();
   });
+
+  it("applies a hunk at either end of a long file without changing the intervening bytes", () => {
+    const middle = "\r\n".repeat(150_000);
+    const before = Buffer.from(`old\n${middle}last`);
+    const after = Buffer.from(`new\n${middle}LAST`);
+    const hunks = [
+      { oldStart: 0, oldCount: 1, newStart: 0, newCount: 1 },
+      { oldStart: 150_001, oldCount: 1, newStart: 150_001, newCount: 1 },
+    ];
+    expect(applyHunks(before, after, hunks, new Set([0]))?.equals(Buffer.from(`new\n${middle}last`))).toBe(true);
+    expect(applyHunks(before, after, hunks, new Set([1]))?.equals(Buffer.from(`old\n${middle}LAST`))).toBe(true);
+    expect(applyHunks(before, after, hunks, new Set([0, 1]))?.equals(after)).toBe(true);
+  });
 });
 
 describe("diffSummary (plan 6.3)", () => {
