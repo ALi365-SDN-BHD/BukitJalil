@@ -5,7 +5,7 @@ import type { DeployStatusResponse, PublishAccount } from "@bukitjalil/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { pagesSiteAddress } from "../src/deploys/target.ts";
 import { FieldVault } from "../src/security/vault.ts";
-import { ADMIN, makeApp, req } from "./helpers.ts";
+import { ADMIN, commitAllAs, makeApp, rawGit, req } from "./helpers.ts";
 
 // Saved GitHub publishing accounts and the deploy settings form. No request leaves the machine.
 
@@ -153,6 +153,34 @@ describe("/api/publish-accounts", () => {
 });
 
 describe("PUT /api/sites/:id/deploy", () => {
+  it.skipIf(process.platform === "win32")(
+    "rejects a config now tracked as a link without changing the branch or account",
+    async () => {
+      const ctx = makeApp({ appHome: path.join(base, "app-config-type") });
+      identity(ctx);
+      const account = ctx.publishAccounts.create({ platform: "github", name: "Deploy", token: "fixture" });
+      const dir = path.join(base, "site-config-type");
+      const site = await ctx.sites.create({ name: "Config", path: dir, language: "en-US" });
+      await ctx.builds.settled();
+      const config = path.join(dir, site.configFile);
+      fs.unlinkSync(config);
+      fs.symlinkSync("missing-fixture.yaml", config);
+      commitAllAs(base, dir, "change config entry type");
+      const head = rawGit(base, dir, "rev-parse", "HEAD");
+      const res = await call(ctx, "PUT", `/api/sites/${site.id}/deploy`, {
+        accountId: account.id,
+        repo: "someone/blog",
+        branch: "gh-pages",
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: "deploy.config_invalid" });
+      expect(rawGit(base, dir, "rev-parse", "HEAD")).toBe(head);
+      expect(ctx.sites.publishAccountId(site.id)).toBeNull();
+      expect(fs.existsSync(path.join(dir, "missing-fixture.yaml"))).toBe(false);
+      ctx.db.close();
+    },
+  );
+
   it("writes the account and target into site.yaml and sets the site address", async () => {
     const ctx = makeApp({ appHome: path.join(base, "app-config") });
     identity(ctx);
@@ -182,6 +210,7 @@ describe("PUT /api/sites/:id/deploy", () => {
     expect(yaml).toContain("cname: www.example.com");
     expect(yaml).toContain("url: https://www.example.com");
     expect(yaml).toContain("baseUrl: /");
+    expect(rawGit(base, dir, "diff", "--name-only", "-z", "HEAD^", "HEAD")).toBe(`${site.configFile}\0`);
     // The commit was applied to the user's default branch, not left in the app's checkout.
     expect(fs.existsSync(path.join(dir, ".bukitjalil-deploy"))).toBe(false);
     ctx.db.close();

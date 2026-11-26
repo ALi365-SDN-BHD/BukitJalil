@@ -1790,7 +1790,7 @@ M5 分层实施（每层做完先审计、修复，再提交）：
 
 > **现行设计（2026-11-12 核对代码，取代本节下文里关于 token 来源、部署设置和第 1、2 层的写法）**：
 > - **发布账号**：GitHub token 不再来自 `BUKITJALIL_GITHUB_TOKEN` / `secrets.json`，而是在设置页"发布账号"里按账号保存（`publish/accounts.ts`、`publish-account-tokens.json`，见 6.5）。网站在部署设置里选一个账号（`sites.publish_account_id`）。`SecretStore`、`/api/secrets`、`GitHubTokenSection.tsx`、`secrets.test.ts` 都已删除，对应的是 `PublishAccountsSection.tsx`、`PublishingSection.tsx`、`publish-accounts.test.ts` 和 `e2e/sites.spec.ts` 的 "publish accounts are saved, edited and removed"
-> - **部署设置直接提交，不走审核**：网站首页"发布"一节是一张表单（发布账号、仓库、分支、自定义域名，`DeploySection.tsx`）。`PUT /api/sites/:siteId/deploy` 校验后，在 `main/` 检出里改 `site.yaml`：写 `deploy.provider/repo/branch/cname`，并按 GitHub Pages 地址设置 `site.url`、`site.baseUrl`；然后用 `commit-tree`（作者和提交者都是用户身份，提交信息 "Configure GitHub Pages deployment"）加网站目录的 `merge --ff-only --no-overwrite-ignore` **直接提交到默认分支**，持有网站锁 `deploy-config`。原计划"通过 AI 或设置向导生成改动集，同样走审核"和"让 AI 设置发布目标"按钮都没有保留，`publishing` 技能也改为告诉 AI 由用户在表单里设置。这样做的理由：写入的值全部来自用户在表单里填的内容，不是 AI 生成的内容；代价是这次提交绕过了"所有改动先审核"的原则。是否保留见 16
+> - **部署设置直接提交，不走审核**：网站首页"发布"一节是一张表单（发布账号、仓库、分支、自定义域名，`DeploySection.tsx`）。`PUT /api/sites/:siteId/deploy` 从当前提交读取普通配置文件，写 `deploy.provider/repo/branch/cname`，并按 GitHub Pages 地址设置 `site.url`、`site.baseUrl`；在临时索引中替换这一个文件。再用 `commit-tree`（作者和提交者都是用户身份，提交信息 "Configure GitHub Pages deployment"）加网站目录的 `merge --ff-only --no-overwrite-ignore` **直接提交到默认分支**，持有网站锁 `deploy-config`。原计划"通过 AI 或设置向导生成改动集，同样走审核"和"让 AI 设置发布目标"按钮都没有保留，`publishing` 技能也改为告诉 AI 由用户在表单里设置。这样做的理由：写入的值全部来自用户在表单里填的内容，不是 AI 生成的内容；代价是这次提交绕过了"所有改动先审核"的原则。是否保留见 16
 > - **和打开的改动集的关系**：配置提交让默认分支前进，打开的改动集在应用时按 7.2 的"正式版本已前进"处理（`merge-tree` 合并后重新审核，冲突时 `stale`）
 > - **保存时的错误**：`site.read_only`、`site.busy`（网站锁被占）、`deploy.config_invalid`（字段不合法或 `site.yaml` 解析失败）、`deploy.config_dirty` / `deploy.config_wrong_branch`（网站目录有未提交改动或不在默认分支）、`deploy.config_failed`（快进合并失败）、`deploy.commit_changed`（期间默认分支变了）、`publish.not_found` / `publish.no_token`
 > - **GitHub API 检查仓库权限**：保存部署设置时和每次发布前，用账号的 token 请求 `https://api.github.com/repos/<owner>/<repo>`（`Authorization: Bearer`），确认能推送；没有权限返回 409 `publish.repo_access`，GitHub 出错返回 503 `publish.github_failed`；`BUKITJALIL_OFFLINE=1` 时跳过。这是 token 在 `bukit deploy` 之外的第二个用途
@@ -2929,6 +2929,10 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 **#19 工作副本登记**：重建缺失检出时只替换本项目该路径的登记；移除项目按 Git 的 NUL 分隔记录核对 `main` 和 `ai` 的完整路径，保留锁定登记并报告。真实 Git 回归用临时移走的同名用户检出分别验证重建、移除：旧实现两次均删除用户登记，修复后其 HEAD、索引和 reflog 原字节保留，移回目录即可读回暂存内容。
 
 **#19 验收**：检查和 Web、桌面构建通过；Vitest 884 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
+
+**#2 保存部署配置**：按当前提交的文件模式、大小和对象 ID 读取配置，只接受普通文件。复用部分应用的临时 Git 索引，保留原文件模式，不再打开检出中的配置路径。悬空链接回归从 500 变为明确的 409，分支和账号绑定不变；正常保存时只有配置文件进入提交。
+
+**#2 验收**：检查和 Web、桌面构建通过；Vitest 885 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
 
 ## 15. 风险与对策
 

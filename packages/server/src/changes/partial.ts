@@ -1,8 +1,6 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import type { ApplySelection } from "@bukitjalil/shared";
 import { GitError, type GitRunner } from "../git/run.ts";
+import { editedTree } from "../git/temp-index.ts";
 import { SiteError } from "../sites/location.ts";
 import { fileDiff } from "./diff.ts";
 
@@ -72,23 +70,14 @@ export async function selectedTree(
     );
   }
 
-  fs.mkdirSync(opts.tmpDir, { recursive: true, mode: 0o700 });
-  const indexFile = path.join(opts.tmpDir, `partial-${crypto.randomBytes(8).toString("hex")}.index`);
-  try {
-    await git.run(["read-tree", "--end-of-options", opts.base], { cwd: opts.cwd, indexFile });
-    await git.run(["update-index", "-z", "--index-info"], { cwd: opts.cwd, indexFile, input: lines.join("") });
-    const tree = (await git.text(["write-tree"], { cwd: opts.cwd, indexFile })).trim();
-    // The index replaces a file with a folder of the same name (or the other way round) on its own, so
-    // selecting one side of such a swap would take the other side too: only selected paths may differ.
-    const selected = new Set(opts.selection.map((item) => item.path));
-    for (const p of (await rawChanges(git, opts.cwd, opts.base, tree)).keys()) {
-      if (!selected.has(p)) throw new SiteError("change.partial_unsupported", 400, { path: p });
-    }
-    return tree;
-  } finally {
-    fs.rmSync(indexFile, { force: true });
-    fs.rmSync(`${indexFile}.lock`, { force: true });
+  const tree = await editedTree(git, opts.cwd, opts.base, lines.join(""), opts.tmpDir);
+  // The index replaces a file with a folder of the same name (or the other way round) on its own, so
+  // selecting one side of such a swap would take the other side too: only selected paths may differ.
+  const selected = new Set(opts.selection.map((item) => item.path));
+  for (const p of (await rawChanges(git, opts.cwd, opts.base, tree)).keys()) {
+    if (!selected.has(p)) throw new SiteError("change.partial_unsupported", 400, { path: p });
   }
+  return tree;
 }
 
 /** A hunk's line ranges, 0-based: lines [oldStart, oldStart + oldCount) of the old file become the new ones. */
