@@ -52,13 +52,15 @@ Other collection keys:
   noindex-follow}`; declaring both fails.
 - `schemaFailMode: off|warn|strict` overrides `build.schemaFailMode` for documents in
   this collection (`bukit-content-model`).
-- `output.rss: true` (the default), `output.feedTitle:` / `output.feedDescription:`
-  (default `site.title` / `site.description`) configure the collection feed
-  (`bukit-outputs`).
+- `output.rss: true` (the default) puts the collection in the site feed; `output.feed:`
+  (unset: on only with 2+ `rss` collections), `output.feedTitle:` /
+  `output.feedDescription:` (default `site.title` / `site.description`) configure the
+  collection's own feed (`bukit-outputs`).
 
 Placeholders (case-insensitive): `{slug}`, `{title}` (slugified), `{year}`, `{month}`,
-`{day}` (from `publishAt`, UTC), `{type}`, `{collection}`. Unknown placeholders stay in
-the URL literally, so check spelling.
+`{day}` (from `publishAt`, UTC), `{type}`, `{collection}`, and `{fields.<name>}` (a top-level
+text or whole-number field, slugified; missing or empty fails the build). Unknown placeholders
+stay in the URL literally, so check spelling.
 
 ```yaml
 ---
@@ -112,6 +114,10 @@ sort by `publishAt` descending, then `content.ordering.tieBreakField`, then URL.
 Pagination (`site.collections.<c>.pagination`): `enabled` (false), `pageSize` (10),
 `urlPattern` (`page/:num/`; relative, must contain `:num`, `{num}`, or `{page}`),
 `firstPageUsesListRoute` (true). Page N lives at `<listRoute><urlPattern>`.
+
+Only some entries get pages: `routeWhen: { field: has_page, eq: true }` on a collection gives a page
+only to entries whose top-level field equals the value. The rest leave lists, feeds, sitemap
+and search but stay content link targets with a null `url` (`04-site-yaml-config.md`).
 
 ## Filtered lists
 
@@ -170,7 +176,9 @@ terms with no pages: `noindex` renders them with `noindex`, `skip` builds no pag
 back to the publish date.
 
 With `kinds`, only listed kinds are built. A kind also accepts `title`, `description`,
-`singularTitlePrefix`, `template` (base for both index and term), and `hierarchical`.
+`singularTitlePrefix`, `template` (base for both index and term), and `hierarchical`;
+`i18n.<lang>` replaces `title`, `description` and `singularTitlePrefix` in one language's
+build (multilingual sites).
 Term pages get `taxonomy` and `items`; index
 pages get the term list in `page.fields.terms.value`. Use `util.term_slug` to build
 term links that match.

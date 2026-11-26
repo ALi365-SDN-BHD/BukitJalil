@@ -7,6 +7,7 @@ description: Start here for any Bukit Core website task — what Bukit Core is, 
 > and `bukit doctor`, `bukit_build` for `bukit build`, and `bukit_schema` for `bukit config schema`.
 > Previews, the dev server, cleaning, audits, deploys, plugins and Labs are handled by BukitJalil;
 > do not try them. Also read the `site-editing` skill.
+> BukitJalil connects only Notion sources: do not add `cloudbase` sources or ask for a CloudBase key.
 
 # Using Bukit Core
 
@@ -22,8 +23,9 @@ static site to `dist/` plus audit reports in `dist/.bukit/`.
 2. Labs features (site cloning, HTML import, intent files, webhooks, theme wizards,
    registries or marketplaces, external plugins such as IndexNow) are not Core.
 3. Every `site.yaml` key must exist: unknown keys fail. Check a key in `bukit-config`
-   or the schema before writing it.
-4. Never put secrets in `site.yaml`. Notion uses `NOTION_TOKEN`; deploy uses
+   or `bukit config schema` before writing it.
+4. Never put secrets in `site.yaml`. Notion uses `NOTION_TOKEN`; CloudBase uses
+`CLOUDBASE_PUBLISHABLE_KEY`; deploy uses
    `GITHUB_TOKEN` or `--token-env`.
 5. Verify with checks, not assumptions: `bukit_check`, `bukit_build`, and the audits
    BukitJalil runs.

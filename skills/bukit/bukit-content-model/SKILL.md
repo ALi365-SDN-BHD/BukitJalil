@@ -7,6 +7,7 @@ description: Use when a Bukit site loads content from Notion, localizes remote m
 > and `bukit doctor`, `bukit_build` for `bukit build`, and `bukit_schema` for `bukit config schema`.
 > Previews, the dev server, cleaning, audits, deploys, plugins and Labs are handled by BukitJalil;
 > do not try them. Also read the `site-editing` skill.
+> BukitJalil connects only Notion sources: do not add `cloudbase` sources or ask for a CloudBase key.
 
 # Bukit Notion, Media, and Content Model
 
@@ -46,6 +47,26 @@ leaves the body empty], `renderConcurrency` [4, 2 on CI], `maxRps` [3], `maxRetr
 `rich_text_equals`), `sortProperty` / `sortDirection` [`ascending`], `includeSlugs`
 (fetch only these slugs) with `includeSlugProperty` [`Slug`], `cacheDir`
 [`.cache/notion`, used only when `cacheMode` is not `off`].
+
+## CloudBase
+
+Use `type: cloudbase` for a CloudBase PG-mode table or view: set `cloudbase.envId`,
+`table`, `bodyField`, and read `CLOUDBASE_PUBLISHABLE_KEY` (never a
+`service_role` key). `fieldPolicy.mode: all` still drops `user_id`, `owner`,
+`created_by`, `updated_by` and `_openid`. `fileFields` values are object names or
+`cloud://` references and require `storageBucket`, `content.media.fieldKeys`,
+`downloadToLocal`, `onFailure: placeholder`, and no exclusion of the gateway/storage
+hosts (an empty `downloadHosts` is fine; when set it must include them); `mode: data` sources support them too. Only body images and file fields are rewritten; other `cloud://`
+values are degraded (`BKT-0C0B`). jsonb objects and non-text arrays stay structured
+(`page.fields.<k>.value`, sorted keys, JSON types kept so numbers stay numbers unlike
+Markdown list items, depth 8, 256 KiB); an allowed column is published whole, nested
+personal keys with the dropped names are removed, nested `cloud://` drops the column, and
+a too-deep or too-large column is dropped as `cloudbase.structured_field_invalid` under
+`schemaFailMode`. The `filter` value may read `${env:NAME}` (quote it), resolved when the build
+fetches the table; an unset or empty variable fails the build. `--content-snapshot <dir>` records
+the public rows for builds with `--content-offline` (no key, no network; another filter value
+fails). See
+`guide/user/27-cloudbase-content.md`.
 
 ## Remote media
 
@@ -114,7 +135,9 @@ build:
   collection. Field options: `required`, `default`, `enum`, `format`
   (`url|email|date|slug`; `semanticType` is used when `format` is absent), `min`/`max`,
   `sourcePolicy` (`raw|canonical|custom|provider|any`; only the value is checked).
-  `label` has no effect.
+  `label` has no effect. An `enum` item may be `{ value, label }`; templates read options in
+  order as `site.field_enums.<field>` (`value`, `label`), scoped fields under
+  `site.field_enums.scopes.<collection>.<field>`.
 - `rejectUnknownRawKeys: true` fails the build on any undeclared front matter key,
   whatever `schemaFailMode` says. Use it only with a complete field list.
 - Mappings (lists) turn raw fields into canonical fields, entities, and relations:
@@ -170,6 +193,42 @@ Each row needs `route` (starting and ending with `/`) and `summary`; `title` fal
 to the row's document title (first `# H1`, else slug). Duplicate routes fail. The source
 is hidden from `site.data`. Rows use `seo_description` by default; page front matter
 uses `seo_desc` (`bukit-seo`). Do not rename one to match the other.
+
+## Content links
+
+`content.links` resolves keys a page stores in a field into a `<field>_links` list of the
+named documents, written next to the field and never over it (`04-site-yaml-config.md`).
+
+```yaml
+content:
+  links:
+    - collection: route                       # pages that hold the keys
+      field: days[].attractions               # or a top-level name such as cities
+      target: { collection: attraction, key: code }   # key defaults to slug
+      select: [image]                         # extra target fields per link
+```
+
+Each link has `key`, `title`, `slug`, `url` (relative to `base_url`; null for a data target), `collection` and the
+selected fields. A nested path also writes a top-level `days_attractions_links` that lists
+each target once. Keys must be text and match within the page's language. Unknown or repeated keys,
+non-text keys and existing output fields are reported under the page collection's
+`schemaFailMode` (`content.link_*` codes).
+
+Add `backref: { name: routes, limit: 6, select: [image] }` to a link to list, on each target page,
+the pages that link to it (`routes`, in collection order, each page once) and the total before the
+limit (`routes_count`). Only target pages get it; data targets do not.
+
+## Derived fields
+
+`content.derivedFields.<collection>.<field>: { value, mode }` writes a field from a Scriban
+template over the page's own top-level fields (`<field>_links` included), in the order written.
+`mode: default` fills only a missing or empty field; `override` always writes. `seo.describe 150`
+makes a plain description by display width (CJK counts 2). The clock and random functions are
+not available (calling one is a runtime failure). Built-in names such as `slug` or `title`, and fields a link writes (`<field>_links`,
+backref names, `<name>_count`), are rejected. `config check` fails on a template that does not
+parse; runtime failures are reported as `content.derived_field_failed`. Derived fields run after
+routing and links, so permalinks, `routeWhen` and link `select` cannot read them, and entries
+without a page do not get them.
 
 ## Check
 

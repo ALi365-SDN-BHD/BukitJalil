@@ -1,12 +1,13 @@
 ---
 name: bukit-content
-description: Use when adding or fixing Bukit content — content.sources (Markdown and Notion providers, content vs data mode), collection and type rules, Markdown front matter fields, slugs and dates, drafts, data modules and data/ files, and dataIndex. Notion, remote media, model schema, and route metadata are in bukit-content-model.
+description: Use when adding or fixing Bukit content — content.sources (Markdown, Notion and CloudBase providers, content vs data mode), collection and type rules, Markdown front matter fields, slugs and dates, drafts, data modules and data/ files, and dataIndex. Notion, remote media, model schema, and route metadata are in bukit-content-model.
 ---
 
 > **In BukitJalil:** you cannot run commands. Use the `bukit_check` tool for `bukit config check`
 > and `bukit doctor`, `bukit_build` for `bukit build`, and `bukit_schema` for `bukit config schema`.
 > Previews, the dev server, cleaning, audits, deploys, plugins and Labs are handled by BukitJalil;
 > do not try them. Also read the `site-editing` skill.
+> BukitJalil connects only Notion sources: do not add `cloudbase` sources or ask for a CloudBase key.
 
 # Bukit Content
 
@@ -102,7 +103,7 @@ image_alt: A cup of green tea   # required with image (requireMediaAlt default)
 | `language`, `i18nKey` | Language variant and translation group (`bukit-i18n`). No `lang` alias. |
 | `draft: true` | Dropped unless `--draft` / `build.draft: true`. |
 | `image`, `cover` (+ `image_alt` / `cover_alt`) | Page image. Without the `_alt` key the build logs `canonical_media_alt_missing` (fails under `schemaFailMode: strict`; see `bukit-content-model`). Optional `_caption`, `_description`, `_license`. |
-| `noindex`, `canonical`, `seo_title`, `seo_desc`, `geo:` ... | `bukit-seo`, `bukit-geo`. |
+| `noindex`, `canonical`, `seo_title`, `seo_desc`, `parent_url`, `geo:` ... | `bukit-seo`, `bukit-geo`. |
 | `sitemapexclude`, `searchexclude`, `feedexclude` | Output exclusions (key case is ignored; `excludeFromSitemap`, `excludeFromSearch`, `excludeFromFeed` also work). |
 | `author`, `organization`, `reviewer`, `people`, `source_url`, ... | Ownership, trust, and entity fields (`bukit-content-model`). |
 
@@ -127,7 +128,7 @@ as `item.fields.<key>.value`) and
 `site.modules.<type>`. Items with `enabled: false` are skipped; `order` sorts them.
 
 Key-value settings: add `dataIndex` (data mode only, source name like `settings`) to
-expose scalars as `site.data_index.<source>.<scope>.<key>`:
+expose values as `site.data_index.<source>.<scope>.<key>`:
 
 ```yaml
     - type: markdown
@@ -147,18 +148,30 @@ in `requiredKeys` (default field names shown; rename with `scopeField`, `keyFiel
 scope: contact
 key: email
 value: hello@example.com
-value_type: email      # required: text|multiline|email|phone|url
+value_type: email      # required: text|multiline|email|phone|url|object|object[]
 ---
 ```
 
-`scope` and `key` must match `^[a-z][a-z0-9_]*$`, each `scope` + `key` pair must be unique,
+`scope` must match `^[a-z][a-z0-9_]*$` and `key` `^[A-Za-z0-9][A-Za-z0-9._+-]*$` (dotted camelCase
+copy keys work; read them as `site.data_index.settings.copy["custom.daysHint"]`; in `requiredKeys`
+the first segment is the scope), each `scope` + `key` pair must be unique,
 and `email`/`url` values are validated. Template access:
-`{{ site.data_index.settings.contact.email }}`.
+`{{ site.data_index.settings.contact.email }}`. A text type given a YAML mapping or list
+fails the build. `object` takes a mapping and `object[]` a list of mappings (YAML in
+Markdown, JSON text in Notion), read as `site.data_index.settings.trip.info.days`. All
+booleans and numbers are typed: JSON says so in Notion; in Markdown `true`/`false` (core
+spellings) and JSON-form numbers resolve, other text (`0123`, `+60`, `yes`) stays text, and
+quoting does not keep `"5"` as text. Integers are 64-bit, other numbers decimal (digits kept). Keys are ordinal-sorted and must not be
+blank, nesting is at most 8 levels (each mapping or list is one), JSON numbers beyond double
+range fail, a single mapping given to `object[]` is a list of one, and a mapping or list of
+only empty values counts as empty for `requiredKeys`.
 
 Files in `<root>/data/` (`.json`, `.yaml`, `.yml`; `.toml` is an error) are exposed
 under `site.data_files`: `data/a.yaml` → `site.data_files.a`, `data/dir/b.yaml` →
 `site.data_files.dir.b`. A file and a folder with the same name fail. All of this data
-is public once a template prints it.
+is public once a template prints it. Whole numbers in these files (and single-number
+front matter fields) are 64-bit and front matter list items are strings, so
+array.contains misses a template literal; compare with `==` (`bukit-templating`).
 
 ## Notion, media, model schema, route metadata
 

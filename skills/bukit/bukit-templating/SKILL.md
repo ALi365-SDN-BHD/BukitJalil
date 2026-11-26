@@ -82,7 +82,10 @@ before changing it, because writing to the shared model can fail the render.
 trailing slash; includes `/<lang>` for prefixed languages), `language` (the current
 language, from `site.languages`: the variant language, or the only entry), `build_year`,
 `params` (from `theme.params`), `data.<source>`, `data_index.<source>.<scope>.<key>`,
-`data_files.<file>`, `modules.<type>`, `related_pages[<id>]`. `site.data` also holds
+`data_files.<file>`, `modules.<type>`, `related_pages[<id>]`, `queries.<name>` (lists from
+`site.queries`: entries with `key`, `title`, `slug`, `url`, `collection` and the selected fields;
+`{ value, items }` groups; or distinct values), `field_enums.<field>` (enum options in order,
+each `value` and `label`). `site.data` also holds
 the built-in keys `taxonomy` (all terms, usable on any page) and `pages_by_id`. There
 is no `site.menus` or `site.languages`.
 
@@ -114,6 +117,9 @@ site:
     indices:             # default tags 80, categories 60
       - { name: tags, weight: 80 }
       - { name: date, weight: 20 }   # tags|categories|keywords|collection|type|date
+      - { field: region, weight: 10 }  # any content field: weight per shared value
+    collections:         # own rules; compares only within the collection
+      route: { threshold: 0, limit: 4, indices: [{ field: cities, weight: 2 }] }
 ```
 
 There is no `page.related`. Results are a map keyed by document id:
@@ -124,7 +130,8 @@ There is no `page.related`. Results are a map keyed by document id:
 {{ end }}
 ```
 
-Each entry has `title`, `url`, `score`. Pages with no match have no entry.
+Each entry has `id`, `slug`, `title`, `url`, `score`, sorted by score; equal scores keep the
+collection list order. Pages with no match have no entry.
 
 ## Escaping and URLs
 
@@ -152,13 +159,25 @@ Besides Scriban built-ins (the `string`, `array`, `date`, `math`, and `html` mod
 | `util.format_date v "yyyy-MM-dd"` | .NET format strings (use `date.to_string "%Y-%m-%d"` for strftime). |
 | `util.truncate v 100`, `util.titleize v`, `util.slugify v` | |
 | `util.term_slug` | Same slug as taxonomy URLs. |
-| `util.json_string` | JSON string with quotes; does not escape `</script>`. |
+| `util.json_string` | JSON string literal with quotes. Also escapes `<`, `>`, `&`, U+2028 and U+2029 as `\u003c`-style escapes, so the value cannot end a `<script>` element. |
+| `util.to_json v` | JSON for any value (objects, arrays, strings, numbers, booleans, null, dates) with the same string escaping. Object keys are sorted (ordinal), so output is deterministic; keys that become the same text (`1`, `"1"`) keep the first; functions become `null`. Works under Native AOT; `object.to_json` is the same function. All util functions also work in components and sections. |
 | `comp.render "name" ...` | Theme components (`bukit-theme`). |
 | `render_section {type: "hero", ...}` | Theme sections. |
 | `shortcode "name" "a1" ...` | Theme shortcode, up to four arguments; only when `theme.shortcodes` is set (`bukit-theme`). |
 | `image` functions `srcset` and `img` | Produce `?w=N` URLs that no build step serves; prefer plain `<img>` plus image processing. |
 
 There is no translation helper, `markdownify`, `relative_url`, or asset fingerprinting.
+
+Scriban's own `object.to_json` needs reflection that the Native AOT `bukit` binary
+disables (render error BKT-0399 in 2.2.7 and earlier); Bukit replaces it with
+`util.to_json`. Build structured data as an object and serialize it once:
+
+```scriban
+{{ trip = {"@context": "https://schema.org", "@type": "TouristTrip", "name": page.title} }}
+<script type="application/ld+json" data-bukit-seo="keep">{{ trip | util.to_json }}</script>
+```
+
+Head JSON-LD needs `data-bukit-seo="keep"` in SEO `inject` mode (`bukit-seo`).
 
 ## Capabilities manifest
 
@@ -177,9 +196,21 @@ changes are picked up by the next build; do not delete `.cache` for that.
 
 ## Limits and errors
 
-- Scriban's loop limit (1000 iterations) applies (`Exceeding number of iteration limit
-  1000`). On large sites
-  use `limit:` (`for p in pages limit:10`) or pagination.
+- Whole numbers from data files and single-number front matter fields are 64-bit;
+  template literals are 32-bit; front matter list items (`ids: [1, 2]`) are strings.
+  `==` treats them as equal, but array.contains does not: a data list searched for a
+  literal `2`, or a front matter list searched for any number, returns `false`. Use
+  `(list | array.filter @(do; ret $0 == 2; end) | array.size) > 0` or a `for` loop
+  with `==`. A data file list searched for a data or front matter number works.
+
+- Scriban's loop limit (default 1000, set with `build.templateLoopLimit`) counts every
+  iteration inside one outermost `for`/`while`, including nested loops and loops in
+  functions or includes called from it: 40 pages x 30 tags is 1200 and fails with
+  `Exceeding number of iteration limit`. A component or section rendered from the loop
+  starts its own count. Filter with array.filter or array.map and an anonymous function
+  (`@(do; ret $0.draft == false; end)`), which do not count, instead of a nested `for`
+  with `if`; use `limit:` (`for p in pages limit:10`) or pagination; raise the limit only
+  when the template really needs more iterations.
 - `Template not found` (BKT-0301), parse error (0302), layout depth (0303), component
   failure (0304), `Render failed: <path> at <span>: <cause>` (0399, exit 3).
 - `bukit doctor` checks required templates, parse errors, includes, and the manifest.

@@ -73,7 +73,8 @@ the command; error objects are multi-line JSON, see `bukit-cli-reference`). Read
 | Every build re-renders all pages | Default `build.clean: true` | `bukit build --no-clean` for incremental reuse, for local speed only; it can keep stale pages after a Bukit upgrade or when other pages a template lists change (`bukit-build`). |
 | Media downloads fail or rate-limit | `media.download_failed`, `media.ssrf_blocked` events | Lower `content.media.maxConcurrency`; check `skipHosts`; private hosts are blocked (`bukit-content-model`). |
 | Remote image not localized | `media.download_too_large limit=...`, `media.download_empty`, `media.failed_reference` | Raise `content.media.maxFileSizeBytes` or fix the source URL (`bukit-content-model`). |
-| No `-<width>w` / `.webp` / AVIF image variants | `image_resize.error`, `image_webp.error`, `image_optimize.error`, `image_processing.skip reason=invalid_source`; `image_optimize.skip reason=no_tool` (AVIF needs ImageMagick `magick`); `*.skip reason=unowned_existing_output` (a file with the variant's name already exists) | Fix or replace the source image, install the tool, or rename the clashing file (`bukit-theme`). |
+| No `-<width>w` / `.webp` image variants | `image_resize.error`, `image_webp.error`, `image_optimize.error`, `image_processing.skip reason=invalid_source` (also animated PNG, which is left as uploaded); `*.skip reason=unowned_existing_output` (a file with the variant's name already exists) | Fix or replace the source image, or rename the clashing file (`bukit-theme`). |
+| No `.avif` files | `image_avif.skip reason=no_approved_decoder` | Expected: Core has no approved AVIF decoder, so AVIF output fails closed. Use `webp`. |
 | SCSS not compiled, Sass installed | `event=scss.error file=... reason=...` | Fix the Sass error in `detail`. |
 | `event=taxonomy.term.decoded` | Percent-encoded tag or category value | Write the decoded text in the source (`hint=fix_option_in_notion`: fix the Notion option). |
 | `event=notion.relation.resolve_failed` / `notion.cache.read_failed` | A Notion relation target or cached page could not be read | Read the `message`; check the integration's access to the related database. |
@@ -90,6 +91,8 @@ the command; error objects are multi-line JSON, see `bukit-cli-reference`). Read
 | `GITHUB_TOKEN environment variable is required` | Token var unset | Set it or use `--token-env NAME`. |
 | `Non-fast-forward push rejected` | Target branch diverged | `--force` only if overwriting is intended. |
 | Page missing from llms.txt | Invalid front matter `geo` → `llms` curation | Look for build warnings `geo.llms_field_unknown`, `geo.llms_visibility_invalid`, `geo.llms_tier_invalid`, `geo.llms_priority_invalid`, `geo.llms_shape_invalid` (they fail the build under `strict`; versions through 2.0.15 do not log them) and the publish audit warning `publish.llms_missing_route route=<url>`; check that `geo` and `llms` are mappings (not, for example, `llms: false`) and that the `llms` map uses only `visibility`, `tier`, and an integer `priority` (`bukit-geo`). |
+
+- `BKT-0C01`–`BKT-0C0B`: CloudBase config, credential, auth, not-found, rate limit, request, response, file-signing, media-host, admin-key and unsupported-reference codes; run `bukit doctor` for role/table/RLS/signing hints.
 
 ## Reports to inspect
 

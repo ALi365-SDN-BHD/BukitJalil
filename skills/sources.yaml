@@ -2,14 +2,17 @@
 # directly in it, so this note is YAML and no Markdown file may live here.
 bukit:
   source: https://github.com/ALi365-SDN-BHD/Bukit
-  tag: v2.2.7
-  commit: 41af6b9c64275d6d1917684dd70d721d24af6856
+  tag: v2.2.9
+  commit: b7418dd0d0a3eda5814506f56aa66a50e440d57f
   path: guide/skills
   included:
     [using-bukit, bukit-cli-reference, bukit-config, bukit-content, bukit-content-model, bukit-routing,
      bukit-templating, bukit-theme, bukit-i18n, bukit-build, bukit-outputs, bukit-seo, bukit-seo-insights,
      bukit-geo, bukit-analytics, bukit-local-server, bukit-publish-deploy, bukit-troubleshooting]
-  # v2.2.5 -> v2.2.7: guide/skills is byte-identical (same tree), so nothing below changed.
+  # v2.2.7 -> v2.2.9: 15 skills changed upstream (new content-snapshot, CloudBase, queries, derived fields,
+  links and backrefs, related pages, enum labels, breadcrumb parent). The three-way merge kept each local note;
+  bukit-content, bukit-content-model and using-bukit add a line that BukitJalil connects only Notion sources.
+  v2.2.5 -> v2.2.7: guide/skills was byte-identical (same tree), so nothing below changed then.
   changes:
     - a note after the front matter of each skill mapping commands to BukitJalil's tools
     - using-bukit - Labs skill wording removed, checks and schema mapped to BukitJalil's tools

@@ -43,7 +43,7 @@ theme:
 | Section | Contents | Skill |
 |---|---|---|
 | `site` | Identity, URLs, language, collections, permalinks, SEO, analytics, feeds, search, plugins | below, `bukit-routing`, `bukit-seo`, `bukit-outputs`, `bukit-analytics`, `bukit-i18n` |
-| `content` | `sources`, `media`, `modelSchema`, `routeMetadata`, `ordering` | `bukit-content`, `bukit-content-model` |
+| `content` | `sources`, `media`, `modelSchema`, `routeMetadata`, `ordering`, `links` | `bukit-content`, `bukit-content-model` |
 | `build` | Output and build behavior | below, `bukit-build` |
 | `theme` | Theme name, directories, params, SCSS, images, components | `bukit-theme` |
 | `taxonomy` | Tag/category pages | `bukit-routing` |
@@ -68,6 +68,7 @@ theme:
 | `pluginFailMode` | `strict` | `strict\|warn`. |
 | `deriveConflictPolicy` | `fail` | `fail\|warn\|last-wins` for derived-page route conflicts. |
 | `seo`, `analytics`, `feed`, `search`, `searchIncludeDerived`, `sitemapMode`, `related` | | See related skills. |
+| `queries` | none | Named lists from one collection (`from`, `where`, `sort`, `select`, `distinct`, `group`, `limit`), read as `site.queries.<name>` (`04-site-yaml-config.md`). |
 | `plugins` | none | Built-in plugin toggles (below). |
 
 Accepted but inert today: `site.menus` (written to `menus.json` after the build; not
@@ -96,6 +97,7 @@ pages silently disappear.
 | `publishDotFiles` | `false` | |
 | `followSymlinks` | `false` | Supported copy paths only; forced off by `--ci`. |
 | `languageJobs` | `1` | Multilingual worker count. |
+| `templateLoopLimit` | `1000` | Positive Scriban loop iteration limit; see `bukit-templating`. |
 | `build.report.enabled` | `true` | Optional `.bukit/` reports. |
 | `build.report.securityFailMode` | `auto` | `auto\|off\|warn\|strict`. |
 
@@ -128,7 +130,8 @@ snake_case to camelCase: `BUKIT_SITE__URL=https://example.com`,
 this way, misspelled segments fail strict validation, and an empty value still creates
 the key.
 
-Secrets never go in `site.yaml`: Notion reads `NOTION_TOKEN`, deploy reads
+Secrets never go in `site.yaml`: Notion reads `NOTION_TOKEN`, CloudBase reads
+`CLOUDBASE_PUBLISHABLE_KEY`, deploy reads
 `GITHUB_TOKEN` (or `--token-env`). Anything in `theme.params` or data sources can end up
 in public HTML.
 
