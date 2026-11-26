@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { tinyPng } from "../../packages/server/test/fixtures/images.ts";
+import type { DesktopBridge } from "../../packages/web/src/lib/desktop.ts";
 import { putSettings } from "../site-helpers.ts";
 
 const root = path.resolve(import.meta.dirname, "../..");
@@ -436,6 +437,83 @@ test("clones the user's site into a theme through a locked-down capture", async 
     expect(captured.length).toBeGreaterThanOrEqual(2);
   } finally {
     site.close();
+    await app.close();
+  }
+});
+
+test("a captured page's own navigation stays in the capture and never opens the system browser", async () => {
+  test.setTimeout(120_000);
+  const outsideRequests: string[] = [];
+  const outside = http.createServer((req, res) => {
+    outsideRequests.push(req.url ?? "");
+    res.end("other site");
+  });
+  await new Promise<void>((resolve) => outside.listen(0, "127.0.0.1", resolve));
+  const other = outside.address();
+  if (!other || typeof other === "string") throw new Error("no outside port");
+  const elsewhere = `http://127.0.0.1:${other.port}`;
+  const redirects: string[] = [];
+  const server = http.createServer((req, res) => {
+    res.setHeader("content-type", "text/html");
+    const page = (title: string, script = "") =>
+      `<!doctype html><html><head><title>${title}</title></head><body><h1>${title}</h1>${script}</body></html>`;
+    const go = (url: string) => `<script>setTimeout(() => { location.href = ${JSON.stringify(url)} }, 100)</script>`;
+    if (req.url === "/same/" || req.url === "/cross/") {
+      redirects.push(req.url);
+      res.writeHead(302, { location: req.url === "/same/" ? "/landing/" : `${elsewhere}/redirect/` }).end();
+    } else if (req.url === "/hop/") res.end(page("Hop", go("/same/")));
+    else if (req.url === "/landing/")
+      res.end(
+        page(
+          "Landing",
+          `<script>if (window.open("${elsewhere}/popup/") === null) document.title = "Popup denied"</script>`,
+        ),
+      );
+    else if (req.url === "/away/") res.end(page("Away", go(`${elsewhere}/direct/`)));
+    else if (req.url === "/bounce/") res.end(page("Bounce", go("/cross/")));
+    else res.end(page("Home"));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("no site port");
+  const origin = `http://127.0.0.1:${address.port}`;
+  const { app, page } = await launch(undefined, { BUKITJALIL_CAPTURE_ALLOW_LOOPBACK: "1" });
+  try {
+    await enterPin(page);
+    await app.evaluate(({ shell }) => {
+      const opened: string[] = [];
+      (globalThis as { opened?: string[] }).opened = opened;
+      shell.openExternal = async (url: string) => {
+        opened.push(url);
+      };
+    });
+    const result = await page.evaluate(
+      (urls) =>
+        (window as unknown as { bukitjalil: DesktopBridge }).bukitjalil.startCapture({
+          urls,
+          images: false,
+          fonts: false,
+          authorized: true,
+        }),
+      [`${origin}/hop/`, `${origin}/away/`, `${origin}/bounce/`],
+    );
+    expect(result).toMatchObject({ ok: true });
+    expect(result).toMatchObject({
+      result: { pages: [{ title: "Popup denied" }, { title: "Away" }, { title: "Bounce" }] },
+    });
+    expect(redirects).toEqual(["/same/", "/cross/"]);
+    expect(outsideRequests).toEqual([]);
+    expect(await app.evaluate(() => (globalThis as { opened?: string[] }).opened)).toEqual([]);
+    // The app window still sends its links out.
+    await page.evaluate(() => {
+      location.href = "https://example.com/navigate";
+    });
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as { opened?: string[] }).opened))
+      .toEqual(["https://example.com/navigate"]);
+  } finally {
+    server.close();
+    outside.close();
     await app.close();
   }
 });

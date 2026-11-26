@@ -2071,6 +2071,8 @@ M6 分层实施（每层做完先审计、修复，再提交）：
 
 - 桌面主进程 `capture.ts` / `capture-network.ts` / `robots.ts`。抓取只能从桌面版发起：`desktop:capture-preflight`（同源、`robots.txt`、`http:` 提示）和 `desktop:capture-start`（要求 `authorized`）；进度通过 `desktop:capture-progress` 回传，网页里的 `DesktopBridge` 只多了这四个方法和选 zip 的 `pickFile`。
 - 隐藏窗口：一次性非持久分区 `capture-<随机>`，`sandbox`、`contextIsolation`、无 preload、无 `webviewTag`、`disableDialogs`、`backgroundThrottling: false`；拒绝弹窗、下载、权限、`will-prevent-unload`；顶层导航和重定向只允许首页同源；UA 是通用桌面 Chromium 字符串。`setWebRTCIPHandlingPolicy("disable_non_proxied_udp")` 和应用启动时的 `disable-quic` 防止 UDP 绕过代理。
+- 克隆窗口不使用主窗口的“把外链交给系统浏览器”规则。桌面回归测试用两个本地来源验证脚本导航、HTTP 302 和 `window.open`：同源导航留在克隆窗口，跨源导航和弹窗不访问目标，也不调用系统浏览器；主窗口外链仍正常打开。
+- **审计 #16 复查**：窗口在载入第一个网址前登记；导航发生时才判断窗口归属。`desktop.spec.ts` 的 13 项全部通过，包含上面的两来源测试和主窗口外链对照。`pnpm -s check`、Web 与桌面构建通过。
 - 代理：`session.setProxy` 把 http 和 https 都指向主进程里 `127.0.0.1` 的代理，`proxyBypassRules: "<-loopback>"`。代理自己解析 DNS，拒绝 loopback、私网、链路本地、组播、文档网段、NAT64/Teredo/6to4 和 IPv4 映射地址；连接只连检查过的那个 IP（DNS 重绑定无效），HTTPS 的 `CONNECT` 也先检查。页面请求只允许 http(s)、`data:`、`blob:`、`about:blank`；WebSocket 一律拒绝。`ws`/`wss` 的拒绝和静态资源走代理是两层检查。
 - 限额：整次 500 个请求、30 MiB，单个响应 14 MiB，页面 30 秒、网络空闲 2 秒。空闲判断同时看代理和 `webRequest` 的完成事件；HTTPS 的 CONNECT 隧道不可见，靠完成事件补足。抓取页的高度上限 8000 像素（`shortcut:` 注明只取顶部，需要时再做分段拼接）。
 - 收集在 isolated world（world id 1001）里做：去掉 script/noscript/iframe/object/embed、内联事件、表单 action 和 srcdoc；CSS 规则按页面顺序合并，跨源样式表取不到规则时用同一个检查过的网络重新读取并补在后面。图片、字体的地址和尺寸总是记进 `meta.json`；勾选"下载图片 / 字体"时才真正取回，按真实文件头保存，SVG 由服务端再清洗。

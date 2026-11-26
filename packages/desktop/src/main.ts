@@ -222,7 +222,9 @@ function lockDown() {
   session.defaultSession.setPermissionCheckHandler(() => false);
   app.on("web-contents-created", (_event, contents) => {
     contents.on("will-navigate", (event, url) => {
-      if (allowed(url)) return;
+      // A capture window keeps same-origin navigation and blocks the rest itself; nothing it shows is a link the
+      // user clicked, so none of it may open in the system browser (theme development design 6.2).
+      if (capture.owns(contents) || allowed(url)) return;
       event.preventDefault();
       openOutside(url);
     });

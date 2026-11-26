@@ -72,6 +72,8 @@ const MAX_RESOURCES = 1000;
  */
 export class CaptureService {
   private running = false;
+  /** The hidden capture windows: their own handlers decide navigation, never the app window's. */
+  private readonly windows = new WeakSet<WebContents>();
 
   constructor(
     private readonly opts: {
@@ -82,6 +84,11 @@ export class CaptureService {
       onProgress: (progress: CaptureProgress) => void;
     },
   ) {}
+
+  /** Whether `contents` is a capture window, which must not send its pages to the system browser. */
+  owns(contents: WebContents): boolean {
+    return this.windows.has(contents);
+  }
 
   /** The page list, same-origin and robots.txt check (design 6.1): read-only, nothing is written. */
   async preflight(urls: string[]): Promise<Outcome<CapturePreflight>> {
@@ -177,6 +184,7 @@ export class CaptureService {
           },
         });
         const contents = win.webContents;
+        this.windows.add(contents);
         contents.setUserAgent(captureUserAgent());
         // WebRTC must not make UDP connections outside the proxy (design 6.2: every request is checked).
         contents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
