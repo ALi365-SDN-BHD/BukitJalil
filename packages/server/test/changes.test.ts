@@ -466,6 +466,8 @@ describe("applying and rejecting", () => {
 
       const session = ctx.agent.create(s.id);
       const empty = await ctx.changes.begin(s.id, session.id);
+      fs.mkdirSync(path.join(empty.cwd, ".cache"), { recursive: true });
+      fs.writeFileSync(path.join(empty.cwd, ".cache", "generated"), "cache");
       const emptyView = await ctx.changes.current(s.id, false);
       await expect(ctx.changes.apply(empty.change.id, { treeHash: emptyView?.treeHash ?? "" })).rejects.toMatchObject({
         code: "change.no_changes",
@@ -1368,6 +1370,40 @@ describe("history and restore", () => {
       expect((await call("GET", `/api/sites/${s.id}/history/HEAD/diff`)).status).toBe(400);
       const missing = await call("GET", `/api/sites/${s.id}/history/${applied}/diff?path=nope.md`);
       expect(missing.json.code).toBe("change.file_not_found");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "refuses restore when an apparently empty change has unsnapshotted work",
+    async () => {
+      const { s, session, init } = await withHistory();
+      const { cwd, change } = await ctx.changes.begin(s.id, session.id);
+      const refuse = async () => {
+        await expect(ctx.changes.restore(s.id, init)).rejects.toMatchObject({ code: "change.open_exists" });
+        expect(ctx.changes.store.open(s.id)).toMatchObject({ id: change.id, snapshotCommit: change.snapshotCommit });
+      };
+      const tracked = path.join(cwd, "site.yaml");
+      const original = fs.readFileSync(tracked, "utf8");
+      fs.appendFileSync(tracked, "# not snapshotted\n");
+      await refuse();
+      expect(fs.readFileSync(tracked, "utf8")).toBe(`${original}# not snapshotted\n`);
+      rawGit(base, cwd, "add", "site.yaml");
+      fs.writeFileSync(tracked, original);
+      await refuse();
+      expect(rawGit(base, cwd, "show", ":site.yaml")).toContain("# not snapshotted");
+      rawGit(base, cwd, "restore", "--staged", "site.yaml");
+
+      const draft = path.join(cwd, "draft.txt");
+      fs.writeFileSync(draft, "unfinished");
+      await refuse();
+      expect(fs.readFileSync(draft, "utf8")).toBe("unfinished");
+      fs.appendFileSync(path.join(s.dir, ".git", "info", "exclude"), "\n/draft.txt\n");
+      await refuse();
+      expect(fs.readFileSync(draft, "utf8")).toBe("unfinished");
+      // A damaged checkout must not be "repaired" by deleting the only surviving copy.
+      fs.unlinkSync(path.join(cwd, ".git"));
+      await refuse();
+      expect(fs.readFileSync(draft, "utf8")).toBe("unfinished");
     },
   );
 

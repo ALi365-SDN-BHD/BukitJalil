@@ -7,7 +7,7 @@ import { checkPassed, usableRunner } from "../bukit/runner.ts";
 import { resolveBranch } from "../git/objects.ts";
 import { clearIndexLock, GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
-import { removeExcludeBlock, writeExcludeBlock } from "../sites/exclude.ts";
+import { BUILD_DIRS, removeExcludeBlock, writeExcludeBlock } from "../sites/exclude.ts";
 import { inside, SiteError } from "../sites/location.ts";
 import type { Db } from "../store/db.ts";
 import { rowProject } from "./owner.ts";
@@ -139,6 +139,22 @@ export class ProjectRepos {
     const dir = this.dir(key, "ai");
     if (!opts.reset && fs.existsSync(dir) && (await this.isCheckoutOf(dir, project.path))) return dir;
     return this.checkout(key, project.path, "ai", commit);
+  }
+
+  /** Inspect without repairing: a failed or interrupted snapshot can leave work only in this checkout. */
+  async aiCheckoutIsClean(key: ProjectKey, repoPath: string, commit: string): Promise<boolean> {
+    const cwd = this.dir(key, "ai");
+    const stat = fs.lstatSync(cwd, { throwIfNoEntry: false });
+    if (!stat) return true;
+    if (!stat.isDirectory() || !(await this.isCheckoutOf(cwd, repoPath))) return false;
+    const { git } = this.opts;
+    if ((await git.text(["rev-parse", "--verify", "HEAD"], { cwd })).trim() !== commit) return false;
+    const status = await git.text(
+      ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=matching", "--ignore-submodules=none"],
+      { cwd },
+    );
+    const disposable = new Set([...BUILD_DIRS, "node_modules"].map((dir) => `!! ${dir}/`));
+    return status.split("\0").every((entry) => entry === "" || disposable.has(entry));
   }
 
   /** Commit at the head of the project's default branch, with API errors for the ways that fails. */

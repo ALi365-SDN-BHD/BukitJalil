@@ -602,7 +602,8 @@ export class ChangeService {
       const open = this.store.open(project);
       if (
         open &&
-        (await this.treeOf(site.path, open.snapshotCommit)) !== (await this.treeOf(site.path, open.baseCommit))
+        ((await this.treeOf(site.path, open.snapshotCommit)) !== (await this.treeOf(site.path, open.baseCommit)) ||
+          !(await sites.repos.aiCheckoutIsClean(project, site.path, open.snapshotCommit)))
       )
         throw new SiteError("change.open_exists", 409);
       if (!(await onBranch(git, site.path, commit, site.defaultBranch))) throw new SiteError("history.not_found", 404);
