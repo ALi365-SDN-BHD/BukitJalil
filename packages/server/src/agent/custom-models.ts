@@ -76,8 +76,11 @@ export class CustomModelStore {
       name: req.name,
       baseUrl: req.baseUrl,
       api: req.api,
-      // An omitted key keeps the stored one; an empty field removes it.
-      apiKey: req.apiKey === undefined ? previous.apiKey : req.apiKey.trim() || null,
+      // The old secret belongs to its origin, even if the provider and model IDs stay the same.
+      apiKey:
+        req.apiKey === undefined && new URL(req.baseUrl).origin === new URL(previous.baseUrl).origin
+          ? previous.apiKey
+          : req.apiKey?.trim() || null,
       model: modelOf(req),
     };
     // Register first: if the runtime rejects the provider, the old row stays as it was.

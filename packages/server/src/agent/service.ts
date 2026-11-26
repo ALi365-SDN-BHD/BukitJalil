@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   type ContentProposalState,
   type ContentRef,
@@ -576,8 +577,7 @@ export class AgentService {
   /** Use the model and thinking level of the settings, which may have changed since the session opened. */
   private async applyModel(session: AgentSession): Promise<void> {
     const model = await this.model();
-    const current = session.model;
-    if (current?.provider !== model.provider || current.id !== model.id) await session.setModel(model);
+    if (!isDeepStrictEqual(session.model, model)) await session.setModel(model);
     const level = this.opts.thinkingLevel?.();
     if (level && session.thinkingLevel !== level) session.setThinkingLevel(level);
   }

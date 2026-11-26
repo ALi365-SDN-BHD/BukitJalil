@@ -1303,7 +1303,9 @@ const ms: Messages = {
       localModelNameHint: "Biarkan kosong untuk menggunakan ID model",
       localApiKey: "Kunci API (pilihan)",
       localApiKeyHint: "Perkhidmatan tempatan biasanya tidak memerlukannya; gunakan HTTPS untuk perkhidmatan jauh",
-      localApiKeyStored: "Disimpan; biarkan kosong untuk mengekalkannya",
+      localApiKeyStored:
+        "Biarkan kosong untuk mengekalkan kunci. Menukar protokol, hos atau port akan membuang kunci lama.",
+      localClearKey: "Buang kunci yang disimpan",
       localContext: "Tetingkap konteks",
       localMaxTokens: "Output maksimum",
       localReasoning: "Menyokong tahap pemikiran",

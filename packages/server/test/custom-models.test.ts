@@ -149,6 +149,20 @@ describe("/api/custom-models", () => {
     expect(sealed()).toBeNull();
   });
 
+  it("keeps an omitted key for path edits but drops it when the origin changes", async () => {
+    const { id } = ctx.customModels.create({ ...request, apiKey: "test-key" });
+    for (const [baseUrl, hasApiKey] of [
+      ["http://127.0.0.1:11434/new-path", true],
+      ["http://127.0.0.1:11435/new-path", false],
+    ] as const) {
+      const changed = await call(ctx, "PUT", `/api/custom-models/${id}`, { ...request, baseUrl });
+      expect(await changed.json()).toMatchObject({ baseUrl, hasApiKey });
+    }
+    expect(ctx.customModels.get(id).apiKey).toBeNull();
+    expect(ctx.customModels.update(id, { ...request, apiKey: "replacement" }).hasApiKey).toBe(true);
+    expect(ctx.customModels.get(id).apiKey).toBe("replacement");
+  });
+
   it("does not save the edit when registering the edited provider fails", async () => {
     const created = (await (await call(ctx, "POST", "/api/custom-models", request)).json()) as CustomModelProvider;
     const before = ctx.customModels.get(created.id);

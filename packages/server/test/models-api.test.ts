@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ModelsResponse, ProviderKey, ProviderTestResult, ServerEvent, SessionDetail } from "@bukitjalil/shared";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
 import { ModelService, redact, settingsModel } from "../src/agent/models.ts";
 import { loadPi, type PiModules } from "../src/agent/pi.ts";
@@ -288,5 +288,30 @@ describe("the chosen model in conversations", () => {
     const detail = (await (await get(`/api/sessions/${id}`)).json()) as SessionDetail;
     const replies = detail.messages.map((m) => m.message).filter((m) => m.role === "assistant");
     expect(replies.map((m) => m.model)).toEqual(["faux-1", "faux-2"]);
+  });
+
+  it("uses the edited endpoint for the next message in an open session with unchanged model IDs", async () => {
+    const old = "http://127.0.0.1:11434/first";
+    const next = "http://127.0.0.1:11434/second";
+    const spec = { name: "Test", api: "openai-completions", modelName: "Test", modelId: "test", baseUrl: old };
+    const created = (await (await call("POST", "/api/custom-models", spec)).json()) as { id: string };
+    const id = await session();
+    const urls: string[] = [];
+    const transport = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      urls.push(input instanceof Request ? input.url : String(input));
+      return new Response(null, { status: 401 });
+    });
+    try {
+      await call("PUT", "/api/settings", { model: { provider: created.id, id: "test" } });
+      expect((await send(id, "first")).status).toBe(202);
+      await settle(id);
+      expect((await call("PUT", `/api/custom-models/${created.id}`, { ...spec, baseUrl: next })).status).toBe(200);
+      expect((await send(id, "second")).status).toBe(202);
+      await settle(id);
+      expect(urls).toEqual([`${old}/chat/completions`, `${next}/chat/completions`]);
+    } finally {
+      transport.mockRestore();
+      await call("DELETE", `/api/custom-models/${created.id}`);
+    }
   });
 });

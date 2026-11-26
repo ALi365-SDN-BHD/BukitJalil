@@ -136,7 +136,7 @@ export const CustomModelRequest = z.object({
     .url()
     .refine((s) => /^https?:\/\//i.test(s), "must be an http(s) URL"),
   api: CustomModelApi,
-  /** Omitted on edit to keep the stored key; empty means no key. */
+  /** Omission keeps the stored key only on the same origin; empty means no key. */
   apiKey: z.string().trim().max(4096).optional(),
   modelId: z.string().trim().min(1).max(200),
   modelName: z.string().trim().min(1).max(100),
