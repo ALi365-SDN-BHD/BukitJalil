@@ -719,6 +719,28 @@ describe("AgentService", () => {
     expect(await service().agent.messages(id)).toEqual(await agent.messages(id));
   });
 
+  it("clears the unsaved state once storage reads again, after a saved transcript", async () => {
+    const s = await site();
+    const { agent, settled } = service({ idleMs: 25 });
+    const { id } = agent.create(s.id);
+    const get = agent.store.get.bind(agent.store);
+    // Reads fail only once the whole transcript is stored: the run's final existence check, not a save.
+    const failing = vi.spyOn(agent.store, "get").mockImplementation((sid) => {
+      if (JSON.stringify(agent.store.entries(sid)).includes("SAVED-THEN-READ-FAILS")) throw new Error("db busy");
+      return get(sid);
+    });
+    try {
+      faux.setResponses([pi.ai.fauxAssistantMessage("SAVED-THEN-READ-FAILS")]);
+      const done = settled(id);
+      await agent.send(id, "Keep this turn");
+      await done;
+    } finally {
+      failing.mockRestore();
+    }
+    expect(agent.info(id).unsaved).toBe(true);
+    await vi.waitFor(() => expect(agent.info(id).unsaved).toBeUndefined());
+  });
+
   it("reopens a session from the database with the earlier messages", async () => {
     const s = await site();
     const first = service({ idleMs: 10 });

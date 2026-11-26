@@ -769,7 +769,10 @@ export class AgentService {
         try {
           exists = this.store.get(id) !== null;
         } catch {
+          const announce = !live.unsaved;
           live.unsaved = true;
+          if (announce && live.record)
+            this.emit({ type: "session", project: live.project, sessionId: id, session: this.toInfo(live.record) });
         }
         if (!this.closing && exists) {
           this.scheduleIdle(id, live);
@@ -935,7 +938,8 @@ export class AgentService {
     try {
       const manager = live.session.sessionManager;
       const count = manager.getEntryCount();
-      if (count === 0 || count + 1 === live.saved) return;
+      // While unsaved, check storage again even with nothing new: the failure may have been a read alone.
+      if (count === 0 || (count + 1 === live.saved && !live.unsaved)) return;
       const record = this.store.get(id);
       live.record = record;
       if (!record) {
