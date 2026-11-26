@@ -92,15 +92,15 @@ export function checkSiteLocation(target: string, rules: LocationRules): string 
   return real;
 }
 
-/** A new site's directory must not exist or be an empty directory. */
-export function assertEmptyOrMissing(real: string): void {
-  let st: fs.Stats;
-  try {
-    st = fs.lstatSync(real);
-  } catch {
-    return;
-  }
-  if (!st.isDirectory() || fs.readdirSync(real).length > 0) throw new SiteError("site.path_not_empty", 409);
+/**
+ * A new project's destination must still be the same empty directory (or still missing) at installation;
+ * `own` is the staging directory this operation made inside it.
+ */
+function emptyDestination(real: string, own?: string) {
+  const st = fs.lstatSync(real, { bigint: true, throwIfNoEntry: false });
+  if (st && (!st.isDirectory() || fs.readdirSync(real).some((name) => name !== own)))
+    throw new SiteError("site.path_not_empty", 409);
+  return st;
 }
 
 /** An existing directory, for import. */
@@ -142,13 +142,63 @@ export function listDirs(dir: string | undefined, opts: { hidden?: boolean; user
   return { path: real, parent: parent === real ? null : parent, dirs };
 }
 
-/** Undo a failed create: remove the directory, or only its contents when it existed (empty) before. */
-export function removeCreated(dir: string, existed: boolean): void {
-  if (!existed) {
-    fs.rmSync(dir, { recursive: true, force: true });
-    return;
+/**
+ * Prepare and commit privately on the destination filesystem, then publish the complete project. A missing
+ * destination is staged beside it and renamed into place. An existing empty one is staged inside it and its
+ * entries are moved up, so its parent need not be writable (an external drive's root, a shared folder).
+ */
+export async function createInEmptyDirectory(target: string, prepare: (stage: string) => Promise<void>): Promise<void> {
+  const original = emptyDestination(target);
+  const home = original ? target : path.dirname(target);
+  fs.mkdirSync(home, { recursive: true });
+  const scratch = fs.mkdtempSync(path.join(home, ".bukitjalil-new-"));
+  const owned = fs.lstatSync(scratch, { bigint: true });
+  const stage = path.join(scratch, "project");
+  try {
+    await prepare(stage);
+    if (fs.realpathSync.native(path.dirname(target)) !== path.dirname(target))
+      throw new SiteError("site.path_not_empty", 409);
+    const current = emptyDestination(target, original ? path.basename(scratch) : undefined);
+    if (original?.dev !== current?.dev || original?.ino !== current?.ino)
+      throw new SiteError("site.path_not_empty", 409);
+    if (original) moveEntries(stage, target);
+    else renameInto(stage, target);
+  } finally {
+    const remaining = fs.lstatSync(scratch, { bigint: true, throwIfNoEntry: false });
+    if (remaining?.dev === owned.dev && remaining.ino === owned.ino)
+      fs.rmSync(scratch, { recursive: true, force: true });
   }
-  for (const name of fs.readdirSync(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+}
+
+/** The staged project becomes `target`, which must still not exist. */
+function renameInto(stage: string, target: string): void {
+  try {
+    fs.renameSync(stage, target);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+    if (fs.existsSync(target) && ["ENOTEMPTY", "EEXIST", "ENOTDIR", "EISDIR"].includes(code))
+      throw new SiteError("site.path_not_empty", 409);
+    throw err;
+  }
+}
+
+/**
+ * Move the staged entries into `target`. A name that appeared meanwhile is never replaced: everything moved
+ * so far goes back to the stage, which is then removed, and the user's entry stays.
+ */
+function moveEntries(stage: string, target: string): void {
+  const moved: string[] = [];
+  try {
+    for (const name of fs.readdirSync(stage)) {
+      const to = path.join(target, name);
+      if (fs.lstatSync(to, { throwIfNoEntry: false })) throw new SiteError("site.path_not_empty", 409);
+      fs.renameSync(path.join(stage, name), to);
+      moved.push(name);
+    }
+  } catch (err) {
+    for (const name of moved.reverse()) fs.renameSync(path.join(target, name), path.join(stage, name));
+    throw err;
+  }
 }
 
 /** The commit identity from the settings, as git config (400 `site.identity_required` when unset). */

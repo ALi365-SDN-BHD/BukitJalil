@@ -452,9 +452,9 @@ export class BuildService {
           if (problem) report.notionSnapshotProblem = problem;
         }
       }
-      if (record && notionSite !== null && result.stdout.includes("event=notion.snapshot.saved")) {
-        // Bukit replaced the snapshot as its last step and said so. Record it even when the run was stopped
-        // after that (outcome not ok): otherwise the new data would sit under the old record and media cache.
+      if (record && notionSite !== null && snapshotSaved(outcome, result)) {
+        // Bukit replaced the snapshot as its last step. Record it even when the run was stopped after that
+        // (outcome not ok): otherwise the new data would sit under the old record and media cache.
         try {
           snapshots.recorded(notionSite, commit, checkout, site.configFile);
         } catch (err) {
@@ -652,6 +652,20 @@ export function buildReport(result: BukitRunResult): BuildReport {
 
 /** Bukit's line for each content source of a build (Bukit 2.1.0). */
 const SOURCE_LOADED = /^event=content\.source\.loaded source=(.+?) count=(\d+)$/;
+
+/**
+ * Whether a recording build replaced the snapshot. Bukit commits it right before exiting 0, so a successful
+ * build has saved it even when `logging.level` hides the Info line; a stopped run counts only if Bukit logged
+ * the save, on stderr like the rest of its JSON log (Bukit 2.2.7 `BuildCommand`).
+ */
+export function snapshotSaved(outcome: BuildOutcome, result: BukitRunResult): boolean {
+  return (
+    outcome === "ok" ||
+    `${result.stderr}\n${result.stdout}`
+      .split("\n")
+      .some((line) => logEntry(line)?.msg === "event=notion.snapshot.saved")
+  );
+}
 
 /** Where the Notion data of a successful offline build came from, and what Bukit warned about it (plan 5.5). */
 export function notionOfflineData(offline: OfflineNotion, result: BukitRunResult): NotionOfflineData {

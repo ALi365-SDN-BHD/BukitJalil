@@ -1,4 +1,4 @@
-import type { ContentBlock, ContentValue } from "@bukitjalil/shared";
+import type { ContentBlock, ContentPage, ContentValue } from "@bukitjalil/shared";
 import { useSyncExternalStore } from "react";
 import { canonicalNotionId } from "@/lib/project";
 import { type BlocksProblem, sameBlocks, type Unsaved } from "./blocks";
@@ -12,8 +12,10 @@ type Changes = Readonly<Record<string, ContentValue>>;
 interface Draft {
   key: string;
   changes: Changes;
+  revisions: Readonly<Record<string, string>>;
   /** The edited body; null while it is unchanged. */
   body: readonly ContentBlock[] | null;
+  bodyRevision: string;
   /** Why the body as it is in the editor cannot be saved; `body` is then its last version that can. */
   problem: BlocksProblem | null;
   /** With a problem: the editor's document, to load again if the editor remounts. */
@@ -26,7 +28,16 @@ interface Draft {
 }
 
 const NONE: Changes = {};
-const empty = (key: string): Draft => ({ key, changes: NONE, body: null, problem: null, unsaved: null, base: "" });
+const empty = (key: string): Draft => ({
+  key,
+  changes: NONE,
+  revisions: {},
+  body: null,
+  bodyRevision: "",
+  problem: null,
+  unsaved: null,
+  base: "",
+});
 let draft: Draft = empty("");
 const listeners = new Set<() => void>();
 
@@ -90,48 +101,76 @@ export function draftOf(key: string) {
   const mine = current(key);
   return {
     changes: mine.changes,
+    revisions: mine.revisions,
     body: mine.body,
+    bodyRevision: mine.bodyRevision,
     problem: mine.problem,
     unsaved: mine.unsaved,
     base: mine.base,
     propertiesDirty: Object.keys(mine.changes).length > 0,
     dirty: !isEmpty(mine),
     /** A value equal to the saved one drops the change again. `base` is the edit time `saved` was read at. */
-    set(name: string, value: ContentValue, saved: ContentValue | null, base: string) {
+    set(name: string, value: ContentValue, saved: ContentValue | null, base: string, revision?: string) {
       const before = current(key);
       const { [name]: _, ...rest } = before.changes;
-      replace(changed(before, { ...before, changes: same(value, saved) ? rest : { ...rest, [name]: value } }, base));
-    },
-    setBody(value: readonly ContentBlock[], saved: readonly ContentBlock[], base: string) {
-      const before = current(key);
+      const { [name]: original, ...other } = before.revisions;
+      const undo = same(value, saved);
+      const first = Object.hasOwn(before.revisions, name) ? original : revision;
       replace(
         changed(
           before,
-          { ...before, body: sameBlocks(value, saved) ? null : value, problem: null, unsaved: null },
+          {
+            ...before,
+            changes: undo ? rest : { ...rest, [name]: value },
+            revisions: undo || !first ? other : { ...other, [name]: first },
+          },
+          base,
+        ),
+      );
+    },
+    setBody(value: readonly ContentBlock[], saved: readonly ContentBlock[], base: string, revision: string) {
+      const before = current(key);
+      const body = sameBlocks(value, saved) ? null : value;
+      replace(
+        changed(
+          before,
+          { ...before, body, bodyRevision: body ? before.bodyRevision || revision : "", problem: null, unsaved: null },
           base,
         ),
       );
     },
     /** The body in the editor cannot be saved as it is: `unsaved` is what it holds. */
-    setProblem(problem: BlocksProblem, unsaved: Unsaved, base: string) {
+    setProblem(problem: BlocksProblem, unsaved: Unsaved, base: string, revision: string) {
       const before = current(key);
-      replace(changed(before, { ...before, problem, unsaved }, base));
+      replace(changed(before, { ...before, problem, unsaved, bodyRevision: before.bodyRevision || revision }, base));
     },
     /**
      * The body `sent` is in Notion as of `edited`. Typing since the save began stays, now based on `edited`.
      */
-    bodySaved(sent: readonly ContentBlock[], edited: string) {
+    bodySaved(sent: readonly ContentBlock[], edited: string, revision: string) {
       if (draft.key !== key) return;
-      const next = { ...draft, body: draft.body && sameBlocks(draft.body, sent) ? null : draft.body };
+      const body = draft.body && sameBlocks(draft.body, sent) ? null : draft.body;
+      const next = { ...draft, body, bodyRevision: body || draft.problem ? revision : "" };
       replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });
     },
-    /** The property values `sent` are in Notion as of `edited`; changes made since the save began stay. */
-    propertiesSaved(sent: Changes, edited: string) {
+    /**
+     * The property values `sent` are in Notion as of `edited`, as `page` shows; changes made since the save
+     * began stay, now checked against the value just saved rather than the one before it.
+     */
+    propertiesSaved(sent: Changes, edited: string, page: ContentPage) {
       if (draft.key !== key) return;
       const changes = Object.fromEntries(
         Object.entries(draft.changes).filter(([name, value]) => !same(value, changeOf(sent, name) ?? null)),
       );
-      const next = { ...draft, changes };
+      const revisions = Object.fromEntries(
+        Object.keys(changes).flatMap((name) => {
+          const revision = Object.hasOwn(sent, name)
+            ? page.properties.find((p) => p.name === name)?.revision
+            : draft.revisions[name];
+          return revision ? [[name, revision]] : [];
+        }),
+      );
+      const next = { ...draft, changes, revisions };
       replace(isEmpty(next) ? { ...next, base: "" } : { ...next, base: edited });
     },
     clear() {

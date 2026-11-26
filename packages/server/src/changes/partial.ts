@@ -1,8 +1,6 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import type { ApplySelection } from "@bukitjalil/shared";
 import { GitError, type GitRunner } from "../git/run.ts";
+import { editedTree } from "../git/temp-index.ts";
 import { SiteError } from "../sites/location.ts";
 import { fileDiff } from "./diff.ts";
 
@@ -72,23 +70,14 @@ export async function selectedTree(
     );
   }
 
-  fs.mkdirSync(opts.tmpDir, { recursive: true, mode: 0o700 });
-  const indexFile = path.join(opts.tmpDir, `partial-${crypto.randomBytes(8).toString("hex")}.index`);
-  try {
-    await git.run(["read-tree", "--end-of-options", opts.base], { cwd: opts.cwd, indexFile });
-    await git.run(["update-index", "-z", "--index-info"], { cwd: opts.cwd, indexFile, input: lines.join("") });
-    const tree = (await git.text(["write-tree"], { cwd: opts.cwd, indexFile })).trim();
-    // The index replaces a file with a folder of the same name (or the other way round) on its own, so
-    // selecting one side of such a swap would take the other side too: only selected paths may differ.
-    const selected = new Set(opts.selection.map((item) => item.path));
-    for (const p of (await rawChanges(git, opts.cwd, opts.base, tree)).keys()) {
-      if (!selected.has(p)) throw new SiteError("change.partial_unsupported", 400, { path: p });
-    }
-    return tree;
-  } finally {
-    fs.rmSync(indexFile, { force: true });
-    fs.rmSync(`${indexFile}.lock`, { force: true });
+  const tree = await editedTree(git, opts.cwd, opts.base, lines.join(""), opts.tmpDir);
+  // The index replaces a file with a folder of the same name (or the other way round) on its own, so
+  // selecting one side of such a swap would take the other side too: only selected paths may differ.
+  const selected = new Set(opts.selection.map((item) => item.path));
+  for (const p of (await rawChanges(git, opts.cwd, opts.base, tree)).keys()) {
+    if (!selected.has(p)) throw new SiteError("change.partial_unsupported", 400, { path: p });
   }
+  return tree;
 }
 
 /** A hunk's line ranges, 0-based: lines [oldStart, oldStart + oldCount) of the old file become the new ones. */
@@ -121,16 +110,20 @@ export function parseHunks(patch: string): HunkRange[] {
   return hunks;
 }
 
-/** Lines of a file, each with its "\n" (the last one may have none). */
-function splitLines(data: Buffer): Buffer[] {
-  const lines: Buffer[] = [];
-  let start = 0;
-  for (let i = data.indexOf(10); i !== -1; i = data.indexOf(10, i + 1)) {
-    lines.push(data.subarray(start, i + 1));
-    start = i + 1;
-  }
-  if (start < data.length) lines.push(data.subarray(start));
-  return lines;
+/** Hunk boundaries arrive in order. Find their byte offsets without allocating a buffer per line. */
+function lineCursor(data: Buffer) {
+  let line = 0;
+  let offset = 0;
+  return (target: number): number => {
+    if (target < line) return -1;
+    while (line < target) {
+      if (offset === data.length) return -1;
+      const lf = data.indexOf(10, offset);
+      offset = lf === -1 ? data.length : lf + 1;
+      line++;
+    }
+    return offset;
+  };
 }
 
 /**
@@ -143,19 +136,21 @@ export function applyHunks(
   hunks: readonly HunkRange[],
   selected: ReadonlySet<number>,
 ): Buffer | null {
-  const oldLines = splitLines(before);
-  const newLines = splitLines(after);
+  const oldOffset = lineCursor(before);
+  const newOffset = lineCursor(after);
   const out: Buffer[] = [];
   let pos = 0;
   for (const [i, h] of hunks.entries()) {
-    if (h.oldStart < pos || h.oldStart + h.oldCount > oldLines.length || h.newStart + h.newCount > newLines.length) {
-      return null;
-    }
+    const oldStart = oldOffset(h.oldStart);
+    const oldEnd = oldOffset(h.oldStart + h.oldCount);
+    const newStart = newOffset(h.newStart);
+    const newEnd = newOffset(h.newStart + h.newCount);
+    if (oldStart < 0 || oldEnd < 0 || newStart < 0 || newEnd < 0) return null;
     if (!selected.has(i)) continue;
-    out.push(...oldLines.slice(pos, h.oldStart), ...newLines.slice(h.newStart, h.newStart + h.newCount));
-    pos = h.oldStart + h.oldCount;
+    out.push(before.subarray(pos, oldStart), after.subarray(newStart, newEnd));
+    pos = oldEnd;
   }
-  out.push(...oldLines.slice(pos));
+  out.push(before.subarray(pos));
   return Buffer.concat(out);
 }
 

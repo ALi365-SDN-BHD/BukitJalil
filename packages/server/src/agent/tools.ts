@@ -6,18 +6,16 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { assertNotLink, O_NOFOLLOW } from "../safe-open.ts";
 import { BUILD_DIRS } from "../sites/exclude.ts";
 import { GateError, type PathGate, segmentKey, writeChecked } from "./gate.ts";
+import { gatedGrep } from "./grep.ts";
 import type { PiModules } from "./pi.ts";
 
 /** Pi's built-in tools the AI may use (plan 6.3), each replaced by a gated definition. No bash. */
 export const BUILTIN_TOOLS = ["read", "grep", "find", "ls", "edit", "write"] as const;
 
 /** Directories `find` never walks into: anywhere, and at the top of the working copy. */
-const SKIP_ANYWHERE = new Set([".git", "node_modules"]);
 const SKIP_TOP = new Set<string>(BUILD_DIRS);
 /** Entries `find` looks at before it stops, so a huge tree cannot stall a run. */
 export const MAX_WALK = 20_000;
-/** rg glob that leaves out every file or directory named .git or .env*, in any case. */
-const NO_GIT_GLOB = "!**/{.[gG][iI][tT],.[eE][nN][vV]*}";
 
 /** Set by a find call whose walk stopped at MAX_WALK, so its result can say so. */
 const findRun = new AsyncLocalStorage<{ stopped: boolean }>();
@@ -48,30 +46,12 @@ export function checkToolPath(value: unknown): void {
   }
 }
 
-const GREP_LINE = /^(.+?)(?::\d+: |-\d+- )/;
-
-/**
- * Grep output without lines from .git or .env* files and directories. Pi passes --hidden to rg, and a model
- * can pass its own glob, so the output is filtered even when the search itself did not exclude them.
- */
-export function dropGitLines(text: string): string {
-  const lines = text.split("\n");
-  const kept = lines.filter((line) => {
-    const file = GREP_LINE.exec(line)?.[1];
-    return !file?.split(/[/\\]/).some((part) => {
-      const name = part.toLowerCase();
-      return name === ".git" || name.startsWith(".env");
-    });
-  });
-  if (kept.length === lines.length) return text;
-  return kept.some((line) => GREP_LINE.test(line)) ? kept.join("\n") : "No matches found";
-}
-
 /**
  * Files under `base` whose path matches `pattern` the way fd --glob does: basename, or path with a "/".
  * Paths are returned under `shownBase` (the search path as Pi resolved it), so Pi can make them relative.
  */
 async function globFiles(
+  gate: PathGate,
   base: string,
   shownBase: string,
   pattern: string,
@@ -93,9 +73,11 @@ async function globFiles(
         return;
       }
       const key = segmentKey(entry.name);
-      if (entry.isSymbolicLink() || SKIP_ANYWHERE.has(key) || (rel === "" && SKIP_TOP.has(key))) continue;
+      if (entry.isSymbolicLink() || key === "node_modules" || (dir === gate.root && SKIP_TOP.has(key))) continue;
+      const child = path.join(dir, entry.name);
+      if (!gate.listable(child)) continue;
       const childRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
-      if (entry.isDirectory()) await walk(path.join(dir, entry.name), childRel);
+      if (entry.isDirectory()) await walk(child, childRel);
       else if (entry.isFile() && path.posix.matchesGlob(byPath ? childRel : entry.name, glob)) {
         out.push(path.join(shownBase, ...childRel.split("/")));
       }
@@ -121,7 +103,7 @@ function checkPathFirst<T extends PathTool>(tool: T): void {
 /**
  * The six built-in tools with BukitJalil's operations (plan 6.3). Pi hands the operations the final
  * absolute path and, for edit and write, the final content, and the gate checks both there. Each tool's
- * execute first refuses paths Pi would rewrite; grep also needs the installed rg and drops .git lines.
+ * execute first refuses paths Pi would rewrite; grep runs the verified rg on listable files.
  */
 export function createGatedTools({ pi }: PiModules, opts: ToolOptions): ToolDefinition[] {
   const { cwd, gate } = opts;
@@ -155,7 +137,7 @@ export function createGatedTools({ pi }: PiModules, opts: ToolOptions): ToolDefi
   });
   const edit = pi.createEditToolDefinition(cwd, {
     operations: {
-      readFile: (p) => fsp.readFile(gate.check(p, "write")),
+      readFile: (p) => fsp.readFile(gate.check(gate.check(p, "write"), "read")),
       writeFile: async (p, content) => {
         const real = gate.check(p, "write");
         gate.checkContent(content);
@@ -168,18 +150,16 @@ export function createGatedTools({ pi }: PiModules, opts: ToolOptions): ToolDefi
     operations: {
       exists: (p) => fs.existsSync(listable(p)),
       stat: (p) => fs.statSync(listable(p)),
-      readdir: (p) => fs.readdirSync(listable(p)).filter((name) => segmentKey(name) !== ".git"),
+      readdir: (p) => fs.readdirSync(listable(p)).filter((name) => gate.listable(path.join(p, name))),
     },
   });
   const find = pi.createFindToolDefinition(cwd, {
     operations: {
       exists: (p) => fs.existsSync(listable(p)),
-      glob: (pattern, dir, { limit }) => globFiles(listable(dir), dir, pattern, limit, maxWalk),
+      glob: (pattern, dir, { limit }) => globFiles(gate, listable(dir), dir, pattern, limit, maxWalk),
     },
   });
-  const grep = pi.createGrepToolDefinition(cwd, {
-    operations: { isDirectory: (p) => fs.statSync(listable(p)).isDirectory() },
-  });
+  const grep = pi.createGrepToolDefinition(cwd);
 
   for (const tool of [read, write, edit, ls, find]) checkPathFirst(tool);
   const findExecute = find.execute.bind(find);
@@ -190,19 +170,12 @@ export function createGatedTools({ pi }: PiModules, opts: ToolOptions): ToolDefi
     const note = `\n\n[Search stopped after ${maxWalk} entries; some files may be missing. Search a smaller path.]`;
     return { ...result, content: result.content.map((c) => (c.type === "text" ? { ...c, text: c.text + note } : c)) };
   };
-  const grepExecute = grep.execute.bind(grep);
-  grep.execute = async (id, params, ...rest) => {
+  grep.execute = async (_id, params, signal) => {
     checkToolPath(params.path);
     if (!opts.rgReady()) {
       throw new GateError("The search tool (rg) is not installed or failed its check; use find and read");
     }
-    // Leave .git out of the search itself, so its lines do not use up the match limit; lines are still
-    // filtered below for searches that bring their own glob.
-    const result = await grepExecute(id, { ...params, glob: params.glob ?? NO_GIT_GLOB }, ...rest);
-    return {
-      ...result,
-      content: result.content.map((c) => (c.type === "text" ? { ...c, text: dropGitLines(c.text) } : c)),
-    };
+    return gatedGrep(pi, gate, cwd, params, signal);
   };
   return [read, write, edit, ls, find, grep] as ToolDefinition[];
 }

@@ -14,6 +14,7 @@ import {
   isBukitPluginId,
   type ProjectKey,
   type RestoreResult,
+  type ReviewVersion,
   type VersionDiff,
 } from "@bukitjalil/shared";
 import { parseDocument } from "yaml";
@@ -346,10 +347,7 @@ export class ChangeService {
       await this.snapshot(project, cwd);
       let change = this.openChange(id);
       const tree = await this.treeOf(site.path, change.snapshotCommit);
-      if (tree !== req.treeHash) throw new SiteError("change.fingerprint_mismatch", 409);
-      // Hunks are numbered in the diff against the base; after a partial apply the rest keeps its tree but
-      // has a new base, so a selection must name the base it was made on too (plan 7.5).
-      if (req.selection && req.baseCommit !== change.baseCommit)
+      if (tree !== req.treeHash || change.baseCommit !== req.baseCommit)
         throw new SiteError("change.fingerprint_mismatch", 409);
       if (tree === (await this.treeOf(site.path, change.baseCommit))) throw new SiteError("change.no_changes", 409);
       await this.assertSiteReady(site);
@@ -552,11 +550,35 @@ export class ChangeService {
     return { outcome: "partial", change: await this.toChangeSet(this.get(change.id)), check };
   }
 
+  /**
+   * Work a crash or failed snapshot left only in the AI checkout goes into the open change set first, as the
+   * end of its run would have done (ignored files included: they are deleted the same way), so it is shown for
+   * review rather than discarded unseen. False when the checkout is no longer one: then nothing is touched.
+   * The caller holds the project lock.
+   */
+  private async keepLeftovers(project: ProjectKey, site: Project, change: ChangeRecord): Promise<boolean> {
+    const { projects } = this.opts;
+    const state = await projects.repos.aiCheckoutState(project, site.path, change.snapshotCommit);
+    if (state === "clean") return true;
+    if (state === "damaged" || site.readOnly) return false;
+    await this.snapshot(project, await projects.aiWorktree(project, change.snapshotCommit, { reset: false }));
+    return true;
+  }
+
   /** Reject a change set (plan 7.2): it is closed; the checkout is reset when the next change set opens. */
-  async reject(id: string): Promise<ChangeSet> {
+  async reject(id: string, review: ReviewVersion): Promise<ChangeSet> {
     const { project } = this.get(id);
     return this.opts.locks.run(project, "reject", async () => {
-      await this.close(this.openChange(id), "rejected");
+      const site = this.opts.projects.get(project);
+      const kept = await this.keepLeftovers(project, site, this.openChange(id));
+      const change = this.openChange(id);
+      if (
+        !kept ||
+        change.baseCommit !== review.baseCommit ||
+        (await this.treeOf(site.path, change.snapshotCommit)) !== review.treeHash
+      )
+        throw new SiteError("change.fingerprint_mismatch", 409);
+      await this.close(change, "rejected");
       return this.toChangeSet(this.get(id));
     });
   }
@@ -599,6 +621,9 @@ export class ChangeService {
       const { git, projects: sites } = this.opts;
       const site = sites.get(project);
       if (site.readOnly) throw new SiteError("site.read_only", 409);
+      const leftover = this.store.open(project);
+      if (leftover && !(await this.keepLeftovers(project, site, leftover)))
+        throw new SiteError("change.open_exists", 409);
       const open = this.store.open(project);
       if (
         open &&

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ImportInspection, Site } from "@bukitjalil/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BukitService } from "../src/bukit/locate.ts";
 import { resolveGitPath } from "../src/git/run.ts";
 import { withBlock } from "../src/sites/exclude.ts";
@@ -151,6 +151,63 @@ describe("exclude block and locks", () => {
 // --- create ---
 
 describe("create a site (plan 5.2)", () => {
+  it.each(["site", "theme"])("a failed %s create leaves a file that arrived during preparation alone", async (kind) => {
+    const { sites, themes, repos, identity } = setup();
+    await identity();
+    const target = path.join(userHome, `interrupted-${kind}`);
+    if (kind === "theme") fs.mkdirSync(target);
+    vi.spyOn(repos, "commitNew").mockImplementationOnce(async () => {
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, "my-notes.txt"), "from the user");
+      throw new Error("commit interrupted");
+    });
+    const spec = { path: target, name: "Example", language: "en" };
+    await expect(
+      kind === "site" ? sites.create(spec) : themes.create({ ...spec, themeName: "example" }),
+    ).rejects.toThrow("commit interrupted");
+    expect(fs.readFileSync(path.join(target, "my-notes.txt"), "utf8")).toBe("from the user");
+    expect(fs.readdirSync(target)).toEqual(["my-notes.txt"]);
+  });
+
+  it("does not install over a file added to the selected directory while Git was running", async () => {
+    const { sites, repos, identity } = setup();
+    await identity();
+    const target = path.join(userHome, "sync-while-creating");
+    fs.mkdirSync(target);
+    const commit = repos.commitNew.bind(repos);
+    vi.spyOn(repos, "commitNew").mockImplementationOnce(async (...args) => {
+      await commit(...args);
+      fs.writeFileSync(path.join(target, "site.yaml"), "from sync");
+    });
+    await expect(sites.create({ name: "Example", language: "en", path: target })).rejects.toMatchObject({
+      code: "site.path_not_empty",
+    });
+    expect(fs.readFileSync(path.join(target, "site.yaml"), "utf8")).toBe("from sync");
+    expect(fs.readdirSync(target)).toEqual(["site.yaml"]);
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "creates in an empty directory whose parent it cannot write, like an external drive's root",
+    async () => {
+      const { sites, identity } = setup();
+      await identity();
+      const parent = path.join(userHome, "volume");
+      const target = path.join(parent, "Drive");
+      fs.mkdirSync(target, { recursive: true });
+      fs.chmodSync(parent, 0o555);
+      try {
+        const site = await sites.create({ name: "Example", language: "en", path: target });
+        expect(site.path).toBe(target);
+        expect(fs.readdirSync(target).sort()).toContain("site.yaml");
+        expect(fs.readdirSync(target).some((name) => name.startsWith(".bukitjalil-new-"))).toBe(false);
+        expect(raw(target, "status", "--porcelain")).toBe("");
+        expect(fs.readdirSync(parent)).toEqual(["Drive"]);
+      } finally {
+        fs.chmodSync(parent, 0o755);
+      }
+    },
+  );
+
   it("needs the commit identity first", async () => {
     const { call } = setup();
     const res = await call("POST", "/api/sites", { name: "x", path: path.join(userHome, "noid"), language: "en" });
@@ -174,7 +231,7 @@ describe("create a site (plan 5.2)", () => {
     );
     expect(raw(target, "status", "--porcelain")).toBe("");
     expect(fs.readFileSync(path.join(target, ".git/info/exclude"), "utf8")).toContain(
-      "# BukitJalil begin\ndist/\n.bukit/\n.cache/\n.bukitjalil-build/\n.bukitjalil-deploy/\n# BukitJalil end",
+      "# BukitJalil begin\n/dist/\n/.bukit/\n/.cache/\n/.bukitjalil-build/\n/.bukitjalil-deploy/\n# BukitJalil end",
     );
     const checkout = path.join(paths.worktrees, site.id, "main");
     expect(fs.existsSync(path.join(checkout, "site.yaml"))).toBe(true);
@@ -391,6 +448,10 @@ describe("import a site (plan 5.1)", () => {
     const { call, identity } = setup();
     const dir = path.join(userHome, "imp-plain");
     writeStarter(dir, { title: "Plain", language: "en" });
+    // Isolate the app's exclusions from the starter's own dist/ rule.
+    fs.writeFileSync(path.join(dir, ".gitignore"), "*.mine\n");
+    fs.mkdirSync(path.join(dir, "themes", "example", "dist"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "themes", "example", "dist", "style.css"), "body{}");
     fs.writeFileSync(path.join(dir, ".env"), "SECRET=1\n");
     fs.mkdirSync(path.join(dir, "dist"));
     fs.writeFileSync(path.join(dir, "dist", "index.html"), "old build");
@@ -402,6 +463,7 @@ describe("import a site (plan 5.1)", () => {
     const files = inspect.json.files;
     expect(files).toContain("site.yaml");
     expect(files).toContain("content/posts/welcome.md");
+    expect(files).toContain("themes/example/dist/style.css");
     expect(files.filter((f) => /^(\.env|dist\/|node_modules\/)/.test(f))).toEqual([]);
     expect(fs.existsSync(path.join(dir, ".git"))).toBe(false);
 
@@ -423,6 +485,7 @@ describe("import a site (plan 5.1)", () => {
     expect(res.status).toBe(201);
     expect(res.json).toMatchObject({ name: "Plain", defaultBranch: "main", readOnly: null });
     const tracked = raw(dir, "ls-files").trim().split("\n");
+    expect(tracked).toContain("themes/example/dist/style.css");
     expect(tracked).not.toContain(".env");
     expect(tracked.some((f) => f.startsWith("dist/"))).toBe(false);
     expect(fs.readFileSync(path.join(dir, ".env"), "utf8")).toBe("SECRET=1\n");
@@ -502,6 +565,7 @@ describe("manage a site", () => {
     fs.writeFileSync(path.join(dir, ".git", "info", "exclude"), "*.mine\n");
     const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
     raw(dir, "update-ref", "refs/bukitjalil/changes/c1", "HEAD");
+    raw(dir, "worktree", "add", "-q", "--detach", path.join(paths.worktrees, site.id, "ai"));
 
     const res = await call<{ leftovers: string[] }>("DELETE", `/api/sites/${site.id}`);
     expect(res.json).toEqual({ leftovers: [] });
@@ -511,6 +575,52 @@ describe("manage a site", () => {
     expect(fs.readFileSync(path.join(dir, ".git", "info", "exclude"), "utf8")).toBe("*.mine\n");
     expect(fs.existsSync(path.join(dir, "site.yaml"))).toBe(true);
     expect((await call<Site[]>("GET", "/api/sites")).json).toEqual([]);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "removes its checkout registration made through a symlinked data directory",
+    async () => {
+      const { call, paths } = setup();
+      const dir = starterRepo("rm-linked-home");
+      const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
+      const linked = path.join(base, "linked-worktrees");
+      fs.symlinkSync(paths.worktrees, linked);
+      raw(dir, "worktree", "add", "-q", "--detach", path.join(linked, site.id, "ai"));
+      expect((await call("DELETE", `/api/sites/${site.id}`)).json).toEqual({ leftovers: [] });
+      expect(raw(dir, "worktree", "list").trim().split("\n")).toHaveLength(1);
+    },
+  );
+
+  it.each(["recheck", "remove"])("%s preserves a temporarily unavailable user's worktree registration", async (op) => {
+    const { call, paths } = setup();
+    const dir = starterRepo(`external-worktree-${op}`);
+    const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
+    const external = path.join(base, op, "main");
+    raw(dir, "worktree", "add", "-q", "--detach", external);
+    fs.writeFileSync(path.join(external, "draft"), "staged work\n");
+    raw(external, "add", "draft");
+    const admin = raw(external, "rev-parse", "--absolute-git-dir").trim();
+    const state = () => ["HEAD", "index", "logs/HEAD"].map((name) => fs.readFileSync(path.join(admin, name)));
+    const original = state();
+    fs.renameSync(external, `${external}-offline`);
+    if (op === "recheck") {
+      const checkout = path.join(paths.worktrees, site.id, "main");
+      fs.rmSync(checkout, { recursive: true });
+      expect((await call("POST", `/api/sites/${site.id}/recheck`)).status).toBe(200);
+      expect(raw(checkout, "rev-parse", "HEAD").trim()).toBe(site.checkedCommit);
+    } else expect((await call("DELETE", `/api/sites/${site.id}`)).json).toEqual({ leftovers: [] });
+    expect(state()).toEqual(original);
+    fs.renameSync(`${external}-offline`, external);
+    expect(raw(external, "show", ":draft")).toBe("staged work\n");
+  });
+
+  it("reports an explicitly locked registration on removal", async () => {
+    const { call, paths } = setup();
+    const dir = starterRepo("rm-locked-checkout");
+    const site = (await call<Site>("POST", "/api/sites/import", { path: dir })).json;
+    raw(dir, "worktree", "lock", "--reason", "manually retained", path.join(paths.worktrees, site.id, "main"));
+    expect((await call("DELETE", `/api/sites/${site.id}`)).json).toEqual({ leftovers: ["worktree_registrations"] });
+    expect(raw(dir, "worktree", "list", "--porcelain")).toContain("locked manually retained");
   });
 
   it("reports what it could not clean in an unsafe repository", async () => {

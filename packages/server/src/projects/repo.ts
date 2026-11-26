@@ -7,8 +7,8 @@ import { checkPassed, usableRunner } from "../bukit/runner.ts";
 import { resolveBranch } from "../git/objects.ts";
 import { clearIndexLock, GitError, type GitRunner, isValidBranchName } from "../git/run.ts";
 import type { AppPaths } from "../paths.ts";
-import { removeExcludeBlock, writeExcludeBlock } from "../sites/exclude.ts";
-import { inside, SiteError } from "../sites/location.ts";
+import { BUILD_DIRS, removeExcludeBlock, writeExcludeBlock } from "../sites/exclude.ts";
+import { inside, realPathOf, SiteError } from "../sites/location.ts";
 import type { Db } from "../store/db.ts";
 import { rowProject } from "./owner.ts";
 
@@ -137,8 +137,32 @@ export class ProjectRepos {
   async aiWorktree(key: ProjectKey, project: RepoProject, commit: string, opts: { reset: boolean }): Promise<string> {
     if (project.readOnly) throw new SiteError("site.read_only", 409);
     const dir = this.dir(key, "ai");
-    if (!opts.reset && fs.existsSync(dir) && (await this.isCheckoutOf(dir, project.path))) return dir;
-    return this.checkout(key, project.path, "ai", commit);
+    const cwd =
+      !opts.reset && fs.existsSync(dir) && (await this.isCheckoutOf(dir, project.path))
+        ? dir
+        : await this.checkout(key, project.path, "ai", commit);
+    // A project registered before the rule change need not have been rechecked before its next snapshot.
+    writeExcludeBlock(await this.commonDir(cwd));
+    return cwd;
+  }
+
+  /**
+   * Inspect without repairing: a failed or interrupted snapshot can leave work only in this checkout.
+   * "dirty" can be snapshotted like the end of a run; "damaged" is no longer a checkout of the project.
+   */
+  async aiCheckoutState(key: ProjectKey, repoPath: string, commit: string): Promise<"clean" | "dirty" | "damaged"> {
+    const cwd = this.dir(key, "ai");
+    const stat = fs.lstatSync(cwd, { throwIfNoEntry: false });
+    if (!stat) return "clean";
+    if (!stat.isDirectory() || !(await this.isCheckoutOf(cwd, repoPath))) return "damaged";
+    const { git } = this.opts;
+    if ((await git.text(["rev-parse", "--verify", "HEAD"], { cwd })).trim() !== commit) return "dirty";
+    const status = await git.text(
+      ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=matching", "--ignore-submodules=none"],
+      { cwd },
+    );
+    const disposable = new Set([...BUILD_DIRS, "node_modules"].map((dir) => `!! ${dir}/`));
+    return status.split("\0").every((entry) => entry === "" || disposable.has(entry)) ? "clean" : "dirty";
   }
 
   /** Commit at the head of the project's default branch, with API errors for the ways that fails. */
@@ -176,8 +200,8 @@ export class ProjectRepos {
     try {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });
-        await git.run(["worktree", "prune"], { cwd: repoPath });
-        await git.run(["worktree", "add", "-q", "--detach", dir, commit], { cwd: repoPath });
+        // --force replaces the missing registration at this exact path; prune would affect every worktree.
+        await git.run(["worktree", "add", "-q", "--force", "--detach", dir, commit], { cwd: repoPath });
       } else {
         await git.run(["checkout", "-q", "--detach", "--force", commit], { cwd: dir });
         await git.run(["clean", "-q", "-fdx", "-e", ".bukit", "-e", ".cache"], { cwd: dir });
@@ -250,7 +274,22 @@ export class ProjectRepos {
         return !row || rowProject(row) === key;
       });
       for (const ref of refs) await git.run(["update-ref", "-d", ref], { cwd: project.path });
-      await git.run(["worktree", "prune"], { cwd: project.path });
+      const registered = await git.text(["worktree", "list", "--porcelain", "-z"], { cwd: project.path });
+      // Git keeps the path as it was given at `worktree add`, which may go through a symlinked data directory.
+      const owned = new Set(
+        [this.opts.paths.worktrees, realPathOf(this.opts.paths.worktrees)].flatMap((root) =>
+          ["main", "ai"].map((kind) => path.join(path.resolve(root), key, kind)),
+        ),
+      );
+      for (const record of registered.split("\0\0")) {
+        const [field, ...attributes] = record.split("\0");
+        if (!field?.startsWith("worktree ")) continue;
+        const dir = path.normalize(field.slice("worktree ".length));
+        if (!owned.has(dir) && !owned.has(realPathOf(dir))) continue;
+        if (attributes.some((attr) => attr === "locked" || attr.startsWith("locked "))) {
+          if (!leftovers.includes("worktree_registrations")) leftovers.push("worktree_registrations");
+        } else await git.run(["worktree", "remove", "--", dir], { cwd: project.path });
+      }
     } else {
       leftovers.push("worktree_registrations", "refs");
     }

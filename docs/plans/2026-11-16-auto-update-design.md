@@ -117,7 +117,7 @@ Linux 按启动方式选资产：`APPIMAGE` 环境变量存在时选 AppImage，
 - 没有独立签名，没有代码签名（macOS 无 Developer ID，Windows 未签 Authenticode，Linux AppImage/deb 无系统签名）。
 - GitHub 维护者账号、CI 的 `contents: write` token 或 Release 流程被攻破，就能让所有客户端下载并打开恶意安装包。
 - 应用内下载的文件没有 macOS quarantine，也没有 Windows Mark-of-the-Web，可能绕过 Gatekeeper / SmartScreen 的用户提示。
-- 下载完成后到点击“打开安装包”之间，本地文件被替换的话，当前不会再次校验。
+- 打开前会重新校验当前安装包（审计 #15）。桌面系统按路径打开，最后一次校验和操作系统实际打开并非原子操作。
 
 **发布前必须选一个方案**：
 
@@ -148,7 +148,7 @@ Linux 按启动方式选资产：`APPIMAGE` 环境变量存在时选 AppImage，
 - **#13 Windows 按钮**：preload 暴露平台，Windows 不显示更新按钮。
 - **#14 版本读取**：不再向文件系统根目录走，明确读仓库根或 `Resources/app/package.json`。
 - **#15 精简**：`UPDATE_CACHE_MS` 不再导出；去掉 30 秒轮询，只在下载中轮询。
-- **#16 复用安装包**：校验后写 `.sha256` 边车；再次下载直接比对边车，不重新哈希 166 MB。
+- **#16 复用安装包**：审计 #15 后，复用和打开都流式计算文件本身的 SHA-256，不使用旧 `.sha256` 边车。校验不符则丢弃缓存，允许重新下载。
 
 **发布检查（beta）**：
 

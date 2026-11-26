@@ -15,6 +15,8 @@ export interface SessionInfo {
   createdAt: string;
   updatedAt: string;
   status: SessionStatus;
+  /** The live transcript has entries the database could not save yet. */
+  unsaved?: true;
 }
 
 /**

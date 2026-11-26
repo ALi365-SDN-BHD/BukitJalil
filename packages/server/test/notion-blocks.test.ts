@@ -265,7 +265,9 @@ describe("body blocks", () => {
       unsupported: [],
       blocks: [{ type: "paragraph", text: [{ text: "a".repeat(200_000) }] }],
     });
-    expect(ContentBodyUpdate.safeParse({ lastEditedTime: "t", blocks: body.blocks }).success).toBe(true);
+    expect(
+      ContentBodyUpdate.safeParse({ lastEditedTime: "t", revision: "a".repeat(64), blocks: body.blocks }).success,
+    ).toBe(true);
   });
 
   it("names what keeps a body read-only, with no blocks", () => {

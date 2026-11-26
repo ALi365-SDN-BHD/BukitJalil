@@ -1,7 +1,7 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { ErrorCode, Site } from "@bukitjalil/shared";
+import { readBlob, treeEntryAt } from "../git/objects.ts";
 import type { GitRunner } from "../git/run.ts";
+import { editedTree } from "../git/temp-index.ts";
 import { SiteError } from "./location.ts";
 import type { SiteService } from "./service.ts";
 
@@ -11,6 +11,7 @@ export interface ConfigCommitCodes {
   dirty: ErrorCode;
   changed: ErrorCode;
   failed: ErrorCode;
+  invalid: ErrorCode;
 }
 
 /**
@@ -30,50 +31,54 @@ export async function assertCheckoutReady(git: GitRunner, site: Site, codes: Con
 
 /**
  * Commit an edit of site.yaml on top of `head` as the user and fast-forward the default branch to it. The
- * edit runs in the main checkout at `head`; `edit` gets the file's text and returns the new text. The caller
- * holds the site lock. The checkout is reset to `head` afterwards, whatever happens.
+ * edit reads the regular blob at `head` and writes a new blob in a temporary index. The caller holds the site lock.
  */
 export async function commitSiteYaml(opts: {
   git: GitRunner;
   sites: SiteService;
   site: Site;
   head: string;
+  tmpDir: string;
+  maxBytes: number;
   message: string;
   codes: ConfigCommitCodes;
   edit: (text: string) => string;
 }): Promise<void> {
   const { git, sites, site, head, codes } = opts;
   await assertCheckoutReady(git, site, codes);
-  const checkout = await sites.repos.mainCheckout(site.id, site.path, head);
+  const entry = await treeEntryAt(git, site.path, head, site.configFile);
+  if (
+    !entry ||
+    (entry.mode !== "100644" && entry.mode !== "100755") ||
+    entry.size === null ||
+    entry.size > opts.maxBytes
+  )
+    throw new SiteError(codes.invalid, 409);
+  const text = (await readBlob(git, site.path, entry.oid, opts.maxBytes)).toString("utf8");
+  const input = opts.edit(text);
+  if (Buffer.byteLength(input) > opts.maxBytes) throw new SiteError(codes.invalid, 409);
+  const oid = (await git.text(["hash-object", "-w", "--no-filters", "--stdin"], { cwd: site.path, input })).trim();
+  const tree = await editedTree(git, site.path, head, `${entry.mode} ${oid}\t${site.configFile}\0`, opts.tmpDir);
+  const identity = sites.commitIdentity();
+  const commit = (
+    await git.text(["commit-tree", tree, "-p", head, "-m", opts.message], {
+      cwd: site.path,
+      config: {
+        "author.name": identity["user.name"],
+        "author.email": identity["user.email"],
+        "committer.name": identity["user.name"],
+        "committer.email": identity["user.email"],
+      },
+    })
+  ).trim();
+  await assertCheckoutReady(git, site, codes);
+  if ((await sites.repos.headOf(site)) !== head) throw new SiteError(codes.changed, 409);
   try {
-    const file = path.join(checkout, site.configFile);
-    const text = await fs.promises.readFile(file, "utf8");
-    await fs.promises.writeFile(file, opts.edit(text));
-    await git.run(["add", "--", site.configFile], { cwd: checkout });
-    const tree = (await git.text(["write-tree"], { cwd: checkout })).trim();
-    const identity = sites.commitIdentity();
-    const commit = (
-      await git.text(["commit-tree", tree, "-p", head, "-m", opts.message], {
-        cwd: site.path,
-        config: {
-          "author.name": identity["user.name"],
-          "author.email": identity["user.email"],
-          "committer.name": identity["user.name"],
-          "committer.email": identity["user.email"],
-        },
-      })
-    ).trim();
-    await assertCheckoutReady(git, site, codes);
-    if ((await sites.repos.headOf(site)) !== head) throw new SiteError(codes.changed, 409);
-    try {
-      await git.run(["merge", "-q", "--ff-only", "--no-overwrite-ignore", "--end-of-options", commit], {
-        cwd: site.path,
-        config: identity,
-      });
-    } catch {
-      throw new SiteError(codes.failed, 409);
-    }
-  } finally {
-    await git.run(["reset", "-q", "--hard", head], { cwd: checkout }).catch(() => {});
+    await git.run(["merge", "-q", "--ff-only", "--no-overwrite-ignore", "--end-of-options", commit], {
+      cwd: site.path,
+      config: identity,
+    });
+  } catch {
+    throw new SiteError(codes.failed, 409);
   }
 }

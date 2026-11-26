@@ -56,6 +56,7 @@ function stub(calls: string[], body: Partial<ContentBody> = {}) {
         editable: true,
         unsupported: [],
         lastEditedTime: "t",
+        revision: "c".repeat(64),
         ...body,
       };
     },

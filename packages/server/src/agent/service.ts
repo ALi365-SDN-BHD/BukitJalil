@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   type ContentProposalState,
   type ContentRef,
@@ -110,6 +111,9 @@ interface Live {
   idleTimer: NodeJS.Timeout | null;
   /** Entries in the database, header included (plan 6.9). */
   saved: number;
+  unsaved: boolean;
+  /** The session as last read, so a save failure can be announced even when the read itself fails. */
+  record: SessionRecord | null;
 }
 
 /** A message from the user: its text and its checked reference images (theme development design 4.2). */
@@ -263,7 +267,11 @@ export class AgentService {
   private toInfo(record: SessionRecord): SessionInfo {
     const run = this.running.get(record.project);
     const queued = this.pending.get(record.project)?.some((p) => p.sessionId === record.id);
-    return { ...record, status: run?.sessionId === record.id ? "running" : queued ? "queued" : "idle" };
+    return {
+      ...record,
+      status: run?.sessionId === record.id ? "running" : queued ? "queued" : "idle",
+      ...(this.live.get(record.id)?.unsaved ? { unsaved: true } : {}),
+    };
   }
 
   /**
@@ -576,8 +584,7 @@ export class AgentService {
   /** Use the model and thinking level of the settings, which may have changed since the session opened. */
   private async applyModel(session: AgentSession): Promise<void> {
     const model = await this.model();
-    const current = session.model;
-    if (current?.provider !== model.provider || current.id !== model.id) await session.setModel(model);
+    if (!isDeepStrictEqual(session.model, model)) await session.setModel(model);
     const level = this.opts.thinkingLevel?.();
     if (level && session.thinkingLevel !== level) session.setThinkingLevel(level);
   }
@@ -757,10 +764,23 @@ export class AgentService {
     } finally {
       if (live && this.live.get(id) === live) {
         this.save(id, live);
-        if (this.store.get(id) && !this.closing) {
-          this.store.touch(id);
-          live.idleTimer = setTimeout(() => this.dispose(id), this.opts.idleMs ?? IDLE_MS);
-          live.idleTimer.unref();
+        // A session deleted during its run goes now. When storage cannot even be read, keep it to try again.
+        let exists = true;
+        try {
+          exists = this.store.get(id) !== null;
+        } catch {
+          const announce = !live.unsaved;
+          live.unsaved = true;
+          if (announce && live.record)
+            this.emit({ type: "session", project: live.project, sessionId: id, session: this.toInfo(live.record) });
+        }
+        if (!this.closing && exists) {
+          this.scheduleIdle(id, live);
+          try {
+            this.store.touch(id);
+          } catch {
+            // The idle retry saves and announces it.
+          }
         } else {
           this.dispose(id);
         }
@@ -894,14 +914,15 @@ export class AgentService {
   /** Keep a new AgentSession in memory, saving and announcing its events; null if the run ended meanwhile. */
   private keep(run: Run, project: ProjectKey, session: AgentSession, saved: number): Live | null {
     const id = run.sessionId;
-    const live: Live = { project, session, unsubscribe: () => {}, idleTimer: null, saved };
+    const record = this.store.get(id);
+    const live: Live = { project, session, unsubscribe: () => {}, idleTimer: null, saved, unsaved: false, record };
     live.unsubscribe = session.subscribe((event) => {
       // Saved as Pi adds entries (plan 6.9), before anyone hears of them.
       this.save(id, live);
       this.emit({ project, sessionId: id, type: "pi", event });
     });
     this.live.set(id, live);
-    if (run.cancelled || this.closing || !this.store.get(id)) {
+    if (run.cancelled || this.closing || !record) {
       this.dispose(id);
       return null;
     }
@@ -913,24 +934,48 @@ export class AgentService {
    * event. A failure is logged and tried again at the next event; it must not stop the run, nor dispose().
    */
   private save(id: string, live: Live): void {
+    const wasUnsaved = live.unsaved;
     try {
       const manager = live.session.sessionManager;
       const count = manager.getEntryCount();
-      if (count === 0 || count + 1 === live.saved || !this.store.get(id)) return;
+      // While unsaved, check storage again even with nothing new: the failure may have been a read alone.
+      if (count === 0 || (count + 1 === live.saved && !live.unsaved)) return;
+      const record = this.store.get(id);
+      live.record = record;
+      if (!record) {
+        live.unsaved = false; // The session was deleted.
+        return;
+      }
       live.saved = this.store.saveEntries(id, entriesOf(manager));
+      live.unsaved = false;
     } catch (err) {
-      this.opts.logger.log("error", "agent.session_save_failed", { sessionId: id, error: String(err) });
+      live.unsaved = true;
+      if (!wasUnsaved)
+        this.opts.logger.log("error", "agent.session_save_failed", { sessionId: id, error: String(err) });
     }
+    // The record last read is enough to say so: the failure may be that read itself.
+    if (live.record && wasUnsaved !== live.unsaved)
+      this.emit({ type: "session", project: live.project, sessionId: id, session: this.toInfo(live.record) });
   }
 
-  private dispose(id: string): void {
+  private scheduleIdle(id: string, live: Live): void {
+    const idle = this.opts.idleMs ?? IDLE_MS;
+    live.idleTimer = setTimeout(() => this.dispose(id, true), live.unsaved ? Math.min(idle, 30_000) : idle);
+    live.idleTimer.unref();
+  }
+
+  private dispose(id: string, idle = false): void {
     const live = this.live.get(id);
     if (!live) return;
-    this.live.delete(id);
     if (live.idleTimer) clearTimeout(live.idleTimer);
+    this.save(id, live);
+    if (idle && live.unsaved) {
+      this.scheduleIdle(id, live);
+      return;
+    }
+    this.live.delete(id);
     // A content conversation's open entry is set again with its next message.
     this.opts.content?.forget(id);
-    this.save(id, live);
     // This runs from an idle timer and during shutdown: a throw here must not take the process down.
     try {
       live.unsubscribe();

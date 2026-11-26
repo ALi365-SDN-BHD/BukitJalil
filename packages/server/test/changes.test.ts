@@ -11,6 +11,7 @@ import type {
   HistoryResponse,
   PreviewResponse,
   RestoreResult,
+  ReviewVersion,
   ServerEvent,
 } from "@bukitjalil/shared";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -40,6 +41,11 @@ import {
 // M4 layers 1 to 3, 5 and 6 (plan 7.2, 7.4, 8.4, 9.1, 9.2): change sets. A run opens the site's change set (or joins the open one),
 // works in the ai/ checkout, and its result is snapshotted into the change set; the site folder only
 // changes when a change set is applied.
+
+function version(view: ReviewVersion | null | undefined): ReviewVersion {
+  if (!view) throw new Error("no reviewed version");
+  return { treeHash: view.treeHash, baseCommit: view.baseCommit };
+}
 
 let base: string;
 let ctx: ReturnType<typeof makeApp>;
@@ -150,6 +156,27 @@ describe("opening and joining a change set", () => {
     expect(fs.readFileSync(path.join(cwd, "kept.txt"), "utf8")).toBe("kept");
     await ctx.changes.begin(s.id, one.id);
     expect(ctx.changes.store.sessions(change.id)).toEqual([one.id, two.id]);
+  });
+
+  it("upgrades the managed exclude block before resuming a checkout and snapshotting nested assets", async () => {
+    const s = await site();
+    const session = ctx.agent.create(s.id);
+    const { cwd } = await ctx.changes.begin(s.id, session.id);
+    const exclude = path.join(s.dir, ".git", "info", "exclude");
+    fs.writeFileSync(
+      exclude,
+      "*.mine\n# BukitJalil begin\n.bukitjalil-build/\n.env*\nnode_modules/\n# BukitJalil end\n",
+    );
+    const file = "themes/starter/.bukitjalil-build/style.css";
+    fs.mkdirSync(path.dirname(path.join(cwd, file)), { recursive: true });
+    fs.writeFileSync(path.join(cwd, file), "body{}");
+    await ctx.changes.begin(s.id, session.id);
+    const snap = await ctx.changes.snapshot(s.id, cwd);
+    expect(snap.removed).toEqual([]);
+    expect(s.git("show", `${snap.commit}:${file}`)).toBe("body{}");
+    const rules = fs.readFileSync(exclude, "utf8").split("\n");
+    expect(rules).toEqual(expect.arrayContaining(["*.mine", "/.bukitjalil-build/", ".env*", "node_modules/"]));
+    expect(rules).not.toContain(".bukitjalil-build/");
   });
 
   it("brings a missing checkout back at the latest snapshot", async () => {
@@ -386,11 +413,36 @@ describe("applying and rejecting", () => {
   }
 
   it.skipIf(process.platform === "win32")(
+    "requires a new whole-file review after rebasing to an ancestor with the same snapshot tree",
+    async () => {
+      const { s, view } = await reviewed((_, git) => {
+        git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "base");
+      });
+      s.git("reset", "--hard", "HEAD^");
+      const result = await ctx.changes.apply(view.id, view);
+      expect(result.outcome).toBe("rebased");
+      expect(result.change.treeHash).toBe(view.treeHash);
+      expect(result.change.baseCommit).not.toBe(view.baseCommit);
+      await expect(ctx.changes.apply(view.id, view)).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+      await expect(ctx.changes.reject(view.id, view)).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+      expect(ctx.changes.get(view.id).status).toBe("open");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")("does not reject a checkout changed since the displayed review", async () => {
+    const { view, cwd } = await reviewed();
+    fs.writeFileSync(path.join(cwd, "late.md"), "late\n");
+    await expect(ctx.changes.reject(view.id, view)).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+    expect(ctx.changes.get(view.id).status).toBe("open");
+    expect(fs.readFileSync(path.join(cwd, "late.md"), "utf8")).toBe("late\n");
+  });
+
+  it.skipIf(process.platform === "win32")(
     "commits the reviewed tree on the default branch and fast-forwards the site folder",
     async () => {
       const { s, session, view } = await reviewed();
       const head = s.git("rev-parse", "HEAD");
-      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      const result = await ctx.changes.apply(view.id, view);
       expect(result.outcome).toBe("applied");
       expect(result.check).toMatchObject({ passed: true, problemCode: null, problem: null });
       expect(result.change).toMatchObject({ status: "applied", resultCommit: s.git("rev-parse", "HEAD") });
@@ -419,7 +471,7 @@ describe("applying and rejecting", () => {
     async () => {
       const { s, session, view } = await reviewed();
       await ctx.agent.delete(session.id);
-      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      const result = await ctx.changes.apply(view.id, view);
       expect(result.outcome).toBe("applied");
       expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
     },
@@ -429,45 +481,49 @@ describe("applying and rejecting", () => {
     "refuses a changed fingerprint, a closed change set, an empty one, no identity and a busy site",
     async () => {
       const { s, view, cwd } = await reviewed();
-      await expect(ctx.changes.apply(view.id, { treeHash: "0".repeat(40) })).rejects.toMatchObject({
+      await expect(
+        ctx.changes.apply(view.id, { baseCommit: view.baseCommit, treeHash: "0".repeat(40) }),
+      ).rejects.toMatchObject({
         code: "change.fingerprint_mismatch",
       });
       // Edited after the review (outside a run): the snapshot taken while applying no longer matches.
       fs.writeFileSync(path.join(cwd, "late.md"), "late\n");
-      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(view.id, view)).rejects.toMatchObject({
         code: "change.fingerprint_mismatch",
       });
 
       const release = ctx.locks.acquire(s.id, "build");
-      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(view.id, view)).rejects.toMatchObject({
         code: "site.busy",
       });
-      await expect(ctx.changes.reject(view.id)).rejects.toMatchObject({ code: "site.busy" });
+      await expect(ctx.changes.reject(view.id, view)).rejects.toMatchObject({ code: "site.busy" });
       release();
 
       settings.update({ commitName: null });
       const now = await ctx.changes.current(s.id, false);
-      await expect(ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(view.id, version(now))).rejects.toMatchObject({
         code: "site.identity_required",
       });
       settings.update({ commitName: "Site Owner" });
 
       const head = s.git("rev-parse", "HEAD");
-      const rejected = await ctx.changes.reject(view.id);
+      const rejected = await ctx.changes.reject(view.id, version(now));
       expect(rejected).toMatchObject({ status: "rejected", resultCommit: null });
       expect(s.git("rev-parse", "HEAD")).toBe(head);
       // A rejected snapshot is not part of the review history; its ref goes so Git can collect it.
       expect(s.git("for-each-ref", changeRef(view.id))).toBe("");
-      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(view.id, view)).rejects.toMatchObject({
         code: "change.not_open",
         params: { status: "rejected" },
       });
-      await expect(ctx.changes.reject(view.id)).rejects.toMatchObject({ code: "change.not_open" });
+      await expect(ctx.changes.reject(view.id, view)).rejects.toMatchObject({ code: "change.not_open" });
 
       const session = ctx.agent.create(s.id);
       const empty = await ctx.changes.begin(s.id, session.id);
+      fs.mkdirSync(path.join(empty.cwd, ".cache"), { recursive: true });
+      fs.writeFileSync(path.join(empty.cwd, ".cache", "generated"), "cache");
       const emptyView = await ctx.changes.current(s.id, false);
-      await expect(ctx.changes.apply(empty.change.id, { treeHash: emptyView?.treeHash ?? "" })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(empty.change.id, version(emptyView))).rejects.toMatchObject({
         code: "change.no_changes",
       });
     },
@@ -483,7 +539,7 @@ describe("applying and rejecting", () => {
       return check(siteId, cwd);
     };
     try {
-      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash, force: true })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(view.id, { ...version(view), force: true })).rejects.toMatchObject({
         code: "change.wrong_branch",
       });
       expect(s.git("rev-parse", "wip")).toBe(s.git("rev-parse", "main"));
@@ -508,7 +564,7 @@ describe("applying and rejecting", () => {
       return check(siteId, cwd);
     };
     try {
-      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash, force: true })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(view.id, { ...version(view), force: true })).rejects.toMatchObject({
         code: "change.merge_failed",
       });
       expect(s.git("rev-parse", "HEAD")).toBe(s.git("rev-parse", `${dropped}~1`));
@@ -522,17 +578,17 @@ describe("applying and rejecting", () => {
     async () => {
       const { s, view } = await reviewed();
       s.git("switch", "-q", "-c", "other");
-      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(view.id, view)).rejects.toMatchObject({
         code: "change.wrong_branch",
         params: { branch: "main" },
       });
       s.git("switch", "-q", "main");
       fs.appendFileSync(path.join(s.dir, "content/posts/welcome.md"), "\nlocal edit\n");
-      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(view.id, view)).rejects.toMatchObject({
         code: "change.site_dirty",
       });
       s.git("checkout", "--", ".");
-      expect((await ctx.changes.apply(view.id, { treeHash: view.treeHash })).outcome).toBe("applied");
+      expect((await ctx.changes.apply(view.id, view)).outcome).toBe("applied");
     },
   );
 
@@ -550,7 +606,7 @@ describe("applying and rejecting", () => {
     await ctx.changes.snapshot(s.id, cwd);
     const view = await ctx.changes.current(s.id, false);
     const head = s.git("rev-parse", "HEAD");
-    await expect(ctx.changes.apply(view?.id ?? "", { treeHash: view?.treeHash ?? "" })).rejects.toMatchObject({
+    await expect(ctx.changes.apply(view?.id ?? "", version(view))).rejects.toMatchObject({
       code: "change.merge_failed",
       params: { detail: expect.stringContaining("local.txt") },
     });
@@ -565,7 +621,7 @@ describe("applying and rejecting", () => {
     await ctx.changes.snapshot(s.id, cwd);
     const view = await ctx.changes.current(s.id, false);
     const head = s.git("rev-parse", "HEAD");
-    const failed = await ctx.changes.apply(view?.id ?? "", { treeHash: view?.treeHash ?? "" });
+    const failed = await ctx.changes.apply(view?.id ?? "", version(view));
     expect(failed.outcome).toBe("check_failed");
     expect(failed.change.status).toBe("open");
     expect(failed.check?.passed).toBe(false);
@@ -575,7 +631,7 @@ describe("applying and rejecting", () => {
     });
     expect(s.git("rev-parse", "HEAD")).toBe(head);
 
-    const forced = await ctx.changes.apply(view?.id ?? "", { treeHash: view?.treeHash ?? "", force: true });
+    const forced = await ctx.changes.apply(view?.id ?? "", { ...version(view), force: true });
     expect(forced.outcome).toBe("applied");
     expect(s.git("rev-parse", "HEAD^")).toBe(head);
   });
@@ -589,7 +645,7 @@ describe("applying and rejecting", () => {
       s.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "outside BukitJalil");
       const main = s.git("rev-parse", "HEAD");
 
-      const rebased = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      const rebased = await ctx.changes.apply(view.id, view);
       expect(rebased.outcome).toBe("rebased");
       expect(rebased.change).toMatchObject({ status: "open", baseCommit: main });
       expect(rebased.change.treeHash).not.toBe(view.treeHash);
@@ -599,11 +655,11 @@ describe("applying and rejecting", () => {
       expect(fs.existsSync(path.join(cwd, "content/pages/contact.md"))).toBe(true);
       const again = await ctx.changes.current(s.id, false);
       expect(again?.files.map((f) => f.path)).toEqual(["content/pages/faq.md", "site.yaml"]);
-      await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+      await expect(ctx.changes.apply(view.id, view)).rejects.toMatchObject({
         code: "change.fingerprint_mismatch",
       });
 
-      expect((await ctx.changes.apply(view.id, { treeHash: rebased.change.treeHash })).outcome).toBe("applied");
+      expect((await ctx.changes.apply(view.id, rebased.change)).outcome).toBe("applied");
       expect(s.git("rev-parse", "HEAD^")).toBe(main);
       expect(fs.existsSync(path.join(s.dir, "content/pages/faq.md"))).toBe(true);
       expect(fs.existsSync(path.join(s.dir, "content/pages/contact.md"))).toBe(true);
@@ -617,7 +673,7 @@ describe("applying and rejecting", () => {
     s.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "conflicting");
     const main = s.git("rev-parse", "HEAD");
 
-    const stale = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    const stale = await ctx.changes.apply(view.id, view);
     expect(stale.outcome).toBe("stale");
     expect(stale.change.status).toBe("stale");
     expect(s.git("rev-parse", "HEAD")).toBe(main);
@@ -635,7 +691,7 @@ describe("applying and rejecting", () => {
     s.git("add", "-A");
     s.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "same edits");
     const main = s.git("rev-parse", "HEAD");
-    const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    const result = await ctx.changes.apply(view.id, view);
     expect(result.outcome).toBe("stale");
     expect(result.change.status).toBe("stale");
     expect(s.git("rev-parse", "HEAD")).toBe(main);
@@ -644,7 +700,7 @@ describe("applying and rejecting", () => {
   it("refuses read-only sites", async () => {
     const { s, view } = await reviewed();
     ctx.sites.store.setState(s.id, { readOnly: [{ code: "plugin_files" }], checkedCommit: null, configCheck: null });
-    await expect(ctx.changes.apply(view.id, { treeHash: view.treeHash })).rejects.toMatchObject({
+    await expect(ctx.changes.apply(view.id, view)).rejects.toMatchObject({
       code: "site.read_only",
     });
   });
@@ -654,7 +710,7 @@ describe("applying and rejecting", () => {
     async () => {
       const { s, view } = await reviewed();
       ctx.changes.setSummary(s.id, "");
-      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      const result = await ctx.changes.apply(view.id, view);
       expect(result.outcome).toBe("applied");
       expect(s.git("log", "-1", "--format=%s")).toBe("Update 1 file, add 1 file: content/pages/faq.md, site.yaml");
     },
@@ -666,7 +722,7 @@ describe("applying and rejecting", () => {
     const first = await ctx.changes.begin(s.id, session.id);
     expect(first.previous).toBeNull();
     expect((await ctx.changes.begin(s.id, session.id)).previous).toBeNull();
-    await ctx.changes.reject(first.change.id);
+    await ctx.changes.reject(first.change.id, await ctx.changes.toChangeSet(first.change));
     const second = await ctx.changes.begin(s.id, session.id);
     expect(second.previous).toBe("rejected");
     // Every later run in the same change set still says so; the agent sends the note once (plan 6.2).
@@ -684,11 +740,11 @@ describe("applying and rejecting", () => {
       fs.writeFileSync(path.join(cwd, "plugins/x.js"), "export {};\n");
       await ctx.changes.snapshot(s.id, cwd);
       const now = await ctx.changes.current(s.id, false);
-      const failed = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" });
+      const failed = await ctx.changes.apply(view.id, version(now));
       expect(failed.outcome).toBe("check_failed");
       expect(failed.check).toMatchObject({ passed: false, problemCode: "guard", steps: [] });
       expect(failed.check?.problem).toContain("plugin");
-      const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
+      const forced = await ctx.changes.apply(view.id, { ...version(now), force: true });
       expect(forced.outcome).toBe("applied");
     },
   );
@@ -707,7 +763,7 @@ describe("applying and rejecting", () => {
       });
       const source = ctx.dataSources.create({ platform: "notion", name: "Notion", token: "ntn_apply_token" });
       await ctx.sites.bindNotionSource(s.id, source.id);
-      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      const result = await ctx.changes.apply(view.id, view);
       expect(result.outcome).toBe("applied");
       expect(result.check).toMatchObject({ passed: false, problemCode: "notion", steps: [] });
       expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
@@ -723,10 +779,10 @@ describe("applying and rejecting", () => {
       fs.writeFileSync(path.join(cwd, "site.yaml"), NOTION_SITE_YAML);
       await ctx.changes.snapshot(s.id, cwd);
       const now = await ctx.changes.current(s.id, false);
-      const failed = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "" });
+      const failed = await ctx.changes.apply(view.id, version(now));
       expect(failed.outcome).toBe("check_failed");
       expect(failed.check).toMatchObject({ problemCode: "notion" });
-      const forced = await ctx.changes.apply(view.id, { treeHash: now?.treeHash ?? "", force: true });
+      const forced = await ctx.changes.apply(view.id, { ...version(now), force: true });
       expect(forced.outcome).toBe("applied");
     },
   );
@@ -801,7 +857,7 @@ describe("partial apply (plan 7.5)", () => {
       expect(rawGit(base, cwd, "rev-parse", "HEAD").trim()).toBe(rest?.snapshotCommit);
 
       // Applying the rest brings main to exactly what was reviewed in the first place.
-      const all = await ctx.changes.apply(view.id, { treeHash: rest?.treeHash ?? "" });
+      const all = await ctx.changes.apply(view.id, version(rest));
       expect(all.outcome).toBe("applied");
       expect(s.git("rev-parse", "HEAD^{tree}")).toBe(view.treeHash);
       expect(s.git("log", "-1", "--format=%s")).toBe("Rest of: Added an FAQ page.");
@@ -899,8 +955,7 @@ describe("partial apply (plan 7.5)", () => {
 
     // All hunks of a file are the whole file.
     const all = await ctx.changes.apply(view.id, {
-      treeHash: now?.treeHash ?? "",
-      baseCommit: now?.baseCommit,
+      ...version(now),
       selection: [{ path: "notes.txt", hunks: [0] }],
     });
     expect(all.outcome).toBe("applied");
@@ -1003,7 +1058,7 @@ describe("partial apply (plan 7.5)", () => {
         selection: [{ path: "site.yaml" }],
       }),
     ).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
-    await ctx.changes.reject(view.id);
+    await ctx.changes.reject(view.id, view);
 
     const init = s.git("rev-list", "--max-parents=0", "HEAD");
     fs.appendFileSync(path.join(s.dir, "site.yaml"), "# later\n");
@@ -1152,28 +1207,40 @@ describe("the change set API and events", () => {
       for (const bad of [
         {},
         { treeHash: "abc" },
-        { treeHash: change.treeHash, extra: 1 },
-        { treeHash: change.treeHash, force: "yes" },
-        { treeHash: change.treeHash, selection: [] },
-        { treeHash: change.treeHash, selection: [{ path: "a.md" }, { path: "a.md" }] },
-        { treeHash: change.treeHash, selection: [{ path: "../a.md" }] },
-        { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [] }] },
-        { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [1, 1] }] },
-        { treeHash: change.treeHash, selection: [{ path: "a.md", hunks: [-1] }] },
+        { ...version(change), extra: 1 },
+        { ...version(change), force: "yes" },
+        { ...version(change), selection: [] },
+        { ...version(change), selection: [{ path: "a.md" }, { path: "a.md" }] },
+        { ...version(change), selection: [{ path: "../a.md" }] },
+        { ...version(change), selection: [{ path: "a.md", hunks: [] }] },
+        { ...version(change), selection: [{ path: "a.md", hunks: [1, 1] }] },
+        { ...version(change), selection: [{ path: "a.md", hunks: [-1] }] },
         { treeHash: change.treeHash, selection: [{ path: "a.md" }] },
+        { treeHash: change.treeHash },
       ]) {
         expect((await call("POST", `/api/changes/${change.id}/apply`, bad)).json).toEqual({
           code: "request.invalid_body",
         });
       }
-      expect((await call("POST", `/api/changes/${change.id}/apply`, { treeHash: "0".repeat(40) })).json).toEqual({
+      expect(
+        (
+          await call("POST", `/api/changes/${change.id}/apply`, {
+            baseCommit: change.baseCommit,
+            treeHash: "0".repeat(40),
+          })
+        ).json,
+      ).toEqual({
         code: "change.fingerprint_mismatch",
       });
 
       // A running or queued conversation is about to change what was reviewed.
       const busy = vi.spyOn(ctx.agent, "busy").mockReturnValue(true);
       try {
-        expect(await call("POST", `/api/changes/${change.id}/apply`, { treeHash: change.treeHash })).toMatchObject({
+        expect(await call("POST", `/api/changes/${change.id}/apply`, version(change))).toMatchObject({
+          status: 409,
+          json: { code: "site.busy" },
+        });
+        expect(await call("POST", `/api/changes/${change.id}/reject`, version(change))).toMatchObject({
           status: 409,
           json: { code: "site.busy" },
         });
@@ -1182,7 +1249,7 @@ describe("the change set API and events", () => {
       }
 
       const buildsBefore = ctx.builds.list(s.id).length;
-      const applied = await call<ApplyResult>("POST", `/api/changes/${change.id}/apply`, { treeHash: change.treeHash });
+      const applied = await call<ApplyResult>("POST", `/api/changes/${change.id}/apply`, version(change));
       expect(applied.status).toBe(200);
       expect(applied.json).toMatchObject({ outcome: "applied", change: { status: "applied" } });
       await until(() => ctx.builds.list(s.id).length > buildsBefore);
@@ -1193,8 +1260,12 @@ describe("the change set API and events", () => {
       events.close();
 
       const next = await ctx.changes.begin(s.id, session.id);
-      expect((await call("POST", `/api/changes/${next.change.id}/reject`)).json).toMatchObject({ status: "rejected" });
-      expect((await call("POST", `/api/changes/${next.change.id}/reject`)).json).toEqual({
+      const nextReview = version(await ctx.changes.toChangeSet(next.change));
+      expect((await call("POST", `/api/changes/${next.change.id}/reject`, {})).status).toBe(400);
+      expect((await call("POST", `/api/changes/${next.change.id}/reject`, nextReview)).json).toMatchObject({
+        status: "rejected",
+      });
+      expect((await call("POST", `/api/changes/${next.change.id}/reject`, nextReview)).json).toEqual({
         code: "change.not_open",
         params: { status: "rejected" },
       });
@@ -1239,7 +1310,7 @@ describe("change set previews", () => {
       expect((await httpGet(mainPreview.port)).body).not.toContain("from-the-ai");
 
       // Once the change set is closed, its preview port goes and its builds are not offered again.
-      await ctx.changes.reject(change.id);
+      await ctx.changes.reject(change.id, version(await ctx.changes.current(s.id, false)));
       for (let i = 0; i < 100 && ctx.previews.rootOf(PreviewPool.key(s.id, "change")) !== null; i++) {
         await new Promise((r) => setTimeout(r, 10));
       }
@@ -1284,7 +1355,7 @@ describe("history and restore", () => {
     ctx.changes.setSummary(s.id, "Added an FAQ page.");
     const view = await ctx.changes.current(s.id, false);
     if (!view) throw new Error("no change set");
-    await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    await ctx.changes.apply(view.id, view);
     await ctx.builds.settled();
     return { s, session, init: s.git("rev-parse", "HEAD^"), applied: s.git("rev-parse", "HEAD") };
   }
@@ -1372,6 +1443,45 @@ describe("history and restore", () => {
   );
 
   it.skipIf(process.platform === "win32")(
+    "puts unsnapshotted work into the open change set before a restore or reject",
+    async () => {
+      const { s, session, init } = await withHistory();
+      const { cwd, change } = await ctx.changes.begin(s.id, session.id);
+      const stale = await ctx.changes.current(s.id, false);
+      if (!stale) throw new Error("no change set");
+      const tracked = path.join(cwd, "site.yaml");
+      const draft = path.join(cwd, "draft.txt");
+      fs.appendFileSync(tracked, "# not snapshotted\n");
+      fs.writeFileSync(draft, "unfinished");
+
+      // A damaged checkout must not be "repaired" by deleting the only surviving copy: nothing is touched.
+      const dotGit = path.join(cwd, ".git");
+      const link = fs.readFileSync(dotGit, "utf8");
+      fs.unlinkSync(dotGit);
+      await expect(ctx.changes.restore(s.id, init)).rejects.toMatchObject({ code: "change.open_exists" });
+      await expect(ctx.changes.reject(change.id, stale)).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+      expect(ctx.changes.store.open(s.id)).toMatchObject({ id: change.id, snapshotCommit: change.snapshotCommit });
+      expect(fs.readFileSync(draft, "utf8")).toBe("unfinished");
+      fs.writeFileSync(dotGit, link);
+
+      // An intact checkout is snapshotted as the end of the run would have done: the work is kept for review.
+      await expect(ctx.changes.restore(s.id, init)).rejects.toMatchObject({ code: "change.open_exists" });
+      const open = ctx.changes.store.open(s.id);
+      expect(open?.id).toBe(change.id);
+      expect(open?.snapshotCommit).not.toBe(change.snapshotCommit);
+      expect(rawGit(base, cwd, "show", "HEAD:site.yaml")).toContain("# not snapshotted");
+      expect(rawGit(base, cwd, "show", "HEAD:draft.txt")).toBe("unfinished");
+
+      // The review shown before cannot discard it; the fresh one can.
+      await expect(ctx.changes.reject(change.id, stale)).rejects.toMatchObject({ code: "change.fingerprint_mismatch" });
+      const view = await ctx.changes.current(s.id, false);
+      if (!view) throw new Error("no change set");
+      expect(view.files.map((f) => f.path).sort()).toEqual(["draft.txt", "site.yaml"]);
+      expect((await ctx.changes.reject(view.id, view)).status).toBe("rejected");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
     "restores a version as a change set that the user applies as its author",
     async () => {
       const { s, session, init, applied } = await withHistory();
@@ -1402,7 +1512,7 @@ describe("history and restore", () => {
       const again = await call("POST", `/api/sites/${s.id}/history/${init}/restore`);
       expect([again.status, again.json.code]).toEqual([409, "change.open_exists"]);
 
-      const result = await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      const result = await ctx.changes.apply(view.id, view);
       expect(result.outcome).toBe("applied");
       expect(s.git("rev-parse", "HEAD^")).toBe(applied);
       expect(s.git("rev-parse", "HEAD^{tree}")).toBe(s.git("rev-parse", `${init}^{tree}`));
@@ -1463,7 +1573,7 @@ describe("history and restore", () => {
       const view = await ctx.changes.current(s.id, false);
       if (!view) throw new Error("no change set");
       expect(view.restoreOf).toBe(init);
-      await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      await ctx.changes.apply(view.id, view);
       expect(s.git("log", "-1", "--format=%an|%cn")).toBe("BukitJalil AI|Site Owner");
       // The user's line stays first; what the AI added is noted below it (AGENTS.md item 7).
       expect(s.git("log", "-1", "--format=%B")).toBe(
@@ -1484,7 +1594,7 @@ describe("history and restore", () => {
       const view = await ctx.changes.current(s.id, false);
       if (!view) throw new Error("no change set");
       expect(view.summary).toBe(`Restore to ${init.slice(0, 7)}: init\n\nAdded an extra page.`);
-      await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      await ctx.changes.apply(view.id, view);
       expect(s.git("log", "-1", "--format=%B")).toBe(
         `Restore to ${init.slice(0, 7)}: init\n\nAdded an extra page.\n\nBukitJalil-Sessions: ${session.id}\nBukitJalil-Restore: ${init}`,
       );
@@ -1502,7 +1612,7 @@ describe("history and restore", () => {
     await ctx.changes.snapshot(s.id, cwd);
     const view = await ctx.changes.current(s.id, false);
     if (!view) throw new Error("no change set");
-    await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+    await ctx.changes.apply(view.id, view);
     expect(s.git("log", "-1", "--format=%b")).toContain("AI changes: Add 1 file: extra.md");
   });
 
@@ -1517,7 +1627,7 @@ describe("history and restore", () => {
       await ctx.agent.delete(session.id);
       const view = await ctx.changes.current(s.id, false);
       if (!view) throw new Error("no change set");
-      await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      await ctx.changes.apply(view.id, view);
       expect(s.git("log", "-1", "--format=%an")).toBe("BukitJalil AI");
     },
   );
@@ -1532,9 +1642,9 @@ describe("history and restore", () => {
       s.git("-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "-m", "outside BukitJalil");
       const view = await ctx.changes.current(s.id, false);
       if (!view) throw new Error("no change set");
-      const rebased = await ctx.changes.apply(restored.change.id, { treeHash: view.treeHash });
+      const rebased = await ctx.changes.apply(restored.change.id, view);
       expect(rebased.outcome).toBe("rebased");
-      const applied = await ctx.changes.apply(restored.change.id, { treeHash: rebased.change.treeHash });
+      const applied = await ctx.changes.apply(restored.change.id, rebased.change);
       expect(applied.outcome).toBe("applied");
       expect(s.git("log", "-1", "--format=%an|%cn")).toBe("Site Owner|Site Owner");
     },
@@ -1565,7 +1675,7 @@ describe("built-in plugin switches (Settings → site Config)", () => {
     const diff = await ctx.changes.diff(result.change?.id ?? "", "site.yaml");
     expect(diff.patch).toContain("related-content");
     expect(diff.patch).toContain("false");
-    await ctx.changes.reject(result.change?.id ?? "");
+    await ctx.changes.reject(result.change?.id ?? "", version(result.change));
     expect(fs.readFileSync(path.join(s.dir, "site.yaml"), "utf8")).toBe(before);
     expect(ctx.changes.store.open(s.id)).toBeNull();
   });
@@ -1573,7 +1683,7 @@ describe("built-in plugin switches (Settings → site Config)", () => {
   it.skipIf(process.platform === "win32")("applies as the user and keeps a site.plugins entry", async () => {
     const s = await site();
     const change = (await ctx.changes.setPlugin(s.id, "related-content", false)).change;
-    const applied = await ctx.changes.apply(change?.id ?? "", { treeHash: change?.treeHash ?? "" });
+    const applied = await ctx.changes.apply(change?.id ?? "", version(change));
     expect(applied.outcome).toBe("applied");
     expect(s.git("show", "HEAD:site.yaml")).toContain("related-content: false");
     expect(s.git("log", "-1", "--format=%an|%cn")).toBe("Site Owner|Site Owner");
@@ -1592,7 +1702,7 @@ describe("built-in plugin switches (Settings → site Config)", () => {
       const view = await ctx.changes.current(s.id, false);
       if (!view) throw new Error("no change set");
       expect(view.summary).toBe("Plugin settings: related-content off");
-      await ctx.changes.apply(view.id, { treeHash: view.treeHash });
+      await ctx.changes.apply(view.id, view);
       expect(s.git("log", "-1", "--format=%an|%B")).toBe(
         `BukitJalil AI|Plugin settings: related-content off\n\nAI changes: Add 1 file: content/pages/faq.md\n\nBukitJalil-Sessions: ${session.id}`,
       );
@@ -1605,7 +1715,7 @@ describe("built-in plugin switches (Settings → site Config)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as CurrentChange;
     expect(body.change?.files).toContainEqual(expect.objectContaining({ path: "site.yaml" }));
-    await ctx.changes.reject(body.change?.id ?? "");
+    await ctx.changes.reject(body.change?.id ?? "", version(body.change));
   });
 
   it("rejects an invalid site.plugins without leaving a change set", async () => {
@@ -1657,7 +1767,7 @@ describe("built-in plugin switches (Settings → site Config)", () => {
     const result = await ctx.changes.setPlugin(s.id, "related-content", false);
     expect(result.change?.id).toBe(change.id);
     expect(result.change?.sessionIds).toContain(session.id);
-    await ctx.changes.reject(change.id);
+    await ctx.changes.reject(change.id, version(await ctx.changes.current(s.id, false)));
   });
 });
 
@@ -1706,6 +1816,19 @@ describe("hunks (plan 7.5)", () => {
       applyHunks(before, after, [{ oldStart: 3, oldCount: 5, newStart: 0, newCount: 1 }], new Set([0])),
     ).toBeNull();
     expect(applyHunks(before, after, [...hunks].reverse(), new Set([0]))).toBeNull();
+  });
+
+  it("applies a hunk at either end of a long file without changing the intervening bytes", () => {
+    const middle = "\r\n".repeat(150_000);
+    const before = Buffer.from(`old\n${middle}last`);
+    const after = Buffer.from(`new\n${middle}LAST`);
+    const hunks = [
+      { oldStart: 0, oldCount: 1, newStart: 0, newCount: 1 },
+      { oldStart: 150_001, oldCount: 1, newStart: 150_001, newCount: 1 },
+    ];
+    expect(applyHunks(before, after, hunks, new Set([0]))?.equals(Buffer.from(`new\n${middle}last`))).toBe(true);
+    expect(applyHunks(before, after, hunks, new Set([1]))?.equals(Buffer.from(`old\n${middle}LAST`))).toBe(true);
+    expect(applyHunks(before, after, hunks, new Set([0, 1]))?.equals(after)).toBe(true);
   });
 });
 

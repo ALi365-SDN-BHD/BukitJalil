@@ -693,6 +693,54 @@ describe("AgentService", () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
+  it("keeps an unsaved transcript through idle expiry and retries it after storage recovers", async () => {
+    const s = await site();
+    const { agent, settled, events } = service({ idleMs: 25 });
+    const { id } = agent.create(s.id);
+    ctx.db.exec(`CREATE TEMP TRIGGER fail_transcript BEFORE INSERT ON session_entries
+      BEGIN SELECT RAISE(ABORT, 'transcript storage unavailable'); END`);
+    try {
+      faux.setResponses([pi.ai.fauxAssistantMessage("ONLY-IN-MEMORY")]);
+      const done = settled(id);
+      await agent.send(id, "Keep this turn");
+      await done;
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(JSON.stringify(await agent.messages(id))).toContain("ONLY-IN-MEMORY");
+      expect(agent.info(id).unsaved).toBe(true);
+      expect(agent.store.entries(id)).toEqual([]);
+    } finally {
+      ctx.db.exec("DROP TRIGGER fail_transcript");
+    }
+    await vi.waitFor(() => expect(JSON.stringify(agent.store.entries(id))).toContain("ONLY-IN-MEMORY"));
+    expect(agent.info(id).unsaved).toBeUndefined();
+    const updates = events.filter((e) => e.type === "session" && e.sessionId === id);
+    expect(updates.some((e) => e.type === "session" && e.session.unsaved)).toBe(true);
+    expect(updates.at(-1)).not.toMatchObject({ session: { unsaved: true } });
+    expect(await service().agent.messages(id)).toEqual(await agent.messages(id));
+  });
+
+  it("clears the unsaved state once storage reads again, after a saved transcript", async () => {
+    const s = await site();
+    const { agent, settled } = service({ idleMs: 25 });
+    const { id } = agent.create(s.id);
+    const get = agent.store.get.bind(agent.store);
+    // Reads fail only once the whole transcript is stored: the run's final existence check, not a save.
+    const failing = vi.spyOn(agent.store, "get").mockImplementation((sid) => {
+      if (JSON.stringify(agent.store.entries(sid)).includes("SAVED-THEN-READ-FAILS")) throw new Error("db busy");
+      return get(sid);
+    });
+    try {
+      faux.setResponses([pi.ai.fauxAssistantMessage("SAVED-THEN-READ-FAILS")]);
+      const done = settled(id);
+      await agent.send(id, "Keep this turn");
+      await done;
+    } finally {
+      failing.mockRestore();
+    }
+    expect(agent.info(id).unsaved).toBe(true);
+    await vi.waitFor(() => expect(agent.info(id).unsaved).toBeUndefined());
+  });
+
   it("reopens a session from the database with the earlier messages", async () => {
     const s = await site();
     const first = service({ idleMs: 10 });
@@ -744,7 +792,7 @@ describe("AgentService", () => {
     // The change set this conversation worked in is rejected: the next run starts a new one.
     const open = ctx.changes.store.open(s.id);
     if (!open) throw new Error("no change set");
-    await ctx.changes.reject(open.id);
+    await ctx.changes.reject(open.id, await ctx.changes.toChangeSet(open));
     // A run that joined the new change set but ended before sending the note does not lose it.
     await ctx.changes.begin(s.id, session.id);
     faux.setResponses([answer("two")]);
@@ -1197,7 +1245,15 @@ describe("content management conversations", () => {
       title: "Hello",
       url: null,
       lastEditedTime: "t1",
-      properties: [{ name: "Name", type: "title", value: { type: "title", text: "Hello" }, display: "Hello" }],
+      properties: [
+        {
+          name: "Name",
+          type: "title",
+          value: { type: "title", text: "Hello" },
+          display: "Hello",
+          revision: "a".repeat(64),
+        },
+      ],
     };
     const content = {
       database: async () => ({

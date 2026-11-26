@@ -214,6 +214,11 @@ test("rejecting drops the AI's changes and leaves the site folder as it was", as
 
   await ask(page, '#faq Change the title to "Rejected X" and add an FAQ page');
   await page.getByTestId("change-reject").click();
+  await expect(page.getByTestId("reject-confirm")).toBeVisible();
+  await ask(page, '#faq Change the title to "Newer X" and add an FAQ page');
+  await expect(page.getByTestId("review-summary")).toContainText("Newer X");
+  await expect(page.getByTestId("reject-confirm")).toHaveCount(0);
+  await page.getByTestId("change-reject").click();
   await page
     .getByTestId("reject-confirm")
     .getByRole("button", { name: /Yes, reject|确认拒绝/ })

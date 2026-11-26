@@ -32,7 +32,13 @@ function stub(s: Stub) {
       { name: "Name", type: "title", value: { type: "title", text: "Hello" }, display: "Hello" },
       // Its display text is cut; the proposal shows the whole value.
       { name: "Summary", type: "rich_text", value: { type: "rich_text", text: "Long text" }, display: "Long…" },
-      { name: "Stage", type: "status", value: { type: "status", option: "Draft" }, display: "Draft" },
+      {
+        name: "Stage",
+        type: "status",
+        value: { type: "status", option: "Draft" },
+        display: "Draft",
+        revision: "a".repeat(64),
+      },
       { name: "Tags", type: "multi_select", value: { type: "multi_select", options: [] }, display: "" },
       { name: "Due", type: "date", value: { type: "date", start: null, end: null }, display: "" },
       { name: "Related", type: "relation", value: null, display: "2" },
@@ -73,6 +79,7 @@ function stub(s: Stub) {
       editable: true,
       unsupported: [],
       lastEditedTime: BASE,
+      revision: "c".repeat(64),
       ...s.body,
     }),
     saveBody: async (_s: string, _d: string, id: string, req: { lastEditedTime: string; blocks: unknown[] }) => {
@@ -80,7 +87,13 @@ function stub(s: Stub) {
       fail("saveBody");
       return { blocks: [], editable: true, unsupported: [], lastEditedTime: "2026-11-22T08:05:00.000Z" };
     },
-    update: async (_s: string, _d: string, id: string, req: { lastEditedTime: string; properties: object }) => {
+    update: async (
+      _s: string,
+      _d: string,
+      id: string,
+      req: { lastEditedTime: string; properties: object; expected: Record<string, string> },
+    ) => {
+      if ("Stage" in req.properties) expect(req.expected.Stage).toBe("a".repeat(64));
       s.calls.push(`update ${id} ${req.lastEditedTime} ${Object.keys(req.properties).join(",")}`);
       fail("update");
       return page(id);
@@ -232,7 +245,7 @@ describe("proposal decisions", () => {
     title: "Hello",
     base: BASE,
     properties: [{ name: "Stage", type: "status", before: "Draft", after: { type: "status", option: "Done" } }],
-    body: { before: "Old", after: "New" },
+    body: { before: "Old", after: "New", revision: "c".repeat(64) },
     blocks: [{ type: "paragraph", text: [{ text: "New" }] }],
     ...over,
   });

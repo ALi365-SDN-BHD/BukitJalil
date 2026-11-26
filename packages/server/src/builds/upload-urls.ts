@@ -1,16 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
+import { SAXParser } from "parse5-sax-parser";
 import { foldName } from "../names.ts";
 
 /** A root-path upload reference that does not resolve under the site's current baseUrl (design 4.9). */
 export interface UploadUrlProblem {
   /** Output-relative HTML page, with "/" separators. */
   page: string;
-  /** The URL as written in the page. */
+  /** The URL from the HTML attribute, after character references are decoded. */
   url: string;
 }
-
-const ATTR = /\b(src|href|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 
 /**
  * Every root-path `src`, `href` and `srcset` candidate whose last two path segments are `uploads/<name>`,
@@ -25,10 +24,10 @@ export function findUploadUrlProblems(outputDir: string, basePath: string): Uplo
   const base = basePath.split("/").filter(Boolean);
   const problems: UploadUrlProblem[] = [];
   const seen = new Set<string>();
-  for (const file of htmlFiles(outputDir)) {
-    const page = path.relative(outputDir, file).split(path.sep).join("/");
-    for (const url of candidates(readHtml(file))) {
-      if (!isProblem(url, names, folded, base, outputDir)) continue;
+  const { pages, paths } = indexOutput(outputDir, names);
+  for (const page of pages) {
+    for (const url of candidates(readHtml(path.join(outputDir, page)))) {
+      if (!isProblem(url, names, folded, base, paths)) continue;
       const key = `${page}\0${url}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -38,7 +37,7 @@ export function findUploadUrlProblems(outputDir: string, basePath: string): Uplo
   return problems;
 }
 
-function isProblem(url: string, names: Set<string>, folded: Set<string>, base: string[], outputDir: string): boolean {
+function isProblem(url: string, names: Set<string>, folded: Set<string>, base: string[], paths: Set<string>): boolean {
   if (!url.startsWith("/") || url.startsWith("//")) return false;
   const pathOnly = url.split(/[?#]/, 1)[0] ?? "";
   const segments = pathOnly.split("/").filter(Boolean);
@@ -50,21 +49,7 @@ function isProblem(url: string, names: Set<string>, folded: Set<string>, base: s
   // at the output root: GitHub Pages serves a project site under /<repo>/.
   if (!startsWith(segments, base)) return true;
   if (segments.includes("..")) return true;
-  return !hasExactFile(outputDir, segments.slice(base.length));
-}
-
-/** Exact-case file lookup, so a wrong-case link is reported on macOS too (Pages is case-sensitive). */
-function hasExactFile(root: string, segments: string[]): boolean {
-  let current = root;
-  for (let i = 0; i < segments.length; i++) {
-    const segment = segments[i] as string;
-    const entry = readdir(current).find((x) => x.name === segment);
-    if (!entry) return false;
-    if (i === segments.length - 1) return entry.isFile();
-    if (!entry.isDirectory()) return false;
-    current = path.join(current, segment);
-  }
-  return false;
+  return !paths.has(segments.slice(base.length).join("/"));
 }
 
 /** File names under the output root's uploads and under every language directory's uploads. */
@@ -81,42 +66,55 @@ function uploadNames(outputDir: string): Set<string> {
 
 function readHtml(file: string): string {
   try {
-    // Scripts and comments are not links; a string in them must not block a publish.
-    return fs
-      .readFileSync(file, "utf8")
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
-      .replace(/<!--[\s\S]*?-->/g, "");
+    return fs.readFileSync(file, "utf8");
   } catch {
     return "";
   }
 }
 
-function* candidates(html: string): Generator<string> {
-  for (const match of html.matchAll(ATTR)) {
-    const value = match[2] ?? match[3] ?? "";
-    if (match[1]?.toLowerCase() !== "srcset") {
-      yield value.trim();
-      continue;
+function candidates(html: string): string[] {
+  const urls: string[] = [];
+  const parser = new SAXParser();
+  parser.on("startTag", ({ attrs }) => {
+    for (const { name, value, prefix } of attrs) {
+      if (prefix) continue;
+      if (name === "src" || name === "href") urls.push(value.trim());
+      else if (name === "srcset") {
+        // A URL token runs to ASCII whitespace: commas inside it (e.g. data: URLs) are not separators.
+        const token = /[^\t\n\f\r ,][^\t\n\f\r ]*/g;
+        for (let match = token.exec(value); match; match = token.exec(value)) {
+          const url = match[0];
+          let end = url.length;
+          while (url[end - 1] === ",") end--;
+          urls.push(url.slice(0, end));
+          if (end !== url.length) continue;
+          const comma = value.indexOf(",", token.lastIndex);
+          if (comma < 0) break;
+          token.lastIndex = comma + 1;
+        }
+      }
     }
-    for (const part of value.split(",")) {
-      const url = part.trim().split(/\s+/, 1)[0];
-      if (url) yield url;
-    }
-  }
+  });
+  parser.end(html);
+  return urls;
 }
 
-function htmlFiles(root: string): string[] {
-  const files: string[] = [];
-  const walk = (dir: string) => {
-    for (const entry of readdir(dir)) {
-      const abs = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(abs);
-      else if (entry.isFile() && entry.name.toLowerCase().endsWith(".html")) files.push(abs);
+/** Index the exact spelling of regular files once, not once per link on every page. */
+function indexOutput(root: string, names: Set<string>) {
+  const pages: string[] = [];
+  const paths = new Set<string>();
+  const walk = (prefix: string) => {
+    for (const entry of readdir(path.join(root, prefix))) {
+      const rel = prefix + entry.name;
+      if (entry.isDirectory()) walk(`${rel}/`);
+      else if (entry.isFile()) {
+        if (entry.name.toLowerCase().endsWith(".html")) pages.push(rel);
+        if (names.has(entry.name)) paths.add(rel);
+      }
     }
   };
-  walk(root);
-  return files;
+  walk("");
+  return { pages, paths };
 }
 
 /** Sorted so a report is stable; symlinks and unreadable directories are skipped. */

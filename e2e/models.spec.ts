@@ -83,6 +83,7 @@ test("a local model can be configured, edited and removed", async ({ page, serve
   await page.getByTestId("local-add").click();
   await page.getByTestId("local-model-id").fill("llama3.1:8b");
   await page.getByTestId("local-model-name").fill("Local Llama");
+  await page.getByTestId("local-api-key").fill("made-up-local-key");
   await page.getByTestId("local-api").selectOption("anthropic-messages");
   await page.getByTestId("local-save").click();
 
@@ -95,8 +96,13 @@ test("a local model can be configured, edited and removed", async ({ page, serve
   // Edit the display name; the provider id and model stay the same.
   await page.getByTestId(`local-edit-${id}`).click();
   await page.getByTestId("local-model-name").fill("Local Llama 2");
+  await page.getByTestId("local-clear-key").check();
   await page.getByTestId("local-save").click();
   await expect(page.getByTestId(`local-row-${id}`)).toContainText("Local Llama 2");
+  await page.getByTestId(`local-edit-${id}`).click();
+  await expect(page.getByTestId("local-form")).toBeVisible();
+  await expect(page.getByTestId("local-clear-key")).toHaveCount(0);
+  await page.getByTestId("local-form-back").click();
 
   // The new provider appears in the normal provider list and exposes its model.
   await page.getByTestId("local-back").click();

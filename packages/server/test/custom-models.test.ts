@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CustomModelProvider, CustomModelsResponse, ModelsResponse } from "@bukitjalil/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { preparePiEnvironment } from "../src/agent/env.ts";
 import { ADMIN, makeApp, req } from "./helpers.ts";
 
@@ -41,6 +41,32 @@ const request = {
 };
 
 describe("/api/custom-models", () => {
+  it("sends built-in and custom API keys literally in the transport header", async () => {
+    vi.stubEnv("CEREBRAS_API_KEY", undefined);
+    const headers: (string | null)[] = [];
+    const transport = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      headers.push(new Request(input, init).headers.get("authorization"));
+      return new Response(null, { status: 401 });
+    });
+    try {
+      const apiKey = "!test-$$-${BJ_LITERAL_KEY}-$!-$";
+      expect((await call(ctx, "PUT", "/api/providers/cerebras/key", { apiKey })).status).toBe(200);
+      const created = (await (
+        await call(ctx, "POST", "/api/custom-models", { ...request, apiKey })
+      ).json()) as CustomModelProvider;
+      for (const id of ["cerebras", created.id]) {
+        headers.length = 0;
+        await call(ctx, "POST", `/api/providers/${id}/test`, {});
+        expect(headers, id).toEqual([`Bearer ${apiKey}`]);
+      }
+      await call(ctx, "DELETE", `/api/custom-models/${created.id}`);
+      await call(ctx, "DELETE", "/api/providers/cerebras/key");
+    } finally {
+      transport.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("creates, lists, updates and removes a local model", async () => {
     const createdRes = await call(ctx, "POST", "/api/custom-models", request);
     expect(createdRes.status).toBe(200);
@@ -121,6 +147,20 @@ describe("/api/custom-models", () => {
     ).json()) as CustomModelProvider;
     expect(cleared.hasApiKey).toBe(false);
     expect(sealed()).toBeNull();
+  });
+
+  it("keeps an omitted key for path edits but drops it when the origin changes", async () => {
+    const { id } = ctx.customModels.create({ ...request, apiKey: "test-key" });
+    for (const [baseUrl, hasApiKey] of [
+      ["http://127.0.0.1:11434/new-path", true],
+      ["http://127.0.0.1:11435/new-path", false],
+    ] as const) {
+      const changed = await call(ctx, "PUT", `/api/custom-models/${id}`, { ...request, baseUrl });
+      expect(await changed.json()).toMatchObject({ baseUrl, hasApiKey });
+    }
+    expect(ctx.customModels.get(id).apiKey).toBeNull();
+    expect(ctx.customModels.update(id, { ...request, apiKey: "replacement" }).hasApiKey).toBe(true);
+    expect(ctx.customModels.get(id).apiKey).toBe("replacement");
   });
 
   it("does not save the edit when registering the edited provider fails", async () => {

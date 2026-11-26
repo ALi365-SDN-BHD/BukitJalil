@@ -74,6 +74,7 @@ export const ContentPageUpdate = z
   .object({
     lastEditedTime: z.string().min(1).max(40),
     properties: Properties,
+    expected: z.record(PropertyName, z.string().regex(/^[a-f0-9]{64}$/)).refine((x) => Object.keys(x).length <= 100),
   })
   .strict();
 export type ContentPageUpdate = z.infer<typeof ContentPageUpdate>;
@@ -308,6 +309,8 @@ export interface ContentProperty {
   display: string;
   /** Text with styles, links or mentions: saving a change writes plain text and drops them. */
   formatted?: boolean;
+  /** Fingerprint of the original Notion value, including formatting; present for editable page fields. */
+  revision?: string;
 }
 
 export interface ContentEntry {
@@ -345,14 +348,22 @@ export interface ContentPage {
  * `code_language`, `image_url`, `unwritable`, `too_long`.
  */
 export interface ContentBody {
+  /** Fingerprint of the editable blocks, independent of temporary image addresses. */
+  revision: string;
   blocks: ContentBlock[];
   editable: boolean;
   unsupported: string[];
   lastEditedTime: string;
 }
 
+export interface ContentBodySaved extends ContentBody {
+  page: ContentPage;
+}
+
 /** PUT …/body: replaces the whole body. */
-export const ContentBodyUpdate = z.object({ lastEditedTime: z.string().min(1).max(40), blocks: Blocks }).strict();
+export const ContentBodyUpdate = z
+  .object({ lastEditedTime: z.string().min(1).max(40), revision: z.string().regex(/^[a-f0-9]{64}$/), blocks: Blocks })
+  .strict();
 export type ContentBodyUpdate = z.infer<typeof ContentBodyUpdate>;
 
 /**
@@ -369,9 +380,9 @@ export interface ContentProposal {
   /** Notion's edit time the update was read at: a later edit makes writing it a conflict. */
   base: string | null;
   /** Changed properties: how each reads now (null for a new entry) and its new value. */
-  properties: { name: string; type: string; before: string | null; after: ContentValue }[];
+  properties: { name: string; type: string; before: string | null; after: ContentValue; revision?: string }[];
   /** The body as Markdown before (null for a new entry) and after; null when the body is not changed. */
-  body: { before: string | null; after: string } | null;
+  body: { before: string | null; after: string; revision?: string } | null;
   /** The body to write, as blocks; null when it is not changed. */
   blocks: ContentBlock[] | null;
 }

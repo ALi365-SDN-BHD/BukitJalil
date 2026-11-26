@@ -167,6 +167,7 @@ function LocalModelForm({
   const [modelId, setModelId] = useState(initial?.model.id ?? "");
   const [modelName, setModelName] = useState(initial?.model.name ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [clearKey, setClearKey] = useState(false);
   const [contextWindow, setContextWindow] = useState(String(initial?.model.contextWindow ?? 32_768));
   const [maxTokens, setMaxTokens] = useState(String(initial?.model.maxTokens ?? 4_096));
   const [reasoning, setReasoning] = useState(initial?.model.reasoning ?? false);
@@ -183,8 +184,8 @@ function LocalModelForm({
         maxTokens: Number(maxTokens) || 4_096,
         reasoning,
       };
-      if (apiKey.trim()) body.apiKey = apiKey.trim();
-      else if (!initial) body.apiKey = "";
+      if (clearKey) body.apiKey = "";
+      else if (apiKey.trim()) body.apiKey = apiKey.trim();
       return initial ? api.updateCustomModel(initial.id, body) : api.createCustomModel(body);
     },
     onSuccess: onSaved,
@@ -278,10 +279,22 @@ function LocalModelForm({
             spellCheck={false}
             className="md:w-80"
             value={apiKey}
-            placeholder={initial?.hasApiKey ? s.localApiKeyStored : s.localApiKey}
+            disabled={clearKey}
+            placeholder={s.localApiKey}
             onChange={(e) => setApiKey(e.target.value)}
             data-testid="local-api-key"
           />
+          {initial?.hasApiKey && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={clearKey}
+                onChange={(e) => setClearKey(e.target.checked)}
+                data-testid="local-clear-key"
+              />
+              {s.localClearKey}
+            </label>
+          )}
         </SettingsRow>
         <SettingsRow label={s.localContext}>
           <Input

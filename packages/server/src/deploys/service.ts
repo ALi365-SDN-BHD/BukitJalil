@@ -68,6 +68,7 @@ const CONFIG_CODES: ConfigCommitCodes = {
   dirty: "deploy.config_dirty",
   changed: "deploy.commit_changed",
   failed: "deploy.config_failed",
+  invalid: "deploy.config_invalid",
 };
 
 /** The report with every copy of `secret` replaced (a token shorter than 8 characters is not looked for). */
@@ -191,6 +192,8 @@ export class DeployService {
         site: current,
         head,
         message: "Configure GitHub Pages deployment",
+        tmpDir: this.opts.paths.tmp,
+        maxBytes: MAX_SITE_YAML,
         codes: CONFIG_CODES,
         edit: (text) => {
           const doc = parseDocument(text, { uniqueKeys: true });

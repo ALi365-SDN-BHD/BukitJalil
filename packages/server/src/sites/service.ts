@@ -21,14 +21,7 @@ import type { Db } from "../store/db.ts";
 import type { SettingsStore } from "../store/settings.ts";
 import { findConfigCandidates } from "./config-candidates.ts";
 import { EXCLUDE_PATTERNS, IMPORT_INIT_PATTERNS, writeExcludeBlock } from "./exclude.ts";
-import {
-  assertDirectory,
-  assertEmptyOrMissing,
-  checkSiteLocation,
-  commitIdentity,
-  removeCreated,
-  SiteError,
-} from "./location.ts";
+import { assertDirectory, checkSiteLocation, commitIdentity, createInEmptyDirectory, SiteError } from "./location.ts";
 import type { SiteLocks } from "./locks.ts";
 import { NotionSnapshots } from "./notion-snapshots.ts";
 import { isSiteId, newSiteId, SiteStore } from "./store.ts";
@@ -181,16 +174,11 @@ export class SiteService {
     const real = checkSiteLocation(req.path, this.rules());
     const selected = this.selectedSources(req);
     const site = await this.repos.reserved(real, async () => {
-      assertEmptyOrMissing(real);
-      const existed = fs.existsSync(real);
-      try {
-        await this.opts.newSite(real, { title: req.name, language: req.language });
-        if (selected) writeSources(real, selected.sources);
-        await this.repos.commitNew(real, identity, INITIAL_MESSAGE);
-      } catch (err) {
-        removeCreated(real, existed);
-        throw err;
-      }
+      await createInEmptyDirectory(real, async (stage) => {
+        await this.opts.newSite(stage, { title: req.name, language: req.language });
+        if (selected) writeSources(stage, selected.sources);
+        await this.repos.commitNew(stage, identity, INITIAL_MESSAGE);
+      });
       return this.register(
         real,
         req.name,

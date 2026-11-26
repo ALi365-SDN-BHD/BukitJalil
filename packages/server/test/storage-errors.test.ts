@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { GitError } from "../src/git/run.ts";
-import type { Logger } from "../src/log.ts";
+import { SiteError } from "../src/sites/location.ts";
 import { storageErrorCode, storageErrorInText } from "../src/storage-errors.ts";
 import { makeApp, req } from "./helpers.ts";
 
@@ -27,19 +27,23 @@ describe("storage errors", () => {
     expect(storageErrorInText("permission denied")).toBeNull();
   });
 
-  it("answers an API request that hit a full disk with 507 fs.disk_full", async () => {
-    const logger: Logger = { log: () => {} };
-    const { app, sites } = makeApp({ logger });
-    vi.spyOn(sites, "list").mockImplementation(() => {
-      throw errno("ENOSPC");
+  it.each([
+    [
+      new SiteError("site.busy", 409, { operation: "build" }),
+      409,
+      { code: "site.busy", params: { operation: "build" } },
+    ],
+    [errno("ENOSPC"), 507, { code: "fs.disk_full" }],
+    [new Error("private failure detail"), 500, { code: "server.internal" }],
+  ] as const)("maps %s through the site API", async (error, status, payload) => {
+    const log = vi.fn();
+    const { app, sites } = makeApp({ logger: { log } });
+    vi.spyOn(sites, "get").mockImplementation(() => {
+      throw error;
     });
-    const full = await app.request(req("/api/sites"));
-    expect(full.status).toBe(507);
-    expect(await full.json()).toEqual({ code: "fs.disk_full" });
-    vi.spyOn(sites, "list").mockImplementation(() => {
-      throw new Error("boom");
-    });
-    const other = await app.request(req("/api/sites"));
-    expect([other.status, await other.json()]).toEqual([500, { code: "server.internal" }]);
+    const res = await app.request(req("/api/sites/0000000000000000"));
+    expect([res.status, await res.json()]).toEqual([status, payload]);
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(log.mock.calls.filter(([, event]) => event === "request.failed")).toHaveLength(status >= 500 ? 1 : 0);
   });
 });

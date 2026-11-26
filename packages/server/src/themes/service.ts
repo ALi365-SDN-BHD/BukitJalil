@@ -15,13 +15,7 @@ import type { GuardResult } from "../bukit/guard.ts";
 import { cleanReferenceImage, writeReferenceImages } from "../media/reference.ts";
 import type { AppPaths } from "../paths.ts";
 import type { Prechecked, ProjectRepos, ProjectState } from "../projects/repo.ts";
-import {
-  assertEmptyOrMissing,
-  checkSiteLocation,
-  commitIdentity,
-  removeCreated,
-  SiteError,
-} from "../sites/location.ts";
+import { checkSiteLocation, commitIdentity, createInEmptyDirectory, SiteError } from "../sites/location.ts";
 import type { SiteLocks } from "../sites/locks.ts";
 import type { NewSite } from "../sites/template.ts";
 import type { Db } from "../store/db.ts";
@@ -180,16 +174,11 @@ export class ThemeService {
   ): Promise<Theme> {
     const identity = commitIdentity(this.opts.settings);
     return this.opts.repos.reserved(real, async () => {
-      assertEmptyOrMissing(real);
-      const existed = fs.existsSync(real);
-      try {
-        await this.opts.newSite(real, { title: req.name, language: req.language });
-        prepare(real);
-        await this.opts.repos.commitNew(real, identity, message);
-      } catch (err) {
-        removeCreated(real, existed);
-        throw err;
-      }
+      await createInEmptyDirectory(real, async (stage) => {
+        await this.opts.newSite(stage, { title: req.name, language: req.language });
+        prepare(stage);
+        await this.opts.repos.commitNew(stage, identity, message);
+      });
       return this.register(real, {
         name: req.name,
         themeName: req.themeName,

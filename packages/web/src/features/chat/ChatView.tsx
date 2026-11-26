@@ -196,6 +196,11 @@ export function Conversation({
         summary={summary}
       />
       {footer}
+      {session.unsaved && (
+        <p role="alert" className="px-4 py-2 text-sm text-destructive">
+          {m.chat.unsaved}
+        </p>
+      )}
       <Composer
         ref={composer}
         session={session}

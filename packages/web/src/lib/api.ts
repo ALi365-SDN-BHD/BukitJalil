@@ -10,6 +10,7 @@ import {
   type ChangeSet,
   type ConfigResponse,
   type ContentBody,
+  type ContentBodySaved,
   type ContentBodyUpdate,
   type ContentDatabase,
   type ContentEntryList,
@@ -61,6 +62,7 @@ import {
   type PublishAccountRequest,
   parseProjectKey,
   type RestoreResult,
+  type ReviewVersion,
   type RgResponse,
   type SavedDataSource,
   type SecurityStatus,
@@ -227,7 +229,7 @@ export const api = {
     }),
   changeDiff: (changeId: string, path: string) => request<FileDiff>(`/changes/${changeId}/diff?${query({ path })}`),
   applyChange: (changeId: string, req: ApplyRequest) => post<ApplyResult>(`/changes/${changeId}/apply`, req),
-  rejectChange: (changeId: string) => post<ChangeSet>(`/changes/${changeId}/reject`),
+  rejectChange: (changeId: string, req: ReviewVersion) => post<ChangeSet>(`/changes/${changeId}/reject`, req),
   history: (project: ProjectKey, skip: number) =>
     request<HistoryResponse>(`${projectPath(project)}/history?${query({ skip: String(skip) })}`),
   versionDiff: (project: ProjectKey, commit: string) =>
@@ -282,7 +284,7 @@ export const api = {
   contentBody: (sourceId: string, databaseId: string, pageId: string) =>
     request<ContentBody>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}/body`),
   saveContentBody: (sourceId: string, databaseId: string, pageId: string, req: ContentBodyUpdate) =>
-    request<ContentBody>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}/body`, {
+    request<ContentBodySaved>(`${contentPath(sourceId, databaseId)}/pages/${encodeURIComponent(pageId)}/body`, {
       method: "PUT",
       body: JSON.stringify(req),
     }),

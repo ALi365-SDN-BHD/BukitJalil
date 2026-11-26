@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
 import { putSettings } from "./site-helpers.ts";
@@ -100,7 +101,7 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
         value: { type: "multi_select", options: p.tags },
         display: p.tags.join(", "),
       },
-    ],
+    ].map((f) => ({ ...f, revision: createHash("sha256").update(JSON.stringify(f.value)).digest("hex") })),
   });
   const apply = (p: FakePage, properties: Record<string, Record<string, unknown>>) => {
     for (const [name, value] of Object.entries(properties)) {
@@ -192,16 +193,20 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
     const found = state.pages.find((p) => p.id === pageId);
     if (!found) return route.fulfill({ status: 404, json: { code: "content.not_in_database" } });
     if (parts[9] === "body") {
+      const revision = () => createHash("sha256").update(JSON.stringify(found.body)).digest("hex");
       if (req.method() === "PUT") {
+        if (body?.revision !== revision()) return route.fulfill({ status: 409, json: { code: "content.conflict" } });
         found.body = (body?.blocks as unknown[] | undefined) ?? [];
         found.edited = new Date(Date.parse(found.edited) + 60_000).toISOString();
       }
       return route.fulfill({
         json: {
           blocks: found.readOnly ? [] : found.body,
+          revision: revision(),
           editable: !found.readOnly,
           unsupported: found.readOnly ? ["breadcrumb_v2", "color", "table"] : [],
           lastEditedTime: found.edited,
+          ...(req.method() === "PUT" ? { page: view(found) } : {}),
         },
       });
     }
@@ -209,7 +214,16 @@ async function fakeContent(page: Page, databases: { id: string; title: string }[
       state.pages = state.pages.filter((p) => p !== found);
       return route.fulfill({ status: 204 });
     }
-    if (req.method() === "PATCH") apply(found, (body?.properties ?? {}) as Record<string, Record<string, unknown>>);
+    if (req.method() === "PATCH") {
+      const expected = body?.expected as Record<string, string> | undefined;
+      if (
+        Object.keys(body?.properties ?? {}).some(
+          (name) => view(found).properties.find((p) => p.name === name)?.revision !== expected?.[name],
+        )
+      )
+        return route.fulfill({ status: 409, json: { code: "content.conflict" } });
+      apply(found, (body?.properties ?? {}) as Record<string, Record<string, unknown>>);
+    }
     return route.fulfill({ json: view(found) });
   });
   return state;
@@ -391,11 +405,22 @@ test("entries are listed, edited, created and moved to the trash", async ({ page
   await expect(page.getByTestId("content-body-problem")).toHaveCount(0);
   await expect(page.getByTestId("content-save")).toBeEnabled();
 
-  // Someone else edited it in Notion: the save is refused, and reloading drops the unsaved change.
-  notion.fail = { status: 409, code: "content.conflict" };
+  // A collaborator edits a field we are about to write, and another we are only displaying.
+  const first = notion.pages[0];
+  if (!first) throw new Error("no first page");
+  first.title = "Collaborator's title";
+  first.stage = null;
+  await page.getByTestId("content-property-Stage").getByRole("combobox").selectOption("Draft");
   await page.getByTestId("content-property-Featured").getByRole("checkbox").check();
   await page.getByTestId("content-save").click();
   await expect(page.getByTestId("content-save-error")).toContainText(/changed after you opened|被修改过/);
+  await expect(page.getByTestId("content-title")).toHaveValue("Collaborator's title");
+  const writes = notion.writes.length;
+  await page.getByTestId("content-save").click();
+  await expect.poll(() => notion.writes.length).toBe(writes + 1);
+  expect(notion.writes.at(-1)?.method).toBe("PATCH");
+  await expect(page.getByTestId("content-save-error")).toBeVisible();
+  expect(first.stage).toBeNull();
   await page.getByTestId("content-reload").click();
   await expect(page.getByTestId("content-property-Featured").getByRole("checkbox")).not.toBeChecked();
   await expect(page.getByTestId("content-save")).toBeDisabled();
