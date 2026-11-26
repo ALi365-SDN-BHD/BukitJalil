@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ImportInspection, Site } from "@bukitjalil/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BukitService } from "../src/bukit/locate.ts";
 import { resolveGitPath } from "../src/git/run.ts";
 import { withBlock } from "../src/sites/exclude.ts";
@@ -151,6 +151,41 @@ describe("exclude block and locks", () => {
 // --- create ---
 
 describe("create a site (plan 5.2)", () => {
+  it.each(["site", "theme"])("a failed %s create leaves a file that arrived during preparation alone", async (kind) => {
+    const { sites, themes, repos, identity } = setup();
+    await identity();
+    const target = path.join(userHome, `interrupted-${kind}`);
+    if (kind === "theme") fs.mkdirSync(target);
+    vi.spyOn(repos, "commitNew").mockImplementationOnce(async () => {
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, "my-notes.txt"), "from the user");
+      throw new Error("commit interrupted");
+    });
+    const spec = { path: target, name: "Example", language: "en" };
+    await expect(
+      kind === "site" ? sites.create(spec) : themes.create({ ...spec, themeName: "example" }),
+    ).rejects.toThrow("commit interrupted");
+    expect(fs.readFileSync(path.join(target, "my-notes.txt"), "utf8")).toBe("from the user");
+    expect(fs.readdirSync(target)).toEqual(["my-notes.txt"]);
+  });
+
+  it("does not install over a file added to the selected directory while Git was running", async () => {
+    const { sites, repos, identity } = setup();
+    await identity();
+    const target = path.join(userHome, "sync-while-creating");
+    fs.mkdirSync(target);
+    const commit = repos.commitNew.bind(repos);
+    vi.spyOn(repos, "commitNew").mockImplementationOnce(async (...args) => {
+      await commit(...args);
+      fs.writeFileSync(path.join(target, "site.yaml"), "from sync");
+    });
+    await expect(sites.create({ name: "Example", language: "en", path: target })).rejects.toMatchObject({
+      code: "site.path_not_empty",
+    });
+    expect(fs.readFileSync(path.join(target, "site.yaml"), "utf8")).toBe("from sync");
+    expect(fs.readdirSync(target)).toEqual(["site.yaml"]);
+  });
+
   it("needs the commit identity first", async () => {
     const { call } = setup();
     const res = await call("POST", "/api/sites", { name: "x", path: path.join(userHome, "noid"), language: "en" });

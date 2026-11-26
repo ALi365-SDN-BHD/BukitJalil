@@ -92,15 +92,11 @@ export function checkSiteLocation(target: string, rules: LocationRules): string 
   return real;
 }
 
-/** A new site's directory must not exist or be an empty directory. */
-export function assertEmptyOrMissing(real: string): void {
-  let st: fs.Stats;
-  try {
-    st = fs.lstatSync(real);
-  } catch {
-    return;
-  }
-  if (!st.isDirectory() || fs.readdirSync(real).length > 0) throw new SiteError("site.path_not_empty", 409);
+/** A new project's destination must still be the same empty directory (or still missing) at installation. */
+function emptyDestination(real: string) {
+  const st = fs.lstatSync(real, { bigint: true, throwIfNoEntry: false });
+  if (st && (!st.isDirectory() || fs.readdirSync(real).length > 0)) throw new SiteError("site.path_not_empty", 409);
+  return st;
 }
 
 /** An existing directory, for import. */
@@ -142,13 +138,40 @@ export function listDirs(dir: string | undefined, opts: { hidden?: boolean; user
   return { path: real, parent: parent === real ? null : parent, dirs };
 }
 
-/** Undo a failed create: remove the directory, or only its contents when it existed (empty) before. */
-export function removeCreated(dir: string, existed: boolean): void {
-  if (!existed) {
-    fs.rmSync(dir, { recursive: true, force: true });
-    return;
+/** Prepare and commit privately on the destination filesystem, then publish the complete directory. */
+export async function createInEmptyDirectory(target: string, prepare: (stage: string) => Promise<void>): Promise<void> {
+  const original = emptyDestination(target);
+  const parent = path.dirname(target);
+  fs.mkdirSync(parent, { recursive: true });
+  const scratch = fs.mkdtempSync(path.join(parent, ".bukitjalil-new-"));
+  const owned = fs.lstatSync(scratch, { bigint: true });
+  const stage = path.join(scratch, "project");
+  try {
+    await prepare(stage);
+    if (fs.realpathSync.native(parent) !== parent) throw new SiteError("site.path_not_empty", 409);
+    const current = emptyDestination(target);
+    if (original?.dev !== current?.dev || original?.ino !== current?.ino)
+      throw new SiteError("site.path_not_empty", 409);
+    if (current) fs.chmodSync(stage, Number(current.mode & 0o7777n));
+    // Windows cannot rename over an empty directory. rmdir refuses if even one file has arrived.
+    const removeEmpty = process.platform === "win32" && current !== undefined;
+    if (removeEmpty) fs.rmdirSync(target);
+    try {
+      fs.renameSync(stage, target);
+    } catch (err) {
+      if (removeEmpty && !fs.existsSync(target)) fs.mkdirSync(target);
+      if (
+        fs.existsSync(target) &&
+        ["ENOTEMPTY", "EEXIST", "ENOTDIR", "EISDIR"].includes((err as NodeJS.ErrnoException).code ?? "")
+      )
+        throw new SiteError("site.path_not_empty", 409);
+      throw err;
+    }
+  } finally {
+    const remaining = fs.lstatSync(scratch, { bigint: true, throwIfNoEntry: false });
+    if (remaining?.dev === owned.dev && remaining.ino === owned.ino)
+      fs.rmSync(scratch, { recursive: true, force: true });
   }
-  for (const name of fs.readdirSync(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
 }
 
 /** The commit identity from the settings, as git config (400 `site.identity_required` when unset). */

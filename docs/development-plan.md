@@ -286,7 +286,7 @@ BukitJalil/
    - **调用**：`bukit new <目标绝对路径> --title=<网站名> --language=<语言>`，走 `BukitRunner`（最小环境，30 秒超时）。参数用 `--opt=值` 的写法，以 `-` 开头的网站名也不会被当成选项。`bukit new` 不跑 git、不构建、不联网；目标必须不存在或为空、不能是符号链接，失败时它自己删掉写过的文件。网站名和语言的规则与 Bukit 一致（1–200 个字符、无控制字符；语言是字母数字子标签）。
    - **生成的内容**：`site.yaml`（`site.name` 由标题生成，`languages` 只有一项，`content.media.onFailure: keep`，`theme.params.brand` / `footer_text` 是网站名，简体中文网站的界面文字 `labels` 和"最新文章"由 Bukit 写成中文）、`content/posts/welcome.md`、`content/pages/about.md`、`data/features-10.md`、`themes/starter/`（主题、MIT `LICENSE`、分享图、`static/robots.txt`）和 `.gitignore`。BukitJalil 不再自带模板副本，主题随内置 Bukit 升级。
    - **BukitJalil 只补一件事**：用户选了 Notion 数据源时，把 `content.sources` 换成选中的数据库（保留其余内容）。（Bukit 2.2.5 写出的 `site.yaml` 末尾有文档结束标记 `...`，BukitJalil 曾在新建后去掉它；2.2.6 起 `bukit new` 不再写，这一步已删除。）之后照旧 `git init -b main`、写排除规则、提交。
-   - **出错**：内置 Bukit 不可用时返回 409 `build.bukit_missing`；`bukit new` 失败时返回 500 `site.create_failed`，`detail` 是 Bukit 的输出（截到 500 字符）。两种情况目标目录都恢复原样（新建的目录删掉，原本存在的空目录清空）。
+   - **出错**：内置 Bukit 不可用时返回 409 `build.bukit_missing`；`bukit new` 失败时返回 500 `site.create_failed`，`detail` 是 Bukit 的输出（截到 500 字符）。生成和首次提交都在目标旁的私有临时目录里完成。失败只清理临时目录；成功时再核对并安装，目标里新出现的文件保留。
    - **测试**：单元测试和端到端测试没有真实 Bukit，用 `packages/server/test/fixtures/starter/`（真实 `bukit new --title="My Site" --language=en-US` 的输出，只给替身用）加 `fixtures/starter.ts` 代替 `bukit new`（复制后改网站名和语言；端到端的 Bukit 替身的 `new` 命令也调它）。有真实 Bukit（`BUKIT_BIN`）时，`test/template.test.ts` 核对这份输出和内置 Bukit 现在写的逐字节相同（升级 Bukit 后重新生成），并走一遍 `bukitNewSite`：中文界面文字、以 `-` 开头且要转义的网站名，能 check、doctor、build；`test/bukit-behavior.test.ts` 的网站也都由 `bukit new` 生成。
    - **删除**：`templates/starter/`、`scripts/make-starter.sh`、`templates/starter.source.json` 和对应的哈希测试，桌面安装包也不再带 `templates/`。
    - **以前的副本**（2026-11-16 前）：`scripts/make-starter.sh` 从 Bukit 的 StarterTheme 资源生成 `templates/starter/`，要删掉 `{{-- bukit:brand --}}` 占位符、给站名加 `html.escape`；这些现在都由 Bukit 自己处理。
@@ -2921,6 +2921,10 @@ M0 骨架 ─► M1 技术验证 ─► M2 网站与面板 ─► M3 AI 会话 �
 **#5 AI 文件工具的路径规则**：`ls` 和 `find` 用 `PathGate` 过滤子项；`grep` 只搜索获准文件，用户 glob 不能放宽权限；`edit` 读原文时同时检查读写权限。对同一组无敏感内容的测试文件运行真实工具，确认嵌套的普通主题素材仍能列、搜、读、改，受保护的文件不会返回或被修改。27 项闸门与工具测试通过。
 
 **#5 验收**：检查和 Web、桌面构建通过；Vitest 878 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
+
+**#1 创建失败时保留用户文件**：新建网站和主题共用私有暂存目录，首次提交成功后才移入目标。回归测试在生成期间写入用户文件，并在首次提交结束时模拟同步软件写入同名 `site.yaml`。旧实现三项都失败；修复后用户文件逐字节保留，目录冲突返回 409。复查补上清理前的临时目录身份核对。
+
+**#1 验收**：检查和 Web、桌面构建通过；Vitest 881 通过、2 跳过；Web 端到端 194 通过、7 跳过；桌面 13 通过、1 跳过。
 
 ## 15. 风险与对策
 
