@@ -45,6 +45,9 @@ site:
       searchAction: true
       breadcrumbHome: false
       breadcrumbParent: categories  # must be a configured taxonomy
+      articleType: BlogPosting      # BlogPosting|Article|NewsArticle|...; collection seo.articleType overrides
+    authors:                        # profiles by author name or authoredBy id (case-insensitive)
+      Aisha: { type: Person, url: /about/aisha/, sameAs: [https://www.linkedin.com/in/aisha/] }
     robotsTxt: { enabled: false }   # see bukit-outputs
     geo: { enabled: true }          # see bukit-geo
 ```
@@ -58,7 +61,7 @@ unbalanced braces, or empty templates fail config validation.
 
 | Mode | Behavior |
 |---|---|
-| `inject` | Core writes the head tags and replaces all existing `<title>` elements with exactly one encoded document title. Adds JSON/Markdown alternate links for indexable content pages. |
+| `inject` | Core writes the head tags and replaces all existing `<title>` elements with exactly one encoded document title. Head JSON-LD is replaced by Core's unless marked `data-bukit-seo="keep"` (see "Theme JSON-LD"). Adds JSON/Markdown alternate links for indexable content pages. |
 | `theme` | No HTML changes. The theme renders the head from `page.seo.*` (for example `page.seo.document_title` and the JSON-LD). Audits still run. |
 | `off` | No injection; model still exposed; diagnostics still run. |
 
@@ -70,6 +73,32 @@ write the canonical, robots, hreflang, and JSON-LD tags itself, or each page war
 `page.seo.title` is the semantic page title; `page.seo.document_title` is the final
 `<title>` text. A single page can opt out of injection with `seo_inject: false`.
 
+### Theme JSON-LD
+
+Core generates WebSite, WebPage, BreadcrumbList, the Article family, FAQPage, HowTo,
+Organization, LocalBusiness and Person. For other types (`TouristTrip`, `Product`,
+`Event`, ...) pick one:
+
+1. Head, marked: `<script type="application/ld+json" data-bukit-seo="keep">`. Inject
+   mode leaves it where the theme wrote it; Core's block follows at the end of the head.
+2. Body: inject mode never touches `<body>`.
+3. `renderMode: theme`: the theme writes the whole head, including `page.seo.json_ld`.
+
+In inject mode, every other head `application/ld+json` script is removed. When a removed
+script differs from all of Core's JSON-LD blocks, the build warns
+`seo.theme_json_ld_replaced route=<url> count=<n>` (a warning even with `strict`; more
+than five pages collapse into one `event=diagnostics.summary` line). A theme that echoes
+`page.seo.json_ld` in the head gets no warning, even pretty-printed or with different
+string escaping; HTML-escaped or reordered JSON still warns. Incremental
+builds report it again for skipped unchanged pages, as clean builds do. Core does not
+deduplicate kept JSON-LD against types it already
+emits: marking a theme `WebPage` or `BreadcrumbList` keep publishes a duplicate, so keep
+only types Core does not generate; the build warns
+`seo.theme_json_ld_duplicate_type route=<url> types=<types>` for each such page. The publish audit validates kept head
+JSON-LD like Core's (`seo.json_ld_invalid`) and adds its `@type` values to the route's
+`schemaTypes`. Serialize values with `util.to_json` or `util.json_string`
+(`bukit-templating`), which escape `</script>`.
+
 ## Per-page front matter
 
 | Field | Purpose |
@@ -78,9 +107,10 @@ write the canonical, robots, hreflang, and JSON-LD tags itself, or each page war
 | `seo_desc` | Meta description (not `seo_description`). Falls back to `summary`, then `site.description`. |
 | `canonical` | Explicit canonical URL. |
 | `robots`, `noindex`, `nofollow` | Robots directives. |
-| `image`, `cover`, `seo_image`, `og_image` | Social image. |
+| `image`, `cover`, `seo_image`, `og_image` | Social image. A site-hosted file also gets `og:image:width/height/type` (`page.seo.og.image_width`, `image_height`, `image_type`). |
 | `schema_type`, `seo_article` | JSON-LD type selection (`Article`, `BlogPosting`, `NewsArticle`, ...). |
 | `twitter_creator` | Twitter creator handle. |
+| `parent_url` | Breadcrumb parent by site path (`/malaysia/routes/`, no base URL); the trail becomes the parent's trail plus this page, recursively, and pages below it in the URL without their own `parent_url` follow that trail. Missing parents, and parents whose trail loops back to the page, warn (`seo.breadcrumb_parent_missing`, `seo.breadcrumb_parent_cycle`) and fall back to URL inference. Not the same as the taxonomy-kind config `breadcrumbParent`. |
 | `sitemapexclude`, `searchexclude`, `feedexclude` | Exclude from those outputs. |
 | `geo:` | GEO structured data; see `bukit-geo`. |
 
@@ -95,11 +125,14 @@ Logged during build, controlled by `site.seo.diagnostics`: `seo.site_url_missing
 `seo.canonical_relative`, `seo.canonical_external`, `seo.canonical_double_slash`,
 `seo.canonical_duplicate_index`, `seo.hreflang_x_default_missing`, per-page HTML checks
 (`seo.head_missing`, `seo.canonical_missing`, `seo.canonical_duplicate`,
-`seo.robots_missing`, `seo.hreflang_missing`, `seo.json_ld_missing`), and GEO schema
+`seo.robots_missing`, `seo.hreflang_missing`, `seo.json_ld_missing`,
+`seo.theme_json_ld_replaced` and
+`seo.theme_json_ld_duplicate_type` in inject mode), and GEO schema
 checks, and `geo.llms_*` curation checks when llms output is on (versions
 through 2.0.15 do not run the `geo.llms_*` checks; see `bukit-geo`).
 `strict` makes any of these stop the build at the first one hit (exit 2), except
-`seo.og_locale_region_missing`, which stays a warning; `off` silences them.
+`seo.og_locale_region_missing`, `seo.theme_json_ld_replaced` and
+`seo.theme_json_ld_duplicate_type`, which stay warnings; `off` silences them.
 
 ## Audit
 
@@ -152,7 +185,7 @@ Common issue codes:
 | Severity | Codes |
 |---|---|
 | Error | `seo.title_missing`, `seo.document_title_missing`, `seo.document_title_multiple`, `seo.document_title_empty`, `seo.document_title_mismatch` (inject mode), `seo.inject_canonical_missing`, `seo.canonical_points_to_noindex`, `seo.noindex_in_sitemap`, `seo.json_ld_invalid`, `seo.robots_txt_blocks_indexable` |
-| Warning | `seo.title_too_long`, `seo.document_title_too_long` (display width > 60, CJK counts 2), `seo.description_missing`, `seo.description_too_long` (> 160), `seo.title_duplicate`, `seo.description_duplicate`, `seo.canonical_not_absolute`, `seo.canonical_http`, `seo.json_ld_not_rendered` (theme mode without JSON-LD), `seo.og_image_missing_file`, `seo.og_image_too_small`, `seo.html_head_missing` |
+| Warning | `seo.title_too_long`, `seo.document_title_too_long` (display width > 60, CJK counts 2), `seo.description_missing`, `seo.description_too_long` (> 160), `seo.title_duplicate`, `seo.description_duplicate`, `seo.canonical_not_absolute`, `seo.canonical_http`, `seo.json_ld_not_rendered` (theme mode without JSON-LD), `seo.og_image_missing_file`, `seo.og_image_too_small`, `seo.og_image_webp` (WebP share images get no preview on some platforms), `seo.html_head_missing` |
 
 A missing output file reports only `seo.output_file_missing`. A page without `<head>`
 also reports `seo.html_head_missing` and `seo.document_title_missing`.

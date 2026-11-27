@@ -52,7 +52,9 @@ render-dependency, and content hashes all match the manifest in
 Because the default clean build starts from an empty staging directory, every page
 reports `new_page` (no manifest entry yet) or `output_missing` and is re-rendered.
 Reuse happens only with `--no-clean` (or `build.clean: false`) and in `bukit dev`
-rebuilds.
+rebuilds. A site.yaml copied from an example with `clean: true` therefore never
+reuses pages; recommend `clean: false` for local builds and `--clean` for CI and
+release builds.
 
 ```bash
 bukit build --no-clean --metrics .bukit/metrics.json
@@ -76,7 +78,7 @@ everything use `bukit clean --config site.yaml` or `bukit build --no-incremental
 
 Each page depends only on the shared collections its templates read (`site.data`,
 `site.modules` and `site.data_index` keys, `site.related_pages`, `site.data_files`,
-`pages`); whole `site`/`site.data` use, unknown globals, section plugins and custom
+`site.queries`, `pages`); whole `site`/`site.data` use, unknown globals, section plugins and custom
 renderers count as reading all of them. Known gaps: a Bukit binary built without git metadata or with uncommitted changes shares
 its release's identity, so an upgrade between such builds is not noticed either. Use
 `--no-clean` for local speed only; run the default clean build for every release or

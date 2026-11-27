@@ -99,7 +99,7 @@ geo:
   citations:
     - { title: Study, url: https://example.org/study, relation: citation }   # citation (default) | based-on
   faq:
-    - { question: How hot?, answer: 80-85 °C. }
+    - { question: "How hot?", answer: 80-85 °C. }
   steps:                       # for HowTo
     - { name: Heat water, text: Bring water to 85 °C. }
   speakable_xpath: /html/body/main/h1
@@ -140,8 +140,13 @@ For the `Content-Signal` line (`search`, `aiInput`, `aiTrain`), see `bukit-outpu
 
 ## agent-manifest.json
 
-Always written, even with `geo.enabled: false`. It lists indexable documents with their
-HTML, JSON, Markdown, and JSON-LD representations.
+Always written, even with `geo.enabled: false`. Schema version `1.1`:
+- `documents`: indexable content records with their HTML, JSON, Markdown, and JSON-LD
+  representations. `publishedAt` is the publish date; `updatedAt` (only when set) is the
+  last edit. Before 1.1, `publishedAt` held the edit time.
+- `lists`: home, collection list and taxonomy routes the sitemap lists (`kind` `home`,
+  `list` or `taxonomy`), each with an `html` representation. Empty without `site.url`.
+- `generatedAt`: the newest `updatedAt`, or `publishedAt` for a record without one.
 
 ## Audit
 
