@@ -317,6 +317,17 @@ describe("events and the query cache", () => {
     // The closed snapshot is dropped, not fetched again (it would only answer change.not_found).
     expect(qc.getQueryState(inChange)).toBeUndefined();
   });
+  it("keeps the event's change when an older read lands after it", async () => {
+    const change = (snapshotCommit: string) => ({ id: "c1", project: S.project, snapshotCommit }) as never;
+    let answer: (value: unknown) => void = () => {};
+    const older = new Promise((resolve) => (answer = resolve));
+    const fetching = qc.fetchQuery({ queryKey: keys.change(S.project), queryFn: () => older });
+    await Promise.resolve();
+    handleEvent(qc, ev({ type: "change", project: S.project, data: { change: change("new") } }));
+    answer({ change: change("old") });
+    await fetching.catch(() => {});
+    expect(qc.getQueryData(keys.change(S.project))).toEqual({ change: change("new") });
+  });
 });
 
 describe("modelErrorKind", () => {

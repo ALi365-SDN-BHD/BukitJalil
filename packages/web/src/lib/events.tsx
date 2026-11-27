@@ -131,6 +131,8 @@ export function handleEvent(queryClient: QueryClient, event: ServerEvent): void 
     }
     case "change": {
       const { project } = event;
+      // A read that started before this event would put the older state back when it lands.
+      void queryClient.cancelQueries({ queryKey: keys.change(project) });
       const before = queryClient.getQueryData<CurrentChange>(keys.change(project))?.change;
       const after = event.data.change;
       queryClient.setQueryData<CurrentChange>(keys.change(project), event.data);
